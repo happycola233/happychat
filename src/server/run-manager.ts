@@ -390,18 +390,9 @@ async function buildResponsePayload(
   provider: ProviderRow
 ): Promise<JsonObject> {
   const path = await messagePathForLeaf(run.conversationId, run.userNodeId);
-  const previous = [...path]
-    .reverse()
-    .find(
-      (message) =>
-        message.role === "assistant" && message.modelId === model.id && message.upstreamResponseId
-    );
-  const currentUser = path[path.length - 1];
-  const usePrevious = Boolean(previous?.upstreamResponseId);
-  const inputMessages =
-    usePrevious && currentUser
-      ? [currentUser]
-      : path.filter((message) => message.role !== "system");
+  // OpenAI-compatible providers do not all hydrate previous_response_id reliably.
+  // Replaying the active branch is the compatibility baseline and keeps memory correct.
+  const inputMessages = path.filter(shouldReplayMessage);
   const capabilities = parseJson(model.capabilities, model.capabilities);
   const tools: JsonObject[] = [];
   const webSearch = capabilities.webSearch && (options.webSearch ?? model.defaultWebSearch);
@@ -424,7 +415,6 @@ async function buildResponsePayload(
     background: true,
     store: true,
     ...(model.defaultSystemPrompt ? { instructions: model.defaultSystemPrompt } : {}),
-    ...(usePrevious ? { previous_response_id: previous?.upstreamResponseId } : {}),
     input: await Promise.all(
       inputMessages.map((message) => messageToResponseInput(message, run.userId, provider))
     ),
@@ -438,6 +428,12 @@ async function buildResponsePayload(
     parseJson(model.extraParams, {}),
     parseJson(model.hardParams, {})
   );
+}
+
+function shouldReplayMessage(message: MessageRow): boolean {
+  if (message.role === "system") return false;
+  if (message.contentText.trim()) return true;
+  return parseJson<MessagePart[]>(message.parts, []).length > 0;
 }
 
 async function messageToResponseInput(

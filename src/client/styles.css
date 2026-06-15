@@ -75,6 +75,10 @@ a {
     radial-gradient(circle at top left, rgba(20, 116, 95, 0.12), transparent 36%), #f7f7f4;
 }
 
+.app-shell.sidebar-collapsed {
+  grid-template-columns: 74px minmax(0, 1fr);
+}
+
 .sidebar {
   display: flex;
   min-height: 0;
@@ -186,9 +190,9 @@ a {
 }
 
 .side-nav button:hover,
-.conversation-link:hover,
+.conversation-item:hover,
 .side-nav .active,
-.conversation-link.active {
+.conversation-item.active {
   background: var(--surface-soft);
 }
 
@@ -211,13 +215,49 @@ a {
   overflow: auto;
 }
 
-.conversation-link {
-  overflow: hidden;
+.conversation-item {
+  display: flex;
+  align-items: center;
   border-radius: 8px;
   color: #363b3e;
+}
+
+.conversation-link {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  border-radius: 8px 0 0 8px;
   font-size: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.conversation-delete {
+  display: inline-flex;
+  width: 30px;
+  min-height: 30px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  margin-right: 3px;
+  background: transparent;
+  color: var(--muted);
+  opacity: 0;
+  transition:
+    opacity 140ms ease,
+    background 140ms ease,
+    color 140ms ease;
+}
+
+.conversation-item:hover .conversation-delete,
+.conversation-item.active .conversation-delete,
+.conversation-item:focus-within .conversation-delete {
+  opacity: 1;
+}
+
+.conversation-delete:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
 }
 
 .side-user {
@@ -252,6 +292,35 @@ a {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+}
+
+.app-shell.sidebar-collapsed .side-top {
+  justify-content: center;
+  padding-inline: 10px;
+}
+
+.app-shell.sidebar-collapsed .side-title span:last-child,
+.app-shell.sidebar-collapsed .side-section,
+.app-shell.sidebar-collapsed .side-user div,
+.app-shell.sidebar-collapsed .side-nav button span {
+  display: none;
+}
+
+.app-shell.sidebar-collapsed .side-title {
+  display: none;
+}
+
+.app-shell.sidebar-collapsed .side-nav {
+  padding-inline: 10px;
+}
+
+.app-shell.sidebar-collapsed .side-nav button,
+.app-shell.sidebar-collapsed .side-user {
+  justify-content: center;
+}
+
+.app-shell.sidebar-collapsed .side-user {
+  padding-inline: 10px;
 }
 
 .chat-layout {

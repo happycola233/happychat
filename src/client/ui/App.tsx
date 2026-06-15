@@ -28,6 +28,7 @@ import {
   Settings,
   Shield,
   Square,
+  Trash2,
   WandSparkles,
   X
 } from "lucide-react";
@@ -66,10 +67,21 @@ export function App() {
   const setup = useQuery({ queryKey: ["setup"], queryFn: api.setupStatus });
   const [page, setPage] = useState<Page>("chat");
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => localStorage.getItem("happychat.sidebarCollapsed") === "true"
+  );
 
   const notify = (text: string, type: Toast["type"] = "ok") => {
     setToast({ type, text });
     window.setTimeout(() => setToast(null), 3000);
+  };
+
+  const toggleSidebar = () => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem("happychat.sidebarCollapsed", String(next));
+      return next;
+    });
   };
 
   if (me.isLoading || setup.isLoading) {
@@ -91,15 +103,21 @@ export function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={sidebarCollapsed ? "app-shell sidebar-collapsed" : "app-shell"}>
       <Sidebar
         user={user}
         page={page}
         setPage={setPage}
+        collapsed={sidebarCollapsed}
+        onToggleCollapsed={toggleSidebar}
         activeConversationId={activeConversationId}
         onSelectConversation={(id) => {
           setActiveConversationId(id);
           setPage("chat");
+        }}
+        onDeletedConversation={(id) => {
+          localStorage.removeItem(`happychat.activeRun.${id}`);
+          setActiveConversationId((current) => (current === id ? null : current));
         }}
         notify={notify}
       />
@@ -218,15 +236,21 @@ function Sidebar({
   user,
   page,
   setPage,
+  collapsed,
+  onToggleCollapsed,
   activeConversationId,
   onSelectConversation,
+  onDeletedConversation,
   notify
 }: {
   user: PublicUser;
   page: Page;
   setPage: (page: Page) => void;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
   activeConversationId: string | null;
   onSelectConversation: (id: string) => void;
+  onDeletedConversation: (id: string) => void;
   notify: (text: string, type?: Toast["type"]) => void;
 }) {
   const query = useQueryClient();
@@ -242,6 +266,16 @@ function Sidebar({
       window.location.reload();
     }
   });
+  const deleteConversation = useMutation({
+    mutationFn: api.deleteConversation,
+    onSuccess: (_, conversationId) => {
+      notify("会话已删除");
+      onDeletedConversation(conversationId);
+      query.invalidateQueries({ queryKey: ["conversations"] });
+      query.removeQueries({ queryKey: ["conversation", conversationId] });
+    },
+    onError: (error) => notify(error instanceof Error ? error.message : "删除失败", "error")
+  });
   return (
     <aside className="sidebar">
       <div className="side-top">
@@ -249,20 +283,25 @@ function Sidebar({
           <span className="brand-dot">H</span>
           <span>HappyChat</span>
         </div>
-        <button className="icon-btn" title="收起侧栏" type="button">
+        <button
+          className="icon-btn"
+          title={collapsed ? "展开侧栏" : "收起侧栏"}
+          type="button"
+          onClick={onToggleCollapsed}
+        >
           <PanelLeft size={18} />
         </button>
       </div>
       <nav className="side-nav">
         <button className={page === "chat" ? "active" : ""} onClick={() => setPage("chat")}>
-          <Bot size={18} /> 聊天
+          <Bot size={18} /> <span>聊天</span>
         </button>
         <button className={page === "settings" ? "active" : ""} onClick={() => setPage("settings")}>
-          <Settings size={18} /> 设置
+          <Settings size={18} /> <span>设置</span>
         </button>
         {user.role === "admin" && (
           <button className={page === "admin" ? "active" : ""} onClick={() => setPage("admin")}>
-            <Shield size={18} /> 管理后台
+            <Shield size={18} /> <span>管理后台</span>
           </button>
         )}
       </nav>
@@ -275,6 +314,10 @@ function Sidebar({
               conversation={conversation}
               active={conversation.id === activeConversationId}
               onSelect={onSelectConversation}
+              onDelete={(id) => {
+                const confirmed = window.confirm("确定删除这个会话吗？删除后不会再显示在侧边栏。");
+                if (confirmed) deleteConversation.mutate(id);
+              }}
             />
           ))}
           {conversations.data?.length === 0 && <div className="empty-mini">还没有会话</div>}
@@ -303,20 +346,28 @@ function Sidebar({
 function ConversationLink({
   conversation,
   active,
-  onSelect
+  onSelect,
+  onDelete
 }: {
   conversation: ConversationSummary;
   active: boolean;
   onSelect: (id: string) => void;
+  onDelete: (id: string) => void;
 }) {
   return (
-    <button
-      type="button"
-      className={active ? "conversation-link active" : "conversation-link"}
-      onClick={() => onSelect(conversation.id)}
-    >
-      {conversation.title}
-    </button>
+    <div className={active ? "conversation-item active" : "conversation-item"}>
+      <button type="button" className="conversation-link" onClick={() => onSelect(conversation.id)}>
+        {conversation.title}
+      </button>
+      <button
+        type="button"
+        className="conversation-delete"
+        title="删除会话"
+        onClick={() => onDelete(conversation.id)}
+      >
+        <Trash2 size={14} />
+      </button>
+    </div>
   );
 }
 
@@ -363,6 +414,15 @@ function ChatPage({
   const selectedModel =
     models.data?.find((model) => model.id === selectedModelId) ?? models.data?.[0];
   const activeMessages = activePathMessages(detail.data);
+  const hasCompletedActiveRunMessage = activeMessages.some(({ node, message }) =>
+    isCompletedActiveRunMessage(node, message, activeRun)
+  );
+  const visibleMessages = activeMessages.filter(
+    ({ node, message }) => !isStreamingPlaceholder(node, message, activeRun)
+  );
+  const showStreamingBubble = Boolean(
+    streamReasoning || streamText || (activeRun && !hasCompletedActiveRunMessage)
+  );
 
   useEffect(() => {
     if (!activeRun || !conversationId) return;
@@ -386,7 +446,7 @@ function ChatPage({
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [activeMessages.length, streamText, streamReasoning]);
+  }, [visibleMessages.length, streamText, streamReasoning]);
 
   const createConversation = useMutation({
     mutationFn: () => api.createConversation(),
@@ -511,7 +571,7 @@ function ChatPage({
       <div className="messages" ref={scrollRef}>
         {!conversationId && <EmptyChat />}
         {detail.data &&
-          activeMessages.map(({ node, message }) => (
+          visibleMessages.map(({ node, message }) => (
             <MessageBubble
               key={node.id}
               detail={detail.data}
@@ -527,9 +587,7 @@ function ChatPage({
               }}
             />
           ))}
-        {(streamReasoning || streamText || activeRun) && (
-          <StreamingBubble reasoning={streamReasoning} text={streamText} />
-        )}
+        {showStreamingBubble && <StreamingBubble reasoning={streamReasoning} text={streamText} />}
       </div>
       <footer className="composer-wrap">
         {editingNodeId && (
@@ -740,6 +798,33 @@ function activePathMessages(
     node,
     message: node.messageId ? byId.get(node.messageId) : undefined
   }));
+}
+
+function isStreamingPlaceholder(
+  node: ConversationNodeView,
+  message: MessageView | undefined,
+  activeRun: string | null
+) {
+  if (!activeRun || node.role !== "assistant") return false;
+  if (node.runId !== activeRun && message?.runId !== activeRun) return false;
+  return !hasRenderableMessageContent(message);
+}
+
+function isCompletedActiveRunMessage(
+  node: ConversationNodeView,
+  message: MessageView | undefined,
+  activeRun: string | null
+) {
+  if (!activeRun || node.role !== "assistant") return false;
+  if (node.runId !== activeRun && message?.runId !== activeRun) return false;
+  return hasRenderableMessageContent(message);
+}
+
+function hasRenderableMessageContent(message: MessageView | undefined) {
+  if (!message) return false;
+  return Boolean(
+    message.contentText.trim() || message.reasoningSummary?.trim() || message.parts.length > 0
+  );
 }
 
 function EmptyChat() {
