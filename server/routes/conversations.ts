@@ -1,6 +1,10 @@
 import { Hono } from 'hono'
 import { eq } from 'drizzle-orm'
-import { renameConversationSchema, switchBranchSchema } from '@shared/schemas/chat'
+import {
+  pinConversationSchema,
+  renameConversationSchema,
+  switchBranchSchema,
+} from '@shared/schemas/chat'
 import { db } from '../db/client'
 import { conversations } from '../db/schema'
 import { requireUser } from '../auth/middleware'
@@ -11,6 +15,8 @@ import {
   getConversationMessages,
   getOwnedConversation,
   listConversations,
+  searchConversations,
+  setConversationPinned,
   toConversationDTO,
 } from '../services/conversations'
 import type { AppEnv } from '../http/types'
@@ -21,6 +27,11 @@ conversationRoutes.use('*', requireUser)
 
 conversationRoutes.get('/', async (c) => {
   return c.json({ conversations: await listConversations(c.get('user').id) })
+})
+
+conversationRoutes.get('/search', async (c) => {
+  const q = (c.req.query('q') ?? '').trim().slice(0, 200)
+  return c.json({ results: await searchConversations(c.get('user').id, q) })
 })
 
 conversationRoutes.get('/:id', async (c) => {
@@ -38,6 +49,16 @@ conversationRoutes.patch('/:id', jsonValidator(renameConversationSchema), async 
     .set({ title: c.req.valid('json').title })
     .where(eq(conversations.id, conv.id))
   return c.json({ ok: true })
+})
+
+conversationRoutes.patch('/:id/pin', jsonValidator(pinConversationSchema), async (c) => {
+  const updated = await setConversationPinned(
+    c.get('user').id,
+    c.req.param('id'),
+    c.req.valid('json').pinned,
+  )
+  if (!updated) return c.json({ error: { message: '会话不存在', code: 'not_found' } }, 404)
+  return c.json({ conversation: updated })
 })
 
 /** 切换分支：把可见路径切到目标消息所在分支（取其最深叶子）。 */

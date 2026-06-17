@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, inArray } from 'drizzle-orm'
-import type { ConversationDTO, MessageDTO } from '@shared/types/api'
+import type { ConversationDTO, ConversationSearchResultDTO, MessageDTO } from '@shared/types/api'
+import { textFromContent } from '@shared/util/contentText'
 import { db } from '../db/client'
 import { conversations, messages, runEvents } from '../db/schema'
 import { computeReasoningDurationMs, type ReasoningTimingEvent } from './reasoning-timing'
@@ -13,6 +14,7 @@ export function toConversationDTO(c: ConvRow): ConversationDTO {
     title: c.title,
     modelId: c.modelId,
     activeLeafId: c.activeLeafId,
+    pinnedAt: c.pinnedAt?.getTime() ?? null,
     createdAt: c.createdAt.getTime(),
     updatedAt: c.updatedAt.getTime(),
   }
@@ -51,7 +53,7 @@ export async function listConversations(userId: string): Promise<ConversationDTO
     .select()
     .from(conversations)
     .where(and(eq(conversations.userId, userId), eq(conversations.archived, false)))
-    .orderBy(desc(conversations.updatedAt))
+    .orderBy(desc(conversations.pinnedAt), desc(conversations.updatedAt))
   return rows.map(toConversationDTO)
 }
 
@@ -62,6 +64,21 @@ export async function getOwnedConversation(userId: string, id: string): Promise<
     .where(and(eq(conversations.id, id), eq(conversations.userId, userId)))
     .limit(1)
   return c ?? null
+}
+
+export async function setConversationPinned(
+  userId: string,
+  id: string,
+  pinned: boolean,
+): Promise<ConversationDTO | null> {
+  const conv = await getOwnedConversation(userId, id)
+  if (!conv) return null
+  const [updated] = await db
+    .update(conversations)
+    .set({ pinnedAt: pinned ? new Date() : null, updatedAt: conv.updatedAt })
+    .where(eq(conversations.id, conv.id))
+    .returning()
+  return updated ? toConversationDTO(updated) : null
 }
 
 export async function getConversationMessages(conversationId: string): Promise<MsgRow[]> {
@@ -107,6 +124,77 @@ export async function getConversationMessageDTOs(conversationId: string): Promis
   const rows = await getConversationMessages(conversationId)
   const durations = await getReasoningDurationByMessageId(rows)
   return rows.map((m) => toMessageDTO(m, durations.get(m.id) ?? null))
+}
+
+function makeSnippet(text: string, query: string, maxLength = 112): string {
+  const clean = text.replace(/\s+/g, ' ').trim()
+  if (clean.length <= maxLength) return clean
+  const idx = clean.toLocaleLowerCase().indexOf(query.toLocaleLowerCase())
+  if (idx === -1) return `${clean.slice(0, maxLength).trimEnd()}...`
+  const side = Math.max(12, Math.floor((maxLength - query.length) / 2))
+  const start = Math.max(0, idx - side)
+  const end = Math.min(clean.length, start + maxLength)
+  return `${start > 0 ? '...' : ''}${clean.slice(start, end).trim()}${end < clean.length ? '...' : ''}`
+}
+
+export async function searchConversations(
+  userId: string,
+  query: string,
+  limit = 50,
+): Promise<ConversationSearchResultDTO[]> {
+  const q = query.trim()
+  if (!q) return []
+
+  const convRows = await db
+    .select()
+    .from(conversations)
+    .where(and(eq(conversations.userId, userId), eq(conversations.archived, false)))
+    .orderBy(desc(conversations.pinnedAt), desc(conversations.updatedAt))
+
+  if (convRows.length === 0) return []
+
+  const msgRows = await db
+    .select()
+    .from(messages)
+    .where(inArray(messages.conversationId, convRows.map((c) => c.id)))
+    .orderBy(asc(messages.createdAt))
+
+  const byConversation = new Map<string, MsgRow[]>()
+  for (const msg of msgRows) {
+    const items = byConversation.get(msg.conversationId) ?? []
+    items.push(msg)
+    byConversation.set(msg.conversationId, items)
+  }
+
+  const needle = q.toLocaleLowerCase()
+  const results: ConversationSearchResultDTO[] = []
+  for (const conv of convRows) {
+    const title = conv.title ?? '新聊天'
+    if (title.toLocaleLowerCase().includes(needle)) {
+      results.push({
+        conversation: toConversationDTO(conv),
+        messageId: null,
+        matchType: 'title',
+        role: null,
+        snippet: makeSnippet(title, q),
+      })
+    } else {
+      const path = buildPath(byConversation.get(conv.id) ?? [], conv.activeLeafId)
+      const hit = path.find((msg) => textFromContent(msg.content).toLocaleLowerCase().includes(needle))
+      if (hit) {
+        results.push({
+          conversation: toConversationDTO(conv),
+          messageId: hit.id,
+          matchType: 'message',
+          role: hit.role,
+          snippet: makeSnippet(textFromContent(hit.content), q),
+        })
+      }
+    }
+    if (results.length >= limit) break
+  }
+
+  return results
 }
 
 /** 从某节点向下，每层选最新的子节点，定位到最深叶子（用于分支切换）。 */

@@ -140,10 +140,14 @@ export const conversations = sqliteTable(
     systemPromptOverride: text('system_prompt_override'),
     paramsOverride: text('params_override', { mode: 'json' }).$type<ModelParams>(),
     archived: integer('archived', { mode: 'boolean' }).notNull().default(false),
+    pinnedAt: ts('pinned_at'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [index('conversations_user_updated_idx').on(t.userId, t.updatedAt)],
+  (t) => [
+    index('conversations_user_updated_idx').on(t.userId, t.updatedAt),
+    index('conversations_user_pinned_idx').on(t.userId, t.pinnedAt),
+  ],
 )
 
 export const messages = sqliteTable(

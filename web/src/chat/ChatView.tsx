@@ -235,10 +235,9 @@ export default function ChatView() {
         {isEmpty ? (
           <div className="flex h-full items-center justify-center">
             <div className="text-center">
-              <h2 className="text-xl font-medium text-neutral-700 dark:text-neutral-200">
+              <h2 className="text-3xl font-medium text-neutral-700 dark:text-neutral-200">
                 有什么可以帮你的？
               </h2>
-              <p className="mt-2 text-sm text-neutral-400">在下方输入消息开始对话</p>
             </div>
           </div>
         ) : (

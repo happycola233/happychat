@@ -59,7 +59,7 @@ export default function RegisterPage() {
           autoComplete="username"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
-          placeholder="3-32 位，字母数字下划线"
+          placeholder="1-32 位，字母数字下划线"
           autoFocus
         />
         <TextField

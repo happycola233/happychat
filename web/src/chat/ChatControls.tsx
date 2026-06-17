@@ -57,7 +57,7 @@ function ImageSizeSelect({ value, onChange }: { value: string; onChange: (v: str
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1 rounded-lg border border-neutral-200 px-2 py-1 text-xs text-neutral-500 transition hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+        className="flex items-center gap-1 rounded-full border border-neutral-200 px-2.5 py-1.5 text-xs text-neutral-500 transition hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
         title="分辨率"
       >
         <ImageIcon className="h-3.5 w-3.5" /> {formatImageSizeForButton(value)}
@@ -132,8 +132,8 @@ function WebToggle() {
     <button
       type="button"
       onClick={() => setWebSearch(!webSearch)}
-      className={clsx(
-        'flex items-center gap-1 rounded-lg border px-2 py-1 text-xs transition',
+        className={clsx(
+        'flex items-center gap-1 rounded-full border px-2.5 py-1.5 text-xs transition',
         webSearch
           ? 'border-blue-200 bg-blue-50 text-blue-600 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300'
           : 'border-neutral-200 text-neutral-500 hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800',
@@ -159,7 +159,7 @@ function ReasoningSelect({ model }: { model: ModelDTO }) {
         type="button"
         onClick={() => setOpen((o) => !o)}
         className={clsx(
-          'flex items-center gap-1.5 rounded-lg border px-2 py-1 text-xs transition',
+          'flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs transition',
           reasoningEffort
             ? 'border-violet-200 bg-violet-50 text-violet-600 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-300'
             : 'border-neutral-200 text-neutral-500 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800',
@@ -223,7 +223,7 @@ function SelectChip({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1 rounded-lg border border-neutral-200 px-2 py-1 text-xs text-neutral-500 transition hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+        className="flex items-center gap-1 rounded-full border border-neutral-200 px-2.5 py-1.5 text-xs text-neutral-500 transition hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
       >
         {icon} {current?.buttonLabel ?? current?.label ?? value}
         <ChevronDown className="h-3 w-3" />

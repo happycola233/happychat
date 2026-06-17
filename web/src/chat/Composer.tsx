@@ -1,11 +1,13 @@
-import { useRef, useState } from 'react'
-import type { ChangeEvent, KeyboardEvent, ReactNode } from 'react'
-import { ArrowUp, FileText, ImagePlus, Paperclip, Square, X } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { ChangeEvent, ClipboardEvent, KeyboardEvent, ReactNode } from 'react'
+import { clsx } from 'clsx'
+import { FileText, ImagePlus, Paperclip, Square, X } from 'lucide-react'
 import type { AttachmentDTO } from '@shared/types/api'
 import { attachmentUrl, uploadAttachment } from '../api/attachments'
 import { toast } from '../store/toast'
 import { Spinner } from '../components/ui/Spinner'
 import type { ImageEditSource } from './imageSource'
+import { SendArrowIcon } from './icons'
 
 interface Props {
   onSend: (text: string, attachments: AttachmentDTO[], imageSources: ImageEditSource[]) => void
@@ -33,9 +35,11 @@ export function Composer({
   const [text, setText] = useState('')
   const [pending, setPending] = useState<AttachmentDTO[]>([])
   const [uploading, setUploading] = useState(false)
+  const [dragActive, setDragActive] = useState(false)
   const ref = useRef<HTMLTextAreaElement>(null)
   const imageInput = useRef<HTMLInputElement>(null)
   const fileInput = useRef<HTMLInputElement>(null)
+  const dragDepth = useRef(0)
 
   const resize = () => {
     const el = ref.current
@@ -44,21 +48,47 @@ export function Composer({
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`
   }
 
+  const uploadFiles = useCallback(
+    async (files: File[]) => {
+      let rejectedImageCapability = false
+      let rejectedFileCapability = false
+      const supported = files.filter((file) => {
+        const isImage = file.type.startsWith('image/')
+        if (isImage && !canImage) {
+          rejectedImageCapability = true
+          return false
+        }
+        if (!isImage && !canFile) {
+          rejectedFileCapability = true
+          return false
+        }
+        return true
+      })
+
+      if (rejectedImageCapability) toast.error('当前模型不支持图片输入')
+      if (rejectedFileCapability) toast.error('当前模型不支持文件输入')
+      if (!supported.length) return
+
+      setUploading(true)
+      try {
+        for (const file of supported) {
+          const att = await uploadAttachment(file)
+          setPending((items) => [...items, att])
+        }
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : '上传失败')
+      } finally {
+        setUploading(false)
+      }
+    },
+    [canFile, canImage],
+  )
+
   const onPick = async (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? [])
     e.target.value = ''
     if (!files.length) return
-    setUploading(true)
-    try {
-      for (const f of files) {
-        const att = await uploadAttachment(f)
-        setPending((p) => [...p, att])
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : '上传失败')
-    } finally {
-      setUploading(false)
-    }
+    await uploadFiles(files)
   }
 
   const canSubmit = (text.trim().length > 0 || pending.length > 0) && !disabled && !uploading
@@ -78,9 +108,71 @@ export function Composer({
     }
   }
 
+  const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(event.clipboardData.files)
+    if (!files.length) return
+    event.preventDefault()
+    void uploadFiles(files)
+  }
+
+  useEffect(() => {
+    const hasFiles = (event: DragEvent) =>
+      Array.from(event.dataTransfer?.types ?? []).includes('Files')
+
+    const onDragEnter = (event: DragEvent) => {
+      if (!hasFiles(event)) return
+      event.preventDefault()
+      dragDepth.current += 1
+      setDragActive(true)
+    }
+
+    const onDragOver = (event: DragEvent) => {
+      if (!hasFiles(event)) return
+      event.preventDefault()
+      if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
+    }
+
+    const onDragLeave = (event: DragEvent) => {
+      if (!hasFiles(event)) return
+      dragDepth.current = Math.max(0, dragDepth.current - 1)
+      if (dragDepth.current === 0) setDragActive(false)
+    }
+
+    const onDrop = (event: DragEvent) => {
+      if (!hasFiles(event)) return
+      event.preventDefault()
+      const files = Array.from(event.dataTransfer?.files ?? [])
+      dragDepth.current = 0
+      setDragActive(false)
+      void uploadFiles(files)
+    }
+
+    window.addEventListener('dragenter', onDragEnter)
+    window.addEventListener('dragover', onDragOver)
+    window.addEventListener('dragleave', onDragLeave)
+    window.addEventListener('drop', onDrop)
+    return () => {
+      window.removeEventListener('dragenter', onDragEnter)
+      window.removeEventListener('dragover', onDragOver)
+      window.removeEventListener('dragleave', onDragLeave)
+      window.removeEventListener('drop', onDrop)
+    }
+  }, [uploadFiles])
+
   return (
-    <div className="border-t border-neutral-200 bg-white px-4 py-3 dark:border-neutral-800 dark:bg-neutral-900">
-      <div className="mx-auto max-w-3xl rounded-2xl border border-neutral-300 bg-white px-3 py-2 transition focus-within:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-800">
+    <div className="bg-white px-4 pb-3 pt-2 dark:bg-neutral-900">
+      <div
+        className={clsx(
+          'relative mx-auto max-w-3xl rounded-[24px] border border-neutral-200 bg-white px-4 py-2.5 shadow-[0_1px_10px_rgba(0,0,0,0.07)] transition focus-within:border-neutral-300 focus-within:shadow-[0_2px_14px_rgba(0,0,0,0.09)] dark:border-neutral-700 dark:bg-neutral-900 dark:shadow-none dark:focus-within:border-neutral-600',
+          dragActive &&
+            'border-blue-300 bg-blue-50/40 shadow-[0_2px_18px_rgba(59,130,246,0.18)] dark:border-blue-600 dark:bg-blue-950/20',
+        )}
+      >
+        {dragActive && (
+          <div className="pointer-events-none absolute inset-1 z-10 flex items-center justify-center rounded-[22px] border border-dashed border-blue-300 bg-white/80 text-sm font-medium text-blue-600 backdrop-blur-sm dark:border-blue-600 dark:bg-neutral-900/80 dark:text-blue-300">
+            松开以上传附件
+          </div>
+        )}
         {(imageSources.length > 0 || pending.length > 0) && (
           <div className="mb-2 flex flex-wrap gap-2">
             {imageSources.map((source) => (
@@ -108,6 +200,8 @@ export function Composer({
             {pending.map((a) => (
               <div
                 key={a.id}
+                data-testid="pending-attachment"
+                data-attachment-kind={a.kind}
                 className="group relative flex items-center gap-1.5 rounded-lg border border-neutral-200 bg-neutral-50 p-1 dark:border-neutral-700 dark:bg-neutral-900"
               >
                 {a.kind === 'image' ? (
@@ -144,10 +238,11 @@ export function Composer({
             resize()
           }}
           onKeyDown={onKeyDown}
-          className="max-h-[200px] w-full resize-none bg-transparent py-1 text-[15px] text-neutral-800 outline-none placeholder:text-neutral-400 dark:text-neutral-100"
+          onPaste={onPaste}
+          className="max-h-[200px] min-h-9 w-full resize-none bg-transparent py-1.5 text-[15px] leading-6 text-neutral-800 outline-none placeholder:text-neutral-400 dark:text-neutral-100"
         />
 
-        <div className="mt-1.5 flex items-center justify-between gap-2">
+        <div className="mt-1.5 flex items-end justify-between gap-3">
           <div className="flex items-center gap-1.5">
             {canImage && (
               <>
@@ -162,11 +257,11 @@ export function Composer({
                 <button
                   type="button"
                   onClick={() => imageInput.current?.click()}
-                  className="rounded-lg p-1.5 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-100"
+                  className="flex h-9 w-9 items-center justify-center rounded-full text-neutral-700 transition hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
                   title="上传图片"
                   aria-label="上传图片"
                 >
-                  <ImagePlus className="h-4 w-4" />
+                  <ImagePlus className="h-5 w-5" />
                 </button>
               </>
             )}
@@ -176,37 +271,39 @@ export function Composer({
                 <button
                   type="button"
                   onClick={() => fileInput.current?.click()}
-                  className="rounded-lg p-1.5 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-100"
+                  className="flex h-9 w-9 items-center justify-center rounded-full text-neutral-700 transition hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
                   title="上传文件"
                   aria-label="上传文件"
                 >
-                  <Paperclip className="h-4 w-4" />
+                  <Paperclip className="h-5 w-5" />
                 </button>
               </>
             )}
             {uploading && <Spinner className="h-4 w-4 text-neutral-400" />}
             {leftControls}
           </div>
-          {streaming ? (
-            <button
-              onClick={onStop}
-              data-testid="stop-btn"
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-neutral-900 text-white transition hover:bg-neutral-700 dark:bg-white dark:text-neutral-900"
-              aria-label="停止生成"
-              title="停止生成"
-            >
-              <Square className="h-3.5 w-3.5 fill-current" />
-            </button>
-          ) : (
-            <button
-              onClick={submit}
-              disabled={!canSubmit}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-neutral-900 text-white transition hover:bg-neutral-800 disabled:opacity-30 dark:bg-white dark:text-neutral-900"
-              aria-label="发送"
-            >
-              <ArrowUp className="h-4 w-4" />
-            </button>
-          )}
+          <div className="flex min-w-0 items-center justify-end gap-2">
+            {streaming ? (
+              <button
+                onClick={onStop}
+                data-testid="stop-btn"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-white transition hover:bg-neutral-700 dark:bg-white dark:text-neutral-900"
+                aria-label="停止生成"
+                title="停止生成"
+              >
+                <Square className="h-3.5 w-3.5 fill-current" />
+              </button>
+            ) : (
+              <button
+                onClick={submit}
+                disabled={!canSubmit}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-500 text-white transition hover:bg-blue-600 disabled:bg-neutral-200 disabled:text-white disabled:opacity-100 dark:disabled:bg-neutral-700"
+                aria-label="发送"
+              >
+                <SendArrowIcon className="h-5 w-5" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
       <p className="mx-auto mt-2 max-w-3xl text-center text-xs text-neutral-400">

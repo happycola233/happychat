@@ -13,7 +13,7 @@ export function AuthLayout({ title, subtitle, children, footer }: Props) {
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
           <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-50">
-            happychat
+            HappyChat
           </h1>
           {subtitle && <p className="mt-2 text-sm text-neutral-500">{subtitle}</p>}
         </div>

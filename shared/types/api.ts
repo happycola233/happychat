@@ -110,8 +110,17 @@ export interface ConversationDTO {
   title: string | null
   modelId: string | null
   activeLeafId: string | null
+  pinnedAt: number | null
   createdAt: number
   updatedAt: number
+}
+
+export interface ConversationSearchResultDTO {
+  conversation: ConversationDTO
+  messageId: string | null
+  matchType: 'title' | 'message'
+  role: Role | null
+  snippet: string
 }
 
 export interface ConversationDetail {

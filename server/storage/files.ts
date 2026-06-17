@@ -5,8 +5,8 @@ import { env } from '../env'
 
 const uploadsDir = join(env.DATA_DIR, 'uploads')
 
-export const MAX_IMAGE_BYTES = 20 * 1024 * 1024
-export const MAX_FILE_BYTES = 32 * 1024 * 1024
+export const MAX_IMAGE_BYTES = 32 * 1024 * 1024
+export const MAX_FILE_BYTES = 64 * 1024 * 1024
 
 const IMAGE_MIMES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
 

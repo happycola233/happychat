@@ -46,6 +46,10 @@ export const renameConversationSchema = z.object({
   title: z.string().trim().min(1).max(120),
 })
 
+export const pinConversationSchema = z.object({
+  pinned: z.boolean(),
+})
+
 export const regenerateSchema = z.object({
   assistantMessageId: z.string().min(1),
   modelId: z.string().min(1).optional(),
@@ -59,3 +63,4 @@ export const switchBranchSchema = z.object({
 
 export type RegenerateInput = z.infer<typeof regenerateSchema>
 export type SwitchBranchInput = z.infer<typeof switchBranchSchema>
+export type PinConversationInput = z.infer<typeof pinConversationSchema>
