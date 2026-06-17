@@ -2,7 +2,7 @@ import { and, eq, sql } from 'drizzle-orm'
 import type { AdminModelDTO, ModelDTO, ProviderDTO } from '@shared/types/api'
 import { db } from '../db/client'
 import { models, providers } from '../db/schema'
-import { decryptSecret, maskSecretTail } from '../lib/crypto'
+import { maskSecretTail } from '../lib/mask'
 
 type ModelRow = typeof models.$inferSelect
 type ProviderRow = typeof providers.$inferSelect
@@ -33,22 +33,14 @@ export function toAdminModelDTO(m: ModelRow, providerName: string): AdminModelDT
   }
 }
 
-function safeMask(encrypted: string): string | null {
-  try {
-    return maskSecretTail(decryptSecret(encrypted))
-  } catch {
-    return null
-  }
-}
-
 export function toProviderDTO(p: ProviderRow, modelCount: number): ProviderDTO {
   return {
     id: p.id,
     name: p.name,
     baseUrl: p.baseUrl,
     enabled: p.enabled,
-    hasApiKey: Boolean(p.apiKeyEncrypted),
-    apiKeyMask: safeMask(p.apiKeyEncrypted),
+    hasApiKey: Boolean(p.apiKey),
+    apiKeyMask: p.apiKey ? maskSecretTail(p.apiKey) : null,
     modelCount,
     createdAt: p.createdAt.getTime(),
   }

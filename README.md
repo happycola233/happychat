@@ -27,7 +27,7 @@
 
 ```bash
 npm install
-cp .env.example .env        # 可填入上游 Provider 便于冒烟测试（开发环境密钥可留空，使用内置默认值）
+cp .env.example .env        # 可按需修改端口、数据目录、数据库路径；开发环境 SESSION_SECRET 可留空
 npm run dev                 # 同时启动后端(8787)与前端(5173)
 ```
 
@@ -57,7 +57,7 @@ npm run build         # 构建前端到 dist/web
 NODE_ENV=production npm run start
 ```
 
-生产模式下后端直接静态托管 `dist/web`（含 SPA 回退），单端口（默认 8787）即可提供完整应用。生产环境必须设置高强度的 `SESSION_SECRET` 与 `APP_ENCRYPTION_KEY`（否则启动会被拒绝）。
+生产模式下后端直接静态托管 `dist/web`（含 SPA 回退），单端口（默认 8787）即可提供完整应用。生产环境必须设置高强度的 `SESSION_SECRET`（否则启动会被拒绝）。
 
 ## 部署到 Ubuntu
 
@@ -74,7 +74,6 @@ PORT=8787
 DATA_DIR=./data
 DATABASE_URL=./data/happychat.db
 SESSION_SECRET=<openssl rand -hex 32>
-APP_ENCRYPTION_KEY=<openssl rand -hex 32>
 EOF
 
 npm run start   # 数据库迁移在启动时自动执行

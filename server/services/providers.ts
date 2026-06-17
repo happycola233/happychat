@@ -9,7 +9,7 @@ import type { ProviderRow } from '../runs/types'
 
 /**
  * 拉取上游 /models，新模型按推断默认配置入库（已存在的不覆盖管理员配置）。
- * 供管理后台「同步模型」与 `db:seed` 复用。
+ * 供管理后台「同步模型」使用。
  */
 export async function syncProviderModels(provider: ProviderRow): Promise<SyncModelsResult> {
   const upstream = await providerClientFromRow(provider).listModels()

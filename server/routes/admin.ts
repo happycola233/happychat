@@ -8,7 +8,6 @@ import {
 import { inviteCreateSchema, userUpdateSchema } from '@shared/schemas/admin'
 import { db } from '../db/client'
 import { inviteCodes, models, providers, users } from '../db/schema'
-import { encryptSecret } from '../lib/crypto'
 import { genInviteCode } from '../lib/id'
 import { providerClientFromRow } from '../provider/client'
 import { requireAdmin } from '../auth/middleware'
@@ -38,7 +37,7 @@ adminRoutes.post('/providers', jsonValidator(providerCreateSchema), async (c) =>
   const { name, baseUrl, apiKey } = c.req.valid('json')
   const rows = await db
     .insert(providers)
-    .values({ name, baseUrl, apiKeyEncrypted: encryptSecret(apiKey) })
+    .values({ name, baseUrl, apiKey })
     .returning()
   const row = rows[0]
   if (!row) return c.json({ error: { message: '创建失败' } }, 500)
@@ -55,7 +54,7 @@ adminRoutes.patch('/providers/:id', jsonValidator(providerUpdateSchema), async (
   if (input.name !== undefined) patch.name = input.name
   if (input.baseUrl !== undefined) patch.baseUrl = input.baseUrl
   if (input.enabled !== undefined) patch.enabled = input.enabled
-  if (input.apiKey !== undefined) patch.apiKeyEncrypted = encryptSecret(input.apiKey)
+  if (input.apiKey !== undefined) patch.apiKey = input.apiKey
   await db.update(providers).set(patch).where(eq(providers.id, id))
   return c.json({ ok: true })
 })

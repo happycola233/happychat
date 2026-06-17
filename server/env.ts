@@ -8,9 +8,6 @@ const schema = z.object({
   DATABASE_URL: z.string().min(1).default('./data/happychat.db'),
   // 开发环境提供占位默认值以便零配置启动；生产环境必须显式设置。
   SESSION_SECRET: z.string().min(16).default('dev-insecure-session-secret-change-me'),
-  APP_ENCRYPTION_KEY: z.string().min(16).default('dev-insecure-encryption-key-change-me'),
-  UPSTREAM_BASE_URL: z.string().url().optional(),
-  UPSTREAM_API_KEY: z.string().optional(),
 })
 
 function loadEnv() {
@@ -21,8 +18,8 @@ function loadEnv() {
   }
   const env = parsed.data
   if (env.NODE_ENV === 'production') {
-    if (env.SESSION_SECRET.startsWith('dev-') || env.APP_ENCRYPTION_KEY.startsWith('dev-')) {
-      console.error('生产环境必须设置高强度的 SESSION_SECRET 与 APP_ENCRYPTION_KEY。')
+    if (env.SESSION_SECRET.startsWith('dev-')) {
+      console.error('生产环境必须设置高强度的 SESSION_SECRET。')
       process.exit(1)
     }
   }

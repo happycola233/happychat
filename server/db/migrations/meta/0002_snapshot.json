@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "b9f58767-6d92-47da-869a-442c748fa31f",
-  "prevId": "00000000-0000-0000-0000-000000000000",
+  "id": "5c16034c-cc20-4fa8-87f0-3dd3c7f72378",
+  "prevId": "b9f58767-6d92-47da-869a-442c748fa31f",
   "tables": {
     "attachments": {
       "name": "attachments",
@@ -782,8 +782,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "api_key_encrypted": {
-          "name": "api_key_encrypted",
+        "api_key": {
+          "name": "api_key",
           "type": "text",
           "primaryKey": false,
           "notNull": true,

@@ -89,14 +89,14 @@ export const userSettings = sqliteTable('user_settings', {
 // ========================= Provider / 模型 =========================
 
 export const providers = sqliteTable('providers', {
-  id: pk(),
-  name: text('name').notNull(),
-  baseUrl: text('base_url').notNull(),
-  // 落库加密（APP_ENCRYPTION_KEY），绝不明文返回前端。
-  apiKeyEncrypted: text('api_key_encrypted').notNull(),
-  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
-  createdAt: createdAt(),
-  updatedAt: updatedAt(),
+    id: pk(),
+    name: text('name').notNull(),
+    baseUrl: text('base_url').notNull(),
+    // API Key 明文存库；只在管理员列表 DTO 中脱敏返回，避免前端拿到完整值。
+    apiKey: text('api_key').notNull(),
+    enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
 })
 
 export const models = sqliteTable(

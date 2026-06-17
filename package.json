@@ -20,7 +20,6 @@
     "format": "prettier --write .",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx server/db/migrate.ts",
-    "db:seed": "tsx server/db/seed.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

@@ -22,7 +22,6 @@ beforeAll(async () => {
   process.env.DATA_DIR = tmpDir
   process.env.DATABASE_URL = join(tmpDir, 'happychat-test.db')
   process.env.SESSION_SECRET = 'test-session-secret-prepare'
-  process.env.APP_ENCRYPTION_KEY = 'test-encryption-key-prepare'
 
   vi.resetModules()
   const migration = await import('../db/migrate')
@@ -53,7 +52,7 @@ async function createRunnableModel() {
     id: providerId,
     name: `Provider ${n}`,
     baseUrl: 'https://example.test/v1',
-    apiKeyEncrypted: 'encrypted-test-key',
+    apiKey: 'test-key',
   })
   await dbClient.db.insert(schema.models).values({
     id: modelId,
@@ -88,7 +87,7 @@ async function createRunnableImageModel() {
     id: providerId,
     name: `Provider ${n}`,
     baseUrl: 'https://example.test/v1',
-    apiKeyEncrypted: 'encrypted-test-key',
+    apiKey: 'test-key',
   })
   await dbClient.db.insert(schema.models).values({
     id: modelId,

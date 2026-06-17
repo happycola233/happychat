@@ -15,6 +15,13 @@
       "when": 1781678650000,
       "tag": "0001_gpt_image_vision",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1781683500000,
+      "tag": "0002_plain_provider_api_key",
+      "breakpoints": true
     }
   ]
 }

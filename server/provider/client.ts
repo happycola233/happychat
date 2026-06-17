@@ -1,5 +1,4 @@
 import { joinBaseUrl } from '@shared/util/url'
-import { decryptSecret } from '../lib/crypto'
 import type { providers } from '../db/schema'
 import { UpstreamError, networkError, toUpstreamError } from './errors'
 import { parseSSEStream, type StreamEvent } from './sse-parse'
@@ -92,7 +91,7 @@ export class ProviderClient {
   }
 }
 
-/** 由 providers 表行构造客户端（解密 API Key）。 */
+/** 由 providers 表行构造客户端。 */
 export function providerClientFromRow(row: typeof providers.$inferSelect): ProviderClient {
-  return new ProviderClient(row.baseUrl, decryptSecret(row.apiKeyEncrypted))
+  return new ProviderClient(row.baseUrl, row.apiKey)
 }
