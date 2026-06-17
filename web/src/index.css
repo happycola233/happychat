@@ -1,0 +1,116 @@
+@import 'tailwindcss';
+
+/* 基于 .dark 类切换暗色（配合主题设置） */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', sans-serif;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+}
+
+/* Markdown 渲染排版 */
+.hc-md > :first-child {
+  margin-top: 0;
+}
+.hc-md > :last-child {
+  margin-bottom: 0;
+}
+.hc-md p {
+  margin: 0.5rem 0;
+}
+.hc-md h1,
+.hc-md h2,
+.hc-md h3,
+.hc-md h4 {
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 1rem 0 0.5rem;
+}
+.hc-md h1 {
+  font-size: 1.4em;
+}
+.hc-md h2 {
+  font-size: 1.25em;
+}
+.hc-md h3 {
+  font-size: 1.1em;
+}
+.hc-md ul {
+  list-style: disc;
+  padding-left: 1.5rem;
+  margin: 0.5rem 0;
+}
+.hc-md ol {
+  list-style: decimal;
+  padding-left: 1.5rem;
+  margin: 0.5rem 0;
+}
+.hc-md li {
+  margin: 0.25rem 0;
+}
+.hc-md blockquote {
+  border-left: 3px solid #d4d4d4;
+  padding-left: 0.75rem;
+  color: #737373;
+  margin: 0.5rem 0;
+}
+.hc-md hr {
+  border: none;
+  border-top: 1px solid #e5e5e5;
+  margin: 1rem 0;
+}
+.hc-md table {
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
+.hc-md th,
+.hc-md td {
+  border: 1px solid #e5e5e5;
+  padding: 0.4rem 0.7rem;
+  text-align: left;
+}
+.hc-md th {
+  background: #f5f5f5;
+  font-weight: 600;
+}
+.hc-md code,
+.hc-md pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.hc-md :not(pre) > code {
+  background: #f0f0f0;
+  padding: 0.1em 0.35em;
+  border-radius: 0.3rem;
+  font-size: 0.88em;
+}
+.hc-md pre code {
+  background: transparent;
+  padding: 0;
+  font-size: inherit;
+}
+.dark .hc-md blockquote {
+  border-color: #404040;
+  color: #a3a3a3;
+}
+.dark .hc-md hr,
+.dark .hc-md th,
+.dark .hc-md td {
+  border-color: #404040;
+}
+.dark .hc-md th {
+  background: #262626;
+}
+.dark .hc-md :not(pre) > code {
+  background: #404040;
+}
