@@ -5,7 +5,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Copy,
-  Globe,
   Pencil,
   RefreshCw,
 } from 'lucide-react'
@@ -20,6 +19,8 @@ import { textFromContent } from './contentText'
 import { Markdown } from './Markdown'
 import { ReasoningCard } from './ReasoningCard'
 import { AttachmentParts } from './Attachments'
+import { ElapsedLabel } from './ElapsedLabel'
+import type { ImageEditSource } from './imageSource'
 
 export interface BranchInfo {
   index: number
@@ -35,6 +36,7 @@ interface Props {
   busy?: boolean
   onEdit?: (text: string) => void
   onRegenerate?: () => void
+  onUseImageSource?: (source: ImageEditSource) => void
 }
 
 function StreamingCursor() {
@@ -142,7 +144,15 @@ function hostOf(url: string): string {
   }
 }
 
-export function Message({ message, live, branch, busy, onEdit, onRegenerate }: Props) {
+export function Message({
+  message,
+  live,
+  branch,
+  busy,
+  onEdit,
+  onRegenerate,
+  onUseImageSource,
+}: Props) {
   const { copied, copy } = useCopy()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
@@ -185,9 +195,7 @@ export function Message({ message, live, branch, busy, onEdit, onRegenerate }: P
         </div>
       )
     }
-    const hasAtt = message.content.some(
-      (p) => p.type === 'input_image' || p.type === 'input_file',
-    )
+    const hasAtt = message.content.some((p) => p.type === 'input_image' || p.type === 'input_file')
     return (
       <div className="group flex flex-col items-end gap-1.5">
         {hasAtt && (
@@ -229,16 +237,21 @@ export function Message({ message, live, branch, busy, onEdit, onRegenerate }: P
   const annotations = live ? live.annotations : (message.annotations ?? [])
   const error =
     live?.error ?? (message.status === 'error' ? (message.errorMessage ?? '生成失败') : null)
-  const webSearching = live?.webSearching ?? false
-  const showPendingDots = streaming && !text && !reasoning && !webSearching
+  const showLiveThinking = Boolean(
+    live?.reasoningEnabled && streaming && !text && live.upstreamStartedAt,
+  )
+  const showReasoningCard = Boolean(reasoning) || showLiveThinking
+  const showPendingDots = streaming && !text && !reasoning && !showReasoningCard
 
   return (
     <div className="group space-y-2" data-testid="assistant-message">
-      {reasoning && <ReasoningCard text={reasoning} thinking={streaming && !text} />}
-      {webSearching && (
-        <div className="flex items-center gap-1.5 text-sm text-neutral-400">
-          <Globe className="h-3.5 w-3.5" /> 正在联网搜索…
-        </div>
+      {showReasoningCard && (
+        <ReasoningCard
+          text={reasoning || ''}
+          thinking={streaming && !text}
+          startedAt={live?.upstreamStartedAt ?? null}
+          durationMs={live ? live.reasoningDurationMs : message.reasoningDurationMs}
+        />
       )}
       {error ? (
         <div className="flex items-start gap-2 rounded-xl bg-red-50 px-3 py-2.5 text-sm text-red-600 dark:bg-red-950/30 dark:text-red-400">
@@ -256,7 +269,12 @@ export function Message({ message, live, branch, busy, onEdit, onRegenerate }: P
           </a>
         ) : (
           <div className="flex items-center gap-2 text-sm text-neutral-400">
-            <Spinner className="h-4 w-4" /> 正在生成图片…
+            <Spinner className="h-4 w-4" />
+            <ElapsedLabel
+              prefix="正在生成图片"
+              startedAt={live.imageStartedAt}
+              active={streaming}
+            />
           </div>
         )
       ) : showPendingDots ? (
@@ -265,14 +283,14 @@ export function Message({ message, live, branch, busy, onEdit, onRegenerate }: P
           <span className="h-2 w-2 animate-bounce rounded-full bg-neutral-400 [animation-delay:-0.15s]" />
           <span className="h-2 w-2 animate-bounce rounded-full bg-neutral-400" />
         </div>
-      ) : (
+      ) : text ? (
         <div>
           <Markdown text={text} />
           {streaming && <StreamingCursor />}
         </div>
-      )}
+      ) : null}
       {message.content.some((p) => p.type === 'image_result') && (
-        <AttachmentParts content={message.content} />
+        <AttachmentParts content={message.content} onUseImageSource={onUseImageSource} />
       )}
       {annotations.length > 0 && <Citations items={annotations} />}
       {!streaming && !error && (

@@ -8,6 +8,11 @@ export const attachmentRefSchema = z.object({
   detail: z.enum(['auto', 'low', 'high']).optional(),
 })
 
+export const imageSourceSchema = z.object({
+  attachmentId: z.string().min(1),
+  detail: z.enum(['auto', 'low', 'high']).optional(),
+})
+
 export const sendMessageSchema = z
   .object({
     conversationId: z.string().optional(),
@@ -21,11 +26,19 @@ export const sendMessageSchema = z
     parentId: z.string().nullable().optional(),
     /** 附件引用（图片/文件） */
     attachments: z.array(attachmentRefSchema).max(10).optional(),
+    /** 显式选择的已有图片编辑源（不重新归属 attachment.messageId） */
+    imageSources: z.array(imageSourceSchema).max(16).optional(),
   })
-  .refine((v) => v.text.trim().length > 0 || (v.attachments?.length ?? 0) > 0, {
-    message: '消息不能为空',
-    path: ['text'],
-  })
+  .refine(
+    (v) =>
+      v.text.trim().length > 0 ||
+      (v.attachments?.length ?? 0) > 0 ||
+      (v.imageSources?.length ?? 0) > 0,
+    {
+      message: '消息不能为空',
+      path: ['text'],
+    },
+  )
 
 export type SendMessageInput = z.infer<typeof sendMessageSchema>
 
@@ -46,4 +59,3 @@ export const switchBranchSchema = z.object({
 
 export type RegenerateInput = z.infer<typeof regenerateSchema>
 export type SwitchBranchInput = z.infer<typeof switchBranchSchema>
-

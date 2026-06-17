@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm'
-import type { MessageUsage, UrlCitation } from '@shared/types/domain'
+import type { MessageUsage, ModelParams, UrlCitation } from '@shared/types/domain'
 import { RUN_EVENT_TYPE } from '@shared/types/events'
+import { isReasoningEnabled } from '@shared/util/reasoning'
 import { db } from '../db/client'
 import { runEvents, runs } from '../db/schema'
 import { providerClientFromRow } from '../provider/client'
@@ -38,12 +39,15 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
     return sequenceNumber
   }
 
+  const startedAt = new Date()
   persistEmit(RUN_EVENT_TYPE.created, {
     runId: ctx.run.id,
     conversationId: ctx.conversation.id,
     assistantMessageId: ctx.assistantMessage.id,
+    startedAt: startedAt.getTime(),
+    reasoningEnabled: isReasoningEnabled(ctx.model, ctx.run.requestParams as ModelParams | null),
   })
-  db.update(runs).set({ state: 'running', startedAt: new Date() }).where(eq(runs.id, ctx.run.id)).run()
+  db.update(runs).set({ state: 'running', startedAt }).where(eq(runs.id, ctx.run.id)).run()
 
   let text = ''
   let reasoning = ''

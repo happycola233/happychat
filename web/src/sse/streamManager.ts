@@ -7,6 +7,10 @@ interface StartOptions {
   conversationId: string
   assistantMessageId: string
   fromSeq: number
+  upstreamStartedAt?: number | null
+  reasoningDurationMs?: number | null
+  imageStartedAt?: number | null
+  reasoningEnabled?: boolean
   onTerminal?: () => void
 }
 
@@ -25,7 +29,9 @@ export function startStream(opts: StartOptions): void {
   store.set(opts.conversationId, {
     runId: opts.runId,
     assistantMessageId: opts.assistantMessageId,
-    ...initialLive(),
+    ...initialLive(opts.upstreamStartedAt ?? null, opts.reasoningEnabled ?? false),
+    reasoningDurationMs: opts.reasoningDurationMs ?? null,
+    imageStartedAt: opts.imageStartedAt ?? null,
   })
 
   let lastSeq = opts.fromSeq

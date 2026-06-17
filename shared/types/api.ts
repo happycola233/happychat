@@ -97,6 +97,8 @@ export interface MessageDTO {
   modelId: string | null
   runId: string | null
   reasoningSummary: string | null
+  /** 从上游开始响应到第一段正文输出的耗时；无可靠事件时为 null。 */
+  reasoningDurationMs: number | null
   annotations: UrlCitation[] | null
   usage: MessageUsage | null
   errorMessage: string | null

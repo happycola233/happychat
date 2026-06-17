@@ -57,7 +57,10 @@ export class ProviderClient {
   }
 
   /** POST /responses（非流式）：返回完整 Response 对象。 */
-  async createResponse(body: Record<string, unknown>, signal?: AbortSignal): Promise<UpstreamResponse> {
+  async createResponse(
+    body: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<UpstreamResponse> {
     const res = await this.postJson('/responses', body, signal)
     if (!res.ok) throw await toUpstreamError(res)
     return (await res.json()) as UpstreamResponse
@@ -77,6 +80,13 @@ export class ProviderClient {
   /** POST /images/generations（非流式）：返回原始 JSON（含 data[].b64_json）。 */
   async createImage(body: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
     const res = await this.postJson('/images/generations', body, signal)
+    if (!res.ok) throw await toUpstreamError(res)
+    return res.json()
+  }
+
+  /** POST /images/edits（非流式）：用输入图 + prompt 生成编辑结果。 */
+  async editImage(body: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
+    const res = await this.postJson('/images/edits', body, signal)
     if (!res.ok) throw await toUpstreamError(res)
     return res.json()
   }

@@ -2,13 +2,16 @@ import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { and, asc, desc, eq, gt, inArray } from 'drizzle-orm'
 import { regenerateSchema, sendMessageSchema } from '@shared/schemas/chat'
+import type { ModelParams } from '@shared/types/domain'
 import { RUN_EVENT_TYPE, isTerminalEventType } from '@shared/types/events'
+import { isReasoningEnabled } from '@shared/util/reasoning'
 import { db } from '../db/client'
-import { runEvents, runs } from '../db/schema'
+import { models, runEvents, runs } from '../db/schema'
 import { requireUser } from '../auth/middleware'
 import { jsonValidator } from '../http/validator'
 import { must } from '../lib/assert'
 import { getOwnedConversation, toConversationDTO, toMessageDTO } from '../services/conversations'
+import { computeReasoningDurationMs, reasoningStartedAtMs } from '../services/reasoning-timing'
 import { prepareRegenerate, prepareRun } from '../runs/prepare'
 import { runManager } from '../runs/manager'
 import { runEmitter, type RunEvent } from '../runs/emitter'
@@ -56,6 +59,7 @@ runRoutes.post('/', jsonValidator(sendMessageSchema), async (c) => {
     idempotencyKey: input.idempotencyKey,
     parentId: input.parentId,
     attachments: input.attachments,
+    imageSources: input.imageSources,
   })
   if (!prepared.ok) {
     return c.json({ error: { message: prepared.message, code: prepared.code } }, prepared.status)
@@ -67,6 +71,7 @@ runRoutes.post('/', jsonValidator(sendMessageSchema), async (c) => {
     model: prepared.model,
     provider: prepared.provider,
     body: prepared.body,
+    imageOperation: prepared.imageOperation,
   })
   return c.json({
     runId: prepared.run.id,
@@ -97,6 +102,7 @@ runRoutes.post('/regenerate', jsonValidator(regenerateSchema), async (c) => {
     model: prepared.model,
     provider: prepared.provider,
     body: prepared.body,
+    imageOperation: prepared.imageOperation,
   })
   return c.json({
     runId: prepared.run.id,
@@ -117,10 +123,32 @@ runRoutes.get('/active', async (c) => {
     .where(and(eq(runs.conversationId, conversationId), inArray(runs.state, ['queued', 'running'])))
     .orderBy(desc(runs.createdAt))
     .limit(1)
+  if (!r) return c.json({ run: null })
+
+  const [model] = r.modelId
+    ? await db.select().from(models).where(eq(models.id, r.modelId)).limit(1)
+    : []
+  const eventRows = await db
+    .select({
+      type: runEvents.type,
+      sequenceNumber: runEvents.sequenceNumber,
+      createdAt: runEvents.createdAt,
+    })
+    .from(runEvents)
+    .where(eq(runEvents.runId, r.id))
+    .orderBy(asc(runEvents.sequenceNumber))
+  const firstImageEvent = eventRows.find((ev) => ev.type === 'image.generation.in_progress')
+
   return c.json({
-    run: r
-      ? { runId: r.id, assistantMessageId: r.assistantMessageId, lastSequenceNumber: r.lastSequenceNumber }
-      : null,
+    run: {
+      runId: r.id,
+      assistantMessageId: r.assistantMessageId,
+      lastSequenceNumber: r.lastSequenceNumber,
+      upstreamStartedAt: reasoningStartedAtMs(eventRows),
+      reasoningDurationMs: computeReasoningDurationMs(eventRows),
+      imageStartedAt: firstImageEvent?.createdAt.getTime() ?? null,
+      reasoningEnabled: isReasoningEnabled(model, r.requestParams as ModelParams | null),
+    },
   })
 })
 

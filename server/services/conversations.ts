@@ -1,7 +1,8 @@
-import { and, asc, desc, eq } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray } from 'drizzle-orm'
 import type { ConversationDTO, MessageDTO } from '@shared/types/api'
 import { db } from '../db/client'
-import { conversations, messages } from '../db/schema'
+import { conversations, messages, runEvents } from '../db/schema'
+import { computeReasoningDurationMs, type ReasoningTimingEvent } from './reasoning-timing'
 
 export type ConvRow = typeof conversations.$inferSelect
 export type MsgRow = typeof messages.$inferSelect
@@ -17,7 +18,7 @@ export function toConversationDTO(c: ConvRow): ConversationDTO {
   }
 }
 
-export function toMessageDTO(m: MsgRow): MessageDTO {
+export function toMessageDTO(m: MsgRow, reasoningDurationMs: number | null = null): MessageDTO {
   return {
     id: m.id,
     conversationId: m.conversationId,
@@ -28,6 +29,7 @@ export function toMessageDTO(m: MsgRow): MessageDTO {
     modelId: m.modelId,
     runId: m.runId,
     reasoningSummary: m.reasoningSummary,
+    reasoningDurationMs,
     annotations: m.annotations,
     usage:
       m.totalTokens != null
@@ -53,10 +55,7 @@ export async function listConversations(userId: string): Promise<ConversationDTO
   return rows.map(toConversationDTO)
 }
 
-export async function getOwnedConversation(
-  userId: string,
-  id: string,
-): Promise<ConvRow | null> {
+export async function getOwnedConversation(userId: string, id: string): Promise<ConvRow | null> {
   const [c] = await db
     .select()
     .from(conversations)
@@ -71,6 +70,43 @@ export async function getConversationMessages(conversationId: string): Promise<M
     .from(messages)
     .where(eq(messages.conversationId, conversationId))
     .orderBy(asc(messages.createdAt))
+}
+
+async function getReasoningDurationByMessageId(rows: MsgRow[]): Promise<Map<string, number>> {
+  const runIds = rows.map((m) => m.runId).filter((runId): runId is string => Boolean(runId))
+  if (runIds.length === 0) return new Map()
+
+  const eventRows = await db
+    .select({
+      runId: runEvents.runId,
+      type: runEvents.type,
+      sequenceNumber: runEvents.sequenceNumber,
+      createdAt: runEvents.createdAt,
+    })
+    .from(runEvents)
+    .where(inArray(runEvents.runId, [...new Set(runIds)]))
+    .orderBy(asc(runEvents.runId), asc(runEvents.sequenceNumber))
+
+  const byRun = new Map<string, ReasoningTimingEvent[]>()
+  for (const ev of eventRows) {
+    const items = byRun.get(ev.runId) ?? []
+    items.push(ev)
+    byRun.set(ev.runId, items)
+  }
+
+  const durations = new Map<string, number>()
+  for (const m of rows) {
+    if (!m.runId) continue
+    const duration = computeReasoningDurationMs(byRun.get(m.runId) ?? [])
+    if (duration !== null) durations.set(m.id, duration)
+  }
+  return durations
+}
+
+export async function getConversationMessageDTOs(conversationId: string): Promise<MessageDTO[]> {
+  const rows = await getConversationMessages(conversationId)
+  const durations = await getReasoningDurationByMessageId(rows)
+  return rows.map((m) => toMessageDTO(m, durations.get(m.id) ?? null))
 }
 
 /** 从某节点向下，每层选最新的子节点，定位到最深叶子（用于分支切换）。 */

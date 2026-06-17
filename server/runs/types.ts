@@ -6,6 +6,8 @@ export type ProviderRow = typeof providers.$inferSelect
 export type ConvRow = typeof conversations.$inferSelect
 export type MsgRow = typeof messages.$inferSelect
 
+export type ImageOperation = 'generate' | 'edit'
+
 export interface EngineContext {
   run: RunRow
   assistantMessage: MsgRow
@@ -13,5 +15,6 @@ export interface EngineContext {
   model: ModelRow
   provider: ProviderRow
   body: Record<string, unknown>
+  imageOperation?: ImageOperation
   abortController: AbortController
 }

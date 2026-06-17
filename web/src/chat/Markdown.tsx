@@ -1,16 +1,65 @@
-import { memo, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
+import { Children, isValidElement, memo, useRef, useState } from 'react'
+import type { ReactElement, ReactNode } from 'react'
+import { clsx } from 'clsx'
 import ReactMarkdown from 'react-markdown'
 import type { Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import rehypeHighlight from 'rehype-highlight'
-import { Check, Copy } from 'lucide-react'
+import { Check, Code2, Copy } from 'lucide-react'
+import { normalizeMarkdownMath } from './markdownMath'
 
-function PreBlock({ children }: { children?: ReactNode }) {
+export type MarkdownVariant = 'message' | 'reasoning'
+
+interface MarkdownProps {
+  text: string
+  variant?: MarkdownVariant
+  className?: string
+}
+
+const LANGUAGE_LABELS: Record<string, string> = {
+  bash: 'Bash',
+  sh: 'Shell',
+  shell: 'Shell',
+  zsh: 'Zsh',
+  ps1: 'PowerShell',
+  powershell: 'PowerShell',
+  js: 'JavaScript',
+  javascript: 'JavaScript',
+  jsx: 'JSX',
+  ts: 'TypeScript',
+  typescript: 'TypeScript',
+  tsx: 'TSX',
+  py: 'Python',
+  python: 'Python',
+  json: 'JSON',
+  html: 'HTML',
+  css: 'CSS',
+  sql: 'SQL',
+  md: 'Markdown',
+  markdown: 'Markdown',
+  yml: 'YAML',
+  yaml: 'YAML',
+}
+
+function languageFrom(children?: ReactNode): string {
+  const code = Children.toArray(children).find(
+    (child): child is ReactElement<{ className?: string }> => isValidElement(child),
+  )
+  const className = code?.props.className ?? ''
+  const raw = className.match(/(?:^|\s)language-([^\s]+)/)?.[1]?.toLowerCase()
+  if (!raw) return 'Text'
+  return (
+    LANGUAGE_LABELS[raw] ??
+    (raw.length <= 4 ? raw.toUpperCase() : raw[0]!.toUpperCase() + raw.slice(1))
+  )
+}
+
+function PreBlock({ children, variant }: { children?: ReactNode; variant: MarkdownVariant }) {
   const ref = useRef<HTMLPreElement>(null)
   const [copied, setCopied] = useState(false)
+  const language = languageFrom(children)
   const copy = () => {
     const t = ref.current?.textContent ?? ''
     void navigator.clipboard.writeText(t).then(() => {
@@ -19,45 +68,119 @@ function PreBlock({ children }: { children?: ReactNode }) {
     })
   }
   return (
-    <div className="group/code relative my-3 overflow-hidden rounded-xl bg-neutral-900">
-      <button
-        onClick={copy}
-        className="absolute top-2 right-2 z-10 rounded-md bg-neutral-800 p-1.5 text-neutral-400 opacity-0 transition group-hover/code:opacity-100 hover:text-white"
-        aria-label="复制代码"
-        title="复制代码"
+    <div
+      className={clsx(
+        'hc-code-block group/code overflow-hidden rounded-[1.35rem] bg-neutral-100 text-neutral-950 dark:bg-neutral-800 dark:text-neutral-50',
+        variant === 'reasoning' ? 'my-2' : 'my-4',
+      )}
+    >
+      <div
+        className={clsx(
+          'flex items-center gap-1.5 px-4 text-xs font-medium',
+          variant === 'reasoning' ? 'pt-2.5 pb-1' : 'pt-3 pb-1.5',
+        )}
       >
-        {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-      </button>
-      <pre ref={ref} className="overflow-x-auto p-4 text-sm leading-6">
+        <Code2 className="h-3.5 w-3.5 shrink-0" />
+        <span>{language}</span>
+        <button
+          onClick={copy}
+          className="ml-auto rounded-md p-1 text-neutral-500 transition hover:bg-neutral-200 hover:text-neutral-950 dark:text-neutral-200 dark:hover:bg-neutral-700 dark:hover:text-white"
+          aria-label="复制代码"
+          title="复制代码"
+        >
+          {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+        </button>
+      </div>
+      <pre
+        ref={ref}
+        className={clsx(
+          'overflow-x-auto px-4 pb-5 pt-3 font-mono text-sm leading-6',
+          variant === 'reasoning' && 'pb-4 text-[13px] leading-5',
+        )}
+      >
         {children}
       </pre>
     </div>
   )
 }
 
-const components: Components = {
-  pre: ({ children }) => <PreBlock>{children}</PreBlock>,
+function tableText(table: HTMLTableElement): string {
+  return Array.from(table.rows)
+    .map((row) =>
+      Array.from(row.cells)
+        .map((cell) => (cell.textContent ?? '').replace(/\s+/g, ' ').trim())
+        .join('\t'),
+    )
+    .join('\n')
+}
+
+function TableBlock({ children, variant }: { children?: ReactNode; variant: MarkdownVariant }) {
+  const ref = useRef<HTMLTableElement>(null)
+  const [copied, setCopied] = useState(false)
+  const copy = () => {
+    const table = ref.current
+    if (!table) return
+    void navigator.clipboard.writeText(tableText(table)).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
+  }
+
+  return (
+    <div
+      className={clsx(
+        'hc-table-block group/table relative',
+        variant === 'reasoning' ? 'my-2' : 'my-4',
+      )}
+    >
+      <div className="hc-table-scroll overflow-x-auto">
+        <table ref={ref}>{children}</table>
+      </div>
+      <button
+        onClick={copy}
+        className="absolute right-0 top-1 rounded-lg p-1.5 text-neutral-500 opacity-0 transition group-hover/table:opacity-100 focus-visible:opacity-100 hover:bg-neutral-100 hover:text-neutral-950 dark:text-neutral-300 dark:hover:bg-neutral-800 dark:hover:text-white"
+        aria-label="复制表格"
+        title="复制表格"
+      >
+        {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+      </button>
+    </div>
+  )
+}
+
+const componentsFor = (variant: MarkdownVariant): Components => ({
+  pre: ({ children }) => <PreBlock variant={variant}>{children}</PreBlock>,
   a: ({ href, children }) => (
-    <a href={href} target="_blank" rel="noreferrer" className="text-blue-600 underline dark:text-blue-400">
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="text-blue-600 underline dark:text-blue-400"
+    >
       {children}
     </a>
   ),
-  table: ({ children }) => (
-    <div className="my-3 overflow-x-auto">
-      <table>{children}</table>
-    </div>
-  ),
-}
+  table: ({ children }) => <TableBlock variant={variant}>{children}</TableBlock>,
+})
 
-function MarkdownImpl({ text }: { text: string }) {
+function MarkdownImpl({ text, variant = 'message', className }: MarkdownProps) {
+  const normalizedText = normalizeMarkdownMath(text)
   return (
-    <div className="hc-md text-[15px] leading-7 break-words text-neutral-800 dark:text-neutral-100">
+    <div
+      className={clsx(
+        'hc-md break-words',
+        variant === 'message'
+          ? 'text-[15px] leading-7 text-neutral-800 dark:text-neutral-100'
+          : 'hc-md-reasoning text-sm leading-6 text-neutral-500 dark:text-neutral-400',
+        className,
+      )}
+    >
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}
-        rehypePlugins={[rehypeHighlight, rehypeKatex]}
-        components={components}
+        rehypePlugins={[[rehypeKatex, { throwOnError: false }], rehypeHighlight]}
+        components={componentsFor(variant)}
       >
-        {text}
+        {normalizedText}
       </ReactMarkdown>
     </div>
   )

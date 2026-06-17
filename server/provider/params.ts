@@ -45,7 +45,8 @@ export function buildResponseBody(o: BuildBodyOptions): Record<string, unknown> 
   if (verbosity !== undefined) body.text = { verbosity }
 
   // 思考：按模型 allowedEfforts 校验；含 'none'（受硬参数 summary='auto' 控制摘要）
-  const effort = userParams?.reasoning_effort ?? defaults.reasoning_effort ?? model.defaultEffort ?? undefined
+  const effort =
+    userParams?.reasoning_effort ?? defaults.reasoning_effort ?? model.defaultEffort ?? undefined
   const allowed = model.allowedEfforts ?? []
   if (caps.reasoning && effort && allowed.includes(effort)) {
     body.reasoning = { effort }
@@ -71,6 +72,26 @@ export function buildResponseBody(o: BuildBodyOptions): Record<string, unknown> 
 
 /** 构建 /images/generations 请求体（gpt-image-2 等图片模型）。 */
 export function buildImageBody(
+  model: ModelRow,
+  prompt: string,
+  userParams?: ModelParams | null,
+): Record<string, unknown> {
+  return buildImageRequestBody(model, prompt, userParams)
+}
+
+export function buildImageEditBody(
+  model: ModelRow,
+  prompt: string,
+  imageUrls: string[],
+  userParams?: ModelParams | null,
+): Record<string, unknown> {
+  return {
+    ...buildImageRequestBody(model, prompt, userParams),
+    images: imageUrls.map((imageUrl) => ({ image_url: imageUrl })),
+  }
+}
+
+function buildImageRequestBody(
   model: ModelRow,
   prompt: string,
   userParams?: ModelParams | null,

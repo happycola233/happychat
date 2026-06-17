@@ -5,15 +5,18 @@ import type { AttachmentDTO } from '@shared/types/api'
 import { attachmentUrl, uploadAttachment } from '../api/attachments'
 import { toast } from '../store/toast'
 import { Spinner } from '../components/ui/Spinner'
+import type { ImageEditSource } from './imageSource'
 
 interface Props {
-  onSend: (text: string, attachments: AttachmentDTO[]) => void
+  onSend: (text: string, attachments: AttachmentDTO[], imageSources: ImageEditSource[]) => void
   disabled?: boolean
   streaming?: boolean
   onStop?: () => void
   leftControls?: ReactNode
   canImage?: boolean
   canFile?: boolean
+  imageSources?: ImageEditSource[]
+  onRemoveImageSource?: (attachmentId: string) => void
 }
 
 export function Composer({
@@ -24,6 +27,8 @@ export function Composer({
   leftControls,
   canImage,
   canFile,
+  imageSources = [],
+  onRemoveImageSource,
 }: Props) {
   const [text, setText] = useState('')
   const [pending, setPending] = useState<AttachmentDTO[]>([])
@@ -60,7 +65,7 @@ export function Composer({
 
   const submit = () => {
     if (!canSubmit) return
-    onSend(text, pending)
+    onSend(text, pending, imageSources)
     setText('')
     setPending([])
     if (ref.current) ref.current.style.height = 'auto'
@@ -76,15 +81,41 @@ export function Composer({
   return (
     <div className="border-t border-neutral-200 bg-white px-4 py-3 dark:border-neutral-800 dark:bg-neutral-900">
       <div className="mx-auto max-w-3xl rounded-2xl border border-neutral-300 bg-white px-3 py-2 transition focus-within:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-800">
-        {pending.length > 0 && (
+        {(imageSources.length > 0 || pending.length > 0) && (
           <div className="mb-2 flex flex-wrap gap-2">
+            {imageSources.map((source) => (
+              <div
+                key={source.attachmentId}
+                className="group relative flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 p-1 dark:border-violet-800 dark:bg-violet-950/30"
+              >
+                <img
+                  src={attachmentUrl(source.attachmentId)}
+                  alt=""
+                  className="h-10 w-10 rounded object-cover"
+                />
+                <span className="max-w-[8rem] truncate px-1 text-xs text-violet-700 dark:text-violet-200">
+                  编辑源：{source.label}
+                </span>
+                <button
+                  onClick={() => onRemoveImageSource?.(source.attachmentId)}
+                  className="rounded p-0.5 text-violet-400 hover:text-red-500"
+                  aria-label="移除编辑源"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
             {pending.map((a) => (
               <div
                 key={a.id}
                 className="group relative flex items-center gap-1.5 rounded-lg border border-neutral-200 bg-neutral-50 p-1 dark:border-neutral-700 dark:bg-neutral-900"
               >
                 {a.kind === 'image' ? (
-                  <img src={attachmentUrl(a.id)} alt="" className="h-10 w-10 rounded object-cover" />
+                  <img
+                    src={attachmentUrl(a.id)}
+                    alt=""
+                    className="h-10 w-10 rounded object-cover"
+                  />
                 ) : (
                   <span className="flex items-center gap-1.5 px-1.5 text-xs text-neutral-600 dark:text-neutral-300">
                     <FileText className="h-4 w-4" />
@@ -107,7 +138,7 @@ export function Composer({
           ref={ref}
           rows={1}
           value={text}
-          placeholder="发送消息…"
+          placeholder={imageSources.length > 0 ? '输入修改要求…' : '发送消息…'}
           onChange={(e) => {
             setText(e.target.value)
             resize()

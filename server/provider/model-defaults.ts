@@ -26,7 +26,7 @@ export function inferModelDefaults(modelId: string): InferredModelDefaults {
     return {
       kind: 'image',
       capabilities: {
-        vision: false,
+        vision: true,
         file_input: false,
         web_search: false,
         image_generation: true,

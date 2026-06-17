@@ -29,7 +29,7 @@ interface ImageResponse {
   }
 }
 
-/** 图片生成 run：调用 /images/generations，落图为附件，包装为统一 run 事件（可续传）。 */
+/** 图片生成 run：按输入选择 /images/generations 或 /images/edits，落图为附件。 */
 export async function runImageEngine(ctx: EngineContext): Promise<void> {
   let seq = 0
   const persistEmit = (type: string, data: Record<string, unknown>): number => {
@@ -40,12 +40,15 @@ export async function runImageEngine(ctx: EngineContext): Promise<void> {
     return sequenceNumber
   }
 
+  const startedAt = new Date()
   persistEmit(RUN_EVENT_TYPE.created, {
     runId: ctx.run.id,
     conversationId: ctx.conversation.id,
     assistantMessageId: ctx.assistantMessage.id,
+    startedAt: startedAt.getTime(),
+    reasoningEnabled: false,
   })
-  db.update(runs).set({ state: 'running', startedAt: new Date() }).where(eq(runs.id, ctx.run.id)).run()
+  db.update(runs).set({ state: 'running', startedAt }).where(eq(runs.id, ctx.run.id)).run()
   persistEmit('image.generation.in_progress', {})
 
   let state: 'completed' | 'failed' | 'canceled' = 'completed'
@@ -58,10 +61,10 @@ export async function runImageEngine(ctx: EngineContext): Promise<void> {
   let imageTokens = 0
 
   try {
-    const resp = (await providerClientFromRow(ctx.provider).createImage(
-      ctx.body,
-      ctx.abortController.signal,
-    )) as ImageResponse
+    const client = providerClientFromRow(ctx.provider)
+    const resp = (await (ctx.imageOperation === 'edit'
+      ? client.editImage(ctx.body, ctx.abortController.signal)
+      : client.createImage(ctx.body, ctx.abortController.signal))) as ImageResponse
     const item = resp.data?.[0]
     if (!item?.b64_json) throw new UpstreamError({ message: '上游未返回图片数据', status: 502 })
 
@@ -101,9 +104,16 @@ export async function runImageEngine(ctx: EngineContext): Promise<void> {
   }
 
   const content: ContentPart[] = attachmentId
-    ? [{ type: 'image_result', attachment_id: attachmentId, revised_prompt: revisedPrompt ?? undefined }]
+    ? [
+        {
+          type: 'image_result',
+          attachment_id: attachmentId,
+          revised_prompt: revisedPrompt ?? undefined,
+        },
+      ]
     : []
-  const msgStatus = state === 'completed' ? 'complete' : state === 'failed' ? 'error' : 'interrupted'
+  const msgStatus =
+    state === 'completed' ? 'complete' : state === 'failed' ? 'error' : 'interrupted'
 
   db.update(messages)
     .set({
@@ -147,7 +157,12 @@ export async function runImageEngine(ctx: EngineContext): Promise<void> {
 
   if (state === 'failed' && errorMessage) {
     db.insert(errorLogs)
-      .values({ runId: ctx.run.id, userId: ctx.run.userId, scope: 'upstream', message: errorMessage })
+      .values({
+        runId: ctx.run.id,
+        userId: ctx.run.userId,
+        scope: 'upstream',
+        message: errorMessage,
+      })
       .run()
   }
 

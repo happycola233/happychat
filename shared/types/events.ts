@@ -34,6 +34,8 @@ export interface RunCreatedData {
   runId: string
   conversationId: string
   assistantMessageId: string
+  startedAt: number
+  reasoningEnabled: boolean
 }
 
 export interface RunDoneData {

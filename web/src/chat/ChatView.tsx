@@ -8,6 +8,7 @@ import type {
   MessageDTO,
 } from '@shared/types/api'
 import type { ModelParams } from '@shared/types/domain'
+import { isReasoningEnabled } from '@shared/util/reasoning'
 import { switchBranch } from '../api/chat'
 import { abortRun, getActiveRun, regenerateRun, startRun } from '../api/runs'
 import { useConversation } from '../hooks/useConversations'
@@ -21,6 +22,7 @@ import { ChatControls } from './ChatControls'
 import { Composer } from './Composer'
 import { Message } from './Message'
 import { ModelSelector } from './ModelSelector'
+import type { ImageEditSource } from './imageSource'
 
 interface RunResult {
   runId: string
@@ -40,6 +42,7 @@ export default function ChatView() {
   const stream = useStreamStore((s) => (id ? s.byConversation[id] : undefined))
   const clearStream = useStreamStore((s) => s.clear)
   const [optimisticUser, setOptimisticUser] = useState<string | null>(null)
+  const [imageSources, setImageSources] = useState<ImageEditSource[]>([])
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const allMessages = detail?.messages ?? []
@@ -51,7 +54,12 @@ export default function ChatView() {
     [qc],
   )
 
-  const applyRunResult = (res: RunResult) => {
+  const reasoningEnabledForRun = (modelId: string | null, requestParams?: ModelParams | null) => {
+    const runModel = models?.find((m) => m.id === modelId)
+    return isReasoningEnabled(runModel, requestParams)
+  }
+
+  const applyRunResult = (res: RunResult, requestParams?: ModelParams | null) => {
     const convId = res.conversation.id
     qc.setQueryData<ConversationDetail>(['conversation', convId], (old) => {
       const base = old ?? { conversation: res.conversation, messages: [] }
@@ -67,6 +75,7 @@ export default function ChatView() {
       conversationId: convId,
       assistantMessageId: res.assistantMessage.id,
       fromSeq: -1,
+      reasoningEnabled: reasoningEnabledForRun(res.assistantMessage.modelId, requestParams),
       onTerminal: () => invalidateDetail(convId),
     })
     if (id !== convId) navigate(`/c/${convId}`)
@@ -86,6 +95,10 @@ export default function ChatView() {
         conversationId: id,
         assistantMessageId: run.assistantMessageId,
         fromSeq: -1,
+        upstreamStartedAt: run.upstreamStartedAt,
+        reasoningDurationMs: run.reasoningDurationMs,
+        imageStartedAt: run.imageStartedAt,
+        reasoningEnabled: run.reasoningEnabled,
         onTerminal: () => invalidateDetail(id),
       })
     })
@@ -107,9 +120,10 @@ export default function ChatView() {
 
   const sendMut = useMutation({
     mutationFn: startRun,
-    onSuccess: (res) => {
+    onSuccess: (res, vars) => {
       setOptimisticUser(null)
-      applyRunResult(res)
+      setImageSources([])
+      applyRunResult(res, vars.params)
     },
     onError: (e) => {
       setOptimisticUser(null)
@@ -117,9 +131,13 @@ export default function ChatView() {
     },
   })
 
+  useEffect(() => {
+    setImageSources([])
+  }, [id])
+
   const regenMut = useMutation({
     mutationFn: regenerateRun,
-    onSuccess: applyRunResult,
+    onSuccess: (res, vars) => applyRunResult(res, vars.params),
     onError: (e) => toast.error(e instanceof Error ? e.message : '重新生成失败'),
   })
 
@@ -135,14 +153,21 @@ export default function ChatView() {
     if (model?.kind === 'image') {
       p.image = { size: prefs.imageSize, quality: prefs.imageQuality }
     } else {
-      if (prefs.webSearch) p.web_search = true
+      p.web_search = prefs.webSearch
       if (prefs.reasoningEffort) p.reasoning_effort = prefs.reasoningEffort
     }
     return p
   }
 
-  const onSend = (text: string, attachments: AttachmentDTO[]) => {
+  const onSend = (
+    text: string,
+    attachments: AttachmentDTO[],
+    selectedImageSources: ImageEditSource[],
+  ) => {
     if (!prefs.selectedModelId) return toast.error('请先选择模型')
+    if (selectedImageSources.length > 0 && model?.kind !== 'image') {
+      return toast.error('请使用图片模型编辑图片')
+    }
     setOptimisticUser(text || null)
     sendMut.mutate({
       conversationId: id,
@@ -154,7 +179,21 @@ export default function ChatView() {
         kind: a.kind,
         filename: a.filename,
       })),
+      imageSources: selectedImageSources.map((source) => ({ attachmentId: source.attachmentId })),
     })
+  }
+
+  const onUseImageSource = (source: ImageEditSource) => {
+    const imageModel =
+      model?.kind === 'image'
+        ? model
+        : models?.find((m) => m.kind === 'image' && m.capabilities.image_generation)
+    if (!imageModel) return toast.error('没有可用的图片模型')
+    if (prefs.selectedModelId !== imageModel.id) {
+      prefs.setSelectedModel(imageModel.id)
+      toast.info(`已切换到 ${imageModel.displayName}`)
+    }
+    setImageSources([source])
   }
 
   const onEdit = (msg: MessageDTO, text: string) => {
@@ -224,6 +263,7 @@ export default function ChatView() {
                   busy={streaming}
                   onEdit={m.role === 'user' ? (t) => onEdit(m, t) : undefined}
                   onRegenerate={m.role === 'assistant' ? () => onRegenerate(m.id) : undefined}
+                  onUseImageSource={m.role === 'assistant' ? onUseImageSource : undefined}
                 />
               )
             })}
@@ -246,6 +286,10 @@ export default function ChatView() {
         leftControls={<ChatControls />}
         canImage={model?.capabilities.vision ?? false}
         canFile={model?.capabilities.file_input ?? false}
+        imageSources={imageSources}
+        onRemoveImageSource={(attachmentId) =>
+          setImageSources((items) => items.filter((item) => item.attachmentId !== attachmentId))
+        }
       />
     </>
   )

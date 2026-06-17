@@ -19,6 +19,10 @@ export interface ActiveRunInfo {
   runId: string
   assistantMessageId: string
   lastSequenceNumber: number
+  upstreamStartedAt: number | null
+  reasoningDurationMs: number | null
+  imageStartedAt: number | null
+  reasoningEnabled: boolean
 }
 
 export const startRun = (input: SendMessageInput) => apiPost<StartRunResult>('/runs', input)

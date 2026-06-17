@@ -7,11 +7,11 @@ import { requireUser } from '../auth/middleware'
 import { jsonValidator } from '../http/validator'
 import {
   deepestLeaf,
+  getConversationMessageDTOs,
   getConversationMessages,
   getOwnedConversation,
   listConversations,
   toConversationDTO,
-  toMessageDTO,
 } from '../services/conversations'
 import type { AppEnv } from '../http/types'
 
@@ -26,8 +26,8 @@ conversationRoutes.get('/', async (c) => {
 conversationRoutes.get('/:id', async (c) => {
   const conv = await getOwnedConversation(c.get('user').id, c.req.param('id'))
   if (!conv) return c.json({ error: { message: '会话不存在', code: 'not_found' } }, 404)
-  const msgs = await getConversationMessages(conv.id)
-  return c.json({ conversation: toConversationDTO(conv), messages: msgs.map(toMessageDTO) })
+  const messages = await getConversationMessageDTOs(conv.id)
+  return c.json({ conversation: toConversationDTO(conv), messages })
 })
 
 conversationRoutes.patch('/:id', jsonValidator(renameConversationSchema), async (c) => {
