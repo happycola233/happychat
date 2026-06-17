@@ -9,7 +9,7 @@ describe('normalizeMarkdownMath', () => {
   })
 
   it('normalizes inline math wrapped in LaTeX paren delimiters', () => {
-    expect(normalizeMarkdownMath('这是 \\( a+b \\) 公式')).toBe('这是 $a+b$ 公式')
+    expect(normalizeMarkdownMath('这是 \\( a+b \\) 公式')).toBe('这是 $$a+b$$ 公式')
   })
 
   it('does not alter fenced code blocks', () => {

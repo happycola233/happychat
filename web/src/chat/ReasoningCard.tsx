@@ -62,7 +62,7 @@ export function ReasoningCard({ text, thinking, startedAt, durationMs }: Props) 
       {open && hasText && (
         <div
           ref={bodyRef}
-          className="max-h-64 overflow-y-auto border-t border-neutral-100 px-3 py-2 dark:border-neutral-700/50"
+          className="hc-scrollbar max-h-64 overflow-y-auto border-t border-neutral-100 px-3 py-2 dark:border-neutral-700/50"
         >
           <Markdown text={normalizedText} variant="reasoning" />
         </div>

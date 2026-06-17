@@ -162,7 +162,7 @@ export function Composer({
                 <button
                   type="button"
                   onClick={() => imageInput.current?.click()}
-                  className="rounded-lg p-1.5 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-700"
+                  className="rounded-lg p-1.5 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-100"
                   title="上传图片"
                   aria-label="上传图片"
                 >
@@ -176,7 +176,7 @@ export function Composer({
                 <button
                   type="button"
                   onClick={() => fileInput.current?.click()}
-                  className="rounded-lg p-1.5 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-700"
+                  className="rounded-lg p-1.5 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-100"
                   title="上传文件"
                   aria-label="上传文件"
                 >

@@ -231,7 +231,7 @@ export default function ChatView() {
         <ModelSelector />
       </header>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+      <div ref={scrollRef} className="hc-scrollbar flex-1 overflow-y-auto">
         {isEmpty ? (
           <div className="flex h-full items-center justify-center">
             <div className="text-center">

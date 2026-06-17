@@ -40,7 +40,7 @@ export function Sidebar() {
         </button>
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-2">
+      <nav className="hc-scrollbar flex-1 overflow-y-auto px-2">
         {conversations?.length ? (
           <ul className="space-y-0.5">
             {conversations.map((c) => (

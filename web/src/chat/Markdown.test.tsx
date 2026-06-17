@@ -1,6 +1,10 @@
 import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Markdown } from './Markdown'
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 describe('Markdown code blocks', () => {
   it('shows the fenced code language in the code block header', () => {
@@ -48,5 +52,19 @@ describe('Markdown math', () => {
 
     expect(html).toContain('katex')
     expect(html).not.toContain('\\( a+b \\)')
+  })
+
+  it('keeps dollar amounts as text instead of parsing them as math', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const text =
+      '报价约 **$64,928**，24h 跌约 **2.52%**，高低约 **$66,754 / $64,796**，市值约 **$1.30T**。'
+    const html = renderToStaticMarkup(<Markdown text={text} />)
+
+    expect(html).not.toContain('katex')
+    expect(html).toContain('$64,928')
+    expect(html).toContain('2.52%')
+    expect(html).toContain('$66,754 / $64,796')
+    expect(html).toContain('$1.30T')
+    expect(warn).not.toHaveBeenCalled()
   })
 })

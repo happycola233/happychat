@@ -8,6 +8,8 @@ import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import rehypeHighlight from 'rehype-highlight'
 import { Check, Code2, Copy } from 'lucide-react'
+import { copyToClipboard } from '../lib/clipboard'
+import { toast } from '../store/toast'
 import { normalizeMarkdownMath } from './markdownMath'
 
 export type MarkdownVariant = 'message' | 'reasoning'
@@ -62,7 +64,11 @@ function PreBlock({ children, variant }: { children?: ReactNode; variant: Markdo
   const language = languageFrom(children)
   const copy = () => {
     const t = ref.current?.textContent ?? ''
-    void navigator.clipboard.writeText(t).then(() => {
+    void copyToClipboard(t).then((ok) => {
+      if (!ok) {
+        toast.error('复制失败')
+        return
+      }
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     })
@@ -120,7 +126,11 @@ function TableBlock({ children, variant }: { children?: ReactNode; variant: Mark
   const copy = () => {
     const table = ref.current
     if (!table) return
-    void navigator.clipboard.writeText(tableText(table)).then(() => {
+    void copyToClipboard(tableText(table)).then((ok) => {
+      if (!ok) {
+        toast.error('复制失败')
+        return
+      }
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     })
@@ -176,7 +186,7 @@ function MarkdownImpl({ text, variant = 'message', className }: MarkdownProps) {
       )}
     >
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkMath]}
+        remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: false }]]}
         rehypePlugins={[[rehypeKatex, { throwOnError: false }], rehypeHighlight]}
         components={componentsFor(variant)}
       >

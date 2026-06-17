@@ -61,7 +61,7 @@ function normalizeLatexDelimiters(text: string): string {
     )
     .replace(/(^|[^\\])\\\(([\s\S]*?)\\\)/g, (_match, prefix: string, body: string) => {
       const trimmed = body.trim()
-      return `${prefix}$${trimmed}$`
+      return `${prefix}$$${trimmed}$$`
     })
 }
 

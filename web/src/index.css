@@ -19,6 +19,45 @@ body {
   font-family: var(--font-sans);
 }
 
+html.dark {
+  color-scheme: dark;
+}
+
+.hc-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(163 163 163 / 0.8) transparent;
+}
+.hc-scrollbar::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.hc-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.hc-scrollbar::-webkit-scrollbar-thumb {
+  min-height: 2rem;
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: rgb(163 163 163 / 0.7);
+  background-clip: padding-box;
+}
+.hc-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(115 115 115 / 0.85);
+}
+.hc-scrollbar::-webkit-scrollbar-corner,
+.hc-scrollbar::-webkit-scrollbar-button {
+  display: none;
+}
+.dark .hc-scrollbar {
+  scrollbar-color: rgb(115 115 115 / 0.8) transparent;
+}
+.dark .hc-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgb(115 115 115 / 0.65);
+}
+.dark .hc-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(163 163 163 / 0.75);
+}
+
 /* Markdown 渲染排版 */
 .hc-md > :first-child {
   margin-top: 0;

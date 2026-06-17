@@ -13,6 +13,7 @@ import type { UrlCitation } from '@shared/types/domain'
 import type { LiveMessage } from '../sse/eventReducer'
 import { attachmentUrl } from '../api/attachments'
 import { Spinner } from '../components/ui/Spinner'
+import { copyToClipboard } from '../lib/clipboard'
 import { toast } from '../store/toast'
 import { MessageText } from './MessageContent'
 import { textFromContent } from './contentText'
@@ -86,7 +87,7 @@ function BranchSwitch({ branch }: { branch: BranchInfo }) {
         <ChevronLeft className="h-3.5 w-3.5" />
       </button>
       <span className="tabular-nums">
-        {branch.index + 1}/{branch.total}
+        {branch.index + 1} / {branch.total}
       </span>
       <button
         onClick={() => go(1)}
@@ -103,9 +104,9 @@ function BranchSwitch({ branch }: { branch: BranchInfo }) {
 function useCopy() {
   const [copied, setCopied] = useState(false)
   const copy = (text: string) => {
-    void navigator.clipboard
-      .writeText(text)
-      .then(() => {
+    void copyToClipboard(text)
+      .then((ok) => {
+        if (!ok) throw new Error('copy failed')
         setCopied(true)
         setTimeout(() => setCopied(false), 1500)
       })

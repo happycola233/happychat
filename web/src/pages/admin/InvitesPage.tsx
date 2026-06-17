@@ -6,6 +6,7 @@ import { Button } from '../../components/ui/Button'
 import { Modal } from '../../components/ui/Modal'
 import { Spinner } from '../../components/ui/Spinner'
 import { TextField } from '../../components/ui/TextField'
+import { copyToClipboard } from '../../lib/clipboard'
 import { toast } from '../../store/toast'
 
 const fmt = (ts: number | null) => (ts ? new Date(ts).toLocaleString('zh-CN') : '永久')
@@ -30,7 +31,11 @@ export default function InvitesPage() {
   })
 
   const copy = (code: string) => {
-    void navigator.clipboard.writeText(code).then(() => {
+    void copyToClipboard(code).then((ok) => {
+      if (!ok) {
+        toast.error('复制失败')
+        return
+      }
       setCopied(code)
       setTimeout(() => setCopied(null), 1500)
     })
