@@ -51,6 +51,11 @@ export interface ProviderDTO {
   createdAt: number
 }
 
+/** 管理员编辑 Provider 时按需读取的详情，包含完整 API Key。 */
+export interface ProviderDetailDTO extends ProviderDTO {
+  apiKey: string
+}
+
 /** 用户可见的模型信息（不含系统提示词、硬参数、密钥） */
 export interface ModelDTO {
   id: string

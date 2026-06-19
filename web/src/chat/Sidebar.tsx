@@ -6,7 +6,6 @@ import {
   ChevronDown,
   LogOut,
   Moon,
-  PanelLeft,
   Pin,
   PinOff,
   Search,
@@ -21,7 +20,7 @@ import { useLogout, useMe } from '../hooks/useAuth'
 import { useSidebarStore } from '../store/sidebar'
 import { toast } from '../store/toast'
 import { useTheme } from '../store/theme'
-import { ChatBubbleIcon, NewChatIcon, RoutineIcon } from './icons'
+import { ChatBubbleIcon, NewChatIcon, RoutineIcon, SidebarToggleIcon } from './icons'
 import { SearchDialog } from './SearchDialog'
 
 type PopoverKind = 'pinned' | 'recent'
@@ -394,7 +393,7 @@ export function Sidebar() {
           <>
             <div className="flex flex-1 flex-col items-center gap-2 py-2">
               <RailButton title="展开侧边栏" onClick={toggleCollapsed} testId="sidebar-toggle">
-                <PanelLeft className="h-[18px] w-[18px]" />
+                <SidebarToggleIcon className="h-5 w-5" />
               </RailButton>
               <div className="h-3" />
               <RailButton title="新聊天" onClick={newChat} testId="sidebar-new-chat">
@@ -497,7 +496,7 @@ export function Sidebar() {
                 aria-label="收起侧边栏"
                 title="收起侧边栏"
               >
-                <PanelLeft className="h-[18px] w-[18px]" />
+                <SidebarToggleIcon className="h-5 w-5" />
               </button>
             </div>
 

@@ -3,6 +3,7 @@ import type {
   AdminUserDTO,
   ErrorLogDTO,
   InviteCodeDTO,
+  ProviderDetailDTO,
   ProviderDTO,
   ProviderTestResult,
   StatsDTO,
@@ -19,6 +20,8 @@ import { apiDelete, apiGet, apiPatch, apiPost } from './client'
 
 export const listProviders = () =>
   apiGet<{ providers: ProviderDTO[] }>('/admin/providers').then((r) => r.providers)
+export const getProvider = (id: string) =>
+  apiGet<{ provider: ProviderDetailDTO }>(`/admin/providers/${id}`).then((r) => r.provider)
 export const createProvider = (input: ProviderCreateInput) =>
   apiPost<{ id: string }>('/admin/providers', input)
 export const updateProvider = (id: string, input: ProviderUpdateInput) =>

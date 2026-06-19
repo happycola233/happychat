@@ -92,7 +92,7 @@ export const providers = sqliteTable('providers', {
     id: pk(),
     name: text('name').notNull(),
     baseUrl: text('base_url').notNull(),
-    // API Key 明文存库；只在管理员列表 DTO 中脱敏返回，避免前端拿到完整值。
+    // API Key 明文存库；管理员列表 DTO 固定脱敏，编辑详情接口按需返回完整值。
     apiKey: text('api_key').notNull(),
     enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
     createdAt: createdAt(),

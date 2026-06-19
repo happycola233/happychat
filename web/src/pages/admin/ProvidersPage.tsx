@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, RefreshCw, Trash2, Wifi } from 'lucide-react'
@@ -168,6 +168,21 @@ function ProviderModal({
   const [baseUrl, setBaseUrl] = useState(provider?.baseUrl ?? '')
   const [apiKey, setApiKey] = useState('')
   const [error, setError] = useState('')
+  const providerDetail = useQuery({
+    queryKey: ['admin', 'providers', provider?.id],
+    queryFn: () => adminApi.getProvider(provider!.id),
+    enabled: isEdit && Boolean(provider),
+    gcTime: 0,
+    refetchOnWindowFocus: false,
+  })
+  const loadingProvider = isEdit && providerDetail.isFetching && !providerDetail.data
+
+  useEffect(() => {
+    if (!providerDetail.data) return
+    setName(providerDetail.data.name)
+    setBaseUrl(providerDetail.data.baseUrl)
+    setApiKey(providerDetail.data.apiKey)
+  }, [providerDetail.data])
 
   const save = useMutation({
     mutationFn: async () => {
@@ -175,7 +190,7 @@ function ProviderModal({
         await adminApi.updateProvider(provider.id, {
           name,
           baseUrl,
-          ...(apiKey ? { apiKey } : {}),
+          ...(apiKey.length > 0 ? { apiKey } : {}),
         })
       } else {
         await adminApi.createProvider({ name, baseUrl, apiKey })
@@ -204,7 +219,7 @@ function ProviderModal({
           <Button variant="secondary" onClick={onClose}>
             取消
           </Button>
-          <Button onClick={onSubmit} loading={save.isPending}>
+          <Button onClick={onSubmit} loading={save.isPending} disabled={loadingProvider}>
             保存
           </Button>
         </>
@@ -227,11 +242,21 @@ function ProviderModal({
         />
         <TextField
           label="API Key"
-          type="password"
+          type="text"
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}
-          placeholder={isEdit ? '留空则不修改' : '请输入 API Key'}
+          placeholder={loadingProvider ? '正在加载完整 API Key...' : '请输入 API Key'}
+          autoComplete="off"
+          spellCheck={false}
+          disabled={loadingProvider}
         />
+        {providerDetail.error && (
+          <p className="text-sm text-red-500">
+            {providerDetail.error instanceof Error
+              ? providerDetail.error.message
+              : '加载 API Key 失败'}
+          </p>
+        )}
         {error && <p className="text-sm text-red-500">{error}</p>}
       </form>
     </Modal>

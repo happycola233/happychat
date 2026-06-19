@@ -1,8 +1,8 @@
 import { and, eq, sql } from 'drizzle-orm'
-import type { AdminModelDTO, ModelDTO, ProviderDTO } from '@shared/types/api'
+import type { AdminModelDTO, ModelDTO, ProviderDTO, ProviderDetailDTO } from '@shared/types/api'
 import { db } from '../db/client'
 import { models, providers } from '../db/schema'
-import { maskSecretTail } from '../lib/mask'
+import { maskSecret } from '../lib/mask'
 
 type ModelRow = typeof models.$inferSelect
 type ProviderRow = typeof providers.$inferSelect
@@ -40,9 +40,16 @@ export function toProviderDTO(p: ProviderRow, modelCount: number): ProviderDTO {
     baseUrl: p.baseUrl,
     enabled: p.enabled,
     hasApiKey: Boolean(p.apiKey),
-    apiKeyMask: p.apiKey ? maskSecretTail(p.apiKey) : null,
+    apiKeyMask: p.apiKey ? maskSecret(p.apiKey) : null,
     modelCount,
     createdAt: p.createdAt.getTime(),
+  }
+}
+
+export function toProviderDetailDTO(p: ProviderRow, modelCount: number): ProviderDetailDTO {
+  return {
+    ...toProviderDTO(p, modelCount),
+    apiKey: p.apiKey,
   }
 }
 
@@ -54,6 +61,16 @@ export async function listProviders(): Promise<ProviderDTO[]> {
     .groupBy(models.providerId)
   const countMap = new Map(counts.map((c) => [c.pid, c.c]))
   return provs.map((p) => toProviderDTO(p, countMap.get(p.id) ?? 0))
+}
+
+export async function getProviderDetail(id: string): Promise<ProviderDetailDTO | null> {
+  const [p] = await db.select().from(providers).where(eq(providers.id, id)).limit(1)
+  if (!p) return null
+  const [count] = await db
+    .select({ c: sql<number>`count(*)` })
+    .from(models)
+    .where(eq(models.providerId, id))
+  return toProviderDetailDTO(p, Number(count?.c ?? 0))
 }
 
 export async function listEnabledModels(): Promise<ModelDTO[]> {

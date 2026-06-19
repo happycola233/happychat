@@ -25,7 +25,7 @@ export default function SettingsPage() {
       </div>
 
       <div className="mt-4 rounded-2xl bg-neutral-50 px-5 py-4 text-sm text-neutral-500 dark:bg-neutral-800/50">
-        敏感信息（API Key、会话令牌）均经服务端加密存储，绝不会出现在前端、日志或仓库中。
+        Provider API Key 在列表中固定脱敏显示，编辑时仅向管理员按需返回完整值；密钥不会写入日志或仓库。
         Provider、模型、邀请码、用户的管理请在左侧对应页面操作。
       </div>
     </div>

@@ -19,7 +19,7 @@ import {
   listInvites,
   listUsageLogs,
 } from '../services/admin'
-import { listAdminModels, listProviders } from '../services/models'
+import { getProviderDetail, listAdminModels, listProviders } from '../services/models'
 import { syncProviderModels } from '../services/providers'
 import type { AppEnv } from '../http/types'
 
@@ -31,6 +31,12 @@ adminRoutes.use('*', requireAdmin)
 
 adminRoutes.get('/providers', async (c) => {
   return c.json({ providers: await listProviders() })
+})
+
+adminRoutes.get('/providers/:id', async (c) => {
+  const provider = await getProviderDetail(c.req.param('id'))
+  if (!provider) return c.json({ error: { message: '提供商不存在', code: 'not_found' } }, 404)
+  return c.json({ provider })
 })
 
 adminRoutes.post('/providers', jsonValidator(providerCreateSchema), async (c) => {
