@@ -16,6 +16,7 @@ import { Spinner } from '../components/ui/Spinner'
 import { copyToClipboard } from '../lib/clipboard'
 import { toast } from '../store/toast'
 import { CollapsibleUserMessageText } from './MessageContent'
+import { MESSAGE_BODY_TEXT_CLASS } from './messageStyles'
 import { textFromContent } from './contentText'
 import { Markdown } from './Markdown'
 import { ReasoningCard, type ReasoningCardStatus } from './ReasoningCard'
@@ -169,7 +170,7 @@ export function Message({
               data-testid="edit-textarea"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              className="min-h-[60px] w-full resize-none bg-transparent text-[15px] text-neutral-800 outline-none dark:text-neutral-100"
+              className={`${MESSAGE_BODY_TEXT_CLASS} min-h-[60px] w-full resize-none bg-transparent outline-none`}
             />
             <div className="mt-2 flex justify-end gap-2">
               <button
