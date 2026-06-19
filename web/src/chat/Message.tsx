@@ -15,10 +15,10 @@ import { attachmentUrl } from '../api/attachments'
 import { Spinner } from '../components/ui/Spinner'
 import { copyToClipboard } from '../lib/clipboard'
 import { toast } from '../store/toast'
-import { MessageText } from './MessageContent'
+import { CollapsibleUserMessageText } from './MessageContent'
 import { textFromContent } from './contentText'
 import { Markdown } from './Markdown'
-import { ReasoningCard } from './ReasoningCard'
+import { ReasoningCard, type ReasoningCardStatus } from './ReasoningCard'
 import { AttachmentParts } from './Attachments'
 import { ElapsedLabel } from './ElapsedLabel'
 import type { ImageEditSource } from './imageSource'
@@ -206,7 +206,7 @@ export function Message({
         )}
         {text && (
           <div className="max-w-[85%] rounded-2xl bg-neutral-100 px-4 py-2.5 dark:bg-neutral-800">
-            <MessageText text={text} />
+            <CollapsibleUserMessageText text={text} />
           </div>
         )}
         <div className="flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
@@ -235,13 +235,30 @@ export function Message({
   const streaming = live?.status === 'streaming'
   const text = live ? live.text : textFromContent(message.content)
   const reasoning = live ? live.reasoning : message.reasoningSummary
+  const hasReasoningText = Boolean(reasoning?.trim())
   const annotations = live ? live.annotations : (message.annotations ?? [])
   const error =
     live?.error ?? (message.status === 'error' ? (message.errorMessage ?? '生成失败') : null)
-  const showLiveThinking = Boolean(
+  const liveThinking = Boolean(
     live?.reasoningEnabled && streaming && !text && live.upstreamStartedAt,
   )
-  const showReasoningCard = Boolean(reasoning) || showLiveThinking
+  const liveStoppedThinking = Boolean(live?.reasoningEnabled && live.status === 'canceled' && !text)
+  const persistedStoppedThinking = Boolean(
+    !live && message.status === 'interrupted' && message.errorMessage === '已停止生成' && !text,
+  )
+  const hasCompletedReasoning = Boolean(
+    live
+      ? live.reasoningEnabled && live.reasoningDurationMs !== null
+      : message.reasoningDurationMs !== null,
+  )
+  const reasoningStatus: ReasoningCardStatus =
+    liveStoppedThinking || persistedStoppedThinking
+      ? 'stopped'
+      : liveThinking
+        ? 'thinking'
+        : 'completed'
+  const showReasoningCard =
+    hasReasoningText || liveThinking || liveStoppedThinking || persistedStoppedThinking || hasCompletedReasoning
   const showPendingDots = streaming && !text && !reasoning && !showReasoningCard
 
   return (
@@ -249,7 +266,7 @@ export function Message({
       {showReasoningCard && (
         <ReasoningCard
           text={reasoning || ''}
-          thinking={streaming && !text}
+          status={reasoningStatus}
           startedAt={live?.upstreamStartedAt ?? null}
           durationMs={live ? live.reasoningDurationMs : message.reasoningDurationMs}
         />

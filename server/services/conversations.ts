@@ -1,8 +1,10 @@
 import { and, asc, desc, eq, inArray } from 'drizzle-orm'
 import type { ConversationDTO, ConversationSearchResultDTO, MessageDTO } from '@shared/types/api'
+import type { ModelParams } from '@shared/types/domain'
 import { textFromContent } from '@shared/util/contentText'
+import { isReasoningEnabled } from '@shared/util/reasoning'
 import { db } from '../db/client'
-import { conversations, messages, runEvents } from '../db/schema'
+import { conversations, messages, models, runEvents, runs } from '../db/schema'
 import { computeReasoningDurationMs, type ReasoningTimingEvent } from './reasoning-timing'
 
 export type ConvRow = typeof conversations.$inferSelect
@@ -92,6 +94,39 @@ export async function getConversationMessages(conversationId: string): Promise<M
 async function getReasoningDurationByMessageId(rows: MsgRow[]): Promise<Map<string, number>> {
   const runIds = rows.map((m) => m.runId).filter((runId): runId is string => Boolean(runId))
   if (runIds.length === 0) return new Map()
+  const uniqueRunIds = [...new Set(runIds)]
+
+  const runRows = await db
+    .select({
+      runId: runs.id,
+      requestParams: runs.requestParams,
+      modelKind: models.kind,
+      modelCapabilities: models.capabilities,
+      modelDefaultParams: models.defaultParams,
+      modelDefaultEffort: models.defaultEffort,
+    })
+    .from(runs)
+    .leftJoin(models, eq(runs.modelId, models.id))
+    .where(inArray(runs.id, uniqueRunIds))
+
+  const reasoningRunIds = new Set(
+    runRows
+      .filter((row) =>
+        isReasoningEnabled(
+          row.modelCapabilities
+            ? {
+                kind: row.modelKind ?? undefined,
+                capabilities: row.modelCapabilities,
+                defaultParams: row.modelDefaultParams,
+                defaultEffort: row.modelDefaultEffort,
+              }
+            : null,
+          row.requestParams as ModelParams | null,
+        ),
+      )
+      .map((row) => row.runId),
+  )
+  if (reasoningRunIds.size === 0) return new Map()
 
   const eventRows = await db
     .select({
@@ -101,7 +136,7 @@ async function getReasoningDurationByMessageId(rows: MsgRow[]): Promise<Map<stri
       createdAt: runEvents.createdAt,
     })
     .from(runEvents)
-    .where(inArray(runEvents.runId, [...new Set(runIds)]))
+    .where(inArray(runEvents.runId, [...reasoningRunIds]))
     .orderBy(asc(runEvents.runId), asc(runEvents.sequenceNumber))
 
   const byRun = new Map<string, ReasoningTimingEvent[]>()

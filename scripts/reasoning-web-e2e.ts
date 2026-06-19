@@ -38,7 +38,7 @@ async function main() {
   await composer.press('Enter')
   await waitGenDone(page)
   const reasoningShown =
-    (await page.getByText(/已深度思考|正在思考|思考过程/).count()) > 0
+    (await page.getByText(/已思考|正在思考|已停止思考/).count()) > 0
   console.log('思考摘要卡片出现:', reasoningShown)
 
   // —— 联网：切到 gpt-5.4-mini 并开启联网 ——

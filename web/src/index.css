@@ -99,10 +99,26 @@ html.dark {
   margin: 0.25rem 0;
 }
 .hc-md blockquote {
-  border-left: 3px solid #d4d4d4;
-  padding-left: 0.75rem;
-  color: #737373;
-  margin: 0.5rem 0;
+  position: relative;
+  margin: 0.95rem 0;
+  padding-left: 1.45rem;
+  color: inherit;
+}
+.hc-md blockquote::before {
+  content: '';
+  position: absolute;
+  top: 0.2em;
+  bottom: 0.2em;
+  left: 0;
+  width: 4px;
+  border-radius: 999px;
+  background: #d7d7d7;
+}
+.hc-md blockquote > :first-child {
+  margin-top: 0;
+}
+.hc-md blockquote > :last-child {
+  margin-bottom: 0;
 }
 .hc-md hr {
   border: none;
@@ -171,6 +187,53 @@ html.dark {
 .hc-md-reasoning strong {
   color: #525252;
 }
+.hc-reasoning {
+  --hc-reasoning-surface: #fff;
+}
+.hc-reasoning-sticky {
+  background: var(--hc-reasoning-surface);
+}
+.hc-reasoning-detail {
+  font-size: 13px;
+  line-height: 1.6;
+}
+.hc-reasoning-detail p {
+  margin: 0.2rem 0;
+}
+.hc-reasoning-status {
+  color: rgb(143 143 143);
+}
+.hc-reasoning-status:hover {
+  color: #0d0d0d;
+}
+.hc-reasoning-shimmer {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-radius: 0.25rem;
+}
+.hc-reasoning-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(
+    105deg,
+    transparent 0%,
+    transparent 34%,
+    rgb(255 255 255 / 0.5) 50%,
+    transparent 66%,
+    transparent 100%
+  );
+  transform: translateX(-120%);
+  animation: hc-reasoning-shimmer 2.8s ease-in-out infinite;
+}
+@keyframes hc-reasoning-shimmer {
+  100% {
+    transform: translateX(120%);
+  }
+}
 .hc-code-block pre code.hljs,
 .hc-code-block code.hljs {
   display: block;
@@ -225,8 +288,10 @@ html.dark {
   color: #116329;
 }
 .dark .hc-md blockquote {
-  border-color: #404040;
-  color: #a3a3a3;
+  color: inherit;
+}
+.dark .hc-md blockquote::before {
+  background: #3f3f3f;
 }
 .dark .hc-md hr {
   border-color: #404040;
@@ -243,6 +308,22 @@ html.dark {
 }
 .dark .hc-md-reasoning strong {
   color: #d4d4d4;
+}
+.dark .hc-reasoning {
+  --hc-reasoning-surface: #171717;
+}
+.dark .hc-reasoning-status:hover {
+  color: #f5f5f5;
+}
+.dark .hc-reasoning-shimmer::after {
+  background: linear-gradient(
+    105deg,
+    transparent 0%,
+    transparent 34%,
+    rgb(255 255 255 / 0.16) 50%,
+    transparent 66%,
+    transparent 100%
+  );
 }
 .dark .hc-code-block pre code.hljs,
 .dark .hc-code-block code.hljs {
@@ -292,4 +373,15 @@ html.dark {
 .dark .hc-code-block .hljs-selector-tag,
 .dark .hc-code-block .hljs-selector-pseudo {
   color: #7ee787;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hc-reasoning-collapse,
+  .hc-reasoning-status svg {
+    transition: none !important;
+  }
+  .hc-reasoning-shimmer::after {
+    animation: none;
+    opacity: 0;
+  }
 }

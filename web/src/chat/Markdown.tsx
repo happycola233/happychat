@@ -11,6 +11,7 @@ import { Check, Code2, Copy } from 'lucide-react'
 import { copyToClipboard } from '../lib/clipboard'
 import { toast } from '../store/toast'
 import { normalizeMarkdownMath } from './markdownMath'
+import { MESSAGE_BODY_TEXT_CLASS } from './messageStyles'
 
 export type MarkdownVariant = 'message' | 'reasoning'
 
@@ -180,7 +181,7 @@ function MarkdownImpl({ text, variant = 'message', className }: MarkdownProps) {
       className={clsx(
         'hc-md break-words',
         variant === 'message'
-          ? 'text-[15px] leading-7 text-neutral-800 dark:text-neutral-100'
+          ? MESSAGE_BODY_TEXT_CLASS
           : 'hc-md-reasoning text-sm leading-6 text-neutral-500 dark:text-neutral-400',
         className,
       )}
