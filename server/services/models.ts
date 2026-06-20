@@ -154,3 +154,33 @@ export async function createModel(input: ModelCreateInput): Promise<CreateModelR
   )
   return { ok: true, model: toAdminModelDTO(row, provider.name) }
 }
+
+export type ReorderModelsResult =
+  | { ok: true }
+  | { ok: false; code: 'invalid_order'; invalidIds: string[] }
+
+/**
+ * 按管理员提交的完整列表重写模型顺序。
+ * sort 使用稀疏步长，后续单个模型插队时仍有空间，不必立刻整体重排。
+ */
+export async function reorderModels(modelIds: string[]): Promise<ReorderModelsResult> {
+  const existing = await db.select({ id: models.id }).from(models)
+  const existingIds = new Set(existing.map((m) => m.id))
+  const submittedIds = new Set(modelIds)
+  const unknownIds = modelIds.filter((id) => !existingIds.has(id))
+  const omittedIds = existing.map((m) => m.id).filter((id) => !submittedIds.has(id))
+  if (unknownIds.length || omittedIds.length) {
+    return { ok: false, code: 'invalid_order', invalidIds: [...unknownIds, ...omittedIds] }
+  }
+
+  db.transaction((tx) => {
+    for (const [index, id] of modelIds.entries()) {
+      tx.update(models)
+        .set({ sort: (index + 1) * 100 })
+        .where(eq(models.id, id))
+        .run()
+    }
+  })
+
+  return { ok: true }
+}

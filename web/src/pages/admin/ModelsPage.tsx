@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react'
 import type { AdminModelDTO } from '@shared/types/api'
 import type { ModelCapabilities } from '@shared/types/domain'
 import * as adminApi from '../../api/admin'
@@ -38,6 +38,33 @@ export default function ModelsPage() {
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['admin', 'models'] })
 
+  const reorder = useMutation({
+    mutationFn: adminApi.reorderModels,
+    onMutate: async ({ modelIds }) => {
+      await qc.cancelQueries({ queryKey: ['admin', 'models'] })
+      const previous = qc.getQueryData<AdminModelDTO[]>(['admin', 'models'])
+      if (previous) {
+        const byId = new Map(previous.map((m) => [m.id, m]))
+        // 立即更新列表顺序与 sort 快照，让管理端和聊天端看到同一套排序语义。
+        qc.setQueryData<AdminModelDTO[]>(
+          ['admin', 'models'],
+          modelIds.map((id, index) => ({ ...byId.get(id)!, sort: (index + 1) * 100 })),
+        )
+      }
+      return { previous }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['models'] })
+    },
+    onError: (e, _variables, context) => {
+      if (context?.previous) qc.setQueryData(['admin', 'models'], context.previous)
+      toast.error(e instanceof Error ? e.message : '排序失败')
+    },
+    onSettled: () => {
+      invalidate()
+    },
+  })
+
   const toggleEnabled = useMutation({
     mutationFn: (m: AdminModelDTO) => adminApi.updateModel(m.id, { enabled: !m.enabled }),
     onSuccess: () => {
@@ -52,9 +79,24 @@ export default function ModelsPage() {
     onSuccess: () => {
       toast.success('已删除')
       invalidate()
+      qc.invalidateQueries({ queryKey: ['models'] })
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : '删除失败'),
   })
+
+  const moveModel = (index: number, direction: -1 | 1) => {
+    if (!models || reorder.isPending) return
+    const nextIndex = index + direction
+    if (nextIndex < 0 || nextIndex >= models.length) return
+
+    const next = [...models]
+    const current = next[index]
+    const target = next[nextIndex]
+    if (!current || !target) return
+    next[index] = target
+    next[nextIndex] = current
+    reorder.mutate({ modelIds: next.map((m) => m.id) })
+  }
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -62,7 +104,7 @@ export default function ModelsPage() {
         <div>
           <h1 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">模型</h1>
           <p className="mt-1 text-sm text-neutral-500">
-            同步或手动添加模型：启用/禁用、能力、默认参数、定价、系统提示词与请求体硬参数
+            同步或手动添加模型：顺序、启用/禁用、能力、默认参数、定价、系统提示词与请求体硬参数
           </p>
         </div>
         <Button className="shrink-0" onClick={openCreate}>
@@ -79,18 +121,19 @@ export default function ModelsPage() {
           还没有模型，请在「提供商」页同步，或点右上角「添加模型」手动添加。
         </div>
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-neutral-200 dark:border-neutral-800">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto rounded-2xl border border-neutral-200 dark:border-neutral-800">
+          <table className="w-full min-w-[760px] text-sm">
             <thead className="bg-neutral-50 text-left text-xs text-neutral-500 dark:bg-neutral-900">
               <tr>
                 <th className="px-4 py-3 font-medium">模型</th>
                 <th className="px-4 py-3 font-medium">能力</th>
                 <th className="px-4 py-3 font-medium">启用</th>
+                <th className="px-4 py-3 font-medium">顺序</th>
                 <th className="px-4 py-3" />
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
-              {models.map((m) => (
+              {models.map((m, index) => (
                 <tr key={m.id} className="bg-white dark:bg-neutral-900">
                   <td className="px-4 py-3">
                     <div className="font-medium text-neutral-900 dark:text-neutral-100">
@@ -117,6 +160,30 @@ export default function ModelsPage() {
                   </td>
                   <td className="px-4 py-3">
                     <Toggle checked={m.enabled} onChange={() => toggleEnabled.mutate(m)} />
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        className="!h-8 !w-8 !px-0 !py-0"
+                        title="上移"
+                        aria-label={`上移 ${m.displayName}`}
+                        disabled={index === 0 || reorder.isPending}
+                        onClick={() => moveModel(index, -1)}
+                      >
+                        <ArrowUp className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        className="!h-8 !w-8 !px-0 !py-0"
+                        title="下移"
+                        aria-label={`下移 ${m.displayName}`}
+                        disabled={index === models.length - 1 || reorder.isPending}
+                        onClick={() => moveModel(index, 1)}
+                      >
+                        <ArrowDown className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </td>
                   <td className="px-4 py-3 text-right whitespace-nowrap">
                     <Button

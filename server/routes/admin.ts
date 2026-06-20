@@ -3,6 +3,7 @@ import type { Context } from 'hono'
 import { and, eq } from 'drizzle-orm'
 import {
   modelCreateSchema,
+  modelReorderSchema,
   modelUpdateSchema,
   providerCreateSchema,
   providerUpdateSchema,
@@ -28,7 +29,13 @@ import {
 import { listSessions, revokeSession } from '../services/sessions'
 import { getAppConfig, updateAppConfig } from '../services/appConfig'
 import { listAllShares, revokeShare } from '../services/shares'
-import { createModel, getProviderDetail, listAdminModels, listProviders } from '../services/models'
+import {
+  createModel,
+  getProviderDetail,
+  listAdminModels,
+  listProviders,
+  reorderModels,
+} from '../services/models'
 import { syncProviderModels } from '../services/providers'
 import type { AppEnv } from '../http/types'
 
@@ -114,6 +121,23 @@ adminRoutes.post('/models', jsonValidator(modelCreateSchema), async (c) => {
     return c.json({ error: { message, code: result.code } }, 400)
   }
   return c.json({ model: result.model })
+})
+
+adminRoutes.post('/models/reorder', jsonValidator(modelReorderSchema), async (c) => {
+  const result = await reorderModels(c.req.valid('json').modelIds)
+  if (!result.ok) {
+    return c.json(
+      {
+        error: {
+          message: '模型列表已变化，请刷新后重试',
+          code: result.code,
+          detail: { invalidIds: result.invalidIds },
+        },
+      },
+      400,
+    )
+  }
+  return c.json({ ok: true })
 })
 
 adminRoutes.patch('/models/:id', jsonValidator(modelUpdateSchema), async (c) => {

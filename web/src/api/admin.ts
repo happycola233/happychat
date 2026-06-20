@@ -17,6 +17,7 @@ import type {
 } from '@shared/types/api'
 import type {
   ModelCreateInput,
+  ModelReorderInput,
   ModelUpdateInput,
   ProviderCreateInput,
   ProviderUpdateInput,
@@ -67,6 +68,8 @@ export const createModel = (input: ModelCreateInput) =>
   apiPost<{ model: AdminModelDTO }>('/admin/models', input).then((r) => r.model)
 export const updateModel = (id: string, input: ModelUpdateInput) =>
   apiPatch<{ ok: true }>(`/admin/models/${id}`, input)
+export const reorderModels = (input: ModelReorderInput) =>
+  apiPost<{ ok: true }>('/admin/models/reorder', input)
 export const deleteModel = (id: string) => apiDelete<{ ok: true }>(`/admin/models/${id}`)
 
 // 邀请码

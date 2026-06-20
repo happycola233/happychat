@@ -89,7 +89,16 @@ export const modelCreateSchema = z.object({
   sort: z.number().int().default(0),
 })
 
+/** 管理员在模型列表中拖/点排序后，一次性提交完整顺序，避免相邻模型 sort 冲突。 */
+export const modelReorderSchema = z.object({
+  modelIds: z
+    .array(z.string().min(1))
+    .min(1, '请选择要排序的模型')
+    .refine((ids) => new Set(ids).size === ids.length, '模型顺序不能包含重复项'),
+})
+
 export type ProviderCreateInput = z.infer<typeof providerCreateSchema>
 export type ProviderUpdateInput = z.infer<typeof providerUpdateSchema>
 export type ModelUpdateInput = z.infer<typeof modelUpdateSchema>
 export type ModelCreateInput = z.infer<typeof modelCreateSchema>
+export type ModelReorderInput = z.infer<typeof modelReorderSchema>
