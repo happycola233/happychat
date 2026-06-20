@@ -7,6 +7,7 @@ import { providerClientFromRow } from '../provider/client'
 import { parseResponse } from '../provider/normalize'
 import { buildPath, getConversationMessages } from './conversations'
 import { getAppConfig } from './appConfig'
+import { conversationEvents } from './conversation-events'
 
 type ModelRow = typeof models.$inferSelect
 type ProviderRow = typeof providers.$inferSelect
@@ -127,7 +128,12 @@ export async function maybeGenerateTitle(conversationId: string, runId?: string)
 
     const resolved = await resolveTitleModel(cfg.titleModelId)
     if (!resolved) {
-      await db.update(conversations).set({ title: fallback }).where(eq(conversations.id, conversationId))
+      const updatedAt = new Date()
+      await db
+        .update(conversations)
+        .set({ title: fallback, updatedAt })
+        .where(eq(conversations.id, conversationId))
+      conversationEvents.emitTitleUpdated(conv.userId, conversationId, fallback, updatedAt)
       return
     }
     const titleLocale = await titleLocaleForRun(conversationId, runId)
@@ -136,7 +142,12 @@ export async function maybeGenerateTitle(conversationId: string, runId?: string)
       .replaceAll('{content}', content)
     const raw = await callTitleModel(resolved.model, resolved.provider, prompt)
     const title = cleanTitle(raw) || fallback
-    await db.update(conversations).set({ title }).where(eq(conversations.id, conversationId))
+    const updatedAt = new Date()
+    await db
+      .update(conversations)
+      .set({ title, updatedAt })
+      .where(eq(conversations.id, conversationId))
+    conversationEvents.emitTitleUpdated(conv.userId, conversationId, title, updatedAt)
   } catch (e) {
     console.error('标题生成失败:', e)
   }

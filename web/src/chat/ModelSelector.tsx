@@ -24,7 +24,7 @@ export function ModelSelector() {
   const current = models.find((m) => m.id === activeModelId)
 
   return (
-    <div className="relative">
+    <div className={clsx('relative', open && 'z-40')}>
       <button
         onClick={() => setOpen((o) => !o)}
         className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100 dark:text-neutral-100 dark:hover:bg-neutral-800"
@@ -34,8 +34,8 @@ export function ModelSelector() {
       </button>
       {open && (
         <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute z-20 mt-1 w-60 rounded-xl border border-neutral-200 bg-white p-1 shadow-lg dark:border-neutral-800 dark:bg-neutral-900">
+          <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
+          <div className="absolute z-40 mt-1 w-60 rounded-xl border border-neutral-200 bg-white p-1 shadow-lg dark:border-neutral-800 dark:bg-neutral-900">
             {models.map((m) => (
               <button
                 key={m.id}

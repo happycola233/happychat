@@ -34,6 +34,18 @@ function model(overrides: Partial<ModelForBuild> = {}): ModelForBuild {
 }
 
 describe('buildResponseBody', () => {
+  it('uses the model default web search setting when no request override is provided', () => {
+    const body = buildResponseBody({
+      model: model({ defaultParams: {}, defaultWebSearch: true }),
+      input: [],
+      instructions: null,
+      userParams: {},
+      stream: true,
+    })
+
+    expect(body.tools).toEqual([{ type: 'web_search' }])
+  })
+
   it('respects explicit web_search false over model defaults', () => {
     const body = buildResponseBody({
       model: model({ defaultParams: { web_search: true }, defaultWebSearch: true }),

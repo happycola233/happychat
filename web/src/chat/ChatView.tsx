@@ -19,6 +19,7 @@ import { useSettings } from '../store/settings'
 import { useStreamStore } from '../store/stream'
 import { useSidebarStore } from '../store/sidebar'
 import { getBrowserLocale } from '../lib/browserLocale'
+import { pollConversationTitleAfterRun } from '../sse/conversationEvents'
 import { startStream } from '../sse/streamManager'
 import { toast } from '../store/toast'
 import { buildPath, getSiblings } from './buildPath'
@@ -62,6 +63,7 @@ export default function ChatView() {
   const autoScrollOnOpenRef = useRef(autoScrollOnOpen)
   autoScrollOnOpenRef.current = autoScrollOnOpen
   const [showScrollBtn, setShowScrollBtn] = useState(false)
+  const [isScrolledFromTop, setIsScrolledFromTop] = useState(false)
 
   const allMessages = detail?.messages ?? []
   const messages = detail ? buildPath(allMessages, detail.conversation.activeLeafId) : []
@@ -72,12 +74,21 @@ export default function ChatView() {
     [qc],
   )
 
+  const handleRunTerminal = useCallback(
+    (convId: string) => {
+      void invalidateDetail(convId)
+      pollConversationTitleAfterRun(qc, convId)
+    },
+    [invalidateDetail, qc],
+  )
+
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
     const el = scrollRef.current
     if (!el) return
     el.scrollTo({ top: el.scrollHeight, behavior })
     atBottomRef.current = true
     setShowScrollBtn(false)
+    setIsScrolledFromTop(el.scrollHeight > el.clientHeight + 1)
   }, [])
 
   const updateScrollState = useCallback(() => {
@@ -85,6 +96,7 @@ export default function ChatView() {
     if (!el) return
     const dist = el.scrollHeight - el.scrollTop - el.clientHeight
     atBottomRef.current = dist < 80
+    setIsScrolledFromTop(el.scrollTop > 1)
     setShowScrollBtn(dist > 240)
   }, [])
 
@@ -115,7 +127,7 @@ export default function ChatView() {
       assistantMessageId: res.assistantMessage.id,
       fromSeq: -1,
       reasoningEnabled: reasoningEnabledForRun(res.assistantMessage.modelId, requestParams),
-      onTerminal: () => invalidateDetail(convId),
+      onTerminal: () => handleRunTerminal(convId),
     })
     if (id !== convId) navigate(`/c/${convId}`)
   }
@@ -138,13 +150,13 @@ export default function ChatView() {
         reasoningDurationMs: run.reasoningDurationMs,
         imageStartedAt: run.imageStartedAt,
         reasoningEnabled: run.reasoningEnabled,
-        onTerminal: () => invalidateDetail(id),
+        onTerminal: () => handleRunTerminal(id),
       })
     })
     return () => {
       cancelled = true
     }
-  }, [id, invalidateDetail])
+  }, [id, handleRunTerminal])
 
   // 终止后交接到持久化内容
   useEffect(() => {
@@ -186,6 +198,7 @@ export default function ChatView() {
     } else {
       atBottomRef.current = false
       setShowScrollBtn(false)
+      setIsScrolledFromTop(false)
       scrollRef.current?.scrollTo({ top: 0 })
     }
   }, [id, scrollToBottom])
@@ -225,7 +238,7 @@ export default function ChatView() {
     if (model?.kind === 'image') {
       p.image = { size: imageSize, quality: imageQuality }
     } else {
-      p.web_search = activeWebSearch
+      if (activeWebSearch !== null) p.web_search = activeWebSearch
       if (activeEffort) p.reasoning_effort = activeEffort
     }
     return p
@@ -305,7 +318,13 @@ export default function ChatView() {
 
   return (
     <>
-      <header className="flex h-14 shrink-0 items-center gap-1 border-b border-neutral-200 px-2 sm:px-4 dark:border-neutral-800">
+      <header
+        className={`flex h-14 shrink-0 items-center gap-1 border-b px-2 transition-colors sm:px-4 ${
+          isScrolledFromTop
+            ? 'border-neutral-200 dark:border-neutral-800'
+            : 'border-transparent'
+        }`}
+      >
         <button
           type="button"
           onClick={() => openMobileSidebar(true)}
@@ -327,7 +346,7 @@ export default function ChatView() {
         {isEmpty ? (
           <div className="flex h-full items-center justify-center">
             <div className="text-center">
-              <h2 className="text-3xl font-medium text-neutral-700 dark:text-neutral-200">
+              <h2 className="text-2xl font-medium leading-tight text-neutral-700 sm:text-[1.65rem] dark:text-neutral-200">
                 有什么可以帮你的？
               </h2>
             </div>

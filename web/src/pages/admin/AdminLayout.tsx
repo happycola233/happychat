@@ -39,8 +39,8 @@ export default function AdminLayout() {
   return (
     <div className="flex min-h-full flex-col bg-neutral-50 md:flex-row dark:bg-neutral-950">
       {/* 移动端顶部导航 */}
-      <div className="border-b border-neutral-200 bg-white md:hidden dark:border-neutral-800 dark:bg-neutral-900">
-        <div className="flex items-center justify-between px-3 py-2">
+      <div className="sticky top-0 z-20 border-b border-neutral-200 bg-white/95 backdrop-blur md:hidden dark:border-neutral-800 dark:bg-neutral-900/95">
+        <div className="flex h-12 items-center justify-between border-b border-neutral-200 px-4 dark:border-neutral-800">
           <Link
             to="/"
             className="flex items-center gap-1.5 text-sm text-neutral-500 transition hover:text-neutral-900 dark:hover:text-neutral-200"
@@ -51,7 +51,7 @@ export default function AdminLayout() {
             管理后台
           </span>
         </div>
-        <nav className="hc-scrollbar flex gap-1 overflow-x-auto px-2 pb-2">
+        <nav className="hc-scrollbar-hidden flex gap-1 overflow-x-auto px-3 py-2">
           {navItems.map((it) => (
             <NavLink key={it.to} to={it.to} className={({ isActive }) => itemClass(isActive)}>
               <it.icon className="h-4 w-4" />

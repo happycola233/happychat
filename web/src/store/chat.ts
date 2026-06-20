@@ -6,6 +6,7 @@ import type { ReasoningEffort } from '@shared/types/domain'
  * 编排器偏好：区分「固定默认（持久化）」与「当前会话临时值（不持久化）」。
  * - 选模型即时生效，并更新固定默认（作为新会话默认）。
  * - 联网/思考的选择只是「临时用一次」（active）；思考可点固定按钮设为默认（pinnedEffort）。
+ * - activeWebSearch=null 表示沿用当前模型的管理员默认值，避免新会话显式覆盖为 false。
  * - 打开会话时由 ChatView 调 resetActive，从该会话最近一次的模型/联网/思考恢复。
  */
 interface ChatPrefs {
@@ -16,7 +17,7 @@ interface ChatPrefs {
   imageQuality: string
   // —— 当前会话临时值（不持久化）——
   activeModelId: string | null
-  activeWebSearch: boolean
+  activeWebSearch: boolean | null
   activeEffort: ReasoningEffort | null
 
   /** 选择模型：临时生效并更新固定默认（新会话沿用）。 */
@@ -45,7 +46,7 @@ export const useChatPrefs = create<ChatPrefs>()(
       imageSize: 'auto',
       imageQuality: 'auto',
       activeModelId: null,
-      activeWebSearch: false,
+      activeWebSearch: null,
       activeEffort: null,
 
       setActiveModel: (id) => set({ activeModelId: id, pinnedModelId: id }),
@@ -55,7 +56,7 @@ export const useChatPrefs = create<ChatPrefs>()(
       resetActive: ({ modelId, webSearch, effort }) =>
         set((s) => ({
           activeModelId: modelId ?? s.pinnedModelId,
-          activeWebSearch: webSearch ?? false,
+          activeWebSearch: webSearch ?? null,
           activeEffort: effort ?? s.pinnedEffort,
         })),
 

@@ -1,5 +1,7 @@
 import { Hono } from 'hono'
+import { streamSSE } from 'hono/streaming'
 import { eq } from 'drizzle-orm'
+import { CONVERSATION_EVENT_TYPE } from '@shared/types/events'
 import {
   pinConversationSchema,
   renameConversationSchema,
@@ -29,6 +31,7 @@ import {
   listOwnerShares,
   revokeShare,
 } from '../services/shares'
+import { conversationEvents, type ConversationEvent } from '../services/conversation-events'
 import type { AppEnv } from '../http/types'
 
 export const conversationRoutes = new Hono<AppEnv>()
@@ -53,6 +56,71 @@ conversationRoutes.get('/search', async (c) => {
 /** 我的分享列表（字面量路由，须在 /:id 之前注册）。 */
 conversationRoutes.get('/shared', async (c) => {
   return c.json({ shares: await listOwnerShares(c.get('user').id) })
+})
+
+/** 用户级会话事件流：标题自动总结完成后实时通知前端刷新缓存。 */
+conversationRoutes.get('/events', async (c) => {
+  const userId = c.get('user').id
+  c.header('Cache-Control', 'no-cache, no-transform')
+  c.header('X-Accel-Buffering', 'no')
+  c.header('Connection', 'keep-alive')
+
+  return streamSSE(
+    c,
+    async (stream) => {
+      const queue: ConversationEvent[] = []
+      let waiter: (() => void) | null = null
+      let aborted = false
+
+      const onEvent = (event: ConversationEvent) => {
+        queue.push(event)
+        const wake = waiter
+        waiter = null
+        wake?.()
+      }
+      const unsubscribe = conversationEvents.subscribe(userId, onEvent)
+      stream.onAbort(() => {
+        aborted = true
+        const wake = waiter
+        waiter = null
+        wake?.()
+      })
+
+      const writeEvent = (event: Pick<ConversationEvent, 'type' | 'sequenceNumber' | 'data'>) =>
+        stream.writeSSE({
+          id: String(event.sequenceNumber),
+          data: JSON.stringify({ type: event.type, seq: event.sequenceNumber, data: event.data }),
+        })
+
+      const waitNext = () =>
+        new Promise<void>((resolve) => {
+          if (queue.length > 0 || aborted) {
+            resolve()
+            return
+          }
+          waiter = resolve
+        })
+
+      try {
+        await writeEvent({
+          type: CONVERSATION_EVENT_TYPE.ready,
+          sequenceNumber: -1,
+          data: {},
+        })
+        while (!aborted) {
+          await waitNext()
+          while (!aborted && queue.length > 0) {
+            await writeEvent(queue.shift()!)
+          }
+        }
+      } finally {
+        unsubscribe()
+      }
+    },
+    async () => {
+      // 客户端离开页面或刷新造成的写入异常无需打断服务端。
+    },
+  )
 })
 
 conversationRoutes.get('/:id', async (c) => {

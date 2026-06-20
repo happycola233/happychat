@@ -154,6 +154,31 @@ describe('prepareRun active leaf', () => {
     expect(path.map((m) => m.id)).toEqual([result.userMessage.id, result.assistantMessage.id])
   })
 
+  it('uses admin web search defaults for new runs without persisting a synthetic override', async () => {
+    const { userId, modelId } = await createRunnableModel()
+    dbClient.sqlite
+      .prepare('update models set capabilities = ?, default_web_search = 1 where id = ?')
+      .run(
+        JSON.stringify({
+          vision: false,
+          file_input: false,
+          web_search: true,
+          image_generation: false,
+          reasoning: false,
+        }),
+        modelId,
+      )
+
+    const result = assertPrepared(
+      await prepare.prepareRun({ userId, modelId, text: '需要查一下今天的信息', params: {} }),
+    )
+    const lastRun = await conversationServices.getConversationLastRun(result.conversation.id)
+
+    expect(result.body.tools).toEqual([{ type: 'web_search' }])
+    expect(result.run.requestParams).not.toHaveProperty('web_search')
+    expect(lastRun.params?.web_search).toBe(true)
+  })
+
   it('continues an existing conversation from the previous active leaf', async () => {
     const { userId, modelId } = await createRunnableModel()
     const first = assertPrepared(await prepare.prepareRun({ userId, modelId, text: 'first' }))

@@ -19,6 +19,12 @@ export const RUN_EVENT_TYPE = {
   interrupted: 'run.interrupted',
 } as const
 
+/** 会话级 SSE 事件（不绑定某一次 run，适合标题、置顶等轻量元数据更新） */
+export const CONVERSATION_EVENT_TYPE = {
+  ready: 'conversation.events.ready',
+  titleUpdated: 'conversation.title.updated',
+} as const
+
 export const TERMINAL_EVENT_TYPES: readonly string[] = [
   RUN_EVENT_TYPE.done,
   RUN_EVENT_TYPE.error,
@@ -53,4 +59,10 @@ export interface RunErrorData {
 
 export interface RunSimpleTerminalData {
   state: RunState
+}
+
+export interface ConversationTitleUpdatedData {
+  conversationId: string
+  title: string
+  updatedAt: number
 }

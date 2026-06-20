@@ -1,5 +1,6 @@
 import { REASONING_MIN_OUTPUT_TOKENS } from '@shared/constants'
 import type { ModelParams } from '@shared/types/domain'
+import { effectiveWebSearchEnabled } from '@shared/util/webSearch'
 import type { models } from '../db/schema'
 
 type ModelRow = typeof models.$inferSelect
@@ -53,8 +54,7 @@ export function buildResponseBody(o: BuildBodyOptions): Record<string, unknown> 
   }
 
   // 联网搜索：仅当模型支持且开关开启
-  const webSearch = userParams?.web_search ?? defaults.web_search ?? model.defaultWebSearch
-  if (caps.web_search && webSearch) {
+  if (effectiveWebSearchEnabled(model, userParams)) {
     body.tools = [{ type: 'web_search' }]
   }
 

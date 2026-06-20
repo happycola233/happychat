@@ -26,6 +26,7 @@ import { useIsMobile, useSidebarStore } from '../store/sidebar'
 import { toast } from '../store/toast'
 import { useSettings } from '../store/settings'
 import { useSettingsDialog } from '../store/settingsDialog'
+import { useTitleTypingStore } from '../store/titleTyping'
 import { ChatBubbleIcon, NewChatIcon, RoutineIcon, SidebarToggleIcon } from './icons'
 import { SearchDialog } from './SearchDialog'
 
@@ -212,6 +213,8 @@ function ConversationRow({
   const [draft, setDraft] = useState('')
   const menuRef = useRef<HTMLDivElement>(null)
   const rowRef = useRef<HTMLDivElement>(null)
+  const typingTitle = useTitleTypingStore((state) => state.byConversation[conversation.id])
+  const displayTitle = typingTitle?.text ?? titleOf(conversation)
 
   useEffect(() => {
     if (!menuOpen) return
@@ -275,10 +278,18 @@ function ConversationRow({
           <button
             type="button"
             onClick={() => onOpen(conversation.id)}
-            className="min-w-0 flex-1 truncate text-left text-neutral-900 transition-[padding] group-hover:pr-7 group-focus-within:pr-7 dark:text-neutral-100"
+            className="min-w-0 flex-1 text-left text-neutral-900 transition-[padding] group-hover:pr-7 group-focus-within:pr-7 dark:text-neutral-100"
             title={titleOf(conversation)}
           >
-            {titleOf(conversation)}
+            <span className="flex min-w-0 items-center">
+              <span className="truncate">{displayTitle}</span>
+              {typingTitle?.active && (
+                <span
+                  aria-hidden
+                  className="ml-0.5 inline-block h-3.5 w-px shrink-0 animate-pulse bg-neutral-500 dark:bg-neutral-300"
+                />
+              )}
+            </span>
           </button>
         )}
         {actions && !renaming && (

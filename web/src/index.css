@@ -72,6 +72,14 @@ html.hc-font-large {
   background-color: rgb(163 163 163 / 0.75);
 }
 
+.hc-scrollbar-hidden {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.hc-scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+}
+
 /* Markdown 渲染排版 */
 .hc-md > :first-child {
   margin-top: 0;

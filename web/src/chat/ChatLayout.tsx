@@ -1,8 +1,11 @@
 import { Outlet } from 'react-router-dom'
+import { useConversationEvents } from '../sse/conversationEvents'
 import { Sidebar } from './Sidebar'
 import { SettingsDialog } from './SettingsDialog'
 
 export default function ChatLayout() {
+  useConversationEvents()
+
   return (
     <div className="flex h-full bg-white dark:bg-[#000000]">
       <Sidebar />

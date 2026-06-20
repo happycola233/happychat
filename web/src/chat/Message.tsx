@@ -190,7 +190,7 @@ export function Message({
           </div>
         )}
         <div className="flex items-center gap-1.5">
-          <div className="flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
+          <div className="flex items-center gap-1">
             {branch && branch.total > 1 && <BranchSwitch branch={branch} />}
             <CopyMessageButton text={text} />
             {onEdit && (

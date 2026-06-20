@@ -2,7 +2,8 @@ import { and, asc, desc, eq, inArray } from 'drizzle-orm'
 import type { ConversationDTO, ConversationSearchResultDTO, MessageDTO } from '@shared/types/api'
 import type { ModelParams, ReasoningEffort } from '@shared/types/domain'
 import { textFromContent } from '@shared/util/contentText'
-import { isReasoningEnabled } from '@shared/util/reasoning'
+import { effectiveReasoningEffort, isReasoningEnabled } from '@shared/util/reasoning'
+import { effectiveWebSearchEnabled } from '@shared/util/webSearch'
 import { db } from '../db/client'
 import { attachments, conversations, messages, models, runEvents, runs } from '../db/schema'
 import { removeUpload } from '../storage/files'
@@ -218,16 +219,43 @@ export async function getConversationLastRun(
   params: { web_search?: boolean; reasoning_effort?: ReasoningEffort } | null
 }> {
   const [r] = await db
-    .select({ modelId: runs.modelId, requestParams: runs.requestParams })
+    .select({
+      modelId: runs.modelId,
+      requestParams: runs.requestParams,
+      modelKind: models.kind,
+      modelCapabilities: models.capabilities,
+      modelDefaultParams: models.defaultParams,
+      modelDefaultEffort: models.defaultEffort,
+      modelDefaultWebSearch: models.defaultWebSearch,
+    })
     .from(runs)
+    .leftJoin(models, eq(runs.modelId, models.id))
     .where(eq(runs.conversationId, conversationId))
     .orderBy(desc(runs.createdAt))
     .limit(1)
   if (!r) return { modelId: null, params: null }
   const rp = (r.requestParams ?? {}) as ModelParams
+  const params: { web_search?: boolean; reasoning_effort?: ReasoningEffort } = {}
+
+  if (r.modelCapabilities) {
+    const modelConfig = {
+      kind: r.modelKind ?? undefined,
+      capabilities: r.modelCapabilities,
+      defaultParams: r.modelDefaultParams,
+      defaultEffort: r.modelDefaultEffort,
+      defaultWebSearch: r.modelDefaultWebSearch,
+    }
+    if (r.modelCapabilities.web_search) params.web_search = effectiveWebSearchEnabled(modelConfig, rp)
+    const effort = effectiveReasoningEffort(modelConfig, rp)
+    if (effort) params.reasoning_effort = effort
+  } else {
+    if (rp.web_search !== undefined) params.web_search = rp.web_search
+    if (rp.reasoning_effort !== undefined) params.reasoning_effort = rp.reasoning_effort
+  }
+
   return {
     modelId: r.modelId,
-    params: { web_search: rp.web_search, reasoning_effort: rp.reasoning_effort },
+    params: Object.keys(params).length ? params : null,
   }
 }
 

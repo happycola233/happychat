@@ -3,6 +3,7 @@ import { clsx } from 'clsx'
 import { Brain, Check, ChevronDown, Globe, ImageIcon, Pin } from 'lucide-react'
 import type { ModelDTO } from '@shared/types/api'
 import type { ReasoningEffort } from '@shared/types/domain'
+import { effectiveWebSearchEnabled } from '@shared/util/webSearch'
 import {
   GPT_IMAGE_2_SIZE_OPTIONS,
   formatImageSizeLabel,
@@ -121,20 +122,21 @@ function ImageSizeSelect({ value, onChange }: { value: string; onChange: (v: str
   )
 }
 
-function WebToggle() {
+function WebToggle({ model }: { model: ModelDTO }) {
   const activeWebSearch = useChatPrefs((s) => s.activeWebSearch)
   const setActiveWebSearch = useChatPrefs((s) => s.setActiveWebSearch)
+  const enabled = activeWebSearch ?? effectiveWebSearchEnabled(model)
   return (
     <button
       type="button"
-      onClick={() => setActiveWebSearch(!activeWebSearch)}
+      onClick={() => setActiveWebSearch(!enabled)}
       className={clsx(
         'flex items-center gap-1 rounded-full border px-2.5 py-1.5 text-xs transition',
-        activeWebSearch
+        enabled
           ? 'border-blue-200 bg-blue-50 text-blue-600 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300'
           : 'border-neutral-200 text-neutral-500 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800',
       )}
-      title="联网搜索（本次会话临时开关）"
+      title={activeWebSearch === null ? '联网搜索（使用模型默认）' : '联网搜索（本次会话临时开关）'}
     >
       <Globe className="h-3.5 w-3.5" /> 联网
     </button>
@@ -301,7 +303,7 @@ export function ChatControls() {
   if (model.kind === 'image') return <ImageControls />
   return (
     <>
-      {model.capabilities.web_search && <WebToggle />}
+      {model.capabilities.web_search && <WebToggle model={model} />}
       {model.capabilities.reasoning && <ReasoningSelect model={model} />}
     </>
   )
