@@ -31,3 +31,6 @@ export const switchBranch = (id: string, messageId: string) =>
   apiPost<{ activeLeafId: string }>(`/conversations/${id}/switch`, { messageId })
 
 export const deleteConversation = (id: string) => apiDelete<{ ok: true }>(`/conversations/${id}`)
+
+export const clearAllConversations = () =>
+  apiDelete<{ deletedCount: number }>('/conversations').then((r) => r.deletedCount)

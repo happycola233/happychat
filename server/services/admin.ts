@@ -1,11 +1,5 @@
 import { desc, eq, sql } from 'drizzle-orm'
-import type {
-  AdminUserDTO,
-  ErrorLogDTO,
-  InviteCodeDTO,
-  StatsDTO,
-  UsageLogDTO,
-} from '@shared/types/api'
+import type { AdminUserDTO, InviteCodeDTO, StatsDTO } from '@shared/types/api'
 import { db } from '../db/client'
 import {
   conversations,
@@ -44,6 +38,7 @@ export async function listAdminUsers(): Promise<AdminUserDTO[]> {
     role: u.role,
     displayName: u.displayName,
     disabled: u.disabled,
+    canShare: u.canShare ?? null,
     createdAt: u.createdAt.getTime(),
     lastActiveAt: u.lastActiveAt?.getTime() ?? null,
     conversationCount: map.get(u.id) ?? 0,
@@ -109,34 +104,4 @@ export async function getStats(): Promise<StatsDTO> {
     byModel: byModel.map((m) => ({ model: m.model ?? '未知', calls: m.calls, totalTokens: m.totalTokens })),
     byUser: byUser.map((u) => ({ username: u.username, calls: u.calls, totalTokens: u.totalTokens })),
   }
-}
-
-export async function listErrorLogs(limit = 100): Promise<ErrorLogDTO[]> {
-  const rows = await db.select().from(errorLogs).orderBy(desc(errorLogs.createdAt)).limit(limit)
-  return rows.map((e) => ({
-    id: e.id,
-    scope: e.scope,
-    errorType: e.errorType,
-    code: e.code,
-    httpStatus: e.httpStatus,
-    message: e.message,
-    createdAt: e.createdAt.getTime(),
-  }))
-}
-
-export async function listUsageLogs(limit = 100): Promise<UsageLogDTO[]> {
-  const rows = await db.select().from(usageLogs).orderBy(desc(usageLogs.createdAt)).limit(limit)
-  return rows.map((u) => ({
-    id: u.id,
-    modelLabel: u.modelLabel,
-    providerLabel: u.providerLabel,
-    inputTokens: u.inputTokens,
-    cachedTokens: u.cachedTokens,
-    outputTokens: u.outputTokens,
-    reasoningTokens: u.reasoningTokens,
-    totalTokens: u.totalTokens,
-    success: u.success,
-    errorType: u.errorType,
-    createdAt: u.createdAt.getTime(),
-  }))
 }

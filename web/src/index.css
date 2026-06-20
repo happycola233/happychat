@@ -23,6 +23,20 @@ html.dark {
   color-scheme: dark;
 }
 
+/* 消息正文字号档位（由设置驱动，applyFontSize 在 <html> 切换类） */
+:root {
+  --hc-msg-font: 15px;
+}
+html.hc-font-small {
+  --hc-msg-font: 14px;
+}
+html.hc-font-medium {
+  --hc-msg-font: 15px;
+}
+html.hc-font-large {
+  --hc-msg-font: 17px;
+}
+
 .hc-scrollbar {
   scrollbar-width: thin;
   scrollbar-color: rgb(163 163 163 / 0.8) transparent;
@@ -375,6 +389,35 @@ html.dark {
   color: #7ee787;
 }
 
+/* 克制的进入动效（OpenAI 风：快、ease-out、不浮夸） */
+@keyframes hc-fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes hc-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.hc-anim-in {
+  animation: hc-fade-in-up 0.28s ease-out;
+}
+.hc-pop-in {
+  animation: hc-pop-in 0.16s ease-out;
+  transform-origin: top;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .hc-reasoning-collapse,
   .hc-reasoning-status svg {
@@ -383,5 +426,9 @@ html.dark {
   .hc-reasoning-shimmer::after {
     animation: none;
     opacity: 0;
+  }
+  .hc-anim-in,
+  .hc-pop-in {
+    animation: none;
   }
 }

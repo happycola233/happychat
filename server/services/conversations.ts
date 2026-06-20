@@ -1,14 +1,21 @@
 import { and, asc, desc, eq, inArray } from 'drizzle-orm'
 import type { ConversationDTO, ConversationSearchResultDTO, MessageDTO } from '@shared/types/api'
-import type { ModelParams } from '@shared/types/domain'
+import type { ModelParams, ReasoningEffort } from '@shared/types/domain'
 import { textFromContent } from '@shared/util/contentText'
 import { isReasoningEnabled } from '@shared/util/reasoning'
 import { db } from '../db/client'
-import { conversations, messages, models, runEvents, runs } from '../db/schema'
+import { attachments, conversations, messages, models, runEvents, runs } from '../db/schema'
+import { removeUpload } from '../storage/files'
 import { computeReasoningDurationMs, type ReasoningTimingEvent } from './reasoning-timing'
 
 export type ConvRow = typeof conversations.$inferSelect
 export type MsgRow = typeof messages.$inferSelect
+
+/** 消息的读取期计时（不入库，按 run 数据现算）。 */
+export interface MessageTiming {
+  reasoningDurationMs: number | null
+  generationDurationMs: number | null
+}
 
 export function toConversationDTO(c: ConvRow): ConversationDTO {
   return {
@@ -22,7 +29,7 @@ export function toConversationDTO(c: ConvRow): ConversationDTO {
   }
 }
 
-export function toMessageDTO(m: MsgRow, reasoningDurationMs: number | null = null): MessageDTO {
+export function toMessageDTO(m: MsgRow, timing: MessageTiming | null = null): MessageDTO {
   return {
     id: m.id,
     conversationId: m.conversationId,
@@ -33,7 +40,8 @@ export function toMessageDTO(m: MsgRow, reasoningDurationMs: number | null = nul
     modelId: m.modelId,
     runId: m.runId,
     reasoningSummary: m.reasoningSummary,
-    reasoningDurationMs,
+    reasoningDurationMs: timing?.reasoningDurationMs ?? null,
+    generationDurationMs: timing?.generationDurationMs ?? null,
     annotations: m.annotations,
     usage:
       m.totalTokens != null
@@ -91,7 +99,7 @@ export async function getConversationMessages(conversationId: string): Promise<M
     .orderBy(asc(messages.createdAt))
 }
 
-async function getReasoningDurationByMessageId(rows: MsgRow[]): Promise<Map<string, number>> {
+async function getMessageTimingByMessageId(rows: MsgRow[]): Promise<Map<string, MessageTiming>> {
   const runIds = rows.map((m) => m.runId).filter((runId): runId is string => Boolean(runId))
   if (runIds.length === 0) return new Map()
   const uniqueRunIds = [...new Set(runIds)]
@@ -99,6 +107,8 @@ async function getReasoningDurationByMessageId(rows: MsgRow[]): Promise<Map<stri
   const runRows = await db
     .select({
       runId: runs.id,
+      startedAt: runs.startedAt,
+      finishedAt: runs.finishedAt,
       requestParams: runs.requestParams,
       modelKind: models.kind,
       modelCapabilities: models.capabilities,
@@ -109,6 +119,15 @@ async function getReasoningDurationByMessageId(rows: MsgRow[]): Promise<Map<stri
     .leftJoin(models, eq(runs.modelId, models.id))
     .where(inArray(runs.id, uniqueRunIds))
 
+  // 整次生成墙钟耗时（所有 run，不限推理）：finishedAt − startedAt。
+  const generationByRun = new Map<string, number>()
+  for (const row of runRows) {
+    if (row.startedAt && row.finishedAt) {
+      generationByRun.set(row.runId, Math.max(0, row.finishedAt.getTime() - row.startedAt.getTime()))
+    }
+  }
+
+  // 推理耗时（仅推理 run，需要回放 run_events）。
   const reasoningRunIds = new Set(
     runRows
       .filter((row) =>
@@ -126,39 +145,94 @@ async function getReasoningDurationByMessageId(rows: MsgRow[]): Promise<Map<stri
       )
       .map((row) => row.runId),
   )
-  if (reasoningRunIds.size === 0) return new Map()
 
-  const eventRows = await db
-    .select({
-      runId: runEvents.runId,
-      type: runEvents.type,
-      sequenceNumber: runEvents.sequenceNumber,
-      createdAt: runEvents.createdAt,
-    })
-    .from(runEvents)
-    .where(inArray(runEvents.runId, [...reasoningRunIds]))
-    .orderBy(asc(runEvents.runId), asc(runEvents.sequenceNumber))
+  const reasoningByRun = new Map<string, number>()
+  if (reasoningRunIds.size > 0) {
+    const eventRows = await db
+      .select({
+        runId: runEvents.runId,
+        type: runEvents.type,
+        sequenceNumber: runEvents.sequenceNumber,
+        createdAt: runEvents.createdAt,
+      })
+      .from(runEvents)
+      .where(inArray(runEvents.runId, [...reasoningRunIds]))
+      .orderBy(asc(runEvents.runId), asc(runEvents.sequenceNumber))
 
-  const byRun = new Map<string, ReasoningTimingEvent[]>()
-  for (const ev of eventRows) {
-    const items = byRun.get(ev.runId) ?? []
-    items.push(ev)
-    byRun.set(ev.runId, items)
+    const byRun = new Map<string, ReasoningTimingEvent[]>()
+    for (const ev of eventRows) {
+      const items = byRun.get(ev.runId) ?? []
+      items.push(ev)
+      byRun.set(ev.runId, items)
+    }
+    for (const runId of reasoningRunIds) {
+      const duration = computeReasoningDurationMs(byRun.get(runId) ?? [])
+      if (duration !== null) reasoningByRun.set(runId, duration)
+    }
   }
 
-  const durations = new Map<string, number>()
+  const timings = new Map<string, MessageTiming>()
   for (const m of rows) {
     if (!m.runId) continue
-    const duration = computeReasoningDurationMs(byRun.get(m.runId) ?? [])
-    if (duration !== null) durations.set(m.id, duration)
+    timings.set(m.id, {
+      reasoningDurationMs: reasoningByRun.get(m.runId) ?? null,
+      generationDurationMs: generationByRun.get(m.runId) ?? null,
+    })
   }
-  return durations
+  return timings
 }
 
 export async function getConversationMessageDTOs(conversationId: string): Promise<MessageDTO[]> {
   const rows = await getConversationMessages(conversationId)
-  const durations = await getReasoningDurationByMessageId(rows)
-  return rows.map((m) => toMessageDTO(m, durations.get(m.id) ?? null))
+  const timings = await getMessageTimingByMessageId(rows)
+  return rows.map((m) => toMessageDTO(m, timings.get(m.id) ?? null))
+}
+
+/** 会话最近一次生成所用的模型与联网/思考参数（用于打开会话时恢复控件）。 */
+export async function getConversationLastRun(
+  conversationId: string,
+): Promise<{
+  modelId: string | null
+  params: { web_search?: boolean; reasoning_effort?: ReasoningEffort } | null
+}> {
+  const [r] = await db
+    .select({ modelId: runs.modelId, requestParams: runs.requestParams })
+    .from(runs)
+    .where(eq(runs.conversationId, conversationId))
+    .orderBy(desc(runs.createdAt))
+    .limit(1)
+  if (!r) return { modelId: null, params: null }
+  const rp = (r.requestParams ?? {}) as ModelParams
+  return {
+    modelId: r.modelId,
+    params: { web_search: rp.web_search, reasoning_effort: rp.reasoning_effort },
+  }
+}
+
+/**
+ * 清空某用户的全部对话（级联删除 messages/runs/run_events），
+ * 并删除其全部附件（行 + 磁盘文件；头像存于 users.avatarPath，不受影响）。
+ * 返回被删除的会话数。
+ */
+export async function clearAllConversations(userId: string): Promise<number> {
+  const convRows = await db
+    .select({ id: conversations.id })
+    .from(conversations)
+    .where(eq(conversations.userId, userId))
+
+  const attachmentRows = await db
+    .select()
+    .from(attachments)
+    .where(eq(attachments.userId, userId))
+
+  await db.delete(conversations).where(eq(conversations.userId, userId))
+
+  if (attachmentRows.length > 0) {
+    await db.delete(attachments).where(eq(attachments.userId, userId))
+    for (const a of attachmentRows) removeUpload(a.storagePath)
+  }
+
+  return convRows.length
 }
 
 function makeSnippet(text: string, query: string, maxLength = 112): string {

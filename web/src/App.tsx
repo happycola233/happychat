@@ -2,10 +2,15 @@ import { useEffect } from 'react'
 import { RouterProvider } from 'react-router-dom'
 import { router } from './router'
 import { Toaster } from './components/ui/Toaster'
-import { applyTheme, useTheme } from './store/theme'
+import { applyTheme } from './lib/theme'
+import { useSettings } from './store/settings'
+import { useSettingsSync } from './hooks/useSettings'
 
 export default function App() {
-  const theme = useTheme((s) => s.theme)
+  const theme = useSettings((s) => s.theme)
+  // 登录后用服务端设置真值覆盖本地缓存。
+  useSettingsSync()
+
   useEffect(() => {
     applyTheme(theme)
     if (theme !== 'system') return

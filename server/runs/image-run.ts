@@ -53,6 +53,9 @@ export async function runImageEngine(ctx: EngineContext): Promise<void> {
 
   let state: 'completed' | 'failed' | 'canceled' = 'completed'
   let errorMessage: string | null = null
+  let errorType: string | null = null
+  let errorCode: string | null = null
+  let httpStatus: number | null = null
   let attachmentId: string | null = null
   let revisedPrompt: string | null = null
   let inputTokens = 0
@@ -100,6 +103,9 @@ export async function runImageEngine(ctx: EngineContext): Promise<void> {
       const ue = e instanceof UpstreamError ? e : null
       state = 'failed'
       errorMessage = ue?.message ?? (e instanceof Error ? e.message : '生成失败')
+      errorType = ue?.type ?? null
+      errorCode = ue?.code ?? null
+      httpStatus = ue?.status ?? null
     }
   }
 
@@ -143,6 +149,7 @@ export async function runImageEngine(ctx: EngineContext): Promise<void> {
       runId: ctx.run.id,
       userId: ctx.run.userId,
       modelId: ctx.model.id,
+      providerId: ctx.provider.id,
       modelLabel: ctx.model.modelId,
       providerLabel: ctx.provider.name,
       conversationId: ctx.conversation.id,
@@ -151,7 +158,7 @@ export async function runImageEngine(ctx: EngineContext): Promise<void> {
       totalTokens,
       imageTokens,
       success: state !== 'failed',
-      errorType: state === 'failed' ? 'error' : null,
+      errorType: state === 'failed' ? (errorType ?? 'error') : null,
     })
     .run()
 
@@ -161,6 +168,9 @@ export async function runImageEngine(ctx: EngineContext): Promise<void> {
         runId: ctx.run.id,
         userId: ctx.run.userId,
         scope: 'upstream',
+        errorType,
+        code: errorCode,
+        httpStatus,
         message: errorMessage,
       })
       .run()

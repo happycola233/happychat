@@ -4,22 +4,28 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { ConversationDTO } from '@shared/types/api'
 import {
   ChevronDown,
+  LayoutDashboard,
   LogOut,
   Moon,
+  MoreHorizontal,
+  Pencil,
   Pin,
   PinOff,
   Search,
   Settings,
+  Share2,
   Sun,
   Trash2,
 } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { deleteConversation, pinConversation } from '../api/chat'
+import { deleteConversation, pinConversation, renameConversation } from '../api/chat'
+import { ShareDialog } from './ShareDialog'
 import { useConversations } from '../hooks/useConversations'
 import { useLogout, useMe } from '../hooks/useAuth'
-import { useSidebarStore } from '../store/sidebar'
+import { useIsMobile, useSidebarStore } from '../store/sidebar'
 import { toast } from '../store/toast'
-import { useTheme } from '../store/theme'
+import { useSettings } from '../store/settings'
+import { useSettingsDialog } from '../store/settingsDialog'
 import { ChatBubbleIcon, NewChatIcon, RoutineIcon, SidebarToggleIcon } from './icons'
 import { SearchDialog } from './SearchDialog'
 
@@ -29,7 +35,12 @@ function titleOf(conversation: ConversationDTO): string {
   return conversation.title ?? '新聊天'
 }
 
-function Avatar({ label }: { label: string }) {
+function Avatar({ label, src }: { label: string; src?: string | null }) {
+  if (src) {
+    return (
+      <img src={src} alt="头像" className="h-7 w-7 shrink-0 rounded-full object-cover shadow-sm" />
+    )
+  }
   return (
     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-sky-300 via-indigo-300 to-fuchsia-300 text-xs font-semibold text-white shadow-sm">
       {label.slice(0, 1).toLocaleUpperCase()}
@@ -39,19 +50,25 @@ function Avatar({ label }: { label: string }) {
 
 function AccountMenu({
   userLabel,
+  avatarUrl,
   isAdmin,
   onClose,
+  onOpenSettings,
   onLogout,
 }: {
   userLabel: string
+  avatarUrl?: string | null
   isAdmin: boolean
   onClose: () => void
+  onOpenSettings: () => void
   onLogout: () => void
 }) {
+  const itemClass =
+    'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[14px] text-neutral-900 transition hover:bg-neutral-100 dark:text-neutral-100 dark:hover:bg-neutral-800'
   return (
     <div className="rounded-2xl border border-neutral-200 bg-white p-3 shadow-2xl dark:border-neutral-700 dark:bg-neutral-900">
       <div className="flex items-center gap-2.5 px-2 py-1.5">
-        <Avatar label={userLabel} />
+        <Avatar label={userLabel} src={avatarUrl} />
         <div className="min-w-0">
           <div className="truncate text-[14px] font-medium text-neutral-900 dark:text-neutral-100">
             {userLabel}
@@ -64,21 +81,17 @@ function AccountMenu({
 
       <div className="my-2 border-t border-neutral-200 dark:border-neutral-800" />
 
+      <button type="button" onClick={onOpenSettings} className={itemClass}>
+        <Settings className="h-4 w-4" />
+        设置
+      </button>
       {isAdmin && (
-        <Link
-          to="/admin"
-          onClick={onClose}
-          className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[14px] text-neutral-900 transition hover:bg-neutral-100 dark:text-neutral-100 dark:hover:bg-neutral-800"
-        >
-          <Settings className="h-4 w-4" />
-          管理
+        <Link to="/admin" onClick={onClose} className={itemClass}>
+          <LayoutDashboard className="h-4 w-4" />
+          管理后台
         </Link>
       )}
-      <button
-        type="button"
-        onClick={onLogout}
-        className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[14px] text-neutral-900 transition hover:bg-neutral-100 dark:text-neutral-100 dark:hover:bg-neutral-800"
-      >
+      <button type="button" onClick={onLogout} className={itemClass}>
         <LogOut className="h-4 w-4" />
         退出登录
       </button>
@@ -146,6 +159,34 @@ function NavButton({
   )
 }
 
+function RowMenuItem({
+  icon,
+  onClick,
+  children,
+  danger,
+}: {
+  icon: React.ReactNode
+  onClick: () => void
+  children: React.ReactNode
+  danger?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={clsx(
+        'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition',
+        danger
+          ? 'text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30'
+          : 'text-neutral-700 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-800',
+      )}
+    >
+      {icon}
+      {children}
+    </button>
+  )
+}
+
 function ConversationRow({
   conversation,
   active,
@@ -153,6 +194,8 @@ function ConversationRow({
   onOpen,
   onDelete,
   onTogglePin,
+  onRename,
+  onShare,
 }: {
   conversation: ConversationDTO
   active: boolean
@@ -160,46 +203,138 @@ function ConversationRow({
   onOpen: (id: string) => void
   onDelete?: (id: string) => void
   onTogglePin?: (id: string, pinned: boolean) => void
+  onRename?: (id: string, title: string) => void
+  onShare?: (id: string) => void
 }) {
   const pinned = Boolean(conversation.pinnedAt)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [renaming, setRenaming] = useState(false)
+  const [draft, setDraft] = useState('')
+  const menuRef = useRef<HTMLDivElement>(null)
+  const rowRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const onDown = (e: PointerEvent) => {
+      const t = e.target
+      if (!(t instanceof HTMLElement)) return
+      if (menuRef.current?.contains(t) || rowRef.current?.contains(t)) return
+      setMenuOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenuOpen(false)
+    }
+    window.addEventListener('pointerdown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('pointerdown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [menuOpen])
+
+  const startRename = () => {
+    setDraft(titleOf(conversation))
+    setRenaming(true)
+    setMenuOpen(false)
+  }
+  const submitRename = () => {
+    const t = draft.trim()
+    if (t && t !== titleOf(conversation)) onRename?.(conversation.id, t)
+    setRenaming(false)
+  }
+
   return (
     <li data-conversation-id={conversation.id}>
       <div
+        ref={rowRef}
         className={clsx(
           'group relative flex items-center rounded-lg px-2.5 py-1.5 text-[13px] transition',
           active
             ? 'bg-neutral-200 dark:bg-neutral-800'
             : 'hover:bg-neutral-200/70 dark:hover:bg-neutral-800',
+          menuOpen && 'bg-neutral-200/70 dark:bg-neutral-800',
         )}
       >
-        <button
-          type="button"
-          onClick={() => onOpen(conversation.id)}
-          className="min-w-0 flex-1 truncate text-left text-neutral-900 transition-[padding] group-hover:pr-14 group-focus-within:pr-14 dark:text-neutral-100"
-          title={titleOf(conversation)}
-        >
-          {titleOf(conversation)}
-        </button>
-        {actions && (
-          <div className="pointer-events-none absolute inset-y-0 right-1 flex items-center gap-0.5 opacity-0 transition group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
-            <button
-              type="button"
-              onClick={() => onTogglePin?.(conversation.id, !pinned)}
-              className="rounded-lg p-1.5 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-800 dark:hover:bg-neutral-700 dark:hover:text-neutral-100"
-              aria-label={pinned ? '取消置顶' : '置顶'}
-              title={pinned ? '取消置顶' : '置顶'}
+        {renaming ? (
+          <input
+            autoFocus
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={submitRename}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                submitRename()
+              } else if (e.key === 'Escape') {
+                setRenaming(false)
+              }
+            }}
+            className="min-w-0 flex-1 rounded-md bg-white px-1.5 py-0.5 text-[13px] text-neutral-900 outline-none ring-1 ring-neutral-400 dark:bg-neutral-900 dark:text-neutral-100 dark:ring-neutral-600"
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => onOpen(conversation.id)}
+            className="min-w-0 flex-1 truncate text-left text-neutral-900 transition-[padding] group-hover:pr-7 group-focus-within:pr-7 dark:text-neutral-100"
+            title={titleOf(conversation)}
+          >
+            {titleOf(conversation)}
+          </button>
+        )}
+        {actions && !renaming && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              setMenuOpen((o) => !o)
+            }}
+            className={clsx(
+              'absolute right-1 rounded-lg p-1.5 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-800 dark:hover:bg-neutral-700 dark:hover:text-neutral-100',
+              menuOpen
+                ? 'opacity-100'
+                : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
+            )}
+            aria-label="更多操作"
+          >
+            <MoreHorizontal className="h-4 w-4" />
+          </button>
+        )}
+        {menuOpen && (
+          <div
+            ref={menuRef}
+            className="hc-pop-in absolute right-0 top-full z-40 mt-1 w-40 rounded-xl border border-neutral-200 bg-white p-1 text-[13px] shadow-2xl dark:border-neutral-700 dark:bg-neutral-900"
+          >
+            <RowMenuItem
+              icon={<Share2 className="h-4 w-4" />}
+              onClick={() => {
+                setMenuOpen(false)
+                onShare?.(conversation.id)
+              }}
             >
-              {pinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
-            </button>
-            <button
-              type="button"
-              onClick={() => onDelete?.(conversation.id)}
-              className="rounded-lg p-1.5 text-neutral-400 transition hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/30"
-              aria-label="删除会话"
-              title="删除会话"
+              分享
+            </RowMenuItem>
+            <RowMenuItem icon={<Pencil className="h-4 w-4" />} onClick={startRename}>
+              重命名
+            </RowMenuItem>
+            <RowMenuItem
+              icon={pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
+              onClick={() => {
+                setMenuOpen(false)
+                onTogglePin?.(conversation.id, !pinned)
+              }}
             >
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
+              {pinned ? '取消置顶' : '置顶'}
+            </RowMenuItem>
+            <RowMenuItem
+              icon={<Trash2 className="h-4 w-4" />}
+              danger
+              onClick={() => {
+                setMenuOpen(false)
+                onDelete?.(conversation.id)
+              }}
+            >
+              删除
+            </RowMenuItem>
           </div>
         )}
       </div>
@@ -217,6 +352,8 @@ function ConversationSection({
   onOpen,
   onDelete,
   onTogglePin,
+  onRename,
+  onShare,
 }: {
   title: string
   conversations: ConversationDTO[]
@@ -227,6 +364,8 @@ function ConversationSection({
   onOpen: (id: string) => void
   onDelete: (id: string) => void
   onTogglePin: (id: string, pinned: boolean) => void
+  onRename: (id: string, title: string) => void
+  onShare: (id: string) => void
 }) {
   return (
     <section className="pb-3.5">
@@ -255,6 +394,8 @@ function ConversationSection({
               onOpen={onOpen}
               onDelete={onDelete}
               onTogglePin={onTogglePin}
+              onRename={onRename}
+              onShare={onShare}
             />
           ))}
         </ul>
@@ -274,7 +415,13 @@ export function Sidebar() {
   const conversations = useMemo(() => data ?? [], [data])
   const logout = useLogout()
   const { collapsed, toggleCollapsed } = useSidebarStore()
-  const { theme, setTheme } = useTheme()
+  const mobileOpen = useSidebarStore((s) => s.mobileOpen)
+  const setMobileOpen = useSidebarStore((s) => s.setMobileOpen)
+  const isMobile = useIsMobile()
+  const railMode = collapsed && !isMobile
+  const theme = useSettings((s) => s.theme)
+  const setTheme = useSettings((s) => s.setTheme)
+  const openSettingsDialog = useSettingsDialog((s) => s.openDialog)
   const [searchOpen, setSearchOpen] = useState(false)
   const [popover, setPopover] = useState<PopoverKind | null>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
@@ -282,6 +429,7 @@ export function Sidebar() {
   const accountMenuRef = useRef<HTMLDivElement>(null)
   const [pinnedSectionCollapsed, setPinnedSectionCollapsed] = useState(false)
   const [recentSectionCollapsed, setRecentSectionCollapsed] = useState(false)
+  const [shareTarget, setShareTarget] = useState<string | null>(null)
 
   const cycleTheme = () =>
     setTheme(theme === 'system' ? 'light' : theme === 'light' ? 'dark' : 'system')
@@ -357,10 +505,18 @@ export function Sidebar() {
     onError: (e) => toast.error(e instanceof Error ? e.message : '置顶失败'),
   })
 
+  const rename = useMutation({
+    mutationFn: ({ convId, title }: { convId: string; title: string }) =>
+      renameConversation(convId, title),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['conversations'] }),
+    onError: (e) => toast.error(e instanceof Error ? e.message : '重命名失败'),
+  })
+
   const openConversation = (conversationId: string) => {
     setPopover(null)
     setAccountMenuOpen(false)
     setSearchOpen(false)
+    setMobileOpen(false)
     navigate(`/c/${conversationId}`)
   }
 
@@ -368,7 +524,14 @@ export function Sidebar() {
     setPopover(null)
     setAccountMenuOpen(false)
     setSearchOpen(false)
+    setMobileOpen(false)
     navigate('/')
+  }
+
+  const openSettings = () => {
+    setAccountMenuOpen(false)
+    setMobileOpen(false)
+    openSettingsDialog()
   }
 
   const deleteById = (conversationId: string) => {
@@ -379,17 +542,32 @@ export function Sidebar() {
     pin.mutate({ convId: conversationId, pinned })
   }
 
+  const renameById = (conversationId: string, title: string) => {
+    rename.mutate({ convId: conversationId, title })
+  }
+
   const popoverItems = popover === 'pinned' ? pinnedConversations : recentConversations
 
   return (
     <>
+      {isMobile && mobileOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/40 md:hidden"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
       <aside
         className={clsx(
-          'relative flex h-full shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 text-neutral-900 dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-100',
-          collapsed ? 'w-[48px]' : 'w-[240px]',
+          'flex h-full shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 text-neutral-900 dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-100',
+          // 桌面：文档流中的 rail
+          'md:relative md:translate-x-0 md:shadow-none md:transition-none',
+          railMode ? 'md:w-[48px]' : 'md:w-[240px]',
+          // 移动：固定抽屉，按 mobileOpen 滑入/滑出
+          'fixed inset-y-0 left-0 z-50 w-[280px] transition-transform duration-300',
+          mobileOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full',
         )}
       >
-        {collapsed ? (
+        {railMode ? (
           <>
             <div className="flex flex-1 flex-col items-center gap-2 py-2">
               <RailButton title="展开侧边栏" onClick={toggleCollapsed} testId="sidebar-toggle">
@@ -437,7 +615,7 @@ export function Sidebar() {
                 aria-label="账号菜单"
                 title="账号菜单"
               >
-                <Avatar label={userLabel} />
+                <Avatar label={userLabel} src={user?.avatarUrl} />
               </button>
             </div>
 
@@ -445,8 +623,10 @@ export function Sidebar() {
               <div ref={accountMenuRef} className="absolute bottom-14 left-[42px] z-50 w-[240px]">
                 <AccountMenu
                   userLabel={userLabel}
+                  avatarUrl={user?.avatarUrl}
                   isAdmin={isAdmin}
                   onClose={() => setAccountMenuOpen(false)}
+                  onOpenSettings={openSettings}
                   onLogout={() => {
                     setAccountMenuOpen(false)
                     logout.mutate()
@@ -490,11 +670,11 @@ export function Sidebar() {
               <h1 className="text-lg font-semibold tracking-normal">HappyChat</h1>
               <button
                 type="button"
-                onClick={toggleCollapsed}
+                onClick={() => (isMobile ? setMobileOpen(false) : toggleCollapsed())}
                 data-testid="sidebar-toggle"
                 className="rounded-lg p-1.5 text-neutral-500 transition hover:bg-neutral-200 hover:text-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
-                aria-label="收起侧边栏"
-                title="收起侧边栏"
+                aria-label={isMobile ? '关闭侧边栏' : '收起侧边栏'}
+                title={isMobile ? '关闭侧边栏' : '收起侧边栏'}
               >
                 <SidebarToggleIcon className="h-5 w-5" />
               </button>
@@ -525,6 +705,8 @@ export function Sidebar() {
                 onOpen={openConversation}
                 onDelete={deleteById}
                 onTogglePin={togglePin}
+                onRename={renameById}
+                onShare={setShareTarget}
               />
               <ConversationSection
                 title="聊天"
@@ -536,6 +718,8 @@ export function Sidebar() {
                 onOpen={openConversation}
                 onDelete={deleteById}
                 onTogglePin={togglePin}
+                onRename={renameById}
+                onShare={setShareTarget}
               />
             </div>
 
@@ -544,8 +728,10 @@ export function Sidebar() {
                 <div ref={accountMenuRef} className="absolute bottom-[66px] left-2 right-2 z-50">
                   <AccountMenu
                     userLabel={userLabel}
+                    avatarUrl={user?.avatarUrl}
                     isAdmin={isAdmin}
                     onClose={() => setAccountMenuOpen(false)}
+                    onOpenSettings={openSettings}
                     onLogout={() => {
                       setAccountMenuOpen(false)
                       logout.mutate()
@@ -565,7 +751,7 @@ export function Sidebar() {
                   className="flex min-w-0 flex-1 items-center gap-2 text-left"
                   aria-label="账号菜单"
                 >
-                  <Avatar label={userLabel} />
+                  <Avatar label={userLabel} src={user?.avatarUrl} />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[13px] text-neutral-900 dark:text-neutral-100">
                       {userLabel}
@@ -597,6 +783,10 @@ export function Sidebar() {
         onNewChat={newChat}
         onOpenConversation={openConversation}
       />
+
+      {shareTarget && (
+        <ShareDialog conversationId={shareTarget} onClose={() => setShareTarget(null)} />
+      )}
     </>
   )
 }

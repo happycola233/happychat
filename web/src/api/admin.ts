@@ -1,22 +1,52 @@
 import type {
   AdminModelDTO,
+  AdminSessionDTO,
   AdminUserDTO,
+  AnalyticsDTO,
   ErrorLogDTO,
   InviteCodeDTO,
+  OverviewDTO,
+  Paginated,
   ProviderDetailDTO,
   ProviderDTO,
   ProviderTestResult,
   StatsDTO,
   SyncModelsResult,
   UsageLogDTO,
+  UserStatDTO,
 } from '@shared/types/api'
 import type {
+  ModelCreateInput,
   ModelUpdateInput,
   ProviderCreateInput,
   ProviderUpdateInput,
 } from '@shared/schemas/model-config'
 import type { InviteCreateInput, UserUpdateInput } from '@shared/schemas/admin'
 import { apiDelete, apiGet, apiPatch, apiPost } from './client'
+
+/** 统计/事件查询参数（与后端 statsFilterSchema 对应）。 */
+export interface StatsQuery {
+  from?: number
+  to?: number
+  providerId?: string
+  modelId?: string
+  userId?: string
+  success?: boolean
+  scope?: string
+  search?: string
+  bucket?: 'hour' | 'day'
+  page?: number
+  pageSize?: number
+}
+
+function qs(query: StatsQuery = {}): string {
+  const p = new URLSearchParams()
+  for (const [k, v] of Object.entries(query)) {
+    if (v !== undefined && v !== null && v !== '') p.set(k, String(v))
+  }
+  const s = p.toString()
+  return s ? `?${s}` : ''
+}
 
 export const listProviders = () =>
   apiGet<{ providers: ProviderDTO[] }>('/admin/providers').then((r) => r.providers)
@@ -33,6 +63,8 @@ export const syncModels = (id: string) => apiPost<SyncModelsResult>(`/admin/prov
 
 export const listAdminModels = () =>
   apiGet<{ models: AdminModelDTO[] }>('/admin/models').then((r) => r.models)
+export const createModel = (input: ModelCreateInput) =>
+  apiPost<{ model: AdminModelDTO }>('/admin/models', input).then((r) => r.model)
 export const updateModel = (id: string, input: ModelUpdateInput) =>
   apiPatch<{ ok: true }>(`/admin/models/${id}`, input)
 export const deleteModel = (id: string) => apiDelete<{ ok: true }>(`/admin/models/${id}`)
@@ -52,9 +84,24 @@ export const updateUser = (id: string, input: UserUpdateInput) =>
   apiPatch<{ ok: true }>(`/admin/users/${id}`, input)
 export const deleteUser = (id: string) => apiDelete<{ ok: true }>(`/admin/users/${id}`)
 
-// 统计 / 日志
+// 会话（账号中心）
+export const getSessions = (userId?: string) =>
+  apiGet<{ sessions: AdminSessionDTO[] }>(`/admin/sessions${userId ? `?userId=${userId}` : ''}`).then(
+    (r) => r.sessions,
+  )
+export const revokeSession = (id: string) => apiDelete<{ ok: true }>(`/admin/sessions/${id}`)
+export const revokeUserSessions = (userId: string) =>
+  apiPost<{ ok: true }>(`/admin/users/${userId}/revoke-sessions`)
+
+// 统计 / 分析 / 事件
 export const getStats = () => apiGet<StatsDTO>('/admin/stats')
-export const getErrorLogs = () =>
-  apiGet<{ logs: ErrorLogDTO[] }>('/admin/error-logs').then((r) => r.logs)
-export const getUsageLogs = () =>
-  apiGet<{ logs: UsageLogDTO[] }>('/admin/usage-logs').then((r) => r.logs)
+export const getOverview = (query?: StatsQuery) =>
+  apiGet<{ overview: OverviewDTO }>(`/admin/overview${qs(query)}`).then((r) => r.overview)
+export const getAnalytics = (query?: StatsQuery) =>
+  apiGet<{ analytics: AnalyticsDTO }>(`/admin/analytics${qs(query)}`).then((r) => r.analytics)
+export const getUserStats = (query?: StatsQuery) =>
+  apiGet<{ users: UserStatDTO[] }>(`/admin/user-stats${qs(query)}`).then((r) => r.users)
+export const getUsageEvents = (query?: StatsQuery) =>
+  apiGet<Paginated<UsageLogDTO>>(`/admin/usage-events${qs(query)}`)
+export const getErrorEvents = (query?: StatsQuery) =>
+  apiGet<Paginated<ErrorLogDTO>>(`/admin/error-events${qs(query)}`)

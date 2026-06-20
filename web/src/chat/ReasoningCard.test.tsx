@@ -71,6 +71,7 @@ describe('ReasoningCard', () => {
         status="completed"
         startedAt={null}
         durationMs={3500}
+        defaultExpanded
       />,
     )
 

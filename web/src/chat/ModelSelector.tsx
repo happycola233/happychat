@@ -6,21 +6,22 @@ import { useChatPrefs } from '../store/chat'
 
 export function ModelSelector() {
   const { data: models } = useModels()
-  const { selectedModelId, setSelectedModel } = useChatPrefs()
+  const activeModelId = useChatPrefs((s) => s.activeModelId)
+  const setActiveModel = useChatPrefs((s) => s.setActiveModel)
   const [open, setOpen] = useState(false)
 
-  // 若未选择或所选已失效，默认选第一个可用模型
+  // 当前无有效选择（首次使用或所选已失效）时，回退首个可用模型
   useEffect(() => {
     if (!models?.length) return
-    if (!selectedModelId || !models.some((m) => m.id === selectedModelId)) {
-      setSelectedModel(models[0]!.id)
+    if (!activeModelId || !models.some((m) => m.id === activeModelId)) {
+      setActiveModel(models[0]!.id)
     }
-  }, [models, selectedModelId, setSelectedModel])
+  }, [models, activeModelId, setActiveModel])
 
   if (!models?.length) {
     return <span className="text-sm text-neutral-400">暂无可用模型</span>
   }
-  const current = models.find((m) => m.id === selectedModelId)
+  const current = models.find((m) => m.id === activeModelId)
 
   return (
     <div className="relative">
@@ -39,12 +40,12 @@ export function ModelSelector() {
               <button
                 key={m.id}
                 onClick={() => {
-                  setSelectedModel(m.id)
+                  setActiveModel(m.id)
                   setOpen(false)
                 }}
                 className={clsx(
                   'flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition hover:bg-neutral-100 dark:hover:bg-neutral-800',
-                  m.id === selectedModelId && 'bg-neutral-100 dark:bg-neutral-800',
+                  m.id === activeModelId && 'bg-neutral-100 dark:bg-neutral-800',
                 )}
               >
                 <span className="text-neutral-800 dark:text-neutral-100">{m.displayName}</span>

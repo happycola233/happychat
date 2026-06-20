@@ -31,6 +31,11 @@ export async function destroySession(c: Context): Promise<void> {
   deleteCookie(c, SESSION_COOKIE, { path: '/' })
 }
 
+/** 失效某用户的全部会话（改密码 / 删除账户时强制其它设备下线）。 */
+export async function destroyAllUserSessions(userId: string): Promise<void> {
+  await db.delete(sessions).where(eq(sessions.userId, userId))
+}
+
 /** 从签名 cookie 解析当前登录用户；无效/过期返回 null（并清理过期会话）。 */
 export async function getAuthUser(c: Context): Promise<AuthUser | null> {
   const sid = await getSignedCookie(c, env.SESSION_SECRET, SESSION_COOKIE)

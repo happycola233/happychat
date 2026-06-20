@@ -39,20 +39,57 @@ export const modelParamsSchema = z.object({
   image: imageOptionsSchema.optional(),
 })
 
+/** 按模型定价（USD / 1M tokens），各项可选、非负。 */
+export const pricingSchema = z.object({
+  input: z.number().min(0).optional(),
+  cachedInput: z.number().min(0).optional(),
+  output: z.number().min(0).optional(),
+  image: z.number().min(0).optional(),
+})
+
 export const modelUpdateSchema = z.object({
+  modelId: z.string().trim().min(1).max(120).optional(),
   displayName: z.string().trim().min(1).max(80).optional(),
   enabled: z.boolean().optional(),
-  kind: z.enum(['responses', 'image']).optional(),
+  kind: z.enum(['responses', 'chat', 'image']).optional(),
   capabilities: capabilitiesSchema.optional(),
   defaultSystemPrompt: z.string().nullable().optional(),
   defaultParams: modelParamsSchema.nullable().optional(),
   hardParams: z.record(z.string(), z.unknown()).nullable().optional(),
+  pricing: pricingSchema.nullable().optional(),
   allowedEfforts: z.array(effortSchema).optional(),
   defaultEffort: effortSchema.nullable().optional(),
   defaultWebSearch: z.boolean().optional(),
   sort: z.number().int().optional(),
 })
 
+const defaultCapabilities = {
+  vision: false,
+  file_input: false,
+  web_search: false,
+  image_generation: false,
+  reasoning: false,
+}
+
+/** 手动添加模型：providerId + modelId 必填，其余给合理默认。 */
+export const modelCreateSchema = z.object({
+  providerId: z.string().min(1, '请选择所属供应商'),
+  modelId: z.string().trim().min(1, '请填写模型 ID').max(120),
+  displayName: z.string().trim().min(1, '请填写显示名称').max(80),
+  kind: z.enum(['responses', 'chat', 'image']).default('responses'),
+  enabled: z.boolean().default(true),
+  capabilities: capabilitiesSchema.default(defaultCapabilities),
+  defaultSystemPrompt: z.string().nullable().optional(),
+  defaultParams: modelParamsSchema.nullable().optional(),
+  hardParams: z.record(z.string(), z.unknown()).nullable().optional(),
+  pricing: pricingSchema.nullable().optional(),
+  allowedEfforts: z.array(effortSchema).default([]),
+  defaultEffort: effortSchema.nullable().optional(),
+  defaultWebSearch: z.boolean().default(false),
+  sort: z.number().int().default(0),
+})
+
 export type ProviderCreateInput = z.infer<typeof providerCreateSchema>
 export type ProviderUpdateInput = z.infer<typeof providerUpdateSchema>
 export type ModelUpdateInput = z.infer<typeof modelUpdateSchema>
+export type ModelCreateInput = z.infer<typeof modelCreateSchema>

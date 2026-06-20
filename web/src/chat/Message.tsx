@@ -1,20 +1,26 @@
 import { useState } from 'react'
 import {
   AlertCircle,
+  ArrowDown,
+  ArrowUp,
   Check,
   ChevronLeft,
   ChevronRight,
+  Clock,
   Copy,
   Pencil,
   RefreshCw,
+  Zap,
 } from 'lucide-react'
 import type { MessageDTO } from '@shared/types/api'
-import type { UrlCitation } from '@shared/types/domain'
+import type { MessageUsage, UrlCitation } from '@shared/types/domain'
 import type { LiveMessage } from '../sse/eventReducer'
 import { attachmentUrl } from '../api/attachments'
 import { Spinner } from '../components/ui/Spinner'
+import { useModels } from '../hooks/useModels'
 import { copyToClipboard } from '../lib/clipboard'
 import { toast } from '../store/toast'
+import { useSettings } from '../store/settings'
 import { CollapsibleUserMessageText } from './MessageContent'
 import { MESSAGE_BODY_TEXT_CLASS } from './messageStyles'
 import { textFromContent } from './contentText'
@@ -22,6 +28,7 @@ import { Markdown } from './Markdown'
 import { ReasoningCard, type ReasoningCardStatus } from './ReasoningCard'
 import { AttachmentParts } from './Attachments'
 import { ElapsedLabel } from './ElapsedLabel'
+import { computeTps, formatDuration, formatMessageTime, formatTokens, formatTps } from './usageFormat'
 import type { ImageEditSource } from './imageSource'
 
 export interface BranchInfo {
@@ -146,6 +153,42 @@ function hostOf(url: string): string {
   }
 }
 
+function TimeLabel({ ts, format }: { ts: number; format: 'time' | 'datetime' }) {
+  return (
+    <span className="text-xs tabular-nums text-neutral-400">{formatMessageTime(ts, format)}</span>
+  )
+}
+
+/** 助手消息用量明细：输入(缓存) / 输出 / tok·s / 耗时。 */
+function UsageStats({ usage, durationMs }: { usage: MessageUsage; durationMs: number | null }) {
+  const tps = computeTps(usage.outputTokens, durationMs)
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-neutral-400">
+      <span className="inline-flex items-center gap-1">
+        <ArrowUp className="h-3 w-3" />
+        {formatTokens(usage.inputTokens)} tokens
+        {usage.cachedTokens > 0 && <span>（{formatTokens(usage.cachedTokens)} 缓存）</span>}
+      </span>
+      <span className="inline-flex items-center gap-1">
+        <ArrowDown className="h-3 w-3" />
+        {formatTokens(usage.outputTokens)} tokens
+      </span>
+      {tps !== null && (
+        <span className="inline-flex items-center gap-1">
+          <Zap className="h-3 w-3" />
+          {formatTps(tps)} tok/s
+        </span>
+      )}
+      {durationMs !== null && durationMs > 0 && (
+        <span className="inline-flex items-center gap-1">
+          <Clock className="h-3 w-3" />
+          {formatDuration(durationMs)}
+        </span>
+      )}
+    </div>
+  )
+}
+
 export function Message({
   message,
   live,
@@ -158,37 +201,51 @@ export function Message({
   const { copied, copy } = useCopy()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
+  const showMessageTime = useSettings((s) => s.preferences.showMessageTime)
+  const messageTimeFormat = useSettings((s) => s.preferences.messageTimeFormat)
+  const showModelLabel = useSettings((s) => s.preferences.showModelLabel)
+  const showUsageStats = useSettings((s) => s.preferences.showUsageStats)
+  const defaultExpandReasoning = useSettings((s) => s.preferences.defaultExpandReasoning)
+  const models = useModels().data
+  const modelName = models?.find((m) => m.id === message.modelId)?.displayName ?? null
 
   if (message.role === 'user') {
     const text = textFromContent(message.content)
     if (editing) {
+      const submitEdit = () => {
+        const t = draft.trim()
+        if (t) {
+          onEdit?.(t)
+          setEditing(false)
+        }
+      }
       return (
         <div className="flex justify-end">
-          <div className="w-full max-w-[85%] rounded-2xl border border-neutral-300 bg-white p-2 dark:border-neutral-700 dark:bg-neutral-800">
+          <div className="w-full max-w-[85%] rounded-3xl bg-neutral-100 px-4 py-3.5 dark:bg-neutral-800">
             <textarea
               autoFocus
               data-testid="edit-textarea"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              className={`${MESSAGE_BODY_TEXT_CLASS} min-h-[60px] w-full resize-none bg-transparent outline-none`}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault()
+                  submitEdit()
+                }
+              }}
+              className={`${MESSAGE_BODY_TEXT_CLASS} min-h-[4.5rem] w-full resize-none bg-transparent outline-none`}
             />
             <div className="mt-2 flex justify-end gap-2">
               <button
                 onClick={() => setEditing(false)}
-                className="rounded-lg px-3 py-1.5 text-sm text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-700"
+                className="rounded-full bg-white px-4 py-1.5 text-sm font-medium text-neutral-700 shadow-sm transition hover:bg-neutral-50 dark:bg-neutral-700 dark:text-neutral-100 dark:hover:bg-neutral-600"
               >
                 取消
               </button>
               <button
                 data-testid="edit-submit"
-                onClick={() => {
-                  const t = draft.trim()
-                  if (t) {
-                    onEdit?.(t)
-                    setEditing(false)
-                  }
-                }}
-                className="rounded-lg bg-neutral-900 px-3 py-1.5 text-sm text-white dark:bg-white dark:text-neutral-900"
+                onClick={submitEdit}
+                className="rounded-full bg-neutral-900 px-4 py-1.5 text-sm font-medium text-white transition hover:bg-neutral-800 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
               >
                 发送
               </button>
@@ -210,23 +267,26 @@ export function Message({
             <CollapsibleUserMessageText text={text} />
           </div>
         )}
-        <div className="flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
-          {branch && branch.total > 1 && <BranchSwitch branch={branch} />}
-          <IconButton title="复制" onClick={() => copy(text)}>
-            {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-          </IconButton>
-          {onEdit && (
-            <IconButton
-              title="编辑"
-              disabled={busy}
-              onClick={() => {
-                setDraft(text)
-                setEditing(true)
-              }}
-            >
-              <Pencil className="h-3.5 w-3.5" />
+        <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
+            {branch && branch.total > 1 && <BranchSwitch branch={branch} />}
+            <IconButton title="复制" onClick={() => copy(text)}>
+              {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
             </IconButton>
-          )}
+            {onEdit && (
+              <IconButton
+                title="编辑"
+                disabled={busy}
+                onClick={() => {
+                  setDraft(text)
+                  setEditing(true)
+                }}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </IconButton>
+            )}
+          </div>
+          {showMessageTime && <TimeLabel ts={message.createdAt} format={messageTimeFormat} />}
         </div>
       </div>
     )
@@ -270,6 +330,7 @@ export function Message({
           status={reasoningStatus}
           startedAt={live?.upstreamStartedAt ?? null}
           durationMs={live ? live.reasoningDurationMs : message.reasoningDurationMs}
+          defaultExpanded={defaultExpandReasoning}
         />
       )}
       {error ? (
@@ -313,15 +374,29 @@ export function Message({
       )}
       {annotations.length > 0 && <Citations items={annotations} />}
       {!streaming && !error && (
-        <div className="flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
-          {branch && branch.total > 1 && <BranchSwitch branch={branch} />}
-          <IconButton title="复制" onClick={() => copy(text)}>
-            {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-          </IconButton>
-          {onRegenerate && (
-            <IconButton title="重新生成" disabled={busy} onClick={onRegenerate}>
-              <RefreshCw className="h-3.5 w-3.5" />
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-1.5 text-neutral-400">
+            {branch && branch.total > 1 && <BranchSwitch branch={branch} />}
+            <IconButton title="复制" onClick={() => copy(text)}>
+              {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
             </IconButton>
+            {onRegenerate && (
+              <IconButton title="重新生成" disabled={busy} onClick={onRegenerate}>
+                <RefreshCw className="h-3.5 w-3.5" />
+              </IconButton>
+            )}
+            {showModelLabel && modelName && (
+              <span className="ml-1 text-xs text-neutral-400">{modelName}</span>
+            )}
+            {showMessageTime && (
+              <>
+                {showModelLabel && modelName && <span className="text-xs text-neutral-300 dark:text-neutral-600">·</span>}
+                <TimeLabel ts={message.createdAt} format={messageTimeFormat} />
+              </>
+            )}
+          </div>
+          {showUsageStats && message.usage && (
+            <UsageStats usage={message.usage} durationMs={message.generationDurationMs} />
           )}
         </div>
       )}

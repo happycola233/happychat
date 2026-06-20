@@ -1,0 +1,41 @@
+import type { AppConfigDTO, PublicShareDTO, SharedChatDTO } from '@shared/types/api'
+import type { CreateShareInput } from '@shared/schemas/share'
+import type { AppConfigUpdateInput } from '@shared/schemas/app-config'
+import { apiDelete, apiGet, apiPatch, apiPost } from './client'
+
+// ---- 公开分享 ----
+export const getPublicShare = (token: string) =>
+  apiGet<{ share: PublicShareDTO }>(`/shares/${token}`).then((r) => r.share)
+
+export const shareAttachmentUrl = (token: string, attachmentId: string) =>
+  `/api/shares/${token}/attachments/${attachmentId}`
+
+// ---- 会话分享管理（属主）----
+export const createShare = (conversationId: string, input: CreateShareInput) =>
+  apiPost<{ share: SharedChatDTO }>(`/conversations/${conversationId}/share`, input).then(
+    (r) => r.share,
+  )
+
+export const getConversationShare = (conversationId: string) =>
+  apiGet<{ share: SharedChatDTO | null }>(`/conversations/${conversationId}/share`).then(
+    (r) => r.share,
+  )
+
+export const revokeConversationShare = (conversationId: string) =>
+  apiDelete<{ ok: true }>(`/conversations/${conversationId}/share`)
+
+export const listMyShares = () =>
+  apiGet<{ shares: SharedChatDTO[] }>('/conversations/shared').then((r) => r.shares)
+
+// ---- 管理端 ----
+export const getAppConfig = () =>
+  apiGet<{ config: AppConfigDTO }>('/admin/app-config').then((r) => r.config)
+
+export const updateAppConfig = (input: AppConfigUpdateInput) =>
+  apiPatch<{ config: AppConfigDTO }>('/admin/app-config', input).then((r) => r.config)
+
+export const listAllShares = () =>
+  apiGet<{ shares: SharedChatDTO[] }>('/admin/shares').then((r) => r.shares)
+
+export const adminRevokeShare = (id: string) =>
+  apiPost<{ ok: true }>(`/admin/shares/${id}/revoke`)

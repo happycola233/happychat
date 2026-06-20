@@ -1,5 +1,6 @@
 import { Outlet } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
+import { SettingsDialog } from './SettingsDialog'
 
 export default function ChatLayout() {
   return (
@@ -8,6 +9,7 @@ export default function ChatLayout() {
       <div className="flex min-w-0 flex-1 flex-col">
         <Outlet />
       </div>
+      <SettingsDialog />
     </div>
   )
 }

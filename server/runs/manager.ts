@@ -1,6 +1,7 @@
 import { eq, inArray } from 'drizzle-orm'
 import { db } from '../db/client'
 import { messages, runs } from '../db/schema'
+import { runChatEngine } from './chat-engine'
 import { runEngine } from './engine'
 import { runImageEngine } from './image-run'
 import type { EngineContext } from './types'
@@ -12,7 +13,12 @@ class RunManager {
   start(ctx: Omit<EngineContext, 'abortController'>): void {
     const ac = new AbortController()
     this.active.set(ctx.run.id, ac)
-    const engine = ctx.model.kind === 'image' ? runImageEngine : runEngine
+    const engine =
+      ctx.model.kind === 'image'
+        ? runImageEngine
+        : ctx.model.kind === 'chat'
+          ? runChatEngine
+          : runEngine
     void engine({ ...ctx, abortController: ac })
       .catch((e) => console.error('run engine 未捕获错误:', e))
       .finally(() => this.active.delete(ctx.run.id))

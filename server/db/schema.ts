@@ -8,13 +8,15 @@ import type {
   ModelHardParams,
   ModelKind,
   ModelParams,
+  ModelPricing,
   ReasoningEffort,
   Role,
   RunState,
-  UiPrefs,
   UrlCitation,
+  UserPreferences,
   UserRole,
 } from '../../shared/types/domain'
+import type { MessageDTO } from '../../shared/types/api'
 
 // ---- 通用列工厂（每次返回新的 builder 实例）----
 const pk = () => text('id').primaryKey().$defaultFn(newId)
@@ -39,6 +41,9 @@ export const users = sqliteTable(
     passwordHash: text('password_hash').notNull(),
     role: text('role').$type<UserRole>().notNull().default('user'),
     displayName: text('display_name'),
+    avatarPath: text('avatar_path'),
+    // 是否允许分享聊天：null=随全局设置，true/false=按用户覆盖
+    canShare: integer('can_share', { mode: 'boolean' }),
     disabled: integer('disabled', { mode: 'boolean' }).notNull().default(false),
     createdAt: createdAt(),
     lastActiveAt: ts('last_active_at'),
@@ -82,7 +87,20 @@ export const userSettings = sqliteTable('user_settings', {
     .references(() => users.id, { onDelete: 'cascade' }),
   theme: text('theme').$type<'system' | 'light' | 'dark'>().notNull().default('system'),
   defaultModelId: text('default_model_id'),
-  uiPrefs: text('ui_prefs', { mode: 'json' }).$type<UiPrefs>(),
+  // 列名沿用 ui_prefs（内部命名，避免迁移改名提示）；TS 侧以 preferences 暴露账户级偏好。
+  preferences: text('ui_prefs', { mode: 'json' }).$type<Partial<UserPreferences>>(),
+  updatedAt: updatedAt(),
+})
+
+/** 全局应用设置（单例：始终只维护一行）。 */
+export const appSettings = sqliteTable('app_settings', {
+  id: pk(),
+  // 是否允许用户分享聊天（全局开关）
+  sharingEnabled: integer('sharing_enabled', { mode: 'boolean' }).notNull().default(true),
+  // 标题自动总结
+  titleEnabled: integer('title_enabled', { mode: 'boolean' }).notNull().default(true),
+  titleModelId: text('title_model_id'),
+  titlePrompt: text('title_prompt'),
   updatedAt: updatedAt(),
 })
 
@@ -114,6 +132,7 @@ export const models = sqliteTable(
     defaultSystemPrompt: text('default_system_prompt'),
     defaultParams: text('default_params', { mode: 'json' }).$type<ModelParams>(),
     hardParams: text('hard_params', { mode: 'json' }).$type<ModelHardParams>(),
+    pricing: text('pricing', { mode: 'json' }).$type<ModelPricing>(),
     allowedEfforts: text('allowed_efforts', { mode: 'json' }).$type<ReasoningEffort[]>(),
     defaultEffort: text('default_effort').$type<ReasoningEffort>(),
     defaultWebSearch: integer('default_web_search', { mode: 'boolean' }).notNull().default(false),
@@ -197,7 +216,38 @@ export const attachments = sqliteTable(
     sha256: text('sha256'),
     createdAt: createdAt(),
   },
-  (t) => [index('attachments_message_idx').on(t.messageId)],
+  (t) => [
+    index('attachments_message_idx').on(t.messageId),
+    index('attachments_user_idx').on(t.userId),
+  ],
+)
+
+/** 分享的聊天（快照：分享时定格当时可见路径，后续新消息不泄露）。 */
+export const sharedChats = sqliteTable(
+  'shared_chats',
+  {
+    id: pk(),
+    token: text('token').notNull(),
+    conversationId: text('conversation_id')
+      .notNull()
+      .references(() => conversations.id, { onDelete: 'cascade' }),
+    ownerId: text('owner_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    title: text('title'),
+    // 分享时定格的可见消息路径（MessageDTO[]）
+    snapshot: text('snapshot', { mode: 'json' }).$type<MessageDTO[]>().notNull(),
+    showAvatar: integer('show_avatar', { mode: 'boolean' }).notNull().default(true),
+    showName: integer('show_name', { mode: 'boolean' }).notNull().default(true),
+    expiresAt: ts('expires_at'),
+    revoked: integer('revoked', { mode: 'boolean' }).notNull().default(false),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('shared_chats_token_unique').on(t.token),
+    index('shared_chats_owner_idx').on(t.ownerId),
+  ],
 )
 
 // ========================= run 状态机 / 事件日志 =========================
@@ -260,6 +310,7 @@ export const usageLogs = sqliteTable(
     runId: text('run_id').references(() => runs.id, { onDelete: 'set null' }),
     userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),
     modelId: text('model_id').references(() => models.id, { onDelete: 'set null' }),
+    providerId: text('provider_id').references(() => providers.id, { onDelete: 'set null' }),
     // 冗余存储以便模型/用户删除后仍可统计
     modelLabel: text('model_label'),
     providerLabel: text('provider_label'),
@@ -274,7 +325,11 @@ export const usageLogs = sqliteTable(
     errorType: text('error_type'),
     createdAt: createdAt(),
   },
-  (t) => [index('usage_logs_user_created_idx').on(t.userId, t.createdAt)],
+  (t) => [
+    index('usage_logs_user_created_idx').on(t.userId, t.createdAt),
+    index('usage_logs_created_idx').on(t.createdAt),
+    index('usage_logs_provider_idx').on(t.providerId),
+  ],
 )
 
 export const errorLogs = sqliteTable(
@@ -291,5 +346,8 @@ export const errorLogs = sqliteTable(
     detail: text('detail', { mode: 'json' }).$type<Record<string, unknown>>(),
     createdAt: createdAt(),
   },
-  (t) => [index('error_logs_created_idx').on(t.createdAt)],
+  (t) => [
+    index('error_logs_created_idx').on(t.createdAt),
+    index('error_logs_user_idx').on(t.userId),
+  ],
 )

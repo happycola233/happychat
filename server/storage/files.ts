@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { extname, join } from 'node:path'
 import { env } from '../env'
 
@@ -7,11 +7,35 @@ const uploadsDir = join(env.DATA_DIR, 'uploads')
 
 export const MAX_IMAGE_BYTES = 32 * 1024 * 1024
 export const MAX_FILE_BYTES = 64 * 1024 * 1024
+export const MAX_AVATAR_BYTES = 5 * 1024 * 1024
 
 const IMAGE_MIMES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
 
 export function isImageMime(mime: string): boolean {
   return IMAGE_MIMES.has(mime)
+}
+
+const EXT_MIME: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.pdf': 'application/pdf',
+}
+
+/** 据扩展名推断 MIME（用于读盘内联返回，未知时回退 octet-stream）。 */
+export function mimeFromPath(storagePath: string): string {
+  return EXT_MIME[extname(storagePath).toLowerCase()] ?? 'application/octet-stream'
+}
+
+/** 删除磁盘文件，文件不存在时静默忽略。 */
+export function removeUpload(storagePath: string): void {
+  try {
+    if (existsSync(storagePath)) unlinkSync(storagePath)
+  } catch {
+    // 删除失败不应阻断主流程（如清空对话 / 更换头像）
+  }
 }
 
 function ensureDir() {

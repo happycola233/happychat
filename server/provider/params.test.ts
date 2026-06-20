@@ -22,6 +22,7 @@ function model(overrides: Partial<ModelForBuild> = {}): ModelForBuild {
     defaultSystemPrompt: null,
     defaultParams: null,
     hardParams: null,
+    pricing: null,
     allowedEfforts: null,
     defaultEffort: null,
     defaultWebSearch: true,

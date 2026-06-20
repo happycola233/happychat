@@ -1,9 +1,12 @@
 import { eq, inArray } from 'drizzle-orm'
 import type { ContentPart, ModelParams } from '@shared/types/domain'
 import { shouldValidateGptImage2Size, validateGptImage2Size } from '@shared/util/imageSize'
+import { renderPromptTemplate } from '@shared/util/promptTemplate'
 import { db } from '../db/client'
-import { attachments, conversations, messages, runs } from '../db/schema'
+import { attachments, conversations, messages, runs, users } from '../db/schema'
+import { buildPromptVars } from './promptVars'
 import { must } from '../lib/assert'
+import { buildChatBody, buildChatMessages } from '../provider/chat'
 import { buildInput, type ResolvedAttachment } from '../provider/context'
 import { buildImageBody, buildImageEditBody, buildResponseBody } from '../provider/params'
 import { buildPath, getConversationMessages, getOwnedConversation } from '../services/conversations'
@@ -200,8 +203,31 @@ async function createAssistantAndRun(opts: {
       path.map((m) => ({ role: m.role, content: m.content })),
       attMap,
     )
-    const instructions = updatedConversation.systemPromptOverride ?? model.defaultSystemPrompt
-    body = buildResponseBody({ model, input, instructions, userParams, stream: true })
+    let instructions = updatedConversation.systemPromptOverride ?? model.defaultSystemPrompt
+    // 系统提示词含 {{变量}} 时按当前用户/模型/时间渲染
+    if (instructions && instructions.includes('{{')) {
+      const [userRow] = await db
+        .select({ username: users.username, displayName: users.displayName })
+        .from(users)
+        .where(eq(users.id, conv.userId))
+        .limit(1)
+      instructions = renderPromptTemplate(
+        instructions,
+        buildPromptVars({ user: userRow ?? null, model, now: new Date() }),
+      )
+    }
+    // 持久化最终 instructions（启用 runs.instructions 列，便于审计）
+    await db.update(runs).set({ instructions }).where(eq(runs.id, run.id))
+    if (model.kind === 'chat') {
+      const chatMessages = buildChatMessages(
+        path.map((m) => ({ role: m.role, content: m.content })),
+        attMap,
+        instructions,
+      )
+      body = buildChatBody({ model, messages: chatMessages, userParams, stream: true })
+    } else {
+      body = buildResponseBody({ model, input, instructions, userParams, stream: true })
+    }
   }
 
   return { conversation: updatedConversation, assistantMessage, run, body, imageOperation }
@@ -290,7 +316,8 @@ export async function prepareRun(args: PrepareArgs): Promise<PrepareResult> {
         .values({
           userId: args.userId,
           modelId: model.id,
-          title: args.text.slice(0, 30) || '新对话',
+          // 标题留空，待首条助手回复完成后异步总结（见 services/title.ts）
+          title: null,
         })
         .returning()
         .then((r) => r[0]),

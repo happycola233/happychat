@@ -1,13 +1,29 @@
 import { Hono } from 'hono'
 import { eq, sql } from 'drizzle-orm'
 import { loginSchema, registerSchema } from '@shared/schemas/auth'
+import {
+  changePasswordSchema,
+  deleteAccountSchema,
+  updateProfileSchema,
+  updateSettingsSchema,
+} from '@shared/schemas/settings'
 import { db } from '../db/client'
 import { inviteCodes, userSettings, users } from '../db/schema'
 import { hashPassword, verifyPassword } from '../auth/password'
-import { createSession, destroySession } from '../auth/session'
+import { createSession, destroyAllUserSessions, destroySession } from '../auth/session'
 import { toPublicUser } from '../auth/users'
 import { requireUser } from '../auth/middleware'
 import { jsonValidator } from '../http/validator'
+import { getUserSettings, updateUserSettings } from '../services/settings'
+import {
+  MAX_AVATAR_BYTES,
+  isImageMime,
+  mimeFromPath,
+  readUpload,
+  removeUpload,
+  saveUpload,
+} from '../storage/files'
+import { newId } from '../lib/id'
 import type { AppEnv } from '../http/types'
 
 export const authRoutes = new Hono<AppEnv>()
@@ -80,4 +96,116 @@ authRoutes.post('/logout', async (c) => {
 
 authRoutes.get('/me', requireUser, (c) => {
   return c.json({ user: toPublicUser(c.get('user')) })
+})
+
+/** 重新读取用户行（在更新昵称/头像后返回最新 PublicUser）。 */
+async function freshPublicUser(userId: string) {
+  const [u] = await db.select().from(users).where(eq(users.id, userId)).limit(1)
+  return u ? toPublicUser(u) : null
+}
+
+// ===================== 设置 =====================
+
+authRoutes.get('/settings', requireUser, async (c) => {
+  return c.json({ settings: await getUserSettings(c.get('user').id) })
+})
+
+authRoutes.put('/settings', requireUser, jsonValidator(updateSettingsSchema), async (c) => {
+  const settings = await updateUserSettings(c.get('user').id, c.req.valid('json'))
+  return c.json({ settings })
+})
+
+// ===================== 账户 =====================
+
+authRoutes.post('/change-password', requireUser, jsonValidator(changePasswordSchema), async (c) => {
+  const user = c.get('user')
+  const { currentPassword, newPassword } = c.req.valid('json')
+  if (!verifyPassword(currentPassword, user.passwordHash)) {
+    return c.json({ error: { message: '当前密码不正确', code: 'invalid_password' } }, 400)
+  }
+  await db.update(users).set({ passwordHash: hashPassword(newPassword) }).where(eq(users.id, user.id))
+  // 失效所有会话（含当前），再为当前设备重新签发，使其它设备下线。
+  await destroyAllUserSessions(user.id)
+  await createSession(c, user.id)
+  return c.json({ ok: true })
+})
+
+authRoutes.patch('/profile', requireUser, jsonValidator(updateProfileSchema), async (c) => {
+  const user = c.get('user')
+  const displayName = c.req.valid('json').displayName?.trim() || null
+  await db.update(users).set({ displayName }).where(eq(users.id, user.id))
+  return c.json({ user: await freshPublicUser(user.id) })
+})
+
+authRoutes.post('/avatar', requireUser, async (c) => {
+  const user = c.get('user')
+  const body = await c.req.parseBody()
+  const file = body['file']
+  if (!(file instanceof File)) {
+    return c.json({ error: { message: '未收到文件', code: 'no_file' } }, 400)
+  }
+  if (!isImageMime(file.type)) {
+    return c.json({ error: { message: '头像需为 PNG/JPEG/WebP/GIF 图片', code: 'bad_type' } }, 400)
+  }
+  if (file.size === 0) {
+    return c.json({ error: { message: '文件为空', code: 'empty' } }, 400)
+  }
+  if (file.size > MAX_AVATAR_BYTES) {
+    return c.json({ error: { message: '头像最大 5MB', code: 'too_large' } }, 400)
+  }
+  const buf = Buffer.from(await file.arrayBuffer())
+  const storagePath = saveUpload(newId(), file.name || 'avatar', file.type, buf)
+  if (user.avatarPath) removeUpload(user.avatarPath)
+  await db.update(users).set({ avatarPath: storagePath }).where(eq(users.id, user.id))
+  return c.json({ user: await freshPublicUser(user.id) })
+})
+
+authRoutes.delete('/avatar', requireUser, async (c) => {
+  const user = c.get('user')
+  if (user.avatarPath) removeUpload(user.avatarPath)
+  await db.update(users).set({ avatarPath: null }).where(eq(users.id, user.id))
+  return c.json({ user: await freshPublicUser(user.id) })
+})
+
+/** 读取某用户头像（头像非敏感，公开可读：供 UI 与公开分享页复用）。 */
+authRoutes.get('/avatar/:id', async (c) => {
+  const [u] = await db.select().from(users).where(eq(users.id, c.req.param('id'))).limit(1)
+  if (!u?.avatarPath) {
+    return c.json({ error: { message: '头像不存在', code: 'not_found' } }, 404)
+  }
+  try {
+    const buf = readUpload(u.avatarPath)
+    return new Response(new Uint8Array(buf), {
+      headers: {
+        'Content-Type': mimeFromPath(u.avatarPath),
+        'Cache-Control': 'private, max-age=86400',
+      },
+    })
+  } catch {
+    return c.json({ error: { message: '头像文件缺失', code: 'file_missing' } }, 404)
+  }
+})
+
+authRoutes.delete('/account', requireUser, jsonValidator(deleteAccountSchema), async (c) => {
+  const user = c.get('user')
+  if (!verifyPassword(c.req.valid('json').password, user.passwordHash)) {
+    return c.json({ error: { message: '密码不正确', code: 'invalid_password' } }, 400)
+  }
+  // 末位管理员守卫：系统需保留至少一名管理员。
+  if (user.role === 'admin') {
+    const adminCount =
+      db
+        .select({ c: sql<number>`count(*)` })
+        .from(users)
+        .where(eq(users.role, 'admin'))
+        .get()?.c ?? 0
+    if (adminCount <= 1) {
+      return c.json({ error: { message: '系统需保留至少一名管理员，无法删除', code: 'last_admin' } }, 400)
+    }
+  }
+  if (user.avatarPath) removeUpload(user.avatarPath)
+  // 删除用户（级联清理会话/消息/附件行/设置/会话表行）。磁盘附件文件留待后续清理任务。
+  await db.delete(users).where(eq(users.id, user.id))
+  await destroySession(c)
+  return c.json({ ok: true })
 })

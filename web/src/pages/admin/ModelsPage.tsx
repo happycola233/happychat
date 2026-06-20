@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Trash2 } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
 import type { AdminModelDTO } from '@shared/types/api'
 import type { ModelCapabilities } from '@shared/types/domain'
 import * as adminApi from '../../api/admin'
@@ -24,7 +24,17 @@ export default function ModelsPage() {
     queryKey: ['admin', 'models'],
     queryFn: adminApi.listAdminModels,
   })
-  const [editing, setEditing] = useState<AdminModelDTO | null>(null)
+  const [editorOpen, setEditorOpen] = useState(false)
+  const [editorModel, setEditorModel] = useState<AdminModelDTO | null>(null)
+
+  const openCreate = () => {
+    setEditorModel(null)
+    setEditorOpen(true)
+  }
+  const openEdit = (m: AdminModelDTO) => {
+    setEditorModel(m)
+    setEditorOpen(true)
+  }
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['admin', 'models'] })
 
@@ -48,11 +58,16 @@ export default function ModelsPage() {
 
   return (
     <div className="mx-auto max-w-4xl">
-      <div className="mb-6">
-        <h1 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">模型</h1>
-        <p className="mt-1 text-sm text-neutral-500">
-          管理已同步的模型：启用/禁用、能力标记、默认参数与系统提示词
-        </p>
+      <div className="mb-6 flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">模型</h1>
+          <p className="mt-1 text-sm text-neutral-500">
+            同步或手动添加模型：启用/禁用、能力、默认参数、定价、系统提示词与请求体硬参数
+          </p>
+        </div>
+        <Button className="shrink-0" onClick={openCreate}>
+          <Plus className="h-4 w-4" /> 添加模型
+        </Button>
       </div>
 
       {isLoading ? (
@@ -61,7 +76,7 @@ export default function ModelsPage() {
         </div>
       ) : !models?.length ? (
         <div className="rounded-2xl border border-dashed border-neutral-300 py-16 text-center text-sm text-neutral-500 dark:border-neutral-700">
-          还没有模型，请先在「提供商」页同步模型。
+          还没有模型，请在「提供商」页同步，或点右上角「添加模型」手动添加。
         </div>
       ) : (
         <div className="overflow-hidden rounded-2xl border border-neutral-200 dark:border-neutral-800">
@@ -107,7 +122,7 @@ export default function ModelsPage() {
                     <Button
                       variant="ghost"
                       className="!px-2.5 !py-1 text-xs"
-                      onClick={() => setEditing(m)}
+                      onClick={() => openEdit(m)}
                     >
                       配置
                     </Button>
@@ -128,7 +143,7 @@ export default function ModelsPage() {
         </div>
       )}
 
-      {editing && <ModelEditor model={editing} onClose={() => setEditing(null)} />}
+      {editorOpen && <ModelEditor model={editorModel} onClose={() => setEditorOpen(false)} />}
     </div>
   )
 }

@@ -1,31 +1,46 @@
 import { Hono } from 'hono'
-import { eq } from 'drizzle-orm'
+import type { Context } from 'hono'
+import { and, eq } from 'drizzle-orm'
 import {
+  modelCreateSchema,
   modelUpdateSchema,
   providerCreateSchema,
   providerUpdateSchema,
 } from '@shared/schemas/model-config'
-import { inviteCreateSchema, userUpdateSchema } from '@shared/schemas/admin'
+import { inviteCreateSchema, statsFilterSchema, userUpdateSchema } from '@shared/schemas/admin'
+import { appConfigUpdateSchema } from '@shared/schemas/app-config'
 import { db } from '../db/client'
 import { inviteCodes, models, providers, users } from '../db/schema'
 import { genInviteCode } from '../lib/id'
 import { providerClientFromRow } from '../provider/client'
 import { requireAdmin } from '../auth/middleware'
+import { destroyAllUserSessions } from '../auth/session'
 import { jsonValidator } from '../http/validator'
+import { getStats, listAdminUsers, listInvites } from '../services/admin'
 import {
-  getStats,
-  listAdminUsers,
-  listErrorLogs,
-  listInvites,
-  listUsageLogs,
-} from '../services/admin'
-import { getProviderDetail, listAdminModels, listProviders } from '../services/models'
+  getAnalytics,
+  getOverview,
+  getUserStats,
+  listErrorEvents,
+  listUsageEvents,
+  type StatsFilter,
+} from '../services/stats'
+import { listSessions, revokeSession } from '../services/sessions'
+import { getAppConfig, updateAppConfig } from '../services/appConfig'
+import { listAllShares, revokeShare } from '../services/shares'
+import { createModel, getProviderDetail, listAdminModels, listProviders } from '../services/models'
 import { syncProviderModels } from '../services/providers'
 import type { AppEnv } from '../http/types'
 
 export const adminRoutes = new Hono<AppEnv>()
 
 adminRoutes.use('*', requireAdmin)
+
+/** 解析统计/事件查询筛选；失败返回 null（由调用方回 400）。 */
+function readFilter(c: Context): StatsFilter | null {
+  const parsed = statsFilterSchema.safeParse(c.req.query())
+  return parsed.success ? parsed.data : null
+}
 
 // ---------------- Providers ----------------
 
@@ -91,6 +106,16 @@ adminRoutes.get('/models', async (c) => {
   return c.json({ models: await listAdminModels() })
 })
 
+adminRoutes.post('/models', jsonValidator(modelCreateSchema), async (c) => {
+  const result = await createModel(c.req.valid('json'))
+  if (!result.ok) {
+    const message =
+      result.code === 'duplicate' ? '该供应商下已存在相同模型 ID' : '所属供应商不存在'
+    return c.json({ error: { message, code: result.code } }, 400)
+  }
+  return c.json({ model: result.model })
+})
+
 adminRoutes.patch('/models/:id', jsonValidator(modelUpdateSchema), async (c) => {
   const id = c.req.param('id')
   const input = c.req.valid('json')
@@ -98,6 +123,17 @@ adminRoutes.patch('/models/:id', jsonValidator(modelUpdateSchema), async (c) => 
   if (!existing) return c.json({ error: { message: '模型不存在', code: 'not_found' } }, 404)
 
   const patch: Partial<typeof models.$inferInsert> = {}
+  if (input.modelId !== undefined && input.modelId !== existing.modelId) {
+    const [dup] = await db
+      .select({ id: models.id })
+      .from(models)
+      .where(and(eq(models.providerId, existing.providerId), eq(models.modelId, input.modelId)))
+      .limit(1)
+    if (dup) {
+      return c.json({ error: { message: '该供应商下已存在相同模型 ID', code: 'duplicate' } }, 400)
+    }
+    patch.modelId = input.modelId
+  }
   if (input.displayName !== undefined) patch.displayName = input.displayName
   if (input.enabled !== undefined) patch.enabled = input.enabled
   if (input.kind !== undefined) patch.kind = input.kind
@@ -105,6 +141,7 @@ adminRoutes.patch('/models/:id', jsonValidator(modelUpdateSchema), async (c) => 
   if (input.defaultSystemPrompt !== undefined) patch.defaultSystemPrompt = input.defaultSystemPrompt
   if (input.defaultParams !== undefined) patch.defaultParams = input.defaultParams
   if (input.hardParams !== undefined) patch.hardParams = input.hardParams
+  if (input.pricing !== undefined) patch.pricing = input.pricing
   if (input.allowedEfforts !== undefined) patch.allowedEfforts = input.allowedEfforts
   if (input.defaultEffort !== undefined) patch.defaultEffort = input.defaultEffort
   if (input.defaultWebSearch !== undefined) patch.defaultWebSearch = input.defaultWebSearch
@@ -161,6 +198,7 @@ adminRoutes.patch('/users/:id', jsonValidator(userUpdateSchema), async (c) => {
   const patch: Partial<typeof users.$inferInsert> = {}
   if (input.role !== undefined) patch.role = input.role
   if (input.disabled !== undefined) patch.disabled = input.disabled
+  if (input.canShare !== undefined) patch.canShare = input.canShare
   await db.update(users).set(patch).where(eq(users.id, id))
   return c.json({ ok: true })
 })
@@ -174,8 +212,71 @@ adminRoutes.delete('/users/:id', async (c) => {
   return c.json({ ok: true })
 })
 
-// ---------------- 统计 / 日志 ----------------
+// ---------------- 会话（账号中心）----------------
+
+adminRoutes.get('/sessions', async (c) => {
+  const userId = c.req.query('userId') || undefined
+  return c.json({ sessions: await listSessions(userId) })
+})
+
+adminRoutes.delete('/sessions/:id', async (c) => {
+  await revokeSession(c.req.param('id'))
+  return c.json({ ok: true })
+})
+
+adminRoutes.post('/users/:id/revoke-sessions', async (c) => {
+  await destroyAllUserSessions(c.req.param('id'))
+  return c.json({ ok: true })
+})
+
+// ---------------- 统计 / 分析 / 事件 ----------------
+
+const badFilter = (c: Context) =>
+  c.json({ error: { message: '筛选参数有误', code: 'invalid_request' } }, 400)
+
+// ---------------- 全局设置 / 分享管理 ----------------
+
+adminRoutes.get('/app-config', async (c) => c.json({ config: await getAppConfig() }))
+
+adminRoutes.patch('/app-config', jsonValidator(appConfigUpdateSchema), async (c) => {
+  return c.json({ config: await updateAppConfig(c.req.valid('json')) })
+})
+
+adminRoutes.get('/shares', async (c) => c.json({ shares: await listAllShares() }))
+
+adminRoutes.post('/shares/:id/revoke', async (c) => {
+  await revokeShare(c.req.param('id'), null)
+  return c.json({ ok: true })
+})
 
 adminRoutes.get('/stats', async (c) => c.json(await getStats()))
-adminRoutes.get('/error-logs', async (c) => c.json({ logs: await listErrorLogs() }))
-adminRoutes.get('/usage-logs', async (c) => c.json({ logs: await listUsageLogs() }))
+
+adminRoutes.get('/overview', async (c) => {
+  const f = readFilter(c)
+  if (!f) return badFilter(c)
+  return c.json({ overview: await getOverview(f) })
+})
+
+adminRoutes.get('/analytics', async (c) => {
+  const f = readFilter(c)
+  if (!f) return badFilter(c)
+  return c.json({ analytics: await getAnalytics(f) })
+})
+
+adminRoutes.get('/user-stats', async (c) => {
+  const f = readFilter(c)
+  if (!f) return badFilter(c)
+  return c.json({ users: await getUserStats(f) })
+})
+
+adminRoutes.get('/usage-events', async (c) => {
+  const f = readFilter(c)
+  if (!f) return badFilter(c)
+  return c.json(await listUsageEvents(f))
+})
+
+adminRoutes.get('/error-events', async (c) => {
+  const f = readFilter(c)
+  if (!f) return badFilter(c)
+  return c.json(await listErrorEvents(f))
+})

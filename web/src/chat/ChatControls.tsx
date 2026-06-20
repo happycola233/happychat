@@ -127,18 +127,19 @@ function ImageSizeSelect({ value, onChange }: { value: string; onChange: (v: str
 }
 
 function WebToggle() {
-  const { webSearch, setWebSearch } = useChatPrefs()
+  const activeWebSearch = useChatPrefs((s) => s.activeWebSearch)
+  const setActiveWebSearch = useChatPrefs((s) => s.setActiveWebSearch)
   return (
     <button
       type="button"
-      onClick={() => setWebSearch(!webSearch)}
-        className={clsx(
+      onClick={() => setActiveWebSearch(!activeWebSearch)}
+      className={clsx(
         'flex items-center gap-1 rounded-full border px-2.5 py-1.5 text-xs transition',
-        webSearch
+        activeWebSearch
           ? 'border-blue-200 bg-blue-50 text-blue-600 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300'
           : 'border-neutral-200 text-neutral-500 hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800',
       )}
-      title="联网搜索"
+      title="联网搜索（本次会话临时开关）"
     >
       <Globe className="h-3.5 w-3.5" /> 联网
     </button>
@@ -146,9 +147,12 @@ function WebToggle() {
 }
 
 function ReasoningSelect({ model }: { model: ModelDTO }) {
-  const { reasoningEffort, setReasoningEffort } = useChatPrefs()
+  const activeEffort = useChatPrefs((s) => s.activeEffort)
+  const setActiveEffort = useChatPrefs((s) => s.setActiveEffort)
+  const pinnedEffort = useChatPrefs((s) => s.pinnedEffort)
+  const pinEffort = useChatPrefs((s) => s.pinEffort)
   const [open, setOpen] = useState(false)
-  const effective = reasoningEffort ?? model.defaultEffort
+  const effective = activeEffort ?? model.defaultEffort
   const label = effective ? EFFORT_LABELS[effective] : '默认'
 
   const options = model.allowedEfforts.map((e) => ({ value: e, label: EFFORT_LABELS[e] }))
@@ -160,11 +164,11 @@ function ReasoningSelect({ model }: { model: ModelDTO }) {
         onClick={() => setOpen((o) => !o)}
         className={clsx(
           'flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs transition',
-          reasoningEffort
+          activeEffort
             ? 'border-violet-200 bg-violet-50 text-violet-600 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-300'
             : 'border-neutral-200 text-neutral-500 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800',
         )}
-        title={reasoningEffort ? `已固定思考深度：${label}` : `思考深度：${label}`}
+        title={activeEffort ? `本次思考深度：${label}` : `思考深度：${label}（默认）`}
       >
         <Brain className="h-3.5 w-3.5" /> 思考 · {label}
         <ChevronDown className="h-3 w-3" />
@@ -172,32 +176,52 @@ function ReasoningSelect({ model }: { model: ModelDTO }) {
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute bottom-full z-20 mb-1 w-40 rounded-xl border border-neutral-200 bg-white p-1 text-neutral-700 shadow-lg dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100">
-            {options.map((o) => (
-              <button
-                key={o.label}
-                onClick={() => {
-                  setReasoningEffort(reasoningEffort === o.value ? null : o.value)
-                  setOpen(false)
-                }}
-                title={reasoningEffort === o.value ? '取消固定' : '固定这个思考深度'}
-                className={clsx(
-                  'flex w-full items-center justify-between gap-3 rounded-lg px-3 py-1.5 text-left text-sm transition hover:bg-neutral-100 dark:hover:bg-neutral-800',
-                  reasoningEffort === o.value &&
-                    'bg-violet-50 text-violet-600 dark:bg-violet-950/40 dark:text-violet-300',
-                )}
-              >
-                <span>{o.label}</span>
-                <Pin
+          <div className="absolute bottom-full z-20 mb-1 w-52 rounded-xl border border-neutral-200 bg-white p-1 text-neutral-700 shadow-lg dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100">
+            {options.map((o) => {
+              const isActive = activeEffort === o.value
+              const isPinned = pinnedEffort === o.value
+              return (
+                <div
+                  key={o.value}
                   className={clsx(
-                    'h-3.5 w-3.5 shrink-0',
-                    reasoningEffort === o.value
-                      ? 'fill-current'
-                      : 'text-neutral-300 dark:text-neutral-600',
+                    'flex items-center rounded-lg pr-1 transition hover:bg-neutral-100 dark:hover:bg-neutral-800',
+                    isActive && 'bg-violet-50 dark:bg-violet-950/40',
                   )}
-                />
-              </button>
-            ))}
+                >
+                  <button
+                    onClick={() => {
+                      setActiveEffort(isActive ? null : o.value)
+                      setOpen(false)
+                    }}
+                    title="临时使用这个思考深度"
+                    className="flex-1 px-3 py-1.5 text-left text-sm"
+                  >
+                    <span
+                      className={clsx(isActive && 'text-violet-600 dark:text-violet-300')}
+                    >
+                      {o.label}
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => pinEffort(o.value)}
+                    title={isPinned ? '取消固定默认' : '设为默认（固定）'}
+                    className="rounded-md p-1.5 transition hover:bg-neutral-200/70 dark:hover:bg-neutral-700"
+                  >
+                    <Pin
+                      className={clsx(
+                        'h-3.5 w-3.5 shrink-0',
+                        isPinned
+                          ? 'fill-current text-violet-500'
+                          : 'text-neutral-300 dark:text-neutral-600',
+                      )}
+                    />
+                  </button>
+                </div>
+              )
+            })}
+            <div className="mt-1 border-t border-neutral-100 px-3 py-1.5 text-[11px] text-neutral-400 dark:border-neutral-800">
+              点选 = 临时一次 · 图钉 = 设为默认
+            </div>
           </div>
         </>
       )}
@@ -276,8 +300,8 @@ function ImageControls() {
 
 export function ChatControls() {
   const { data: models } = useModels()
-  const { selectedModelId } = useChatPrefs()
-  const model = models?.find((m) => m.id === selectedModelId)
+  const activeModelId = useChatPrefs((s) => s.activeModelId)
+  const model = models?.find((m) => m.id === activeModelId)
   if (!model) return null
   if (model.kind === 'image') return <ImageControls />
   return (

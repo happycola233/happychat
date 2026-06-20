@@ -62,6 +62,9 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
   let state: 'completed' | 'incomplete' | 'failed' | 'canceled' = 'completed'
   let incompleteReason: string | null = null
   let errorMessage: string | null = null
+  let errorType: string | null = null
+  let errorCode: string | null = null
+  let httpStatus: number | null = null
   let upstreamResponseId: string | null = null
 
   try {
@@ -113,6 +116,9 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
       const ue = e instanceof UpstreamError ? e : null
       state = 'failed'
       errorMessage = ue?.message ?? (e instanceof Error ? e.message : '生成失败')
+      errorType = ue?.type ?? null
+      errorCode = ue?.code ?? null
+      httpStatus = ue?.status ?? null
     }
   }
 
@@ -129,6 +135,9 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
     usage,
     incompleteReason,
     errorMessage,
+    errorType,
+    errorCode,
+    httpStatus,
     upstreamResponseId,
     persistEmit,
   })

@@ -6,9 +6,12 @@ import type {
   ModelHardParams,
   ModelKind,
   ModelParams,
+  ModelPricing,
   ReasoningEffort,
   Role,
+  ThemePreference,
   UrlCitation,
+  UserPreferences,
   UserRole,
 } from './domain'
 
@@ -18,10 +21,18 @@ export interface PublicUser {
   username: string
   role: UserRole
   displayName: string | null
+  /** 头像 URL（未设置时为 null，前端回退首字母占位） */
+  avatarUrl: string | null
 }
 
 export interface AuthResponse {
   user: PublicUser
+}
+
+/** 当前用户的设置（主题 + 账户级偏好） */
+export interface UserSettingsDTO {
+  theme: ThemePreference
+  preferences: UserPreferences
 }
 
 export interface BootstrapStatus {
@@ -76,6 +87,7 @@ export interface AdminModelDTO extends ModelDTO {
   enabled: boolean
   defaultSystemPrompt: string | null
   hardParams: ModelHardParams | null
+  pricing: ModelPricing | null
   sort: number
 }
 
@@ -104,6 +116,8 @@ export interface MessageDTO {
   reasoningSummary: string | null
   /** 从上游开始响应到第一段正文输出的耗时；无可靠事件时为 null。 */
   reasoningDurationMs: number | null
+  /** 整次生成的墙钟耗时（run.startedAt→finishedAt）；用于 TPS/耗时展示，无 run 时为 null。 */
+  generationDurationMs: number | null
   annotations: UrlCitation[] | null
   usage: MessageUsage | null
   errorMessage: string | null
@@ -132,6 +146,10 @@ export interface ConversationDetail {
   conversation: ConversationDTO
   /** 会话内所有消息（分支树）；前端从 activeLeafId 向上构建可见路径 */
   messages: MessageDTO[]
+  /** 该会话最近一次生成所用模型（DB id），用于打开会话时恢复模型选择 */
+  lastModelId: string | null
+  /** 该会话最近一次生成的联网/思考设置，用于恢复控件 */
+  lastParams: { web_search?: boolean; reasoning_effort?: ReasoningEffort } | null
 }
 
 export interface SendResult {
@@ -167,6 +185,8 @@ export interface AdminUserDTO {
   role: UserRole
   displayName: string | null
   disabled: boolean
+  /** 是否允许分享：null=随全局，true/false=按用户覆盖 */
+  canShare: boolean | null
   createdAt: number
   lastActiveAt: number | null
   conversationCount: number
@@ -186,19 +206,135 @@ export interface ErrorLogDTO {
   code: string | null
   httpStatus: number | null
   message: string
+  detail: Record<string, unknown> | null
+  userId: string | null
+  username: string | null
+  runId: string | null
   createdAt: number
 }
 
 export interface UsageLogDTO {
   id: string
-  modelLabel: string | null
+  userId: string | null
+  username: string | null
+  providerId: string | null
   providerLabel: string | null
+  modelLabel: string | null
   inputTokens: number
   cachedTokens: number
   outputTokens: number
   reasoningTokens: number
   totalTokens: number
+  imageTokens: number
   success: boolean
   errorType: string | null
+  costUsd: number
   createdAt: number
+}
+
+// ===================== 统计 / 分析（细分后台）=====================
+
+/** 通用分页结果。 */
+export interface Paginated<T> {
+  items: T[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+/** 概览页：核心指标 + 请求健康时间线。 */
+export interface OverviewDTO {
+  totals: {
+    requests: number
+    successRate: number // 0-1
+    tokens: number
+    cacheRate: number // cached / input，0-1
+    rpm: number // 最近 60 分钟请求/分
+    tpm: number // 最近 60 分钟 token/分
+    costUsd: number
+    users: number
+    conversations: number
+    messages: number
+    errors: number
+  }
+  /** 按时间桶的请求量与错误量，用于健康时间线。 */
+  healthTimeline: { ts: number; requests: number; errors: number }[]
+}
+
+/** 分析页时间序列的一个数据点。 */
+export interface AnalyticsSeriesPoint {
+  ts: number
+  requests: number
+  inputTokens: number
+  cachedTokens: number
+  outputTokens: number
+  reasoningTokens: number
+  costUsd: number
+}
+
+export interface AnalyticsDTO {
+  bucket: 'hour' | 'day'
+  series: AnalyticsSeriesPoint[]
+}
+
+/** 分用户统计（分析页用户表 / 用户详情头部）。 */
+export interface UserStatDTO {
+  userId: string
+  username: string
+  displayName: string | null
+  requests: number
+  conversations: number
+  messages: number
+  totalTokens: number
+  reasoningTokens: number
+  imageGenerations: number
+  fileUploads: number
+  costUsd: number
+  errors: number
+  successRate: number // 0-1
+  lastActive: number | null
+  topModels: { model: string; calls: number }[]
+}
+
+/** 管理端登录会话。 */
+export interface AdminSessionDTO {
+  id: string
+  userId: string
+  username: string
+  userAgent: string | null
+  createdAt: number
+  expiresAt: number
+}
+
+// ===================== 全局设置 / 分享 =====================
+
+/** 全局应用设置（管理员可改）。 */
+export interface AppConfigDTO {
+  sharingEnabled: boolean
+  titleEnabled: boolean
+  titleModelId: string | null
+  titlePrompt: string | null
+}
+
+/** 用户自己/管理员看到的一条分享记录。 */
+export interface SharedChatDTO {
+  id: string
+  token: string
+  conversationId: string
+  title: string | null
+  showAvatar: boolean
+  showName: boolean
+  expiresAt: number | null
+  revoked: boolean
+  createdAt: number
+  /** 管理端列表附带的拥有者用户名 */
+  ownerUsername?: string
+}
+
+/** 公开分享视图（无需登录）。 */
+export interface PublicShareDTO {
+  title: string | null
+  messages: MessageDTO[]
+  createdAt: number
+  owner: { name: string | null; avatarUrl: string | null }
 }

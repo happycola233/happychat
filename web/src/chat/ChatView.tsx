@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
+import { ChevronDown, Menu } from 'lucide-react'
 import type {
   AttachmentDTO,
   ConversationDetail,
@@ -14,7 +15,9 @@ import { abortRun, getActiveRun, regenerateRun, startRun } from '../api/runs'
 import { useConversation } from '../hooks/useConversations'
 import { useModels } from '../hooks/useModels'
 import { useChatPrefs } from '../store/chat'
+import { useSettings } from '../store/settings'
 import { useStreamStore } from '../store/stream'
+import { useSidebarStore } from '../store/sidebar'
 import { startStream } from '../sse/streamManager'
 import { toast } from '../store/toast'
 import { buildPath, getSiblings } from './buildPath'
@@ -36,15 +39,28 @@ export default function ChatView() {
   const { id } = useParams()
   const navigate = useNavigate()
   const qc = useQueryClient()
-  const prefs = useChatPrefs()
+  const activeModelId = useChatPrefs((s) => s.activeModelId)
+  const activeWebSearch = useChatPrefs((s) => s.activeWebSearch)
+  const activeEffort = useChatPrefs((s) => s.activeEffort)
+  const imageSize = useChatPrefs((s) => s.imageSize)
+  const imageQuality = useChatPrefs((s) => s.imageQuality)
+  const setActiveModel = useChatPrefs((s) => s.setActiveModel)
+  const resetActive = useChatPrefs((s) => s.resetActive)
+  const autoScrollOnOpen = useSettings((s) => s.preferences.autoScrollOnOpen)
+  const showScrollToBottom = useSettings((s) => s.preferences.showScrollToBottom)
+  const openMobileSidebar = useSidebarStore((s) => s.setMobileOpen)
   const { data: models } = useModels()
-  const model = models?.find((m) => m.id === prefs.selectedModelId)
+  const model = models?.find((m) => m.id === activeModelId)
   const { data: detail } = useConversation(id)
   const stream = useStreamStore((s) => (id ? s.byConversation[id] : undefined))
   const clearStream = useStreamStore((s) => s.clear)
   const [optimisticUser, setOptimisticUser] = useState<string | null>(null)
   const [imageSources, setImageSources] = useState<ImageEditSource[]>([])
   const scrollRef = useRef<HTMLDivElement>(null)
+  const atBottomRef = useRef(true)
+  const autoScrollOnOpenRef = useRef(autoScrollOnOpen)
+  autoScrollOnOpenRef.current = autoScrollOnOpen
+  const [showScrollBtn, setShowScrollBtn] = useState(false)
 
   const allMessages = detail?.messages ?? []
   const messages = detail ? buildPath(allMessages, detail.conversation.activeLeafId) : []
@@ -55,6 +71,22 @@ export default function ChatView() {
     [qc],
   )
 
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
+    const el = scrollRef.current
+    if (!el) return
+    el.scrollTo({ top: el.scrollHeight, behavior })
+    atBottomRef.current = true
+    setShowScrollBtn(false)
+  }, [])
+
+  const updateScrollState = useCallback(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const dist = el.scrollHeight - el.scrollTop - el.clientHeight
+    atBottomRef.current = dist < 80
+    setShowScrollBtn(dist > 240)
+  }, [])
+
   const reasoningEnabledForRun = (modelId: string | null, requestParams?: ModelParams | null) => {
     const runModel = models?.find((m) => m.id === modelId)
     return isReasoningEnabled(runModel, requestParams)
@@ -63,12 +95,17 @@ export default function ChatView() {
   const applyRunResult = (res: RunResult, requestParams?: ModelParams | null) => {
     const convId = res.conversation.id
     qc.setQueryData<ConversationDetail>(['conversation', convId], (old) => {
-      const base = old ?? { conversation: res.conversation, messages: [] }
+      const base: ConversationDetail = old ?? {
+        conversation: res.conversation,
+        messages: [],
+        lastModelId: null,
+        lastParams: null,
+      }
       const ids = new Set(base.messages.map((m) => m.id))
       const toAdd = [res.userMessage, res.assistantMessage].filter(
         (m): m is MessageDTO => Boolean(m) && !ids.has((m as MessageDTO).id),
       )
-      return { conversation: res.conversation, messages: [...base.messages, ...toAdd] }
+      return { ...base, conversation: res.conversation, messages: [...base.messages, ...toAdd] }
     })
     qc.invalidateQueries({ queryKey: ['conversations'] })
     startStream({
@@ -115,9 +152,42 @@ export default function ChatView() {
     if (msg && msg.status !== 'streaming') clearStream(id)
   }, [id, stream, detail, clearStream])
 
+  // 打开会话时恢复模型/联网/思考（每会话仅应用一次，避免后续刷新覆盖临时切换）
+  const appliedActiveRef = useRef<string | undefined>(undefined)
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
-  }, [messages.length, optimisticUser, stream?.text, stream?.reasoning])
+    const key = id ?? '__new__'
+    if (appliedActiveRef.current === key) return
+    if (!id) {
+      appliedActiveRef.current = key
+      resetActive({})
+      return
+    }
+    if (detail && detail.conversation.id === id) {
+      appliedActiveRef.current = key
+      resetActive({
+        modelId: detail.lastModelId,
+        webSearch: detail.lastParams?.web_search,
+        effort: detail.lastParams?.reasoning_effort ?? null,
+      })
+    }
+  }, [id, detail, resetActive])
+
+  // 流式/新内容时仅在贴底状态跟随，避免打断向上翻阅
+  useEffect(() => {
+    if (atBottomRef.current) scrollToBottom()
+  }, [messages.length, optimisticUser, stream?.text, stream?.reasoning, scrollToBottom])
+
+  // 打开会话时按设置滚动到底（关闭则停留在顶部）
+  useEffect(() => {
+    if (autoScrollOnOpenRef.current) {
+      atBottomRef.current = true
+      requestAnimationFrame(() => scrollToBottom())
+    } else {
+      atBottomRef.current = false
+      setShowScrollBtn(false)
+      scrollRef.current?.scrollTo({ top: 0 })
+    }
+  }, [id, scrollToBottom])
 
   const sendMut = useMutation({
     mutationFn: startRun,
@@ -152,10 +222,10 @@ export default function ChatView() {
   const params = (): ModelParams => {
     const p: ModelParams = {}
     if (model?.kind === 'image') {
-      p.image = { size: prefs.imageSize, quality: prefs.imageQuality }
+      p.image = { size: imageSize, quality: imageQuality }
     } else {
-      p.web_search = prefs.webSearch
-      if (prefs.reasoningEffort) p.reasoning_effort = prefs.reasoningEffort
+      p.web_search = activeWebSearch
+      if (activeEffort) p.reasoning_effort = activeEffort
     }
     return p
   }
@@ -165,14 +235,15 @@ export default function ChatView() {
     attachments: AttachmentDTO[],
     selectedImageSources: ImageEditSource[],
   ) => {
-    if (!prefs.selectedModelId) return toast.error('请先选择模型')
+    if (!activeModelId) return toast.error('请先选择模型')
     if (selectedImageSources.length > 0 && model?.kind !== 'image') {
       return toast.error('请使用图片模型编辑图片')
     }
+    atBottomRef.current = true
     setOptimisticUser(text || null)
     sendMut.mutate({
       conversationId: id,
-      modelId: prefs.selectedModelId,
+      modelId: activeModelId,
       text,
       params: params(),
       attachments: attachments.map((a) => ({
@@ -190,18 +261,19 @@ export default function ChatView() {
         ? model
         : models?.find((m) => m.kind === 'image' && m.capabilities.image_generation)
     if (!imageModel) return toast.error('没有可用的图片模型')
-    if (prefs.selectedModelId !== imageModel.id) {
-      prefs.setSelectedModel(imageModel.id)
+    if (activeModelId !== imageModel.id) {
+      setActiveModel(imageModel.id)
       toast.info(`已切换到 ${imageModel.displayName}`)
     }
     setImageSources([source])
   }
 
   const onEdit = (msg: MessageDTO, text: string) => {
-    if (!prefs.selectedModelId) return toast.error('请先选择模型')
+    if (!activeModelId) return toast.error('请先选择模型')
+    atBottomRef.current = true
     sendMut.mutate({
       conversationId: id,
-      modelId: prefs.selectedModelId,
+      modelId: activeModelId,
       text,
       params: params(),
       parentId: msg.parentId,
@@ -209,9 +281,10 @@ export default function ChatView() {
   }
 
   const onRegenerate = (assistantMessageId: string) => {
+    atBottomRef.current = true
     regenMut.mutate({
       assistantMessageId,
-      modelId: prefs.selectedModelId ?? undefined,
+      modelId: activeModelId ?? undefined,
       params: params(),
     })
   }
@@ -228,11 +301,24 @@ export default function ChatView() {
 
   return (
     <>
-      <header className="flex h-14 shrink-0 items-center border-b border-neutral-200 px-4 dark:border-neutral-800">
+      <header className="flex h-14 shrink-0 items-center gap-1 border-b border-neutral-200 px-2 sm:px-4 dark:border-neutral-800">
+        <button
+          type="button"
+          onClick={() => openMobileSidebar(true)}
+          className="rounded-lg p-2 text-neutral-500 transition hover:bg-neutral-100 md:hidden dark:text-neutral-300 dark:hover:bg-neutral-800"
+          aria-label="打开侧边栏"
+        >
+          <Menu className="h-5 w-5" />
+        </button>
         <ModelSelector />
       </header>
 
-      <div ref={scrollRef} className="hc-scrollbar flex-1 overflow-y-auto">
+      <div className="relative min-h-0 flex-1">
+      <div
+        ref={scrollRef}
+        onScroll={updateScrollState}
+        className="hc-scrollbar h-full overflow-y-auto"
+      >
         {isEmpty ? (
           <div className="flex h-full items-center justify-center">
             <div className="text-center">
@@ -255,16 +341,17 @@ export default function ChatView() {
                     }
                   : undefined
               return (
-                <Message
-                  key={m.id}
-                  message={m}
-                  live={stream && m.id === stream.assistantMessageId ? stream : undefined}
-                  branch={branch}
-                  busy={streaming}
-                  onEdit={m.role === 'user' ? (t) => onEdit(m, t) : undefined}
-                  onRegenerate={m.role === 'assistant' ? () => onRegenerate(m.id) : undefined}
-                  onUseImageSource={m.role === 'assistant' ? onUseImageSource : undefined}
-                />
+                <div key={m.id} className="hc-anim-in">
+                  <Message
+                    message={m}
+                    live={stream && m.id === stream.assistantMessageId ? stream : undefined}
+                    branch={branch}
+                    busy={streaming}
+                    onEdit={m.role === 'user' ? (t) => onEdit(m, t) : undefined}
+                    onRegenerate={m.role === 'assistant' ? () => onRegenerate(m.id) : undefined}
+                    onUseImageSource={m.role === 'assistant' ? onUseImageSource : undefined}
+                  />
+                </div>
               )
             })}
             {optimisticUser && (
@@ -275,6 +362,18 @@ export default function ChatView() {
               </div>
             )}
           </div>
+        )}
+      </div>
+        {showScrollToBottom && showScrollBtn && (
+          <button
+            type="button"
+            onClick={() => scrollToBottom('smooth')}
+            aria-label="滚动到底部"
+            title="滚动到底部"
+            className="absolute bottom-4 left-1/2 z-10 flex h-9 w-9 -translate-x-1/2 items-center justify-center rounded-full border border-neutral-200 bg-white text-neutral-600 shadow-md transition hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700"
+          >
+            <ChevronDown className="h-5 w-5" />
+          </button>
         )}
       </div>
 

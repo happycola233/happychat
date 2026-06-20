@@ -4,6 +4,7 @@ import { RUN_EVENT_TYPE } from '@shared/types/events'
 import { db } from '../db/client'
 import { conversations, errorLogs, messages, runs, usageLogs } from '../db/schema'
 import { buildAssistantContent } from '../provider/normalize'
+import { maybeGenerateTitle } from '../services/title'
 import type { ConvRow, ModelRow, MsgRow, ProviderRow, RunRow } from './types'
 
 type FinalState = 'completed' | 'incomplete' | 'failed' | 'canceled'
@@ -21,6 +22,9 @@ export interface FinalizeArgs {
   usage: MessageUsage
   incompleteReason: string | null
   errorMessage: string | null
+  errorType?: string | null
+  errorCode?: string | null
+  httpStatus?: number | null
   upstreamResponseId: string | null
   persistEmit: (type: string, data: Record<string, unknown>) => number
 }
@@ -74,6 +78,7 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
     runId: a.run.id,
     userId: a.run.userId,
     modelId: a.model.id,
+    providerId: a.provider.id,
     modelLabel: a.model.modelId,
     providerLabel: a.provider.name,
     conversationId: a.conversation.id,
@@ -83,7 +88,7 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
     reasoningTokens: a.usage.reasoningTokens,
     totalTokens: a.usage.totalTokens,
     success: a.state !== 'failed',
-    errorType: a.state === 'failed' ? 'error' : null,
+    errorType: a.state === 'failed' ? (a.errorType ?? 'error') : null,
   })
 
   if (a.state === 'failed' && a.errorMessage) {
@@ -91,6 +96,9 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
       runId: a.run.id,
       userId: a.run.userId,
       scope: 'upstream',
+      errorType: a.errorType ?? null,
+      code: a.errorCode ?? null,
+      httpStatus: a.httpStatus ?? null,
       message: a.errorMessage,
     })
   }
@@ -106,5 +114,7 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
       usage: a.usage,
       incompleteReason: a.incompleteReason,
     })
+    // 成功生成后异步总结标题（仅当会话尚无标题），不阻塞终结。
+    void maybeGenerateTitle(a.conversation.id)
   }
 }

@@ -4,14 +4,20 @@ import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import ChatLayout from './chat/ChatLayout'
 import ChatView from './chat/ChatView'
+import SharedChatPage from './pages/SharedChatPage'
 import AdminLayout from './pages/admin/AdminLayout'
-import ProvidersPage from './pages/admin/ProvidersPage'
-import ModelsPage from './pages/admin/ModelsPage'
-import StatsPage from './pages/admin/StatsPage'
-import UsersPage from './pages/admin/UsersPage'
-import InvitesPage from './pages/admin/InvitesPage'
-import LogsPage from './pages/admin/LogsPage'
-import SettingsPage from './pages/admin/SettingsPage'
+import {
+  AnalyticsPage,
+  AuthCenterPage,
+  ErrorEventsPage,
+  ModelsPage,
+  OverviewPage,
+  ProvidersPage,
+  RequestEventsPage,
+  SettingsPage,
+  SharesPage,
+  UserDetailPage,
+} from './pages/admin/lazyPages'
 
 export const router = createBrowserRouter([
   {
@@ -33,14 +39,22 @@ export const router = createBrowserRouter([
         path: '/admin',
         element: <AdminLayout />,
         children: [
-          { index: true, element: <Navigate to="stats" replace /> },
-          { path: 'stats', element: <StatsPage /> },
+          { index: true, element: <Navigate to="overview" replace /> },
+          { path: 'overview', element: <OverviewPage /> },
+          { path: 'analytics', element: <AnalyticsPage /> },
+          { path: 'request-events', element: <RequestEventsPage /> },
+          { path: 'error-logs', element: <ErrorEventsPage /> },
+          { path: 'auth-center', element: <AuthCenterPage /> },
+          { path: 'shares', element: <SharesPage /> },
+          { path: 'users/:id', element: <UserDetailPage /> },
           { path: 'providers', element: <ProvidersPage /> },
           { path: 'models', element: <ModelsPage /> },
-          { path: 'users', element: <UsersPage /> },
-          { path: 'invites', element: <InvitesPage /> },
-          { path: 'logs', element: <LogsPage /> },
           { path: 'settings', element: <SettingsPage /> },
+          // 旧路径兼容重定向
+          { path: 'stats', element: <Navigate to="/admin/overview" replace /> },
+          { path: 'users', element: <Navigate to="/admin/auth-center" replace /> },
+          { path: 'invites', element: <Navigate to="/admin/auth-center" replace /> },
+          { path: 'logs', element: <Navigate to="/admin/error-logs" replace /> },
         ],
       },
     ],
@@ -52,5 +66,7 @@ export const router = createBrowserRouter([
       { path: '/register', element: <RegisterPage /> },
     ],
   },
+  // 公开只读分享页（无需登录）
+  { path: '/s/:token', element: <SharedChatPage /> },
   { path: '*', element: <Navigate to="/" replace /> },
 ])

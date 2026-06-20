@@ -1,5 +1,6 @@
 import { joinBaseUrl } from '@shared/util/url'
 import type { providers } from '../db/schema'
+import { type ChatChunk, parseChatStream } from './chat'
 import { UpstreamError, networkError, toUpstreamError } from './errors'
 import { parseSSEStream, type StreamEvent } from './sse-parse'
 import type { UpstreamResponse } from './upstream-types'
@@ -74,6 +75,24 @@ export class ProviderClient {
     if (!res.ok) throw await toUpstreamError(res)
     if (!res.body) throw new UpstreamError({ message: '上游未返回流式响应', status: res.status })
     yield* parseSSEStream(res.body)
+  }
+
+  /** POST /chat/completions（非流式）：返回完整 JSON（用于标题总结等）。 */
+  async createChat(body: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
+    const res = await this.postJson('/chat/completions', body, signal)
+    if (!res.ok) throw await toUpstreamError(res)
+    return res.json()
+  }
+
+  /** POST /chat/completions（流式）：返回 ChatChunk 序列。 */
+  async *createChatStream(
+    body: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): AsyncGenerator<ChatChunk> {
+    const res = await this.postJson('/chat/completions', { ...body, stream: true }, signal)
+    if (!res.ok) throw await toUpstreamError(res)
+    if (!res.body) throw new UpstreamError({ message: '上游未返回流式响应', status: res.status })
+    yield* parseChatStream(res.body)
   }
 
   /** POST /images/generations（非流式）：返回原始 JSON（含 data[].b64_json）。 */

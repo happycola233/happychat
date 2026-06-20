@@ -15,6 +15,8 @@ interface Props {
   startedAt: number | null
   /** 完成后的思考耗时；刷新后的持久化消息由服务端计算。 */
   durationMs?: number | null
+  /** 默认是否展开推理（来自用户设置）；关闭时不随思考自动展开。 */
+  defaultExpanded?: boolean
 }
 
 function CompletedIcon() {
@@ -162,9 +164,9 @@ function SummaryFooter({ label }: SummaryFooterProps) {
   )
 }
 
-export function ReasoningCard({ text, status, startedAt, durationMs }: Props) {
+export function ReasoningCard({ text, status, startedAt, durationMs, defaultExpanded = false }: Props) {
   const [seconds, setSeconds] = useState(0)
-  const [open, setOpen] = useState(true)
+  const [open, setOpen] = useState(defaultExpanded)
   const hadTextRef = useRef(false)
   const normalizedText = useMemo(() => normalizeReasoningMarkdown(text), [text])
   const sections = useMemo(() => splitReasoningSections(normalizedText), [normalizedText])
@@ -182,13 +184,15 @@ export function ReasoningCard({ text, status, startedAt, durationMs }: Props) {
   }, [status, startedAt])
 
   useEffect(() => {
+    // 仅在「默认展开」开启时随推理文本出现自动展开；关闭时保持折叠由用户手动展开。
+    if (!defaultExpanded) return
     if (hasText && !hadTextRef.current) {
       setOpen(true)
       hadTextRef.current = true
     } else if (!hasText) {
       hadTextRef.current = false
     }
-  }, [hasText])
+  }, [hasText, defaultExpanded])
 
   const completedSeconds =
     durationMs !== undefined && durationMs !== null

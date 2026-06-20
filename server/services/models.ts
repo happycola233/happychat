@@ -1,7 +1,9 @@
 import { and, eq, sql } from 'drizzle-orm'
 import type { AdminModelDTO, ModelDTO, ProviderDTO, ProviderDetailDTO } from '@shared/types/api'
+import type { ModelCreateInput } from '@shared/schemas/model-config'
 import { db } from '../db/client'
 import { models, providers } from '../db/schema'
+import { must } from '../lib/assert'
 import { maskSecret } from '../lib/mask'
 
 type ModelRow = typeof models.$inferSelect
@@ -29,6 +31,7 @@ export function toAdminModelDTO(m: ModelRow, providerName: string): AdminModelDT
     enabled: m.enabled,
     defaultSystemPrompt: m.defaultSystemPrompt,
     hardParams: m.hardParams ?? null,
+    pricing: m.pricing ?? null,
     sort: m.sort,
   }
 }
@@ -105,4 +108,49 @@ export async function listAdminModels(): Promise<AdminModelDTO[]> {
     .innerJoin(providers, eq(models.providerId, providers.id))
     .orderBy(models.sort, models.displayName)
   return rows.map((r) => toAdminModelDTO(r.models, r.providers.name))
+}
+
+export type CreateModelResult =
+  | { ok: true; model: AdminModelDTO }
+  | { ok: false; code: 'provider_missing' | 'duplicate' }
+
+/** 手动添加模型：校验供应商存在、(providerId, modelId) 不重复后入库。 */
+export async function createModel(input: ModelCreateInput): Promise<CreateModelResult> {
+  const [provider] = await db
+    .select()
+    .from(providers)
+    .where(eq(providers.id, input.providerId))
+    .limit(1)
+  if (!provider) return { ok: false, code: 'provider_missing' }
+
+  const [existing] = await db
+    .select({ id: models.id })
+    .from(models)
+    .where(and(eq(models.providerId, input.providerId), eq(models.modelId, input.modelId)))
+    .limit(1)
+  if (existing) return { ok: false, code: 'duplicate' }
+
+  const row = must(
+    await db
+      .insert(models)
+      .values({
+        providerId: input.providerId,
+        modelId: input.modelId,
+        displayName: input.displayName,
+        kind: input.kind,
+        enabled: input.enabled,
+        capabilities: input.capabilities,
+        defaultSystemPrompt: input.defaultSystemPrompt ?? null,
+        defaultParams: input.defaultParams ?? null,
+        hardParams: input.hardParams ?? null,
+        pricing: input.pricing ?? null,
+        allowedEfforts: input.allowedEfforts,
+        defaultEffort: input.defaultEffort ?? null,
+        defaultWebSearch: input.defaultWebSearch,
+        sort: input.sort,
+      })
+      .returning()
+      .then((r) => r[0]),
+  )
+  return { ok: true, model: toAdminModelDTO(row, provider.name) }
 }

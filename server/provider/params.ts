@@ -4,11 +4,11 @@ import type { models } from '../db/schema'
 
 type ModelRow = typeof models.$inferSelect
 
-function isPlainObject(v: unknown): v is Record<string, unknown> {
+export function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
 
-function mergeDeep(target: Record<string, unknown>, src: Record<string, unknown>): void {
+export function mergeDeep(target: Record<string, unknown>, src: Record<string, unknown>): void {
   for (const [k, v] of Object.entries(src)) {
     const existing = target[k]
     if (isPlainObject(v) && isPlainObject(existing)) mergeDeep(existing, v)

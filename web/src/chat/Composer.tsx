@@ -5,6 +5,7 @@ import { FileText, ImagePlus, Paperclip, Square, X } from 'lucide-react'
 import type { AttachmentDTO } from '@shared/types/api'
 import { attachmentUrl, uploadAttachment } from '../api/attachments'
 import { toast } from '../store/toast'
+import { useSettings } from '../store/settings'
 import { Spinner } from '../components/ui/Spinner'
 import type { ImageEditSource } from './imageSource'
 import { SendArrowIcon } from './icons'
@@ -32,6 +33,7 @@ export function Composer({
   imageSources = [],
   onRemoveImageSource,
 }: Props) {
+  const sendOnEnter = useSettings((s) => s.preferences.sendOnEnter)
   const [text, setText] = useState('')
   const [pending, setPending] = useState<AttachmentDTO[]>([])
   const [uploading, setUploading] = useState(false)
@@ -102,7 +104,15 @@ export function Composer({
   }
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key !== 'Enter') return
+    if (sendOnEnter) {
+      // Enter 发送、Shift+Enter 换行
+      if (!e.shiftKey) {
+        e.preventDefault()
+        submit()
+      }
+    } else if (e.ctrlKey || e.metaKey) {
+      // Enter 换行、Ctrl/⌘+Enter 发送
       e.preventDefault()
       submit()
     }
