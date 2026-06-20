@@ -115,6 +115,6 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
       incompleteReason: a.incompleteReason,
     })
     // 成功生成后异步总结标题（仅当会话尚无标题），不阻塞终结。
-    void maybeGenerateTitle(a.conversation.id)
+    void maybeGenerateTitle(a.conversation.id, a.run.id)
   }
 }

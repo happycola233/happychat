@@ -8,6 +8,7 @@ export const PROMPT_VARIABLES: { name: string; description: string }[] = [
   { name: 'current_weekday', description: '星期几（英文），如 Friday' },
   { name: 'current_user', description: '当前用户的显示名（无则用户名）' },
   { name: 'current_username', description: '当前用户名' },
+  { name: 'locale', description: '浏览器语言，如 简体中文' },
   { name: 'model_name', description: '模型外显名称' },
   { name: 'model_id', description: '模型真实 ID' },
   { name: 'timezone', description: '服务器时区，如 Asia/Shanghai' },

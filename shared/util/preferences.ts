@@ -5,12 +5,12 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   autoScrollOnOpen: true,
   showScrollToBottom: true,
   sendOnEnter: true,
-  defaultExpandReasoning: false,
+  defaultExpandReasoning: true,
   messageFontSize: 'medium',
-  showMessageTime: false,
-  messageTimeFormat: 'time',
+  showMessageTime: true,
+  messageTimeFormat: 'datetime',
   showModelLabel: true,
-  showUsageStats: false,
+  showUsageStats: true,
 }
 
 /**

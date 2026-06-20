@@ -6,6 +6,12 @@ interface SidebarStore {
   collapsed: boolean
   setCollapsed: (collapsed: boolean) => void
   toggleCollapsed: () => void
+  pinnedSectionCollapsed: boolean
+  recentSectionCollapsed: boolean
+  setPinnedSectionCollapsed: (collapsed: boolean) => void
+  setRecentSectionCollapsed: (collapsed: boolean) => void
+  togglePinnedSectionCollapsed: () => void
+  toggleRecentSectionCollapsed: () => void
   /** 移动端抽屉是否打开（不持久化） */
   mobileOpen: boolean
   setMobileOpen: (open: boolean) => void
@@ -17,10 +23,25 @@ export const useSidebarStore = create<SidebarStore>()(
       collapsed: false,
       setCollapsed: (collapsed) => set({ collapsed }),
       toggleCollapsed: () => set((state) => ({ collapsed: !state.collapsed })),
+      pinnedSectionCollapsed: false,
+      recentSectionCollapsed: false,
+      setPinnedSectionCollapsed: (collapsed) => set({ pinnedSectionCollapsed: collapsed }),
+      setRecentSectionCollapsed: (collapsed) => set({ recentSectionCollapsed: collapsed }),
+      togglePinnedSectionCollapsed: () =>
+        set((state) => ({ pinnedSectionCollapsed: !state.pinnedSectionCollapsed })),
+      toggleRecentSectionCollapsed: () =>
+        set((state) => ({ recentSectionCollapsed: !state.recentSectionCollapsed })),
       mobileOpen: false,
       setMobileOpen: (open) => set({ mobileOpen: open }),
     }),
-    { name: 'happychat-sidebar', partialize: (s) => ({ collapsed: s.collapsed }) },
+    {
+      name: 'happychat-sidebar',
+      partialize: (s) => ({
+        collapsed: s.collapsed,
+        pinnedSectionCollapsed: s.pinnedSectionCollapsed,
+        recentSectionCollapsed: s.recentSectionCollapsed,
+      }),
+    },
   ),
 )
 

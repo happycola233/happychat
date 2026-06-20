@@ -5,14 +5,14 @@ import {
   listAdminModels,
   listProviders,
   listUsers,
-  type StatsQuery,
 } from '../../api/admin'
 import { Badge } from '../../components/ui/Badge'
 import { DateRangePicker } from '../../components/ui/DateRangePicker'
-import { rangeToFilter, type RangeKey } from '../../lib/dateRange'
+import { type RangeKey } from '../../lib/dateRange'
 import { Pagination } from '../../components/ui/Pagination'
 import { Select, type SelectOption } from '../../components/ui/Select'
 import { Spinner } from '../../components/ui/Spinner'
+import { buildUsageEventsQuery, usageEventsQueryKey } from './eventFilters'
 import {
   tableBody,
   tableEl,
@@ -75,19 +75,19 @@ export default function RequestEventsPage() {
     [users],
   )
 
-  const query: StatsQuery = {
-    ...rangeToFilter(rangeKey),
-    providerId: providerId || undefined,
-    modelId: modelId || undefined,
-    userId: userId || undefined,
-    success: successSel === '' ? undefined : successSel === 'true',
+  const filters = {
+    rangeKey,
+    providerId,
+    modelId,
+    userId,
+    successSel,
     page,
     pageSize: PAGE_SIZE,
   }
 
   const { data, isLoading } = useQuery({
-    queryKey: ['admin', 'usage-events', query],
-    queryFn: () => getUsageEvents(query),
+    queryKey: usageEventsQueryKey(filters),
+    queryFn: () => getUsageEvents(buildUsageEventsQuery(filters)),
   })
 
   return (

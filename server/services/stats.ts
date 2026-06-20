@@ -42,6 +42,11 @@ function bucketMs(bucket: 'hour' | 'day'): number {
   return bucket === 'day' ? DAY_MS : HOUR_MS
 }
 
+/** SQLite 的 / 是浮点除法；用取模扣回桶起点，避免每条日志各自成桶。 */
+function bucketStartExpr(size: number): SQL<number> {
+  return sql<number>`${usageLogs.createdAt} - (${usageLogs.createdAt} % ${size})`
+}
+
 /** 据时间范围自动选择分桶粒度：超过 3 天用「天」，否则用「时」。 */
 function autoBucket(filter: StatsFilter): 'hour' | 'day' {
   if (filter.bucket) return filter.bucket
@@ -137,7 +142,7 @@ export async function getOverview(filter: StatsFilter): Promise<OverviewDTO> {
   // 健康时间线
   const bucket = autoBucket(filter)
   const size = bucketMs(bucket)
-  const bucketExpr = sql<number>`(${usageLogs.createdAt} / ${size}) * ${size}`
+  const bucketExpr = bucketStartExpr(size)
   const timeline = await db
     .select({
       ts: bucketExpr,
@@ -182,7 +187,7 @@ export async function getAnalytics(filter: StatsFilter): Promise<AnalyticsDTO> {
   const size = bucketMs(bucket)
   const conds = usageConds(filter)
   const pricing = await getPricingMap()
-  const bucketExpr = sql<number>`(${usageLogs.createdAt} / ${size}) * ${size}`
+  const bucketExpr = bucketStartExpr(size)
 
   const rows = await db
     .select({

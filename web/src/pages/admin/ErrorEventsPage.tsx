@@ -1,9 +1,9 @@
 import { Fragment, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { ErrorLogDTO, Paginated } from '@shared/types/api'
-import { getErrorEvents, type StatsQuery } from '../../api/admin'
+import { getErrorEvents } from '../../api/admin'
 import { DateRangePicker } from '../../components/ui/DateRangePicker'
-import { rangeToFilter, type RangeKey } from '../../lib/dateRange'
+import { type RangeKey } from '../../lib/dateRange'
 import { Select } from '../../components/ui/Select'
 import { TextField } from '../../components/ui/TextField'
 import { Pagination } from '../../components/ui/Pagination'
@@ -19,6 +19,7 @@ import {
   tableRowHover,
 } from '../../components/ui/tableStyles'
 import { formatDateTime } from '../../lib/format'
+import { buildErrorEventsQuery, errorEventsQueryKey } from './eventFilters'
 
 const SCOPE_OPTIONS = [
   { value: '', label: '全部来源' },
@@ -43,17 +44,17 @@ export default function ErrorEventsPage() {
   const [page, setPage] = useState(1)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
-  const query: StatsQuery = {
-    ...rangeToFilter(rangeKey),
-    scope: scopeSel || undefined,
-    search: search.trim() || undefined,
+  const filters = {
+    rangeKey,
+    scopeSel,
+    search,
     page,
     pageSize: PAGE_SIZE,
   }
 
   const { data, isLoading } = useQuery<Paginated<ErrorLogDTO>>({
-    queryKey: ['admin', 'error-events', query],
-    queryFn: () => getErrorEvents(query),
+    queryKey: errorEventsQueryKey(filters),
+    queryFn: () => getErrorEvents(buildErrorEventsQuery(filters)),
     refetchInterval: 15000,
   })
 

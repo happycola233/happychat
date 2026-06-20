@@ -1,3 +1,5 @@
+import { titleLocaleFromBrowser } from '@shared/util/titleLocale'
+
 const WEEKDAYS = [
   'Sunday',
   'Monday',
@@ -16,6 +18,7 @@ export interface PromptVarContext {
   user: { username: string; displayName: string | null } | null
   model: { displayName: string; modelId: string }
   now: Date
+  clientLocale?: string
 }
 
 /** 计算系统提示词变量的实际值（服务器本地时间；iso_datetime 用 UTC）。 */
@@ -38,6 +41,7 @@ export function buildPromptVars(ctx: PromptVarContext): Record<string, string> {
     current_weekday: WEEKDAYS[d.getDay()]!,
     current_user: ctx.user?.displayName || ctx.user?.username || '',
     current_username: ctx.user?.username ?? '',
+    locale: titleLocaleFromBrowser(ctx.clientLocale),
     model_name: ctx.model.displayName,
     model_id: ctx.model.modelId,
     timezone,

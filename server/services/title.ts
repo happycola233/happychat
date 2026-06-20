@@ -1,7 +1,8 @@
-import { and, asc, eq, ne } from 'drizzle-orm'
+import { and, asc, desc, eq, ne } from 'drizzle-orm'
 import { textFromContent } from '@shared/util/contentText'
+import { titleLocaleFromBrowser } from '@shared/util/titleLocale'
 import { db } from '../db/client'
-import { conversations, models, providers } from '../db/schema'
+import { conversations, models, providers, runs } from '../db/schema'
 import { providerClientFromRow } from '../provider/client'
 import { parseResponse } from '../provider/normalize'
 import { buildPath, getConversationMessages } from './conversations'
@@ -76,11 +77,28 @@ async function callTitleModel(m: ModelRow, p: ProviderRow, prompt: string): Prom
   return parseResponse(resp).text
 }
 
+async function titleLocaleForRun(conversationId: string, runId?: string): Promise<string> {
+  const [row] = await db
+    .select({ requestParams: runs.requestParams })
+    .from(runs)
+    .where(
+      runId
+        ? and(eq(runs.id, runId), eq(runs.conversationId, conversationId))
+        : eq(runs.conversationId, conversationId),
+    )
+    .orderBy(desc(runs.createdAt))
+    .limit(1)
+
+  return titleLocaleFromBrowser(
+    (row?.requestParams as { clientLocale?: unknown } | null | undefined)?.clientLocale,
+  )
+}
+
 /**
  * 首条助手回复完成后异步生成标题（仅当会话尚无标题）。失败回退首条用户消息切片。
  * 在 finalizeRun 成功分支 fire-and-forget 调用。
  */
-export async function maybeGenerateTitle(conversationId: string): Promise<void> {
+export async function maybeGenerateTitle(conversationId: string, runId?: string): Promise<void> {
   try {
     const cfg = await getAppConfig()
     if (!cfg.titleEnabled) return
@@ -96,11 +114,15 @@ export async function maybeGenerateTitle(conversationId: string): Promise<void> 
     if (path.length === 0) return
 
     const firstUser = path.find((m) => m.role === 'user')
-    const fallback = (firstUser ? textFromContent(firstUser.content).trim().slice(0, 20) : '') || '新聊天'
+    const fallback =
+      (firstUser ? textFromContent(firstUser.content).trim().slice(0, 20) : '') || '新聊天'
 
     const recent = path.slice(-4)
     const content = recent
-      .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${textFromContent(m.content).slice(0, 500)}`)
+      .map(
+        (m) =>
+          `${m.role === 'user' ? 'User' : 'Assistant'}: ${textFromContent(m.content).slice(0, 500)}`,
+      )
       .join('\n')
 
     const resolved = await resolveTitleModel(cfg.titleModelId)
@@ -108,8 +130,9 @@ export async function maybeGenerateTitle(conversationId: string): Promise<void> 
       await db.update(conversations).set({ title: fallback }).where(eq(conversations.id, conversationId))
       return
     }
+    const titleLocale = await titleLocaleForRun(conversationId, runId)
     const prompt = (cfg.titlePrompt || DEFAULT_TITLE_PROMPT)
-      .replaceAll('{locale}', '简体中文')
+      .replaceAll('{locale}', titleLocale)
       .replaceAll('{content}', content)
     const raw = await callTitleModel(resolved.model, resolved.provider, prompt)
     const title = cleanTitle(raw) || fallback

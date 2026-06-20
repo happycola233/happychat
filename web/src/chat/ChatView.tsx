@@ -18,6 +18,7 @@ import { useChatPrefs } from '../store/chat'
 import { useSettings } from '../store/settings'
 import { useStreamStore } from '../store/stream'
 import { useSidebarStore } from '../store/sidebar'
+import { getBrowserLocale } from '../lib/browserLocale'
 import { startStream } from '../sse/streamManager'
 import { toast } from '../store/toast'
 import { buildPath, getSiblings } from './buildPath'
@@ -246,6 +247,7 @@ export default function ChatView() {
       modelId: activeModelId,
       text,
       params: params(),
+      clientLocale: getBrowserLocale(),
       attachments: attachments.map((a) => ({
         attachmentId: a.id,
         kind: a.kind,
@@ -276,6 +278,7 @@ export default function ChatView() {
       modelId: activeModelId,
       text,
       params: params(),
+      clientLocale: getBrowserLocale(),
       parentId: msg.parentId,
     })
   }
@@ -286,6 +289,7 @@ export default function ChatView() {
       assistantMessageId,
       modelId: activeModelId ?? undefined,
       params: params(),
+      clientLocale: getBrowserLocale(),
     })
   }
 

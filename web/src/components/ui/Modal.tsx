@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { useEffect } from 'react'
 import { X } from 'lucide-react'
+import { clsx } from 'clsx'
 
 interface Props {
   open: boolean
@@ -8,9 +9,10 @@ interface Props {
   title: string
   children: ReactNode
   footer?: ReactNode
+  size?: 'default' | 'wide'
 }
 
-export function Modal({ open, onClose, title, children, footer }: Props) {
+export function Modal({ open, onClose, title, children, footer, size = 'default' }: Props) {
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
@@ -24,7 +26,12 @@ export function Modal({ open, onClose, title, children, footer }: Props) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="hc-scrollbar hc-pop-in relative z-10 max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl dark:bg-neutral-900">
+      <div
+        className={clsx(
+          'hc-scrollbar hc-pop-in relative z-10 max-h-[90vh] w-full overflow-y-auto rounded-2xl bg-white p-4 shadow-xl sm:p-6 dark:bg-neutral-900',
+          size === 'wide' ? 'max-w-[min(80vw,calc(100vw-2rem))]' : 'max-w-lg',
+        )}
+      >
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">{title}</h3>
           <button

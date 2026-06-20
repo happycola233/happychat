@@ -20,6 +20,8 @@ export const sendMessageSchema = z
     text: z.string().max(100_000).default(''),
     /** 用户可调参数（思考等级、联网开关等） */
     params: modelParamsSchema.optional(),
+    /** 发起生成时的浏览器首选语言，用于标题总结等服务端异步任务。 */
+    clientLocale: z.string().trim().min(1).max(64).optional(),
     /** 幂等键，避免重复提交触发两次上游调用 */
     idempotencyKey: z.string().max(64).optional(),
     /** 编辑重发：被编辑用户消息的 parentId，使新消息成为兄弟分支 */
@@ -54,6 +56,8 @@ export const regenerateSchema = z.object({
   assistantMessageId: z.string().min(1),
   modelId: z.string().min(1).optional(),
   params: modelParamsSchema.optional(),
+  /** 发起重新生成时的浏览器首选语言，用于标题总结等服务端异步任务。 */
+  clientLocale: z.string().trim().min(1).max(64).optional(),
   idempotencyKey: z.string().max(64).optional(),
 })
 

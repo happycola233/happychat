@@ -56,6 +56,7 @@ runRoutes.post('/', jsonValidator(sendMessageSchema), async (c) => {
     modelId: input.modelId,
     text: input.text,
     params: input.params,
+    clientLocale: input.clientLocale,
     idempotencyKey: input.idempotencyKey,
     parentId: input.parentId,
     attachments: input.attachments,
@@ -90,6 +91,7 @@ runRoutes.post('/regenerate', jsonValidator(regenerateSchema), async (c) => {
     assistantMessageId: input.assistantMessageId,
     modelId: input.modelId,
     params: input.params,
+    clientLocale: input.clientLocale,
     idempotencyKey: input.idempotencyKey,
   })
   if (!prepared.ok) {

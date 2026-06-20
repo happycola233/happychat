@@ -144,6 +144,7 @@ export function ModelEditor({ model, onClose }: { model: AdminModelDTO | null; o
       open
       onClose={onClose}
       title={isCreate ? '添加模型' : `配置模型 · ${model.modelId}`}
+      size="wide"
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>
@@ -176,7 +177,7 @@ export function ModelEditor({ model, onClose }: { model: AdminModelDTO | null; o
           </label>
         )}
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="block">
             <span className="mb-1.5 block text-sm font-medium text-neutral-700 dark:text-neutral-300">
               模型 ID（真实请求用）
@@ -297,13 +298,13 @@ export function ModelEditor({ model, onClose }: { model: AdminModelDTO | null; o
           />
           <div className="mt-2 rounded-lg bg-neutral-50 p-2.5 text-xs dark:bg-neutral-800/50">
             <div className="mb-1.5 text-neutral-500">可用变量（请求时按当前用户/模型/时间自动替换）：</div>
-            <div className="grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-2 xl:grid-cols-3">
               {PROMPT_VARIABLES.map((v) => (
-                <div key={v.name} className="flex min-w-0 items-baseline gap-1.5">
+                <div key={v.name} className="flex min-w-0 items-start gap-1.5">
                   <code className="shrink-0 rounded bg-neutral-200/70 px-1 font-mono text-[11px] text-neutral-700 dark:bg-neutral-700/60 dark:text-neutral-200">
                     {`{{${v.name}}}`}
                   </code>
-                  <span className="truncate text-neutral-400">{v.description}</span>
+                  <span className="leading-5 text-neutral-400">{v.description}</span>
                 </div>
               ))}
             </div>
@@ -311,7 +312,7 @@ export function ModelEditor({ model, onClose }: { model: AdminModelDTO | null; o
         </label>
 
         {kind === 'responses' && (
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="block">
               <span className="mb-1.5 block text-xs text-neutral-500">temperature</span>
               <input
@@ -374,7 +375,7 @@ export function ModelEditor({ model, onClose }: { model: AdminModelDTO | null; o
             定价（USD / 每 100 万 tokens）
           </span>
           <p className="mb-3 text-xs text-neutral-400">用于成本估算，留空的项不计入成本。</p>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="block">
               <span className="mb-1.5 block text-xs text-neutral-500">输入 input</span>
               <input

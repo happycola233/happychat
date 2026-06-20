@@ -33,6 +33,8 @@ const TABS: { key: Tab; label: string }[] = [
 ]
 
 const fmtDate = (ts: number | null) => (ts ? new Date(ts).toLocaleDateString('zh-CN') : '—')
+const textActionClass =
+  'rounded px-1 py-0.5 text-xs font-medium underline underline-offset-4 decoration-neutral-300 transition hover:decoration-current focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900/15 dark:decoration-neutral-600 dark:focus-visible:ring-white/20'
 
 function LoadingBlock() {
   return (
@@ -157,22 +159,32 @@ function UsersTab() {
                     <div className="flex items-center justify-end gap-3">
                       <Link
                         to={'/admin/users/' + u.id}
-                        className="text-xs text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
+                        className={clsx(
+                          textActionClass,
+                          'text-neutral-600 hover:text-neutral-950 dark:text-neutral-300 dark:hover:text-white',
+                        )}
                       >
                         查看使用
                       </Link>
-                      {!isSelf && (
-                        <button
-                          onClick={() => {
-                            if (confirm(`确定删除用户「${u.username}」？其会话与记录将一并删除。`))
-                              remove.mutate(u.id)
-                          }}
-                          className="text-neutral-400 hover:text-red-500"
-                          aria-label="删除"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        disabled={isSelf}
+                        onClick={() => {
+                          if (isSelf) return
+                          if (confirm(`确定删除用户「${u.username}」？其会话与记录将一并删除。`))
+                            remove.mutate(u.id)
+                        }}
+                        className={clsx(
+                          'text-neutral-400 transition',
+                          isSelf
+                            ? 'cursor-not-allowed opacity-35'
+                            : 'hover:text-red-500 focus-visible:text-red-500',
+                        )}
+                        aria-label={isSelf ? '不能删除当前用户' : '删除'}
+                        title={isSelf ? '不能删除当前用户' : '删除用户'}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -422,7 +434,10 @@ function SessionsTab() {
                 <td className={clsx(td, 'text-right')}>
                   <button
                     onClick={() => revoke.mutate(s.id)}
-                    className="text-xs text-neutral-500 hover:text-red-500"
+                    className={clsx(
+                      textActionClass,
+                      'text-neutral-600 hover:text-red-500 dark:text-neutral-300 dark:hover:text-red-400',
+                    )}
                   >
                     踢下线
                   </button>

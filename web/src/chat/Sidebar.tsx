@@ -415,6 +415,10 @@ export function Sidebar() {
   const conversations = useMemo(() => data ?? [], [data])
   const logout = useLogout()
   const { collapsed, toggleCollapsed } = useSidebarStore()
+  const pinnedSectionCollapsed = useSidebarStore((s) => s.pinnedSectionCollapsed)
+  const recentSectionCollapsed = useSidebarStore((s) => s.recentSectionCollapsed)
+  const togglePinnedSectionCollapsed = useSidebarStore((s) => s.togglePinnedSectionCollapsed)
+  const toggleRecentSectionCollapsed = useSidebarStore((s) => s.toggleRecentSectionCollapsed)
   const mobileOpen = useSidebarStore((s) => s.mobileOpen)
   const setMobileOpen = useSidebarStore((s) => s.setMobileOpen)
   const isMobile = useIsMobile()
@@ -427,8 +431,6 @@ export function Sidebar() {
   const popoverRef = useRef<HTMLDivElement>(null)
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
   const accountMenuRef = useRef<HTMLDivElement>(null)
-  const [pinnedSectionCollapsed, setPinnedSectionCollapsed] = useState(false)
-  const [recentSectionCollapsed, setRecentSectionCollapsed] = useState(false)
   const [shareTarget, setShareTarget] = useState<string | null>(null)
 
   const cycleTheme = () =>
@@ -701,7 +703,7 @@ export function Sidebar() {
                 conversations={pinnedConversations}
                 activeId={id}
                 collapsed={pinnedSectionCollapsed}
-                onToggleCollapsed={() => setPinnedSectionCollapsed((value) => !value)}
+                onToggleCollapsed={togglePinnedSectionCollapsed}
                 onOpen={openConversation}
                 onDelete={deleteById}
                 onTogglePin={togglePin}
@@ -714,7 +716,7 @@ export function Sidebar() {
                 activeId={id}
                 emptyText="还没有会话"
                 collapsed={recentSectionCollapsed}
-                onToggleCollapsed={() => setRecentSectionCollapsed((value) => !value)}
+                onToggleCollapsed={toggleRecentSectionCollapsed}
                 onOpen={openConversation}
                 onDelete={deleteById}
                 onTogglePin={togglePin}

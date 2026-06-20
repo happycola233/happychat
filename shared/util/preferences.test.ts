@@ -2,6 +2,20 @@ import { describe, expect, it } from 'vitest'
 import { DEFAULT_PREFERENCES, mergePreferences } from './preferences'
 
 describe('mergePreferences', () => {
+  it('matches the default settings for new users', () => {
+    expect(DEFAULT_PREFERENCES).toEqual({
+      autoScrollOnOpen: true,
+      showScrollToBottom: true,
+      sendOnEnter: true,
+      defaultExpandReasoning: true,
+      messageFontSize: 'medium',
+      showMessageTime: true,
+      messageTimeFormat: 'datetime',
+      showModelLabel: true,
+      showUsageStats: true,
+    })
+  })
+
   it('returns a complete copy of defaults for null/undefined', () => {
     expect(mergePreferences(null)).toEqual(DEFAULT_PREFERENCES)
     expect(mergePreferences(undefined)).toEqual(DEFAULT_PREFERENCES)

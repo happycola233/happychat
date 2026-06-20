@@ -66,7 +66,7 @@ function ImageSizeSelect({ value, onChange }: { value: string; onChange: (v: str
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute bottom-full z-20 mb-1 w-40 rounded-xl border border-neutral-200 bg-white p-1 text-neutral-700 shadow-lg dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100">
+          <div className="absolute bottom-full z-20 mb-1 w-60 max-w-[calc(100vw-2rem)] rounded-xl border border-neutral-200 bg-white p-1 text-neutral-700 shadow-lg dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100">
             <div className="hc-scrollbar max-h-64 overflow-y-auto">
               {GPT_IMAGE_2_SIZE_OPTIONS.map((size) => (
                 <button
@@ -91,7 +91,7 @@ function ImageSizeSelect({ value, onChange }: { value: string; onChange: (v: str
                   value={width}
                   onChange={(e) => setWidth(e.target.value)}
                   inputMode="numeric"
-                  className="h-8 min-w-0 flex-1 rounded-lg border border-neutral-200 bg-white px-2 text-sm text-neutral-900 outline-none focus:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
+                  className="h-8 w-20 shrink-0 rounded-lg border border-neutral-200 bg-white px-2 text-center text-sm tabular-nums text-neutral-900 outline-none focus:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
                   aria-label="图片宽度"
                 />
                 <span className="text-xs text-neutral-400">×</span>
@@ -99,13 +99,13 @@ function ImageSizeSelect({ value, onChange }: { value: string; onChange: (v: str
                   value={height}
                   onChange={(e) => setHeight(e.target.value)}
                   inputMode="numeric"
-                  className="h-8 min-w-0 flex-1 rounded-lg border border-neutral-200 bg-white px-2 text-sm text-neutral-900 outline-none focus:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
+                  className="h-8 w-20 shrink-0 rounded-lg border border-neutral-200 bg-white px-2 text-center text-sm tabular-nums text-neutral-900 outline-none focus:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
                   aria-label="图片高度"
                 />
                 <button
                   type="button"
                   onClick={applyCustom}
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-neutral-900 text-white transition hover:bg-neutral-700 dark:bg-white dark:text-neutral-900"
+                  className="flex h-8 w-9 shrink-0 items-center justify-center rounded-lg bg-neutral-900 text-white transition hover:bg-neutral-700 dark:bg-white dark:text-neutral-900"
                   aria-label="应用自定义分辨率"
                   title="应用"
                 >

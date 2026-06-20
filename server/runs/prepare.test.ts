@@ -270,6 +270,47 @@ describe('prepareRun image inputs', () => {
     })
   })
 
+  it('persists the browser locale separately from upstream request parameters', async () => {
+    const { userId, modelId } = await createRunnableModel()
+
+    const result = assertPrepared(
+      await prepare.prepareRun({
+        userId,
+        modelId,
+        text: 'hello',
+        params: { web_search: true },
+        clientLocale: 'ja-JP',
+      }),
+    )
+
+    expect(result.run.requestParams).toMatchObject({
+      web_search: true,
+      clientLocale: 'ja-JP',
+    })
+    expect(result.body).not.toHaveProperty('clientLocale')
+  })
+
+  it('renders the browser locale in model system prompt variables', async () => {
+    const { userId, modelId } = await createRunnableModel()
+    dbClient.sqlite
+      .prepare('update models set default_system_prompt = ? where id = ?')
+      .run('Reply using {{locale}}.', modelId)
+
+    const result = assertPrepared(
+      await prepare.prepareRun({
+        userId,
+        modelId,
+        text: 'hello',
+        clientLocale: 'en-US',
+      }),
+    )
+
+    const row = dbClient.sqlite
+      .prepare('select instructions from runs where id = ?')
+      .get(result.run.id) as { instructions: string | null } | undefined
+    expect(row?.instructions).toMatch(/^Reply using .+ \(en-US\)\.$/)
+  })
+
   it('rejects invalid gpt-image-2 sizes before creating a run', async () => {
     const { userId, modelId } = await createRunnableImageModel()
 

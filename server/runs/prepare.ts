@@ -128,6 +128,7 @@ async function createAssistantAndRun(opts: {
   model: ModelRow
   parentMessageId: string
   userParams?: ModelParams
+  clientLocale?: string
   idempotencyKey?: string
 }): Promise<{
   conversation: ConvRow
@@ -136,7 +137,9 @@ async function createAssistantAndRun(opts: {
   body: Record<string, unknown>
   imageOperation?: ImageOperation
 }> {
-  const { conversation: conv, model, parentMessageId, userParams, idempotencyKey } = opts
+  const { conversation: conv, model, parentMessageId, userParams, clientLocale, idempotencyKey } = opts
+  const requestParams: Record<string, unknown> = { ...(userParams ?? {}) }
+  if (clientLocale) requestParams.clientLocale = clientLocale
 
   const assistantMessage = must(
     await db
@@ -162,7 +165,7 @@ async function createAssistantAndRun(opts: {
         userId: conv.userId,
         modelId: model.id,
         state: 'queued',
-        requestParams: (userParams ?? {}) as Record<string, unknown>,
+        requestParams,
         idempotencyKey,
       })
       .returning()
@@ -213,7 +216,7 @@ async function createAssistantAndRun(opts: {
         .limit(1)
       instructions = renderPromptTemplate(
         instructions,
-        buildPromptVars({ user: userRow ?? null, model, now: new Date() }),
+        buildPromptVars({ user: userRow ?? null, model, now: new Date(), clientLocale }),
       )
     }
     // 持久化最终 instructions（启用 runs.instructions 列，便于审计）
@@ -239,6 +242,7 @@ export interface PrepareArgs {
   modelId: string
   text: string
   params?: ModelParams
+  clientLocale?: string
   idempotencyKey?: string
   parentId?: string | null
   attachments?: AttachmentRef[]
@@ -385,6 +389,7 @@ export async function prepareRun(args: PrepareArgs): Promise<PrepareResult> {
       model,
       parentMessageId: userMessage.id,
       userParams: normalizedParams.params,
+      clientLocale: args.clientLocale,
       idempotencyKey: args.idempotencyKey,
     },
   )
@@ -407,6 +412,7 @@ export interface RegenerateArgs {
   assistantMessageId: string
   modelId?: string
   params?: ModelParams
+  clientLocale?: string
   idempotencyKey?: string
 }
 
@@ -437,6 +443,7 @@ export async function prepareRegenerate(args: RegenerateArgs): Promise<PrepareRe
       model,
       parentMessageId: oldAssistant.parentId,
       userParams: normalizedParams.params,
+      clientLocale: args.clientLocale,
       idempotencyKey: args.idempotencyKey,
     },
   )
