@@ -44,12 +44,30 @@ describe('ReasoningCard', () => {
     )
 
     expect(html.match(/hc-reasoning-shimmer/g)).toHaveLength(1)
+    expect(html).toContain('data-testid="reasoning-card"')
     expect(html).toContain('reasoning-top-toggle')
+    expect(html).toContain('hc-reasoning-sticky')
+    expect(html).toContain('sticky top-0 z-20')
     expect(html).toMatch(/<button[^>]*class="hc-reasoning-status[^"]*"/)
     expect(html).not.toMatch(/<button[^>]*class="[^"]*hc-reasoning-shimmer/)
     expect(html).toMatch(
       /<span class="hc-reasoning-shimmer" data-testid="reasoning-top-label">正在思考/,
     )
+  })
+
+  it('allows the sticky status line to sit below a page header', () => {
+    const html = renderToStaticMarkup(
+      <ReasoningCard
+        text="summary"
+        status="completed"
+        startedAt={null}
+        durationMs={3500}
+        stickyTopClassName="top-[var(--hc-share-header-height)]"
+      />,
+    )
+
+    expect(html).toContain('sticky top-[var(--hc-share-header-height)] z-20')
+    expect(html).not.toContain('sticky top-0 z-20')
   })
 
   it('does not render the completed summary footer without a summary', () => {

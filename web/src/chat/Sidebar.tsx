@@ -373,7 +373,7 @@ function ConversationSection({
         type="button"
         onClick={onToggleCollapsed}
         aria-expanded={!collapsed}
-        className="group flex w-full items-center gap-1 px-2 pb-1.5 text-left text-[13px] font-semibold text-neutral-900 dark:text-neutral-100"
+        className="group flex w-full items-center gap-1 px-2.5 pb-1.5 text-left text-[13px] font-semibold text-neutral-900 dark:text-neutral-100"
       >
         <span>{title}</span>
         <ChevronDown
@@ -400,7 +400,7 @@ function ConversationSection({
           ))}
         </ul>
       ) : !collapsed && emptyText ? (
-        <p className="px-2 py-1.5 text-[13px] text-neutral-400">{emptyText}</p>
+        <p className="px-2.5 py-1.5 text-[13px] text-neutral-400">{emptyText}</p>
       ) : null}
     </section>
   )
@@ -558,7 +558,7 @@ export function Sidebar() {
       )}
       <aside
         className={clsx(
-          'flex h-full shrink-0 flex-col border-r border-neutral-200 bg-white text-neutral-900 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100',
+          'flex h-full shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 text-neutral-900 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100',
           // 桌面：文档流中的 rail
           'md:relative md:translate-x-0 md:shadow-none md:transition-none',
           railMode ? 'md:w-[48px]' : 'md:w-[240px]',

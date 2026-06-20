@@ -317,6 +317,7 @@ export default function ChatView() {
       <div
         ref={scrollRef}
         onScroll={updateScrollState}
+        data-testid="chat-scroll"
         className="hc-scrollbar h-full overflow-y-auto"
       >
         {isEmpty ? (

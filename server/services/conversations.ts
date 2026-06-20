@@ -29,7 +29,11 @@ export function toConversationDTO(c: ConvRow): ConversationDTO {
   }
 }
 
-export function toMessageDTO(m: MsgRow, timing: MessageTiming | null = null): MessageDTO {
+export function toMessageDTO(
+  m: MsgRow,
+  timing: MessageTiming | null = null,
+  modelLabel: string | null = null,
+): MessageDTO {
   return {
     id: m.id,
     conversationId: m.conversationId,
@@ -38,6 +42,7 @@ export function toMessageDTO(m: MsgRow, timing: MessageTiming | null = null): Me
     status: m.status,
     content: m.content,
     modelId: m.modelId,
+    modelLabel,
     runId: m.runId,
     reasoningSummary: m.reasoningSummary,
     reasoningDurationMs: timing?.reasoningDurationMs ?? null,
@@ -182,10 +187,27 @@ async function getMessageTimingByMessageId(rows: MsgRow[]): Promise<Map<string, 
   return timings
 }
 
+async function getModelLabelsByModelId(rows: MsgRow[]): Promise<Map<string, string>> {
+  const modelIds = rows.map((m) => m.modelId).filter((id): id is string => Boolean(id))
+  if (modelIds.length === 0) return new Map()
+  const uniqueModelIds = [...new Set(modelIds)]
+  const modelRows = await db
+    .select({ id: models.id, modelId: models.modelId, displayName: models.displayName })
+    .from(models)
+    .where(inArray(models.id, uniqueModelIds))
+
+  return new Map(modelRows.map((m) => [m.id, m.displayName || m.modelId]))
+}
+
 export async function getConversationMessageDTOs(conversationId: string): Promise<MessageDTO[]> {
   const rows = await getConversationMessages(conversationId)
-  const timings = await getMessageTimingByMessageId(rows)
-  return rows.map((m) => toMessageDTO(m, timings.get(m.id) ?? null))
+  const [timings, modelLabels] = await Promise.all([
+    getMessageTimingByMessageId(rows),
+    getModelLabelsByModelId(rows),
+  ])
+  return rows.map((m) =>
+    toMessageDTO(m, timings.get(m.id) ?? null, m.modelId ? (modelLabels.get(m.modelId) ?? null) : null),
+  )
 }
 
 /** 会话最近一次生成所用的模型与联网/思考参数（用于打开会话时恢复控件）。 */

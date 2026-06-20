@@ -1,25 +1,17 @@
 import { useState } from 'react'
 import {
   AlertCircle,
-  ArrowDown,
-  ArrowUp,
-  Check,
   ChevronLeft,
   ChevronRight,
-  Clock,
-  Copy,
   Pencil,
   RefreshCw,
-  Zap,
 } from 'lucide-react'
 import type { MessageDTO } from '@shared/types/api'
-import type { MessageUsage, UrlCitation } from '@shared/types/domain'
+import type { UrlCitation } from '@shared/types/domain'
 import type { LiveMessage } from '../sse/eventReducer'
 import { attachmentUrl } from '../api/attachments'
 import { Spinner } from '../components/ui/Spinner'
 import { useModels } from '../hooks/useModels'
-import { copyToClipboard } from '../lib/clipboard'
-import { toast } from '../store/toast'
 import { useSettings } from '../store/settings'
 import { CollapsibleUserMessageText } from './MessageContent'
 import { MESSAGE_BODY_TEXT_CLASS } from './messageStyles'
@@ -28,7 +20,12 @@ import { Markdown } from './Markdown'
 import { ReasoningCard, type ReasoningCardStatus } from './ReasoningCard'
 import { AttachmentParts } from './Attachments'
 import { ElapsedLabel } from './ElapsedLabel'
-import { computeTps, formatDuration, formatMessageTime, formatTokens, formatTps } from './usageFormat'
+import {
+  CopyMessageButton,
+  MessageIconButton,
+  MessageTimeLabel,
+  MessageUsageStats,
+} from './MessageMeta'
 import type { ImageEditSource } from './imageSource'
 
 export interface BranchInfo {
@@ -51,30 +48,6 @@ interface Props {
 function StreamingCursor() {
   return (
     <span className="ml-0.5 inline-block h-[1.05em] w-[3px] translate-y-[3px] animate-pulse rounded-full bg-neutral-500" />
-  )
-}
-
-function IconButton({
-  title,
-  onClick,
-  children,
-  disabled,
-}: {
-  title: string
-  onClick: () => void
-  children: React.ReactNode
-  disabled?: boolean
-}) {
-  return (
-    <button
-      title={title}
-      aria-label={title}
-      onClick={onClick}
-      disabled={disabled}
-      className="rounded-md p-1.5 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700 disabled:opacity-40 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
-    >
-      {children}
-    </button>
   )
 }
 
@@ -109,20 +82,6 @@ function BranchSwitch({ branch }: { branch: BranchInfo }) {
   )
 }
 
-function useCopy() {
-  const [copied, setCopied] = useState(false)
-  const copy = (text: string) => {
-    void copyToClipboard(text)
-      .then((ok) => {
-        if (!ok) throw new Error('copy failed')
-        setCopied(true)
-        setTimeout(() => setCopied(false), 1500)
-      })
-      .catch(() => toast.error('复制失败'))
-  }
-  return { copied, copy }
-}
-
 function Citations({ items }: { items: UrlCitation[] }) {
   const seen = new Set<string>()
   const unique = items.filter((c) => (seen.has(c.url) ? false : (seen.add(c.url), true)))
@@ -153,42 +112,6 @@ function hostOf(url: string): string {
   }
 }
 
-function TimeLabel({ ts, format }: { ts: number; format: 'time' | 'datetime' }) {
-  return (
-    <span className="text-xs tabular-nums text-neutral-400">{formatMessageTime(ts, format)}</span>
-  )
-}
-
-/** 助手消息用量明细：输入(缓存) / 输出 / tok·s / 耗时。 */
-function UsageStats({ usage, durationMs }: { usage: MessageUsage; durationMs: number | null }) {
-  const tps = computeTps(usage.outputTokens, durationMs)
-  return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-neutral-400">
-      <span className="inline-flex items-center gap-1">
-        <ArrowUp className="h-3 w-3" />
-        {formatTokens(usage.inputTokens)} tokens
-        {usage.cachedTokens > 0 && <span>（{formatTokens(usage.cachedTokens)} 缓存）</span>}
-      </span>
-      <span className="inline-flex items-center gap-1">
-        <ArrowDown className="h-3 w-3" />
-        {formatTokens(usage.outputTokens)} tokens
-      </span>
-      {tps !== null && (
-        <span className="inline-flex items-center gap-1">
-          <Zap className="h-3 w-3" />
-          {formatTps(tps)} tok/s
-        </span>
-      )}
-      {durationMs !== null && durationMs > 0 && (
-        <span className="inline-flex items-center gap-1">
-          <Clock className="h-3 w-3" />
-          {formatDuration(durationMs)}
-        </span>
-      )}
-    </div>
-  )
-}
-
 export function Message({
   message,
   live,
@@ -198,7 +121,6 @@ export function Message({
   onRegenerate,
   onUseImageSource,
 }: Props) {
-  const { copied, copy } = useCopy()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const showMessageTime = useSettings((s) => s.preferences.showMessageTime)
@@ -207,7 +129,7 @@ export function Message({
   const showUsageStats = useSettings((s) => s.preferences.showUsageStats)
   const defaultExpandReasoning = useSettings((s) => s.preferences.defaultExpandReasoning)
   const models = useModels().data
-  const modelName = models?.find((m) => m.id === message.modelId)?.displayName ?? null
+  const modelName = message.modelLabel ?? models?.find((m) => m.id === message.modelId)?.displayName ?? null
 
   if (message.role === 'user') {
     const text = textFromContent(message.content)
@@ -270,11 +192,9 @@ export function Message({
         <div className="flex items-center gap-1.5">
           <div className="flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
             {branch && branch.total > 1 && <BranchSwitch branch={branch} />}
-            <IconButton title="复制" onClick={() => copy(text)}>
-              {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-            </IconButton>
+            <CopyMessageButton text={text} />
             {onEdit && (
-              <IconButton
+              <MessageIconButton
                 title="编辑"
                 disabled={busy}
                 onClick={() => {
@@ -283,10 +203,10 @@ export function Message({
                 }}
               >
                 <Pencil className="h-3.5 w-3.5" />
-              </IconButton>
+              </MessageIconButton>
             )}
           </div>
-          {showMessageTime && <TimeLabel ts={message.createdAt} format={messageTimeFormat} />}
+          {showMessageTime && <MessageTimeLabel ts={message.createdAt} format={messageTimeFormat} />}
         </div>
       </div>
     )
@@ -377,13 +297,11 @@ export function Message({
         <div className="space-y-1.5">
           <div className="flex items-center gap-1.5 text-neutral-400">
             {branch && branch.total > 1 && <BranchSwitch branch={branch} />}
-            <IconButton title="复制" onClick={() => copy(text)}>
-              {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-            </IconButton>
+            <CopyMessageButton text={text} />
             {onRegenerate && (
-              <IconButton title="重新生成" disabled={busy} onClick={onRegenerate}>
+              <MessageIconButton title="重新生成" disabled={busy} onClick={onRegenerate}>
                 <RefreshCw className="h-3.5 w-3.5" />
-              </IconButton>
+              </MessageIconButton>
             )}
             {showModelLabel && modelName && (
               <span className="ml-1 text-xs text-neutral-400">{modelName}</span>
@@ -391,12 +309,12 @@ export function Message({
             {showMessageTime && (
               <>
                 {showModelLabel && modelName && <span className="text-xs text-neutral-300 dark:text-neutral-600">·</span>}
-                <TimeLabel ts={message.createdAt} format={messageTimeFormat} />
+                <MessageTimeLabel ts={message.createdAt} format={messageTimeFormat} />
               </>
             )}
           </div>
           {showUsageStats && message.usage && (
-            <UsageStats usage={message.usage} durationMs={message.generationDurationMs} />
+            <MessageUsageStats usage={message.usage} durationMs={message.generationDurationMs} />
           )}
         </div>
       )}

@@ -202,13 +202,35 @@ html.hc-font-large {
   color: #525252;
 }
 .hc-reasoning {
-  --hc-reasoning-surface: transparent;
+  --hc-reasoning-surface: rgb(255 255 255 / 0.985);
+  --hc-reasoning-surface-edge: rgb(255 255 255 / 0);
+  --hc-reasoning-divider: rgb(0 0 0 / 0.07);
   --hc-reasoning-status: rgb(115 115 115);
   --hc-reasoning-status-hover: #0d0d0d;
   --hc-reasoning-shimmer-highlight: rgb(210 210 210);
 }
 .hc-reasoning-sticky {
   background: var(--hc-reasoning-surface);
+  -webkit-backdrop-filter: saturate(1.08) blur(10px);
+  backdrop-filter: saturate(1.08) blur(10px);
+  box-shadow: 0 1px 0 var(--hc-reasoning-divider);
+}
+.hc-reasoning-sticky::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: -12px;
+  left: 0;
+  height: 12px;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    var(--hc-reasoning-surface),
+    var(--hc-reasoning-surface-edge)
+  );
+}
+.hc-reasoning-collapse {
+  overflow-anchor: none;
 }
 .hc-reasoning-detail {
   font-size: 13px;
@@ -330,7 +352,9 @@ html.hc-font-large {
   color: #d4d4d4;
 }
 .dark .hc-reasoning {
-  --hc-reasoning-surface: transparent;
+  --hc-reasoning-surface: rgb(0 0 0 / 0.985);
+  --hc-reasoning-surface-edge: rgb(0 0 0 / 0);
+  --hc-reasoning-divider: rgb(255 255 255 / 0.045);
   --hc-reasoning-status: rgb(163 163 163);
   --hc-reasoning-status-hover: #f5f5f5;
   --hc-reasoning-shimmer-highlight: rgb(245 245 245);

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { clsx } from 'clsx'
 import { ChevronDown } from 'lucide-react'
 import { Markdown } from './Markdown'
@@ -7,6 +7,38 @@ import { normalizeReasoningMarkdown } from './reasoningMarkdown'
 import { splitReasoningSections, type ReasoningSection } from './reasoningSections'
 
 export type ReasoningCardStatus = 'thinking' | 'completed' | 'stopped'
+
+interface CollapseScrollAnchor {
+  scroller: HTMLElement
+  cardTop: number
+}
+
+function findScrollContainer(el: HTMLElement): HTMLElement | null {
+  let parent = el.parentElement
+  while (parent) {
+    const overflowY = window.getComputedStyle(parent).overflowY
+    if (/(auto|scroll|overlay)/.test(overflowY) && parent.scrollHeight > parent.clientHeight) {
+      return parent
+    }
+    parent = parent.parentElement
+  }
+
+  return document.scrollingElement instanceof HTMLElement ? document.scrollingElement : null
+}
+
+function clampScrollTop(scroller: HTMLElement, top: number) {
+  const maxScrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight)
+  return Math.min(Math.max(0, top), maxScrollTop)
+}
+
+function scrollViewportTop(scroller: HTMLElement): number {
+  return scroller === document.scrollingElement ? 0 : scroller.getBoundingClientRect().top
+}
+
+function stickyTopOffset(sticky: HTMLElement): number {
+  const top = Number.parseFloat(window.getComputedStyle(sticky).top)
+  return Number.isFinite(top) ? top : 0
+}
 
 interface Props {
   text: string
@@ -17,6 +49,8 @@ interface Props {
   durationMs?: number | null
   /** 默认是否展开推理（来自用户设置）；关闭时不随思考自动展开。 */
   defaultExpanded?: boolean
+  /** sticky 状态行的 top 类；分享页会把它钉在公开页头部下方。 */
+  stickyTopClassName?: string
 }
 
 function CompletedIcon() {
@@ -174,10 +208,14 @@ export function ReasoningCard({
   startedAt,
   durationMs,
   defaultExpanded = false,
+  stickyTopClassName = 'top-0',
 }: Props) {
   const [seconds, setSeconds] = useState(0)
   const [open, setOpen] = useState(defaultExpanded)
+  const cardRef = useRef<HTMLDivElement>(null)
+  const stickyRef = useRef<HTMLDivElement>(null)
   const hadTextRef = useRef(false)
+  const collapseAnchorRef = useRef<CollapseScrollAnchor | null>(null)
   const normalizedText = useMemo(() => normalizeReasoningMarkdown(text), [text])
   const sections = useMemo(() => splitReasoningSections(normalizedText), [normalizedText])
   const hasText = sections.length > 0
@@ -204,6 +242,48 @@ export function ReasoningCard({
     }
   }, [hasText, defaultExpanded])
 
+  const captureCollapseAnchor = useCallback(() => {
+    const card = cardRef.current
+    const sticky = stickyRef.current
+    if (!card || !sticky) return
+
+    const scroller = findScrollContainer(card)
+    if (!scroller) return
+
+    const scrollerTop = scrollViewportTop(scroller)
+    const stickyTop = stickyTopOffset(sticky)
+    const stickyEdge = scrollerTop + stickyTop
+    const stickyRect = sticky.getBoundingClientRect()
+    const stickyPinned = stickyRect.top <= stickyEdge + 1 && stickyRect.bottom > stickyEdge
+    if (!stickyPinned) return
+
+    const cardRect = card.getBoundingClientRect()
+    collapseAnchorRef.current = {
+      scroller,
+      // 折叠时按 sticky 偏移重新锚定整张思考卡，让状态行留在原位。
+      cardTop: scroller.scrollTop + cardRect.top - scrollerTop - stickyTop,
+    }
+  }, [])
+
+  useLayoutEffect(() => {
+    if (open) return undefined
+    const anchor = collapseAnchorRef.current
+    if (!anchor) return undefined
+    collapseAnchorRef.current = null
+
+    const restore = () => {
+      anchor.scroller.scrollTop = clampScrollTop(anchor.scroller, anchor.cardTop)
+    }
+    restore()
+    const frame = window.requestAnimationFrame(restore)
+    return () => window.cancelAnimationFrame(frame)
+  }, [open])
+
+  const toggleOpen = useCallback(() => {
+    if (open) captureCollapseAnchor()
+    setOpen((o) => !o)
+  }, [captureCollapseAnchor, open])
+
   const completedSeconds =
     durationMs !== undefined && durationMs !== null
       ? Math.max(0, Math.floor(durationMs / 1000))
@@ -216,14 +296,21 @@ export function ReasoningCard({
         : `正在思考 ${seconds}s`
 
   return (
-    <div className="hc-reasoning space-y-1">
-      <div className="hc-reasoning-sticky sticky top-0 z-10 -mx-1 px-1 py-0.5">
+    <div ref={cardRef} className="hc-reasoning space-y-1" data-testid="reasoning-card">
+      <div
+        ref={stickyRef}
+        className={clsx(
+          'hc-reasoning-sticky relative sticky',
+          stickyTopClassName,
+          'z-20 -mx-2 px-2 py-1',
+        )}
+      >
         <TopStatusLine
           status={status}
           label={label}
           hasSummary={hasText}
           open={open}
-          onToggle={() => setOpen((o) => !o)}
+          onToggle={toggleOpen}
         />
       </div>
       {hasText && (

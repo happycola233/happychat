@@ -112,6 +112,8 @@ export interface MessageDTO {
   status: MessageStatus
   content: ContentPart[]
   modelId: string | null
+  /** 模型显示名快照；公开分享页无需登录也可显示模型名。旧分享可能没有该字段。 */
+  modelLabel?: string | null
   runId: string | null
   reasoningSummary: string | null
   /** 从上游开始响应到第一段正文输出的耗时；无可靠事件时为 null。 */
