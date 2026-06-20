@@ -5,7 +5,7 @@ import type { ModelDTO } from '@shared/types/api'
 import type { ReasoningEffort } from '@shared/types/domain'
 import {
   GPT_IMAGE_2_SIZE_OPTIONS,
-  formatImageSizeForButton,
+  formatImageSizeLabel,
   parseImageSize,
   validateGptImage2Size,
 } from '@shared/util/imageSize'
@@ -60,32 +60,27 @@ function ImageSizeSelect({ value, onChange }: { value: string; onChange: (v: str
         className="flex items-center gap-1 rounded-full border border-neutral-200 px-2.5 py-1.5 text-xs text-neutral-500 transition hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
         title="分辨率"
       >
-        <ImageIcon className="h-3.5 w-3.5" /> {formatImageSizeForButton(value)}
+        <ImageIcon className="h-3.5 w-3.5" /> {formatImageSizeLabel(value)}
         <ChevronDown className="h-3 w-3" />
       </button>
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute bottom-full z-20 mb-1 w-60 rounded-xl border border-neutral-200 bg-white p-1 text-neutral-700 shadow-lg dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100">
+          <div className="absolute bottom-full z-20 mb-1 w-40 rounded-xl border border-neutral-200 bg-white p-1 text-neutral-700 shadow-lg dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100">
             <div className="hc-scrollbar max-h-64 overflow-y-auto">
-              {GPT_IMAGE_2_SIZE_OPTIONS.map((o) => (
+              {GPT_IMAGE_2_SIZE_OPTIONS.map((size) => (
                 <button
-                  key={o.value}
+                  key={size}
                   onClick={() => {
-                    onChange(o.value)
+                    onChange(size)
                     setOpen(false)
                   }}
                   className={clsx(
-                    'flex w-full items-center justify-between gap-3 rounded-lg px-3 py-1.5 text-left text-sm transition hover:bg-neutral-100 dark:hover:bg-neutral-800',
-                    value === o.value && 'bg-neutral-100 dark:bg-neutral-800',
+                    'block w-full rounded-lg px-3 py-1.5 text-left text-sm transition hover:bg-neutral-100 dark:hover:bg-neutral-800',
+                    value === size && 'bg-neutral-100 dark:bg-neutral-800',
                   )}
                 >
-                  <span>{o.label}</span>
-                  {o.experimental && (
-                    <span className="shrink-0 rounded bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-                      实验
-                    </span>
-                  )}
+                  {formatImageSizeLabel(size)}
                 </button>
               ))}
             </div>
@@ -137,7 +132,7 @@ function WebToggle() {
         'flex items-center gap-1 rounded-full border px-2.5 py-1.5 text-xs transition',
         activeWebSearch
           ? 'border-blue-200 bg-blue-50 text-blue-600 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300'
-          : 'border-neutral-200 text-neutral-500 hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800',
+          : 'border-neutral-200 text-neutral-500 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800',
       )}
       title="联网搜索（本次会话临时开关）"
     >

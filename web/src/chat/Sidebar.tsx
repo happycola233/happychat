@@ -558,7 +558,7 @@ export function Sidebar() {
       )}
       <aside
         className={clsx(
-          'flex h-full shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 text-neutral-900 dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-100',
+          'flex h-full shrink-0 flex-col border-r border-neutral-200 bg-white text-neutral-900 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100',
           // 桌面：文档流中的 rail
           'md:relative md:translate-x-0 md:shadow-none md:transition-none',
           railMode ? 'md:w-[48px]' : 'md:w-[240px]',

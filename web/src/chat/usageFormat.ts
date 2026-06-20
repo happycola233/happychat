@@ -23,14 +23,15 @@ export function formatTps(tps: number): string {
   return tps >= 100 ? String(Math.round(tps)) : trim1(tps)
 }
 
-/** 耗时：<1s→"0.2s"、<10s→"5.4s"、<60s→"31s"、否则"1m05s"。 */
+/** 耗时：<1s→"0.2s"、<10s→"5.4s"、<60s→"31s"、否则"1m 05s"。 */
 export function formatDuration(ms: number): string {
   if (ms < 1000) return `${(ms / 1000).toFixed(1)}s`
   const totalSec = ms / 1000
   if (totalSec < 60) return `${totalSec < 10 ? trim1(totalSec) : Math.round(totalSec)}s`
-  const m = Math.floor(totalSec / 60)
-  const s = Math.round(totalSec % 60)
-  return `${m}m${String(s).padStart(2, '0')}s`
+  const roundedSeconds = Math.round(totalSec)
+  const m = Math.floor(roundedSeconds / 60)
+  const s = roundedSeconds % 60
+  return `${m}m ${String(s).padStart(2, '0')}s`
 }
 
 /** 消息时间显示：'time'=HH:mm；'datetime'=YYYY/MM/DD HH:mm（均 24 小时制）。 */

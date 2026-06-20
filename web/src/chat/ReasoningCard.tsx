@@ -100,12 +100,16 @@ interface TopStatusLineProps {
 function TopStatusLine({ status, label, hasSummary, open, onToggle }: TopStatusLineProps) {
   const className = clsx(
     'hc-reasoning-status inline-flex items-center gap-2 text-[15px] leading-7 transition-colors',
-    status === 'thinking' && 'hc-reasoning-shimmer',
   )
 
   const content = (
     <>
-      <span>{label}</span>
+      <span
+        className={clsx(status === 'thinking' && 'hc-reasoning-shimmer')}
+        data-testid="reasoning-top-label"
+      >
+        {label}
+      </span>
       {hasSummary && (
         <ChevronDown
           className={clsx('h-3.5 w-3.5 transition-transform duration-300', open && 'rotate-180')}
@@ -164,7 +168,13 @@ function SummaryFooter({ label }: SummaryFooterProps) {
   )
 }
 
-export function ReasoningCard({ text, status, startedAt, durationMs, defaultExpanded = false }: Props) {
+export function ReasoningCard({
+  text,
+  status,
+  startedAt,
+  durationMs,
+  defaultExpanded = false,
+}: Props) {
   const [seconds, setSeconds] = useState(0)
   const [open, setOpen] = useState(defaultExpanded)
   const hadTextRef = useRef(false)

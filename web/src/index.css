@@ -202,7 +202,10 @@ html.hc-font-large {
   color: #525252;
 }
 .hc-reasoning {
-  --hc-reasoning-surface: #fff;
+  --hc-reasoning-surface: transparent;
+  --hc-reasoning-status: rgb(115 115 115);
+  --hc-reasoning-status-hover: #0d0d0d;
+  --hc-reasoning-shimmer-highlight: rgb(210 210 210);
 }
 .hc-reasoning-sticky {
   background: var(--hc-reasoning-surface);
@@ -215,37 +218,40 @@ html.hc-font-large {
   margin: 0.2rem 0;
 }
 .hc-reasoning-status {
-  color: rgb(143 143 143);
+  color: var(--hc-reasoning-status);
 }
 .hc-reasoning-status:hover {
-  color: #0d0d0d;
+  color: var(--hc-reasoning-status-hover);
 }
 .hc-reasoning-shimmer {
-  position: relative;
-  isolation: isolate;
-  overflow: hidden;
-  border-radius: 0.25rem;
+  color: var(--hc-reasoning-status);
 }
-.hc-reasoning-shimmer::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  pointer-events: none;
-  background: linear-gradient(
-    105deg,
-    transparent 0%,
-    transparent 34%,
-    rgb(255 255 255 / 0.5) 50%,
-    transparent 66%,
-    transparent 100%
-  );
-  transform: translateX(-120%);
-  animation: hc-reasoning-shimmer 2.8s ease-in-out infinite;
+@supports ((-webkit-background-clip: text) or (background-clip: text)) {
+  .hc-reasoning-shimmer {
+    /* 将流光裁剪在字形内部，避免深色模式里露出整块高光矩形。 */
+    display: inline-block;
+    color: transparent;
+    font-variant-numeric: tabular-nums;
+    -webkit-text-fill-color: transparent;
+    background-image: linear-gradient(
+      105deg,
+      var(--hc-reasoning-status) 0%,
+      var(--hc-reasoning-status) 36%,
+      var(--hc-reasoning-shimmer-highlight) 50%,
+      var(--hc-reasoning-status) 64%,
+      var(--hc-reasoning-status) 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    background-repeat: no-repeat;
+    background-size: 300% 100%;
+    background-position: 100% 0;
+    animation: hc-reasoning-shimmer 2.8s linear infinite;
+  }
 }
 @keyframes hc-reasoning-shimmer {
   100% {
-    transform: translateX(120%);
+    background-position: 0 0;
   }
 }
 .hc-code-block pre code.hljs,
@@ -324,20 +330,10 @@ html.hc-font-large {
   color: #d4d4d4;
 }
 .dark .hc-reasoning {
-  --hc-reasoning-surface: #171717;
-}
-.dark .hc-reasoning-status:hover {
-  color: #f5f5f5;
-}
-.dark .hc-reasoning-shimmer::after {
-  background: linear-gradient(
-    105deg,
-    transparent 0%,
-    transparent 34%,
-    rgb(255 255 255 / 0.16) 50%,
-    transparent 66%,
-    transparent 100%
-  );
+  --hc-reasoning-surface: transparent;
+  --hc-reasoning-status: rgb(163 163 163);
+  --hc-reasoning-status-hover: #f5f5f5;
+  --hc-reasoning-shimmer-highlight: rgb(245 245 245);
 }
 .dark .hc-code-block pre code.hljs,
 .dark .hc-code-block code.hljs {
@@ -423,9 +419,11 @@ html.hc-font-large {
   .hc-reasoning-status svg {
     transition: none !important;
   }
-  .hc-reasoning-shimmer::after {
+  .hc-reasoning-shimmer {
     animation: none;
-    opacity: 0;
+    background: none;
+    color: var(--hc-reasoning-status);
+    -webkit-text-fill-color: currentColor;
   }
   .hc-anim-in,
   .hc-pop-in {

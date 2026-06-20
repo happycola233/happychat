@@ -23,7 +23,7 @@ async function main() {
   await page.waitForTimeout(1200)
 
   await selectModel(page, 'gpt-image-2')
-  const hasImageCtrl = (await page.getByText('自动尺寸').count()) > 0
+  const hasImageCtrl = (await page.getByText('自动', { exact: true }).count()) > 0
   console.log('图片尺寸控件可见:', hasImageCtrl)
 
   await composer.fill('画一个白色背景上的简单红色圆形。')

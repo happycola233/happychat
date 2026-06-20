@@ -170,10 +170,10 @@ export function Composer({
   }, [uploadFiles])
 
   return (
-    <div className="bg-white px-4 pb-3 pt-2 dark:bg-neutral-900">
+    <div className="bg-neutral-50 px-4 pb-3 pt-2 dark:bg-[#000000]">
       <div
         className={clsx(
-          'relative mx-auto max-w-3xl rounded-[24px] border border-neutral-200 bg-white px-4 py-2.5 shadow-[0_1px_10px_rgba(0,0,0,0.07)] transition focus-within:border-neutral-300 focus-within:shadow-[0_2px_14px_rgba(0,0,0,0.09)] dark:border-neutral-700 dark:bg-neutral-900 dark:shadow-none dark:focus-within:border-neutral-600',
+          'relative mx-auto max-w-3xl rounded-[24px] border border-neutral-200 bg-white px-4 py-2.5 shadow-[0_1px_10px_rgba(0,0,0,0.07)] transition focus-within:border-neutral-300 focus-within:shadow-[0_2px_14px_rgba(0,0,0,0.09)] dark:border-[#303030] dark:bg-[#212121] dark:shadow-none dark:focus-within:border-[#303030] dark:focus-within:shadow-none',
           dragActive &&
             'border-blue-300 bg-blue-50/40 shadow-[0_2px_18px_rgba(59,130,246,0.18)] dark:border-blue-600 dark:bg-blue-950/20',
         )}

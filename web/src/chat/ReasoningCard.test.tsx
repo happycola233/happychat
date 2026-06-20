@@ -19,9 +19,7 @@ describe('ReasoningCard', () => {
   })
 
   it('does not render a toggle or body before reasoning text arrives', () => {
-    const html = renderToStaticMarkup(
-      <ReasoningCard text="" status="thinking" startedAt={null} />,
-    )
+    const html = renderToStaticMarkup(<ReasoningCard text="" status="thinking" startedAt={null} />)
 
     expect(html).toContain('正在思考')
     expect(html).toContain('reasoning-top-status')
@@ -42,15 +40,16 @@ describe('ReasoningCard', () => {
 
   it('only applies shimmer to the top status while thinking', () => {
     const html = renderToStaticMarkup(
-      <ReasoningCard
-        text="summary"
-        status="thinking"
-        startedAt={1000}
-      />,
+      <ReasoningCard text="summary" status="thinking" startedAt={1000} />,
     )
 
     expect(html.match(/hc-reasoning-shimmer/g)).toHaveLength(1)
     expect(html).toContain('reasoning-top-toggle')
+    expect(html).toMatch(/<button[^>]*class="hc-reasoning-status[^"]*"/)
+    expect(html).not.toMatch(/<button[^>]*class="[^"]*hc-reasoning-shimmer/)
+    expect(html).toMatch(
+      /<span class="hc-reasoning-shimmer" data-testid="reasoning-top-label">正在思考/,
+    )
   })
 
   it('does not render the completed summary footer without a summary', () => {

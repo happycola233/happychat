@@ -1,55 +1,30 @@
-export interface ImageSizeOption {
-  value: string
-  label: string
-  buttonLabel?: string
-  experimental?: boolean
-}
-
 export interface ParsedImageSize {
   width: number
   height: number
   pixels: number
   normalizedSize: string
-  experimental: boolean
 }
 
 export type ImageSizeValidation =
   | { ok: true; normalizedSize: string; parsed: ParsedImageSize | null }
   | { ok: false; message: string }
 
-export const GPT_IMAGE_2_EXPERIMENTAL_PIXELS = 2560 * 1440
-
 const GPT_IMAGE_2_MIN_PIXELS = 655_360
 const GPT_IMAGE_2_MAX_PIXELS = 8_294_400
 const GPT_IMAGE_2_MAX_EDGE = 3840
 const GPT_IMAGE_2_MAX_ASPECT_RATIO = 3
 
-export const GPT_IMAGE_2_SIZE_OPTIONS: ImageSizeOption[] = [
-  { value: 'auto', label: '自动尺寸', buttonLabel: '自动尺寸' },
-  { value: '1024x1024', label: '1024×1024 方' },
-  { value: '1536x1024', label: '1536×1024 横' },
-  { value: '1024x1536', label: '1024×1536 竖' },
-  { value: '2048x1152', label: '2048×1152 2K 横' },
-  { value: '1152x2048', label: '1152×2048 2K 竖' },
-  {
-    value: '2048x2048',
-    label: '2048×2048 2K 方',
-    buttonLabel: '2048×2048 2K 方 · 实验',
-    experimental: true,
-  },
-  {
-    value: '3840x2160',
-    label: '3840×2160 4K 横',
-    buttonLabel: '3840×2160 4K 横 · 实验',
-    experimental: true,
-  },
-  {
-    value: '2160x3840',
-    label: '2160×3840 4K 竖',
-    buttonLabel: '2160×3840 4K 竖 · 实验',
-    experimental: true,
-  },
-]
+export const GPT_IMAGE_2_SIZE_OPTIONS = [
+  'auto',
+  '1024x1024',
+  '1536x1024',
+  '1024x1536',
+  '2048x1152',
+  '1152x2048',
+  '2048x2048',
+  '3840x2160',
+  '2160x3840',
+] as const
 
 export function shouldValidateGptImage2Size(modelId: string): boolean {
   const leafModelId = modelId.split('/').pop() ?? modelId
@@ -70,7 +45,6 @@ export function parseImageSize(size: string): ParsedImageSize | null {
     height,
     pixels,
     normalizedSize: `${width}x${height}`,
-    experimental: pixels > GPT_IMAGE_2_EXPERIMENTAL_PIXELS,
   }
 }
 
@@ -103,9 +77,8 @@ export function validateGptImage2Size(size: string): ImageSizeValidation {
   return { ok: true, normalizedSize: parsed.normalizedSize, parsed }
 }
 
-export function formatImageSizeForButton(size: string): string {
-  const option = GPT_IMAGE_2_SIZE_OPTIONS.find((item) => item.value === size)
-  if (option) return option.buttonLabel ?? option.label
+export function formatImageSizeLabel(size: string): string {
+  if (size.trim() === 'auto') return '自动'
 
   const parsed = parseImageSize(size)
   if (!parsed) return size
