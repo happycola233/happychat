@@ -101,8 +101,8 @@ function PreBlock({ children, variant }: { children?: ReactNode; variant: Markdo
       <pre
         ref={ref}
         className={clsx(
-          'overflow-x-auto px-4 pb-5 pt-3 font-mono text-sm leading-6',
-          variant === 'reasoning' && 'pb-4 text-[13px] leading-5',
+          'overflow-x-auto px-4 pt-3 font-mono',
+          variant === 'reasoning' ? 'pb-4 text-xs leading-5' : 'pb-5 text-[13px] leading-5',
         )}
       >
         {children}

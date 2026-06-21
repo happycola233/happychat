@@ -35,6 +35,7 @@ import { useSettingsDialog, type SettingsTab } from '../store/settingsDialog'
 import { toast } from '../store/toast'
 
 const APP_VERSION = '0.1.0'
+const USERNAME_PATTERN = /^[a-zA-Z0-9_.-]+$/
 
 const TABS: { id: SettingsTab; label: string; icon: ComponentType<{ className?: string }> }[] = [
   { id: 'general', label: '通用', icon: SlidersHorizontal },
@@ -259,12 +260,28 @@ function AccountPanel() {
   const deleteAccount = useDeleteAccount()
   const fileRef = useRef<HTMLInputElement>(null)
 
+  const [username, setUsername] = useState(me?.username ?? '')
   const [displayName, setDisplayName] = useState(me?.displayName ?? '')
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmClear, setConfirmClear] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deletePassword, setDeletePassword] = useState('')
+
+  useEffect(() => {
+    setUsername(me?.username ?? '')
+    setDisplayName(me?.displayName ?? '')
+  }, [me?.displayName, me?.username])
+
+  const trimmedUsername = username.trim()
+  const trimmedDisplayName = displayName.trim()
+  const usernameError =
+    trimmedUsername && !USERNAME_PATTERN.test(trimmedUsername)
+      ? '只能包含字母、数字、下划线、点和短横线'
+      : undefined
+  const profileChanged =
+    trimmedUsername !== (me?.username ?? '') || trimmedDisplayName !== (me?.displayName ?? '')
+  const canSaveProfile = Boolean(trimmedUsername) && !usernameError && profileChanged
 
   const onPickAvatar = (file: File | undefined) => {
     if (!file) return
@@ -275,8 +292,12 @@ function AccountPanel() {
   }
 
   const onSaveProfile = () => {
+    if (!trimmedUsername) {
+      toast.error('请输入用户名')
+      return
+    }
     updateProfile.mutate(
-      { displayName: displayName.trim() || null },
+      { username: trimmedUsername, displayName: trimmedDisplayName || null },
       {
         onSuccess: () => toast.success('已保存'),
         onError: (e) => toast.error(e instanceof Error ? e.message : '保存失败'),
@@ -374,23 +395,35 @@ function AccountPanel() {
         </div>
       </div>
 
-      <div className="mt-3 flex items-end gap-2">
-        <TextField
-          label="显示名称"
-          className="flex-1"
-          value={displayName}
-          maxLength={48}
-          placeholder={me?.username ?? ''}
-          onChange={(e) => setDisplayName(e.target.value)}
-        />
-        <Button
-          variant="secondary"
-          loading={updateProfile.isPending}
-          disabled={displayName.trim() === (me?.displayName ?? '')}
-          onClick={onSaveProfile}
-        >
-          保存
-        </Button>
+      <div className="mt-3 space-y-3">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <TextField
+            label="用户名"
+            value={username}
+            maxLength={32}
+            autoComplete="username"
+            error={usernameError}
+            hint="用于登录"
+            onChange={(e) => setUsername(e.target.value)}
+          />
+          <TextField
+            label="显示名称"
+            value={displayName}
+            maxLength={48}
+            placeholder={me?.username ?? ''}
+            onChange={(e) => setDisplayName(e.target.value)}
+          />
+        </div>
+        <div className="flex justify-end">
+          <Button
+            variant="secondary"
+            loading={updateProfile.isPending}
+            disabled={!canSaveProfile}
+            onClick={onSaveProfile}
+          >
+            保存资料
+          </Button>
+        </div>
       </div>
 
       <SectionTitle>更换密码</SectionTitle>

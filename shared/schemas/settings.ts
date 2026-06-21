@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { passwordSchema } from './auth'
+import { passwordSchema, usernameSchema } from './auth'
 
 export const themePreferenceSchema = z.enum(['system', 'light', 'dark'])
 export const messageFontSizeSchema = z.enum(['small', 'medium', 'large'])
@@ -31,9 +31,14 @@ export const changePasswordSchema = z.object({
   newPassword: passwordSchema,
 })
 
-export const updateProfileSchema = z.object({
-  displayName: z.string().trim().max(48, '昵称最多 48 个字符').nullable(),
-})
+export const displayNameSchema = z.string().trim().max(48, '昵称最多 48 个字符').nullable()
+
+export const updateProfileSchema = z
+  .object({
+    username: usernameSchema.optional(),
+    displayName: displayNameSchema.optional(),
+  })
+  .refine((v) => v.username !== undefined || v.displayName !== undefined, '无可更新的资料项')
 
 export const deleteAccountSchema = z.object({
   password: z.string().min(1, '请输入密码以确认删除'),

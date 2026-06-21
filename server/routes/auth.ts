@@ -98,10 +98,19 @@ authRoutes.get('/me', requireUser, (c) => {
   return c.json({ user: toPublicUser(c.get('user')) })
 })
 
-/** 重新读取用户行（在更新昵称/头像后返回最新 PublicUser）。 */
+/** 重新读取用户行（在更新资料/头像后返回最新 PublicUser）。 */
 async function freshPublicUser(userId: string) {
   const [u] = await db.select().from(users).where(eq(users.id, userId)).limit(1)
   return u ? toPublicUser(u) : null
+}
+
+function isUsernameUniqueError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'message' in error &&
+    String(error.message).includes('users.username')
+  )
 }
 
 // ===================== 设置 =====================
@@ -132,8 +141,34 @@ authRoutes.post('/change-password', requireUser, jsonValidator(changePasswordSch
 
 authRoutes.patch('/profile', requireUser, jsonValidator(updateProfileSchema), async (c) => {
   const user = c.get('user')
-  const displayName = c.req.valid('json').displayName?.trim() || null
-  await db.update(users).set({ displayName }).where(eq(users.id, user.id))
+  const input = c.req.valid('json')
+  const username = input.username?.trim()
+  const displayName =
+    input.displayName === undefined ? user.displayName : input.displayName?.trim() || null
+
+  if (username && username !== user.username) {
+    const existing = db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.username, username))
+      .get()
+    if (existing && existing.id !== user.id) {
+      return c.json({ error: { message: '该用户名已被占用', code: 'username_taken' } }, 400)
+    }
+  }
+
+  try {
+    await db
+      .update(users)
+      .set({ username: username ?? user.username, displayName })
+      .where(eq(users.id, user.id))
+  } catch (error) {
+    // 唯一索引仍是最后防线：避免并发改名时绕过上面的预检查。
+    if (isUsernameUniqueError(error)) {
+      return c.json({ error: { message: '该用户名已被占用', code: 'username_taken' } }, 400)
+    }
+    throw error
+  }
   return c.json({ user: await freshPublicUser(user.id) })
 })
 
