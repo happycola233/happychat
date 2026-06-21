@@ -1,5 +1,5 @@
 import { clsx } from 'clsx'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { ConversationDTO } from '@shared/types/api'
 import {
@@ -31,6 +31,31 @@ import { ChatBubbleIcon, NewChatIcon, RoutineIcon, SidebarToggleIcon } from './i
 import { SearchDialog } from './SearchDialog'
 
 type PopoverKind = 'pinned' | 'recent'
+type RowMenuPlacement = 'top' | 'bottom'
+
+const ROW_MENU_GAP_PX = 4
+const ROW_MENU_ESTIMATED_HEIGHT_PX = 176
+
+function findScrollBoundaryElement(el: HTMLElement): HTMLElement | null {
+  let parent = el.parentElement
+  while (parent) {
+    const overflowY = window.getComputedStyle(parent).overflowY
+    if (/(auto|scroll|overlay)/.test(overflowY)) return parent
+    parent = parent.parentElement
+  }
+  return null
+}
+
+function rowMenuPlacement(row: HTMLElement, menuHeight = ROW_MENU_ESTIMATED_HEIGHT_PX) {
+  const rowRect = row.getBoundingClientRect()
+  const boundaryRect = findScrollBoundaryElement(row)?.getBoundingClientRect()
+  const boundaryTop = boundaryRect?.top ?? 0
+  const boundaryBottom = boundaryRect?.bottom ?? window.innerHeight
+  const spaceAbove = rowRect.top - boundaryTop - ROW_MENU_GAP_PX
+  const spaceBelow = boundaryBottom - rowRect.bottom - ROW_MENU_GAP_PX
+
+  return spaceBelow < menuHeight && spaceAbove > spaceBelow ? 'top' : 'bottom'
+}
 
 function titleOf(conversation: ConversationDTO): string {
   return conversation.title ?? '新聊天'
@@ -209,6 +234,7 @@ function ConversationRow({
 }) {
   const pinned = Boolean(conversation.pinnedAt)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [menuPlacement, setMenuPlacement] = useState<RowMenuPlacement>('bottom')
   const [renaming, setRenaming] = useState(false)
   const [draft, setDraft] = useState('')
   const menuRef = useRef<HTMLDivElement>(null)
@@ -232,6 +258,25 @@ function ConversationRow({
     return () => {
       window.removeEventListener('pointerdown', onDown)
       window.removeEventListener('keydown', onKey)
+    }
+  }, [menuOpen])
+
+  useLayoutEffect(() => {
+    if (!menuOpen) return undefined
+    const row = rowRef.current
+    if (!row) return undefined
+
+    const syncPlacement = () => {
+      setMenuPlacement(rowMenuPlacement(row, menuRef.current?.offsetHeight))
+    }
+    syncPlacement()
+
+    const scrollBoundary = findScrollBoundaryElement(row)
+    window.addEventListener('resize', syncPlacement)
+    scrollBoundary?.addEventListener('scroll', syncPlacement, { passive: true })
+    return () => {
+      window.removeEventListener('resize', syncPlacement)
+      scrollBoundary?.removeEventListener('scroll', syncPlacement)
     }
   }, [menuOpen])
 
@@ -297,6 +342,9 @@ function ConversationRow({
             type="button"
             onClick={(e) => {
               e.stopPropagation()
+              if (!menuOpen && rowRef.current) {
+                setMenuPlacement(rowMenuPlacement(rowRef.current))
+              }
               setMenuOpen((o) => !o)
             }}
             className={clsx(
@@ -313,7 +361,10 @@ function ConversationRow({
         {menuOpen && (
           <div
             ref={menuRef}
-            className="hc-pop-in absolute right-0 top-full z-40 mt-1 w-40 rounded-xl border border-neutral-200 bg-white p-1 text-[13px] shadow-2xl dark:border-neutral-700 dark:bg-neutral-900"
+            className={clsx(
+              'hc-pop-in absolute right-0 z-40 w-40 rounded-xl border border-neutral-200 bg-white p-1 text-[13px] shadow-2xl dark:border-neutral-700 dark:bg-neutral-900',
+              menuPlacement === 'top' ? 'bottom-full mb-1' : 'top-full mt-1',
+            )}
           >
             <RowMenuItem
               icon={<Share2 className="h-4 w-4" />}

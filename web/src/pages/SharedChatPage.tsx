@@ -15,6 +15,7 @@ import {
   MessageUsageStats,
 } from '../chat/MessageMeta'
 import { Spinner } from '../components/ui/Spinner'
+import { forceSystemTheme, refreshTheme } from '../lib/theme'
 
 type SharedAttachmentPart = Extract<
   ContentPart,
@@ -53,6 +54,20 @@ function useShareHeaderHeight(active: boolean) {
   }, [active])
 
   return { pageRef, headerRef }
+}
+
+function useSystemThemeOnSharePage() {
+  useLayoutEffect(() => {
+    const releaseThemeOverride = forceSystemTheme()
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const syncSystemTheme = () => refreshTheme()
+
+    mq.addEventListener('change', syncSystemTheme)
+    return () => {
+      mq.removeEventListener('change', syncSystemTheme)
+      releaseThemeOverride()
+    }
+  }, [])
 }
 
 function attachmentParts(content: ContentPart[]): SharedAttachmentPart[] {
@@ -231,6 +246,8 @@ function SharedMessage({ m, token }: { m: MessageDTO; token: string }) {
 }
 
 export default function SharedChatPage() {
+  useSystemThemeOnSharePage()
+
   const { token } = useParams()
   const {
     data: share,
@@ -246,7 +263,7 @@ export default function SharedChatPage() {
 
   if (isLoading) {
     return (
-      <div className="flex h-full items-center justify-center bg-white dark:bg-neutral-900">
+      <div className="flex h-full items-center justify-center bg-white dark:bg-black">
         <Spinner className="h-6 w-6 text-neutral-400" />
       </div>
     )
@@ -254,7 +271,7 @@ export default function SharedChatPage() {
 
   if (isError || !share) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 bg-white px-4 text-center dark:bg-neutral-900">
+      <div className="flex h-full flex-col items-center justify-center gap-3 bg-white px-4 text-center dark:bg-black">
         <h1 className="text-xl font-semibold text-neutral-800 dark:text-neutral-100">
           分享不存在或已失效
         </h1>
@@ -268,11 +285,11 @@ export default function SharedChatPage() {
   return (
     <div
       ref={pageRef}
-      className={clsx('min-h-full bg-white dark:bg-neutral-900', SHARE_HEADER_HEIGHT_CLASS)}
+      className={clsx('min-h-full bg-white dark:bg-black', SHARE_HEADER_HEIGHT_CLASS)}
     >
       <header
         ref={headerRef}
-        className="sticky top-0 z-30 min-h-[var(--hc-share-header-height)] border-b border-neutral-200 bg-white/90 px-4 py-3 backdrop-blur dark:border-neutral-800 dark:bg-neutral-900/90"
+        className="sticky top-0 z-30 min-h-[var(--hc-share-header-height)] border-b border-neutral-200 bg-white/90 px-4 py-3 backdrop-blur dark:border-neutral-800 dark:bg-black/90"
       >
         <div className="mx-auto flex max-w-3xl items-center gap-3">
           {share.owner.avatarUrl ? (

@@ -43,8 +43,8 @@ export default function SharesPage() {
           暂无分享
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <div className={tableShell}>
+        <div className="hc-scrollbar -mx-4 overflow-x-auto overscroll-x-contain px-4 pb-2 [touch-action:pan-x] sm:mx-0 sm:px-0">
+          <div className={`${tableShell} min-w-[760px]`}>
             <table className={tableEl}>
               <thead className={tableHead}>
                 <tr>

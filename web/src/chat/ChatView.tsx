@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ChevronDown, Menu } from 'lucide-react'
+import { ArrowDown, Menu } from 'lucide-react'
 import type {
   AttachmentDTO,
   ConversationDetail,
@@ -337,12 +337,12 @@ export default function ChatView() {
       </header>
 
       <div className="relative min-h-0 flex-1">
-      <div
-        ref={scrollRef}
-        onScroll={updateScrollState}
-        data-testid="chat-scroll"
-        className="hc-scrollbar h-full overflow-y-auto"
-      >
+        <div
+          ref={scrollRef}
+          onScroll={updateScrollState}
+          data-testid="chat-scroll"
+          className="hc-scrollbar h-full overflow-y-auto"
+        >
         {isEmpty ? (
           <div className="flex h-full items-center justify-center">
             <div className="text-center">
@@ -352,51 +352,54 @@ export default function ChatView() {
             </div>
           </div>
         ) : (
-          <div className="mx-auto max-w-3xl space-y-6 px-4 py-6">
-            {messages.map((m) => {
-              const siblings = getSiblings(allMessages, m)
-              const branch =
-                siblings.length > 1
-                  ? {
-                      index: siblings.findIndex((s) => s.id === m.id),
-                      total: siblings.length,
-                      siblings,
-                      onSelect: onSwitch,
-                    }
-                  : undefined
-              return (
-                <div key={m.id} className="hc-anim-in">
-                  <Message
-                    message={m}
-                    live={stream && m.id === stream.assistantMessageId ? stream : undefined}
-                    branch={branch}
-                    busy={streaming}
-                    onEdit={m.role === 'user' ? (t) => onEdit(m, t) : undefined}
-                    onRegenerate={m.role === 'assistant' ? () => onRegenerate(m.id) : undefined}
-                    onUseImageSource={m.role === 'assistant' ? onUseImageSource : undefined}
-                  />
+          <div className="mx-auto max-w-3xl px-4 pt-6">
+            <div className="space-y-6">
+              {messages.map((m) => {
+                const siblings = getSiblings(allMessages, m)
+                const branch =
+                  siblings.length > 1
+                    ? {
+                        index: siblings.findIndex((s) => s.id === m.id),
+                        total: siblings.length,
+                        siblings,
+                        onSelect: onSwitch,
+                      }
+                    : undefined
+                return (
+                  <div key={m.id} className="hc-anim-in">
+                    <Message
+                      message={m}
+                      live={stream && m.id === stream.assistantMessageId ? stream : undefined}
+                      branch={branch}
+                      busy={streaming}
+                      onEdit={m.role === 'user' ? (t) => onEdit(m, t) : undefined}
+                      onRegenerate={m.role === 'assistant' ? () => onRegenerate(m.id) : undefined}
+                      onUseImageSource={m.role === 'assistant' ? onUseImageSource : undefined}
+                    />
+                  </div>
+                )
+              })}
+              {optimisticUser && (
+                <div className="flex justify-end">
+                  <div className="max-w-[85%] rounded-2xl bg-neutral-100 px-4 py-2.5 dark:bg-neutral-800">
+                    <CollapsibleUserMessageText text={optimisticUser} />
+                  </div>
                 </div>
-              )
-            })}
-            {optimisticUser && (
-              <div className="flex justify-end">
-                <div className="max-w-[85%] rounded-2xl bg-neutral-100 px-4 py-2.5 dark:bg-neutral-800">
-                  <CollapsibleUserMessageText text={optimisticUser} />
-                </div>
-              </div>
-            )}
+              )}
+            </div>
+            {!streaming && <div className="h-8" aria-hidden />}
           </div>
         )}
-      </div>
+        </div>
         {showScrollToBottom && showScrollBtn && (
           <button
             type="button"
             onClick={() => scrollToBottom('smooth')}
             aria-label="滚动到底部"
             title="滚动到底部"
-            className="absolute bottom-4 left-1/2 z-10 flex h-9 w-9 -translate-x-1/2 items-center justify-center rounded-full border border-neutral-200 bg-white text-neutral-600 shadow-md transition hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700"
+            className="absolute bottom-4 left-1/2 z-30 flex h-9 w-9 -translate-x-1/2 items-center justify-center rounded-full border border-neutral-200 bg-white text-neutral-600 shadow-md transition hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700"
           >
-            <ChevronDown className="h-5 w-5" />
+            <ArrowDown className="h-5 w-5" />
           </button>
         )}
       </div>
