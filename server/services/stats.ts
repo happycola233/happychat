@@ -244,6 +244,7 @@ export async function getUserStats(filter: StatsFilter): Promise<UserStatDTO[]> 
       totalTokens: sql<number>`coalesce(sum(${usageLogs.totalTokens}),0)`,
       reasoningTokens: sql<number>`coalesce(sum(${usageLogs.reasoningTokens}),0)`,
       imageGenerations: sql<number>`coalesce(sum(case when ${usageLogs.imageTokens} > 0 then 1 else 0 end),0)`,
+      lastUsageAt: sql<number | null>`max(${usageLogs.createdAt})`,
     })
     .from(usageLogs)
     .where(whereOf(conds))
@@ -328,7 +329,8 @@ export async function getUserStats(filter: StatsFilter): Promise<UserStatDTO[]> 
       costUsd: costByUser.get(b.userId) ?? 0,
       errors: errMap.get(b.userId) ?? 0,
       successRate: b.requests ? b.successes / b.requests : 1,
-      lastActive: u.lastActiveAt?.getTime() ?? null,
+      // 统计页的「最近活跃」应跟使用记录同源，避免把最近登录误显示成最近调用模型。
+      lastActive: b.lastUsageAt,
       topModels,
     })
   }

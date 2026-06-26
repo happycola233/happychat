@@ -10,6 +10,7 @@ let stats: typeof import('./stats')
 
 const HOUR_MS = 3_600_000
 const DAY_MS = 86_400_000
+let uniqueId = 0
 
 beforeAll(async () => {
   tmpDir = mkdtempSync(join(tmpdir(), 'happychat-stats-'))
@@ -31,8 +32,24 @@ afterAll(() => {
   if (tmpDir) rmSync(tmpDir, { recursive: true, force: true })
 })
 
-async function insertUsageLog(createdAt: number) {
-  await dbClient.db.insert(schema.usageLogs).values({ createdAt: new Date(createdAt) })
+async function insertUsageLog(
+  createdAt: number,
+  values: Partial<typeof schema.usageLogs.$inferInsert> = {},
+) {
+  await dbClient.db.insert(schema.usageLogs).values({ ...values, createdAt: new Date(createdAt) })
+}
+
+async function insertUser(lastActiveAt?: number) {
+  const [user] = await dbClient.db
+    .insert(schema.users)
+    .values({
+      username: `stats_user_${Date.now()}_${uniqueId++}`,
+      passwordHash: 'test-password-hash',
+      lastActiveAt: lastActiveAt === undefined ? null : new Date(lastActiveAt),
+    })
+    .returning()
+  if (!user) throw new Error('failed to insert test user')
+  return user
 }
 
 describe('stats time buckets', () => {
@@ -71,5 +88,30 @@ describe('stats time buckets', () => {
       { ts: hourStart, requests: 2 },
       { ts: hourStart + HOUR_MS, requests: 1 },
     ])
+  })
+})
+
+describe('user stats activity', () => {
+  it('uses usage log time when account lastActiveAt has never been written', async () => {
+    const usageAt = Date.UTC(2026, 5, 21, 1, 35, 51)
+    const user = await insertUser()
+    await insertUsageLog(usageAt, { userId: user.id, modelLabel: 'gpt-5.5', totalTokens: 39430 })
+
+    const [stat] = await stats.getUserStats({ userId: user.id })
+
+    expect(stat?.lastActive).toBe(usageAt)
+  })
+
+  it('uses the latest matching usage log instead of an older login time', async () => {
+    const loginAt = Date.UTC(2026, 5, 24, 15, 44, 41)
+    const firstUsageAt = Date.UTC(2026, 5, 26, 13, 48, 0)
+    const latestUsageAt = Date.UTC(2026, 5, 26, 15, 5, 30)
+    const user = await insertUser(loginAt)
+    await insertUsageLog(firstUsageAt, { userId: user.id, modelLabel: 'gpt-5.5', totalTokens: 43026 })
+    await insertUsageLog(latestUsageAt, { userId: user.id, modelLabel: 'gpt-5.5', totalTokens: 26722 })
+
+    const [stat] = await stats.getUserStats({ userId: user.id })
+
+    expect(stat?.lastActive).toBe(latestUsageAt)
   })
 })
