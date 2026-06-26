@@ -54,8 +54,16 @@ function displayMathReplacement(prefix: string, body: string): string {
   return `${prefix}${leadingBreak}$$\n${trimmed}\n$$\n\n`
 }
 
+function normalizeStandaloneDisplayMathDelimiters(text: string): string {
+  // Markdown containers such as blockquotes need to keep their line prefix on
+  // the delimiter lines; otherwise `>` is swallowed into the KaTeX source.
+  return text.replace(/^([ \t]*(?:>[ \t]*)*)\\(?:\[|\])[ \t]*$/gm, (_match, prefix: string) => {
+    return `${prefix}$$`
+  })
+}
+
 function normalizeLatexDelimiters(text: string): string {
-  return text
+  return normalizeStandaloneDisplayMathDelimiters(text)
     .replace(/(^|[^\\])\\\[([\s\S]*?)\\\]/g, (_match, prefix: string, body: string) =>
       displayMathReplacement(prefix, body),
     )

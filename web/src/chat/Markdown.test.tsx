@@ -54,6 +54,29 @@ describe('Markdown math', () => {
     expect(html).not.toContain('\\( a+b \\)')
   })
 
+  it('renders display math inside one continuous blockquote', () => {
+    const text = [
+      '幂级数里不要写成“规定 \\(0^0=1\\)”，更严谨应该写成：',
+      '',
+      '> 在幂级数  ',
+      '> \\[',
+      '> \\sum_{n=0}^{\\infty}a_n(x-x_0)^n',
+      '> \\]',
+      '> 中，**第 \\(n=0\\) 项按常数项 \\(a_0\\) 处理**，即 \\((x-x_0)^0\\) 视为 \\(1\\)。  ',
+      '> 因此当 \\(x=x_0\\) 时，',
+      '> \\[',
+      '> \\sum_{n=0}^{\\infty}a_n(x-x_0)^n=a_0.',
+      '> \\]',
+      '> 但这不等于说一般情况下 \\(0^0=1\\)。',
+    ].join('\n')
+    const html = renderToStaticMarkup(<Markdown text={text} />)
+
+    expect(html.match(/<blockquote>/g)).toHaveLength(1)
+    expect(html.match(/katex-display/g)?.length).toBeGreaterThanOrEqual(2)
+    expect(html).toContain('<strong>第 ')
+    expect(html).not.toContain('&gt;')
+  })
+
   it('keeps dollar amounts as text instead of parsing them as math', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const text =

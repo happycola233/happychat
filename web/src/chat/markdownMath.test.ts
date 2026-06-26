@@ -8,6 +8,26 @@ describe('normalizeMarkdownMath', () => {
     )
   })
 
+  it('keeps blockquote prefixes on standalone display math delimiter lines', () => {
+    const text = [
+      '> 在幂级数  ',
+      '> \\[',
+      '> \\sum_{n=0}^{\\infty}a_n(x-x_0)^n',
+      '> \\]',
+      '> 中',
+    ].join('\n')
+
+    expect(normalizeMarkdownMath(text)).toBe(
+      [
+        '> 在幂级数  ',
+        '> $$',
+        '> \\sum_{n=0}^{\\infty}a_n(x-x_0)^n',
+        '> $$',
+        '> 中',
+      ].join('\n'),
+    )
+  })
+
   it('normalizes inline math wrapped in LaTeX paren delimiters', () => {
     expect(normalizeMarkdownMath('这是 \\( a+b \\) 公式')).toBe('这是 $$a+b$$ 公式')
   })

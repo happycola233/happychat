@@ -37,6 +37,10 @@ interface RunResult {
   userMessage?: MessageDTO
 }
 
+const SCROLL_BUTTON_IDLE_MS = 2400
+const SCROLL_BUTTON_FADE_MS = 220
+const PROGRAMMATIC_SCROLL_RESET_MS = 1200
+
 export default function ChatView() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -62,7 +66,12 @@ export default function ChatView() {
   const atBottomRef = useRef(true)
   const autoScrollOnOpenRef = useRef(autoScrollOnOpen)
   autoScrollOnOpenRef.current = autoScrollOnOpen
+  const scrollButtonIdleTimerRef = useRef<number | null>(null)
+  const scrollButtonUnmountTimerRef = useRef<number | null>(null)
+  const programmaticScrollTimerRef = useRef<number | null>(null)
+  const programmaticScrollRef = useRef(false)
   const [showScrollBtn, setShowScrollBtn] = useState(false)
+  const [scrollBtnVisible, setScrollBtnVisible] = useState(false)
   const [isScrolledFromTop, setIsScrolledFromTop] = useState(false)
 
   const allMessages = detail?.messages ?? []
@@ -82,23 +91,100 @@ export default function ChatView() {
     [invalidateDetail, qc],
   )
 
+  const clearScrollButtonTimers = useCallback(() => {
+    if (scrollButtonIdleTimerRef.current !== null) {
+      window.clearTimeout(scrollButtonIdleTimerRef.current)
+      scrollButtonIdleTimerRef.current = null
+    }
+    if (scrollButtonUnmountTimerRef.current !== null) {
+      window.clearTimeout(scrollButtonUnmountTimerRef.current)
+      scrollButtonUnmountTimerRef.current = null
+    }
+  }, [])
+
+  const hideScrollButton = useCallback(
+    (immediate = false) => {
+      clearScrollButtonTimers()
+      setScrollBtnVisible(false)
+      if (immediate) {
+        setShowScrollBtn(false)
+        return
+      }
+      scrollButtonUnmountTimerRef.current = window.setTimeout(() => {
+        setShowScrollBtn(false)
+        scrollButtonUnmountTimerRef.current = null
+      }, SCROLL_BUTTON_FADE_MS)
+    },
+    [clearScrollButtonTimers],
+  )
+
+  const scheduleScrollButtonFade = useCallback(() => {
+    if (scrollButtonIdleTimerRef.current !== null) {
+      window.clearTimeout(scrollButtonIdleTimerRef.current)
+    }
+    scrollButtonIdleTimerRef.current = window.setTimeout(() => {
+      hideScrollButton()
+      scrollButtonIdleTimerRef.current = null
+    }, SCROLL_BUTTON_IDLE_MS)
+  }, [hideScrollButton])
+
+  const showScrollButtonTemporarily = useCallback(() => {
+    if (scrollButtonUnmountTimerRef.current !== null) {
+      window.clearTimeout(scrollButtonUnmountTimerRef.current)
+      scrollButtonUnmountTimerRef.current = null
+    }
+    setShowScrollBtn(true)
+    setScrollBtnVisible(true)
+    scheduleScrollButtonFade()
+  }, [scheduleScrollButtonFade])
+
+  useEffect(() => {
+    if (!showScrollToBottom) hideScrollButton(true)
+  }, [hideScrollButton, showScrollToBottom])
+
+  useEffect(() => {
+    return () => {
+      clearScrollButtonTimers()
+      if (programmaticScrollTimerRef.current !== null) {
+        window.clearTimeout(programmaticScrollTimerRef.current)
+      }
+    }
+  }, [clearScrollButtonTimers])
+
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
     const el = scrollRef.current
     if (!el) return
+    programmaticScrollRef.current = true
+    if (programmaticScrollTimerRef.current !== null) {
+      window.clearTimeout(programmaticScrollTimerRef.current)
+    }
+    programmaticScrollTimerRef.current = window.setTimeout(() => {
+      programmaticScrollRef.current = false
+      programmaticScrollTimerRef.current = null
+    }, behavior === 'smooth' ? PROGRAMMATIC_SCROLL_RESET_MS : 80)
     el.scrollTo({ top: el.scrollHeight, behavior })
     atBottomRef.current = true
-    setShowScrollBtn(false)
+    hideScrollButton(true)
     setIsScrolledFromTop(el.scrollHeight > el.clientHeight + 1)
-  }, [])
+  }, [hideScrollButton])
 
   const updateScrollState = useCallback(() => {
     const el = scrollRef.current
     if (!el) return
     const dist = el.scrollHeight - el.scrollTop - el.clientHeight
     atBottomRef.current = dist < 80
+    if (atBottomRef.current) programmaticScrollRef.current = false
     setIsScrolledFromTop(el.scrollTop > 1)
-    setShowScrollBtn(dist > 240)
-  }, [])
+    if (dist <= 240) {
+      hideScrollButton(true)
+      return
+    }
+    if (programmaticScrollRef.current) {
+      hideScrollButton(true)
+      return
+    }
+    showScrollButtonTemporarily()
+  }, [hideScrollButton, showScrollButtonTemporarily])
 
   const reasoningEnabledForRun = (modelId: string | null, requestParams?: ModelParams | null) => {
     const runModel = models?.find((m) => m.id === modelId)
@@ -198,6 +284,7 @@ export default function ChatView() {
     } else {
       atBottomRef.current = false
       setShowScrollBtn(false)
+      setScrollBtnVisible(false)
       setIsScrolledFromTop(false)
       scrollRef.current?.scrollTo({ top: 0 })
     }
@@ -341,7 +428,7 @@ export default function ChatView() {
           ref={scrollRef}
           onScroll={updateScrollState}
           data-testid="chat-scroll"
-          className="hc-scrollbar h-full overflow-y-auto"
+          className="hc-scrollbar hc-chat-scroll h-full overflow-y-auto"
         >
         {isEmpty ? (
           <div className="flex h-full items-center justify-center">
@@ -352,7 +439,7 @@ export default function ChatView() {
             </div>
           </div>
         ) : (
-          <div className="mx-auto max-w-3xl px-4 pt-6">
+          <div className="hc-chat-scroll-content mx-auto max-w-3xl px-4 pt-6">
             <div className="space-y-6">
               {messages.map((m) => {
                 const siblings = getSiblings(allMessages, m)
@@ -387,7 +474,6 @@ export default function ChatView() {
                 </div>
               )}
             </div>
-            {!streaming && <div className="h-8" aria-hidden />}
           </div>
         )}
         </div>
@@ -397,7 +483,9 @@ export default function ChatView() {
             onClick={() => scrollToBottom('smooth')}
             aria-label="滚动到底部"
             title="滚动到底部"
-            className="absolute bottom-4 left-1/2 z-30 flex h-9 w-9 -translate-x-1/2 items-center justify-center rounded-full border border-neutral-200 bg-white text-neutral-600 shadow-md transition hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700"
+            className={`absolute bottom-4 left-1/2 z-30 flex h-9 w-9 -translate-x-1/2 items-center justify-center rounded-full border border-neutral-200 bg-white text-neutral-600 shadow-md transition-[opacity,background-color] duration-200 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700 ${
+              scrollBtnVisible ? 'opacity-100' : 'pointer-events-none opacity-0'
+            }`}
           >
             <ArrowDown className="h-5 w-5" />
           </button>

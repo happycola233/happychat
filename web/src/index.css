@@ -80,6 +80,15 @@ html.hc-font-large {
   display: none;
 }
 
+/* 聊天滚动区的统一底部安全区，避免最后一条内容贴住输入框。 */
+.hc-chat-scroll {
+  --hc-chat-bottom-gap: max(2rem, env(safe-area-inset-bottom));
+  scroll-padding-bottom: var(--hc-chat-bottom-gap);
+}
+.hc-chat-scroll-content {
+  padding-bottom: var(--hc-chat-bottom-gap);
+}
+
 /* Markdown 渲染排版 */
 .hc-md > :first-child {
   margin-top: 0;

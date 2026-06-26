@@ -2,6 +2,7 @@ node_modules/
 dist/
 data/
 .devfiles/
+.tmp/
 *.local
 .env
 .env.*
