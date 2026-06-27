@@ -8,7 +8,7 @@ import {
 } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowDown, Menu } from 'lucide-react'
+import { Menu } from 'lucide-react'
 import type {
   AttachmentDTO,
   ConversationDetail,
@@ -32,6 +32,7 @@ import { toast } from '../store/toast'
 import { buildPath, getSiblings } from './buildPath'
 import { ChatControls } from './ChatControls'
 import { Composer } from './Composer'
+import { ArrowUpIcon } from './icons'
 import { Message } from './Message'
 import { CollapsibleUserMessageText } from './MessageContent'
 import { ModelSelector } from './ModelSelector'
@@ -531,7 +532,7 @@ export default function ChatView() {
               scrollButtonVisible ? 'opacity-100' : 'pointer-events-none opacity-0'
             }`}
           >
-            <ArrowDown className="h-5 w-5" />
+            <ArrowUpIcon className="h-5 w-5 rotate-180" />
           </button>
         )}
       </div>

@@ -53,7 +53,7 @@ export function RoutineIcon(props: IconProps) {
   )
 }
 
-export function SendArrowIcon(props: IconProps) {
+export function ArrowUpIcon(props: IconProps) {
   return (
     <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" {...props}>
       <path d="M9 16V6.414L5.707 9.707a1 1 0 1 1-1.414-1.414l5-5 .076-.068a1 1 0 0 1 1.338.068l5 5 .068.076a1 1 0 0 1-1.406 1.406l-.076-.068L11 6.414V16a1 1 0 1 1-2 0" />

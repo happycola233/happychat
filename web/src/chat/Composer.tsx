@@ -8,7 +8,7 @@ import { toast } from '../store/toast'
 import { useSettings } from '../store/settings'
 import { Spinner } from '../components/ui/Spinner'
 import type { ImageEditSource } from './imageSource'
-import { SendArrowIcon } from './icons'
+import { ArrowUpIcon } from './icons'
 
 interface Props {
   onSend: (text: string, attachments: AttachmentDTO[], imageSources: ImageEditSource[]) => void
@@ -310,7 +310,7 @@ export function Composer({
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-500 text-white transition hover:bg-blue-600 disabled:bg-neutral-200 disabled:text-white disabled:opacity-100 dark:disabled:bg-neutral-700"
                 aria-label="发送"
               >
-                <SendArrowIcon className="h-5 w-5" />
+                <ArrowUpIcon className="h-5 w-5" />
               </button>
             )}
           </div>
