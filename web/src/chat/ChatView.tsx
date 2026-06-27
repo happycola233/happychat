@@ -46,7 +46,6 @@ interface RunResult {
 }
 
 const SCROLL_BUTTON_IDLE_MS = 2400
-const SCROLL_BUTTON_FADE_MS = 220
 const PROGRAMMATIC_SCROLL_RESET_MS = 1200
 
 export default function ChatView() {
@@ -76,11 +75,9 @@ export default function ChatView() {
   const autoScrollOnOpenRef = useRef(autoScrollOnOpen)
   autoScrollOnOpenRef.current = autoScrollOnOpen
   const scrollButtonIdleTimerRef = useRef<number | null>(null)
-  const scrollButtonUnmountTimerRef = useRef<number | null>(null)
   const programmaticScrollTimerRef = useRef<number | null>(null)
   const programmaticScrollRef = useRef(false)
-  const [showScrollBtn, setShowScrollBtn] = useState(false)
-  const [scrollBtnVisible, setScrollBtnVisible] = useState(false)
+  const [scrollButtonVisible, setScrollButtonVisible] = useState(false)
   const [isScrolledFromTop, setIsScrolledFromTop] = useState(false)
 
   const allMessages = detail?.messages ?? []
@@ -100,65 +97,40 @@ export default function ChatView() {
     [invalidateDetail, qc],
   )
 
-  const clearScrollButtonTimers = useCallback(() => {
+  const clearScrollButtonIdleTimer = useCallback(() => {
     if (scrollButtonIdleTimerRef.current !== null) {
       window.clearTimeout(scrollButtonIdleTimerRef.current)
       scrollButtonIdleTimerRef.current = null
-    }
-    if (scrollButtonUnmountTimerRef.current !== null) {
-      window.clearTimeout(scrollButtonUnmountTimerRef.current)
-      scrollButtonUnmountTimerRef.current = null
     }
   }, [])
 
-  const hideScrollButton = useCallback(
-    (immediate = false) => {
-      clearScrollButtonTimers()
-      setScrollBtnVisible(false)
-      if (immediate) {
-        setShowScrollBtn(false)
-        return
-      }
-      scrollButtonUnmountTimerRef.current = window.setTimeout(() => {
-        setShowScrollBtn(false)
-        scrollButtonUnmountTimerRef.current = null
-      }, SCROLL_BUTTON_FADE_MS)
-    },
-    [clearScrollButtonTimers],
-  )
-
-  const scheduleScrollButtonFade = useCallback(() => {
-    if (scrollButtonIdleTimerRef.current !== null) {
-      window.clearTimeout(scrollButtonIdleTimerRef.current)
-    }
-    scrollButtonIdleTimerRef.current = window.setTimeout(() => {
-      hideScrollButton()
-      scrollButtonIdleTimerRef.current = null
-    }, SCROLL_BUTTON_IDLE_MS)
-  }, [hideScrollButton])
+  const hideScrollButton = useCallback(() => {
+    clearScrollButtonIdleTimer()
+    setScrollButtonVisible(false)
+  }, [clearScrollButtonIdleTimer])
 
   const showScrollButtonTemporarily = useCallback(() => {
-    if (scrollButtonUnmountTimerRef.current !== null) {
-      window.clearTimeout(scrollButtonUnmountTimerRef.current)
-      scrollButtonUnmountTimerRef.current = null
-    }
-    setShowScrollBtn(true)
-    setScrollBtnVisible(true)
-    scheduleScrollButtonFade()
-  }, [scheduleScrollButtonFade])
+    clearScrollButtonIdleTimer()
+    setScrollButtonVisible(true)
+    // 每次真实滚动都续期；停止交互后统一从同一个隐藏入口淡出。
+    scrollButtonIdleTimerRef.current = window.setTimeout(
+      hideScrollButton,
+      SCROLL_BUTTON_IDLE_MS,
+    )
+  }, [clearScrollButtonIdleTimer, hideScrollButton])
 
   useEffect(() => {
-    if (!showScrollToBottom) hideScrollButton(true)
+    if (!showScrollToBottom) hideScrollButton()
   }, [hideScrollButton, showScrollToBottom])
 
   useEffect(() => {
     return () => {
-      clearScrollButtonTimers()
+      clearScrollButtonIdleTimer()
       if (programmaticScrollTimerRef.current !== null) {
         window.clearTimeout(programmaticScrollTimerRef.current)
       }
     }
-  }, [clearScrollButtonTimers])
+  }, [clearScrollButtonIdleTimer])
 
   const cancelProgrammaticScroll = useCallback(() => {
     programmaticScrollRef.current = false
@@ -194,7 +166,7 @@ export default function ChatView() {
         scrollTop: el.scrollTop,
         scrollHeight: el.scrollHeight,
       }
-      hideScrollButton(true)
+      hideScrollButton()
       setIsScrolledFromTop(el.scrollHeight > el.clientHeight + 1)
     },
     [hideScrollButton],
@@ -216,11 +188,11 @@ export default function ChatView() {
     if (dist <= 1) cancelProgrammaticScroll()
     setIsScrolledFromTop(el.scrollTop > 1)
     if (dist <= 240) {
-      hideScrollButton(true)
+      hideScrollButton()
       return
     }
     if (programmaticScrollRef.current) {
-      hideScrollButton(true)
+      hideScrollButton()
       return
     }
     showScrollButtonTemporarily()
@@ -343,8 +315,7 @@ export default function ChatView() {
       requestAnimationFrame(() => scrollToBottom())
     } else {
       shouldAutoFollowRef.current = false
-      setShowScrollBtn(false)
-      setScrollBtnVisible(false)
+      hideScrollButton()
       setIsScrolledFromTop(false)
       const el = scrollRef.current
       el?.scrollTo({ top: 0 })
@@ -355,7 +326,7 @@ export default function ChatView() {
         }
       }
     }
-  }, [id, scrollToBottom])
+  }, [hideScrollButton, id, scrollToBottom])
 
   const sendMut = useMutation({
     mutationFn: startRun,
@@ -547,14 +518,17 @@ export default function ChatView() {
           </div>
         )}
         </div>
-        {showScrollToBottom && showScrollBtn && (
+        {showScrollToBottom && (
           <button
             type="button"
             onClick={() => scrollToBottom('smooth')}
+            disabled={!scrollButtonVisible}
+            tabIndex={scrollButtonVisible ? 0 : -1}
+            aria-hidden={!scrollButtonVisible}
             aria-label="滚动到底部"
             title="滚动到底部"
-            className={`absolute bottom-4 left-1/2 z-30 flex h-9 w-9 -translate-x-1/2 items-center justify-center rounded-full border border-neutral-200 bg-white text-neutral-600 shadow-md transition-[opacity,background-color] duration-200 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700 ${
-              scrollBtnVisible ? 'opacity-100' : 'pointer-events-none opacity-0'
+            className={`absolute bottom-4 left-1/2 z-30 flex h-9 w-9 -translate-x-1/2 items-center justify-center rounded-full border border-black/10 bg-white/75 text-neutral-700 shadow-[0_4px_18px_rgb(0_0_0/0.14)] backdrop-blur-md backdrop-saturate-150 transition-[opacity,background-color,border-color,box-shadow] duration-200 ease-out hover:bg-white/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 motion-reduce:transition-none dark:border-white/15 dark:bg-neutral-900/70 dark:text-neutral-200 dark:shadow-[0_4px_20px_rgb(0_0_0/0.38)] dark:hover:bg-neutral-800/85 ${
+              scrollButtonVisible ? 'opacity-100' : 'pointer-events-none opacity-0'
             }`}
           >
             <ArrowDown className="h-5 w-5" />
