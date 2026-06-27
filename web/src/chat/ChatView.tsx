@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type WheelEvent,
+} from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowDown, Menu } from 'lucide-react'
@@ -29,6 +36,7 @@ import { Message } from './Message'
 import { CollapsibleUserMessageText } from './MessageContent'
 import { ModelSelector } from './ModelSelector'
 import type { ImageEditSource } from './imageSource'
+import { resolveAutoFollowAfterScroll, type ScrollMetrics } from './scrollFollow'
 
 interface RunResult {
   runId: string
@@ -63,7 +71,8 @@ export default function ChatView() {
   const [optimisticUser, setOptimisticUser] = useState<string | null>(null)
   const [imageSources, setImageSources] = useState<ImageEditSource[]>([])
   const scrollRef = useRef<HTMLDivElement>(null)
-  const atBottomRef = useRef(true)
+  const shouldAutoFollowRef = useRef(true)
+  const previousScrollMetricsRef = useRef<ScrollMetrics>({ scrollTop: 0, scrollHeight: 0 })
   const autoScrollOnOpenRef = useRef(autoScrollOnOpen)
   autoScrollOnOpenRef.current = autoScrollOnOpen
   const scrollButtonIdleTimerRef = useRef<number | null>(null)
@@ -151,29 +160,60 @@ export default function ChatView() {
     }
   }, [clearScrollButtonTimers])
 
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
-    const el = scrollRef.current
-    if (!el) return
-    programmaticScrollRef.current = true
+  const cancelProgrammaticScroll = useCallback(() => {
+    programmaticScrollRef.current = false
     if (programmaticScrollTimerRef.current !== null) {
       window.clearTimeout(programmaticScrollTimerRef.current)
-    }
-    programmaticScrollTimerRef.current = window.setTimeout(() => {
-      programmaticScrollRef.current = false
       programmaticScrollTimerRef.current = null
-    }, behavior === 'smooth' ? PROGRAMMATIC_SCROLL_RESET_MS : 80)
-    el.scrollTo({ top: el.scrollHeight, behavior })
-    atBottomRef.current = true
-    hideScrollButton(true)
-    setIsScrolledFromTop(el.scrollHeight > el.clientHeight + 1)
-  }, [hideScrollButton])
+    }
+  }, [])
+
+  const pauseAutoFollow = useCallback(() => {
+    cancelProgrammaticScroll()
+    shouldAutoFollowRef.current = false
+  }, [cancelProgrammaticScroll])
+
+  const scrollToBottom = useCallback(
+    (behavior: ScrollBehavior = 'auto') => {
+      const el = scrollRef.current
+      if (!el) return
+      programmaticScrollRef.current = true
+      if (programmaticScrollTimerRef.current !== null) {
+        window.clearTimeout(programmaticScrollTimerRef.current)
+      }
+      programmaticScrollTimerRef.current = window.setTimeout(
+        () => {
+          programmaticScrollRef.current = false
+          programmaticScrollTimerRef.current = null
+        },
+        behavior === 'smooth' ? PROGRAMMATIC_SCROLL_RESET_MS : 80,
+      )
+      el.scrollTo({ top: el.scrollHeight, behavior })
+      shouldAutoFollowRef.current = true
+      previousScrollMetricsRef.current = {
+        scrollTop: el.scrollTop,
+        scrollHeight: el.scrollHeight,
+      }
+      hideScrollButton(true)
+      setIsScrolledFromTop(el.scrollHeight > el.clientHeight + 1)
+    },
+    [hideScrollButton],
+  )
 
   const updateScrollState = useCallback(() => {
     const el = scrollRef.current
     if (!el) return
+    const currentMetrics = { scrollTop: el.scrollTop, scrollHeight: el.scrollHeight }
     const dist = el.scrollHeight - el.scrollTop - el.clientHeight
-    atBottomRef.current = dist < 80
-    if (atBottomRef.current) programmaticScrollRef.current = false
+    shouldAutoFollowRef.current = resolveAutoFollowAfterScroll({
+      isAutoFollowing: shouldAutoFollowRef.current,
+      isProgrammaticScroll: programmaticScrollRef.current,
+      previous: previousScrollMetricsRef.current,
+      current: currentMetrics,
+      clientHeight: el.clientHeight,
+    })
+    previousScrollMetricsRef.current = currentMetrics
+    if (dist <= 1) cancelProgrammaticScroll()
     setIsScrolledFromTop(el.scrollTop > 1)
     if (dist <= 240) {
       hideScrollButton(true)
@@ -184,7 +224,27 @@ export default function ChatView() {
       return
     }
     showScrollButtonTemporarily()
-  }, [hideScrollButton, showScrollButtonTemporarily])
+  }, [cancelProgrammaticScroll, hideScrollButton, showScrollButtonTemporarily])
+
+  const handleWheel = useCallback(
+    (event: WheelEvent<HTMLDivElement>) => {
+      // wheel 先于 scroll 触发，先暂停可以堵住“下一个 token 抢先拉回底部”的竞态。
+      if (!event.ctrlKey && event.deltaY < 0) pauseAutoFollow()
+    },
+    [pauseAutoFollow],
+  )
+
+  const handleScrollKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      const scrollsUp =
+        event.key === 'ArrowUp' ||
+        event.key === 'PageUp' ||
+        event.key === 'Home' ||
+        (event.key === ' ' && event.shiftKey)
+      if (scrollsUp) pauseAutoFollow()
+    },
+    [pauseAutoFollow],
+  )
 
   const reasoningEnabledForRun = (modelId: string | null, requestParams?: ModelParams | null) => {
     const runModel = models?.find((m) => m.id === modelId)
@@ -273,20 +333,27 @@ export default function ChatView() {
 
   // 流式/新内容时仅在贴底状态跟随，避免打断向上翻阅
   useEffect(() => {
-    if (atBottomRef.current) scrollToBottom()
+    if (shouldAutoFollowRef.current) scrollToBottom()
   }, [messages.length, optimisticUser, stream?.text, stream?.reasoning, scrollToBottom])
 
   // 打开会话时按设置滚动到底（关闭则停留在顶部）
   useEffect(() => {
     if (autoScrollOnOpenRef.current) {
-      atBottomRef.current = true
+      shouldAutoFollowRef.current = true
       requestAnimationFrame(() => scrollToBottom())
     } else {
-      atBottomRef.current = false
+      shouldAutoFollowRef.current = false
       setShowScrollBtn(false)
       setScrollBtnVisible(false)
       setIsScrolledFromTop(false)
-      scrollRef.current?.scrollTo({ top: 0 })
+      const el = scrollRef.current
+      el?.scrollTo({ top: 0 })
+      if (el) {
+        previousScrollMetricsRef.current = {
+          scrollTop: el.scrollTop,
+          scrollHeight: el.scrollHeight,
+        }
+      }
     }
   }, [id, scrollToBottom])
 
@@ -340,7 +407,7 @@ export default function ChatView() {
     if (selectedImageSources.length > 0 && model?.kind !== 'image') {
       return toast.error('请使用图片模型编辑图片')
     }
-    atBottomRef.current = true
+    shouldAutoFollowRef.current = true
     setOptimisticUser(text || null)
     sendMut.mutate({
       conversationId: id,
@@ -372,7 +439,7 @@ export default function ChatView() {
 
   const onEdit = (msg: MessageDTO, text: string) => {
     if (!activeModelId) return toast.error('请先选择模型')
-    atBottomRef.current = true
+    shouldAutoFollowRef.current = true
     sendMut.mutate({
       conversationId: id,
       modelId: activeModelId,
@@ -384,7 +451,7 @@ export default function ChatView() {
   }
 
   const onRegenerate = (assistantMessageId: string) => {
-    atBottomRef.current = true
+    shouldAutoFollowRef.current = true
     regenMut.mutate({
       assistantMessageId,
       modelId: activeModelId ?? undefined,
@@ -427,6 +494,9 @@ export default function ChatView() {
         <div
           ref={scrollRef}
           onScroll={updateScrollState}
+          onWheel={handleWheel}
+          onPointerDownCapture={cancelProgrammaticScroll}
+          onKeyDown={handleScrollKeyDown}
           data-testid="chat-scroll"
           className="hc-scrollbar hc-chat-scroll h-full overflow-y-auto"
         >
