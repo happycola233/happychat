@@ -125,5 +125,5 @@ location / {
 
 - 采用**本地上下文重放**（每轮重发完整历史），因上游 `store` 默认 false，不依赖 `previous_response_id`。
 - 续传基于进程内 RunManager + `run_events`：进程重启会把未完成的生成标记为「已中断」（无独立 worker / Redis）。
-- 附件以内联 base64 发送给上游（跳过 Files API，最大化 OpenAI 兼容性）；大文件/长上下文会增大请求体。
+- 附件以内联 base64 发送给上游（跳过 Files API，最大化 OpenAI 兼容性）；文件输入遵循 OpenAI 限制（单文件严格小于 50MB、单次请求合计不超过 50MB），base64 膨胀与长上下文仍会增大请求体。
 - 代码当前用 SQLite，但 Drizzle schema 保持 PostgreSQL 可迁移（JSON 文本、整型时间戳、无 SQLite 专有特性）。

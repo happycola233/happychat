@@ -133,6 +133,46 @@ async function createImageAttachment(
   return { attachmentId, filename }
 }
 
+async function createRunnableFileModel() {
+  const runnable = await createRunnableModel()
+  dbClient.sqlite.prepare('update models set capabilities = ? where id = ?').run(
+    JSON.stringify({
+      vision: false,
+      file_input: true,
+      web_search: false,
+      image_generation: false,
+      reasoning: false,
+    }),
+    runnable.modelId,
+  )
+  return runnable
+}
+
+async function createFileAttachment(
+  userId: string,
+  options: { filename?: string; mime?: string; byteSize?: number } = {},
+) {
+  const n = fixtureSeq++
+  const attachmentId = `file-attachment-${n}`
+  const filename = options.filename ?? `diagnostic-${n}.log`
+  const mime = options.mime ?? 'application/octet-stream'
+  const bytes = Buffer.from('small fixture; byteSize is metadata for budget tests')
+  const storagePath = join(tmpDir, `${attachmentId}-${filename}`)
+  writeFileSync(storagePath, bytes)
+
+  await dbClient.db.insert(schema.attachments).values({
+    id: attachmentId,
+    userId,
+    kind: 'file',
+    mime,
+    filename,
+    byteSize: options.byteSize ?? bytes.length,
+    storagePath,
+  })
+
+  return { attachmentId, filename, kind: 'file' as const }
+}
+
 function assertPrepared(
   result: Awaited<ReturnType<PrepareModule['prepareRun']>>,
 ): PreparedRunWithUser {
@@ -222,6 +262,90 @@ describe('prepareRun active leaf', () => {
     const all = await conversationServices.getConversationMessages(regenerated.conversation.id)
     const path = conversationServices.buildPath(all, regenerated.conversation.activeLeafId)
     expect(path.map((m) => m.id)).toEqual([first.userMessage.id, regenerated.assistantMessage.id])
+  })
+})
+
+describe('prepareRun file inputs', () => {
+  it('repairs a historic application/octet-stream MIME using the .log extension', async () => {
+    const { userId, modelId } = await createRunnableFileModel()
+    const attachment = await createFileAttachment(userId)
+
+    const result = assertPrepared(
+      await prepare.prepareRun({
+        userId,
+        modelId,
+        text: '读取日志',
+        attachments: [attachment],
+      }),
+    )
+
+    expect(result.body).toMatchObject({
+      input: [
+        {
+          content: [
+            { type: 'input_text', text: '读取日志' },
+            {
+              type: 'input_file',
+              filename: attachment.filename,
+              file_data: expect.stringMatching(/^data:text\/plain;base64,/),
+            },
+          ],
+        },
+      ],
+    })
+  })
+
+  it('rejects a file whose size is exactly the exclusive 50 MB boundary', async () => {
+    const { userId, modelId } = await createRunnableFileModel()
+    const attachment = await createFileAttachment(userId, { byteSize: 50 * 1024 * 1024 })
+
+    const result = await prepare.prepareRun({
+      userId,
+      modelId,
+      text: '读取日志',
+      attachments: [attachment],
+    })
+
+    expect(result).toMatchObject({ ok: false, code: 'file_too_large' })
+  })
+
+  it('counts historical branch files when enforcing the 50 MB request budget', async () => {
+    const { userId, modelId } = await createRunnableFileModel()
+    const firstAttachment = await createFileAttachment(userId, { byteSize: 30 * 1024 * 1024 })
+    const first = assertPrepared(
+      await prepare.prepareRun({
+        userId,
+        modelId,
+        text: '第一份文件',
+        attachments: [firstAttachment],
+      }),
+    )
+    const secondAttachment = await createFileAttachment(userId, { byteSize: 21 * 1024 * 1024 })
+
+    const result = await prepare.prepareRun({
+      userId,
+      modelId,
+      conversationId: first.conversation.id,
+      text: '第二份文件',
+      attachments: [secondAttachment],
+    })
+
+    expect(result).toMatchObject({ ok: false, code: 'file_request_too_large' })
+  })
+
+  it('allows multiple sub-50 MB files whose combined size is exactly 50 MB', async () => {
+    const { userId, modelId } = await createRunnableFileModel()
+    const firstAttachment = await createFileAttachment(userId, { byteSize: 25 * 1024 * 1024 })
+    const secondAttachment = await createFileAttachment(userId, { byteSize: 25 * 1024 * 1024 })
+
+    const result = await prepare.prepareRun({
+      userId,
+      modelId,
+      text: '读取两份文件',
+      attachments: [firstAttachment, secondAttachment],
+    })
+
+    expect(result.ok).toBe(true)
   })
 })
 

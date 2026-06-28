@@ -11,7 +11,12 @@ import { buildInput, type ResolvedAttachment } from '../provider/context'
 import { buildImageBody, buildImageEditBody, buildResponseBody } from '../provider/params'
 import { buildPath, getConversationMessages, getOwnedConversation } from '../services/conversations'
 import { getRunnableModel } from '../services/models'
-import { toDataUrl } from '../storage/files'
+import {
+  MAX_FILE_INPUT_BYTES,
+  MAX_FILE_INPUT_REQUEST_BYTES,
+  fileInputMime,
+  toDataUrl,
+} from '../storage/files'
 import type { ConvRow, ImageOperation, ModelRow, MsgRow, ProviderRow, RunRow } from './types'
 
 export interface AttachmentRef {
@@ -94,9 +99,11 @@ async function resolveAttachments(
     .where(inArray(attachments.id, [...ids]))
   for (const a of rows) {
     try {
+      const mime = a.kind === 'file' ? fileInputMime(a.filename, a.mime) : a.mime
+      if (!mime) continue
       map.set(a.id, {
-        dataUrl: toDataUrl(a.storagePath, a.mime),
-        mime: a.mime,
+        dataUrl: toDataUrl(a.storagePath, mime),
+        mime,
         filename: a.filename,
         kind: a.kind,
       })
@@ -105,6 +112,72 @@ async function resolveAttachments(
     }
   }
   return map
+}
+
+/**
+ * Responses API 会重放当前分支上的全部 input_file，因此预算必须覆盖历史文件和本轮文件，
+ * 不能只在上传接口检查单个附件。
+ */
+async function validateFileInputBudget(
+  pathMessages: MsgRow[],
+  newAttachments: AttachmentRef[],
+): Promise<PrepareError | null> {
+  const fileIds = pathMessages.flatMap((message) =>
+    message.content
+      .filter(
+        (part): part is Extract<ContentPart, { type: 'input_file' }> => part.type === 'input_file',
+      )
+      .map((part) => part.attachment_id),
+  )
+  fileIds.push(
+    ...newAttachments.filter((attachment) => attachment.kind === 'file').map((a) => a.attachmentId),
+  )
+  if (fileIds.length === 0) return null
+
+  const rows = await db
+    .select({
+      id: attachments.id,
+      byteSize: attachments.byteSize,
+      mime: attachments.mime,
+      filename: attachments.filename,
+    })
+    .from(attachments)
+    .where(inArray(attachments.id, [...new Set(fileIds)]))
+  const attachmentsById = new Map(rows.map((attachment) => [attachment.id, attachment]))
+  let totalBytes = 0
+
+  for (const fileId of fileIds) {
+    const attachment = attachmentsById.get(fileId)
+    // 缺失附件会在构建上下文时跳过；这里不把不存在的字节计入预算。
+    if (!attachment) continue
+    if (!fileInputMime(attachment.filename, attachment.mime)) {
+      return {
+        ok: false,
+        status: 400,
+        message: `不支持的文件类型：${attachment.filename}`,
+        code: 'unsupported_file_type',
+      }
+    }
+    if (attachment.byteSize >= MAX_FILE_INPUT_BYTES) {
+      return {
+        ok: false,
+        status: 400,
+        message: '单个文件必须小于 50MB',
+        code: 'file_too_large',
+      }
+    }
+    totalBytes += attachment.byteSize
+  }
+
+  if (totalBytes > MAX_FILE_INPUT_REQUEST_BYTES) {
+    return {
+      ok: false,
+      status: 400,
+      message: '单次请求中的文件总大小不能超过 50MB',
+      code: 'file_request_too_large',
+    }
+  }
+  return null
 }
 
 async function resolveImageUrls(parts: ContentPart[]): Promise<string[]> {
@@ -137,7 +210,14 @@ async function createAssistantAndRun(opts: {
   body: Record<string, unknown>
   imageOperation?: ImageOperation
 }> {
-  const { conversation: conv, model, parentMessageId, userParams, clientLocale, idempotencyKey } = opts
+  const {
+    conversation: conv,
+    model,
+    parentMessageId,
+    userParams,
+    clientLocale,
+    idempotencyKey,
+  } = opts
   const requestParams: Record<string, unknown> = { ...(userParams ?? {}) }
   if (clientLocale) requestParams.clientLocale = clientLocale
 
@@ -313,6 +393,14 @@ export async function prepareRun(args: PrepareArgs): Promise<PrepareResult> {
   if (args.conversationId && !conv) {
     return { ok: false, status: 404, message: '会话不存在', code: 'not_found' }
   }
+  const parentId = args.parentId !== undefined ? args.parentId : (conv?.activeLeafId ?? null)
+  if (model.kind === 'responses') {
+    const allMessages = conv ? await getConversationMessages(conv.id) : []
+    const parentPath = parentId ? buildPath(allMessages, parentId) : []
+    const fileBudgetError = await validateFileInputBudget(parentPath, refs)
+    if (fileBudgetError) return fileBudgetError
+  }
+
   if (!conv) {
     conv = must(
       await db
@@ -328,7 +416,6 @@ export async function prepareRun(args: PrepareArgs): Promise<PrepareResult> {
     )
   }
 
-  const parentId = args.parentId !== undefined ? args.parentId : conv.activeLeafId
   const userContent: ContentPart[] = []
   if (args.text.trim()) userContent.push({ type: 'input_text', text: args.text })
   for (const r of refs) {
@@ -436,6 +523,13 @@ export async function prepareRegenerate(args: RegenerateArgs): Promise<PrepareRe
   const { model, provider } = runnable
   const normalizedParams = normalizeImageParamsForModel(model, args.params)
   if (!normalizedParams.ok) return normalizedParams
+
+  if (model.kind === 'responses') {
+    const allMessages = await getConversationMessages(conv.id)
+    const parentPath = buildPath(allMessages, oldAssistant.parentId)
+    const fileBudgetError = await validateFileInputBudget(parentPath, [])
+    if (fileBudgetError) return fileBudgetError
+  }
 
   const { conversation, assistantMessage, run, body, imageOperation } = await createAssistantAndRun(
     {

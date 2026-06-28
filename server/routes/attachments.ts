@@ -5,12 +5,13 @@ import { attachments } from '../db/schema'
 import { requireUser } from '../auth/middleware'
 import { newId } from '../lib/id'
 import {
-  MAX_FILE_BYTES,
+  MAX_FILE_INPUT_BYTES,
   MAX_IMAGE_BYTES,
   isImageMime,
   readUpload,
   saveUpload,
   sha256,
+  uploadMime,
 } from '../storage/files'
 import type { AppEnv } from '../http/types'
 
@@ -24,13 +25,31 @@ attachmentRoutes.post('/', async (c) => {
   if (!(file instanceof File)) {
     return c.json({ error: { message: '未收到文件', code: 'no_file' } }, 400)
   }
-  const kind = isImageMime(file.type) ? 'image' : 'file'
-  const limit = kind === 'image' ? MAX_IMAGE_BYTES : MAX_FILE_BYTES
-  if (file.size > limit) {
+
+  const filename = file.name || 'file'
+  const mime = uploadMime(filename, file.type)
+  if (!mime) {
     return c.json(
-      { error: { message: `文件过大，最大 ${Math.floor(limit / 1024 / 1024)}MB`, code: 'too_large' } },
+      {
+        error: {
+          message: '不支持的文件类型，请上传 PDF、Office、表格、文本、代码或常见图片文件',
+          code: 'unsupported_file_type',
+        },
+      },
       400,
     )
+  }
+
+  const kind = isImageMime(mime) ? 'image' : 'file'
+  const limit = kind === 'image' ? MAX_IMAGE_BYTES : MAX_FILE_INPUT_BYTES
+  // File inputs 的 50 MB 是严格上限；图片仍沿用原有的 32 MB（含边界）限制。
+  const tooLarge = kind === 'file' ? file.size >= limit : file.size > limit
+  if (tooLarge) {
+    const message =
+      kind === 'file'
+        ? `文件必须小于 ${Math.floor(limit / 1024 / 1024)}MB`
+        : `文件过大，最大 ${Math.floor(limit / 1024 / 1024)}MB`
+    return c.json({ error: { message, code: 'too_large' } }, 400)
   }
   if (file.size === 0) {
     return c.json({ error: { message: '文件为空', code: 'empty' } }, 400)
@@ -38,8 +57,6 @@ attachmentRoutes.post('/', async (c) => {
 
   const buf = Buffer.from(await file.arrayBuffer())
   const id = newId()
-  const filename = file.name || (kind === 'image' ? 'image' : 'file')
-  const mime = file.type || 'application/octet-stream'
   const storagePath = saveUpload(id, filename, mime, buf)
 
   await db.insert(attachments).values({
