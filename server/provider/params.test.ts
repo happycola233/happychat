@@ -12,6 +12,7 @@ function model(overrides: Partial<ModelForBuild> = {}): ModelForBuild {
     displayName: 'GPT Test',
     kind: 'responses',
     enabled: true,
+    promptCacheRetentionEnabled: false,
     capabilities: {
       vision: false,
       file_input: false,
@@ -68,6 +69,52 @@ describe('buildResponseBody', () => {
     })
 
     expect(body.tools).toEqual([{ type: 'web_search' }])
+  })
+
+  it('lets advanced hard params override generated cache parameters', () => {
+    const body = buildResponseBody({
+      model: model({
+        hardParams: { prompt_cache_key: 'bad-key', prompt_cache_retention: 'in_memory' },
+      }),
+      input: [],
+      instructions: null,
+      stream: true,
+      promptCacheKey: 'happychat:conversation:one',
+      promptCacheRetention: '24h',
+    })
+
+    expect(body).toMatchObject({
+      prompt_cache_key: 'bad-key',
+      prompt_cache_retention: 'in_memory',
+    })
+  })
+
+  it('lets advanced hard params provide retention when the provider uses its default', () => {
+    const body = buildResponseBody({
+      model: model({ hardParams: { prompt_cache_retention: 'in_memory' } }),
+      input: [],
+      instructions: null,
+      stream: true,
+      promptCacheKey: 'happychat:conversation:one',
+      promptCacheRetention: null,
+    })
+
+    expect(body.prompt_cache_key).toBe('happychat:conversation:one')
+    expect(body.prompt_cache_retention).toBe('in_memory')
+  })
+
+  it('omits retention when neither the provider policy nor hard params specify it', () => {
+    const body = buildResponseBody({
+      model: model(),
+      input: [],
+      instructions: null,
+      stream: true,
+      promptCacheKey: 'happychat:conversation:one',
+      promptCacheRetention: null,
+    })
+
+    expect(body.prompt_cache_key).toBe('happychat:conversation:one')
+    expect(body).not.toHaveProperty('prompt_cache_retention')
   })
 })
 

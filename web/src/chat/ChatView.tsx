@@ -25,7 +25,7 @@ import { useChatPrefs } from '../store/chat'
 import { useSettings } from '../store/settings'
 import { useStreamStore } from '../store/stream'
 import { useSidebarStore } from '../store/sidebar'
-import { getBrowserLocale } from '../lib/browserLocale'
+import { getBrowserLocale, getBrowserTimezone } from '../lib/browserLocale'
 import { pollConversationTitleAfterRun } from '../sse/conversationEvents'
 import { startStream } from '../sse/streamManager'
 import { toast } from '../store/toast'
@@ -387,6 +387,7 @@ export default function ChatView() {
       text,
       params: params(),
       clientLocale: getBrowserLocale(),
+      clientTimezone: getBrowserTimezone(),
       attachments: attachments.map((a) => ({
         attachmentId: a.id,
         kind: a.kind,
@@ -418,6 +419,7 @@ export default function ChatView() {
       text,
       params: params(),
       clientLocale: getBrowserLocale(),
+      clientTimezone: getBrowserTimezone(),
       parentId: msg.parentId,
     })
   }

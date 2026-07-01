@@ -216,9 +216,6 @@ function ReasoningSelect({ model }: { model: ModelDTO }) {
                 </div>
               )
             })}
-            <div className="mt-1 border-t border-neutral-100 px-3 py-1.5 text-[11px] text-neutral-400 dark:border-neutral-800">
-              点选 = 临时一次 · 图钉 = 设为默认
-            </div>
           </div>
         </>
       )}

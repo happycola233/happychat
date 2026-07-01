@@ -57,6 +57,7 @@ runRoutes.post('/', jsonValidator(sendMessageSchema), async (c) => {
     text: input.text,
     params: input.params,
     clientLocale: input.clientLocale,
+    clientTimezone: input.clientTimezone,
     idempotencyKey: input.idempotencyKey,
     parentId: input.parentId,
     attachments: input.attachments,

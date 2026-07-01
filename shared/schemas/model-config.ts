@@ -4,6 +4,7 @@ export const providerCreateSchema = z.object({
   name: z.string().trim().min(1, '请填写名称').max(60),
   baseUrl: z.string().url('Base URL 格式不正确'),
   apiKey: z.string().min(1, '请填写 API Key'),
+  promptCacheRetention: z.enum(['24h']).nullable().optional(),
 })
 
 export const providerUpdateSchema = z.object({
@@ -11,6 +12,7 @@ export const providerUpdateSchema = z.object({
   baseUrl: z.string().url('Base URL 格式不正确').optional(),
   apiKey: z.string().min(1).optional(),
   enabled: z.boolean().optional(),
+  promptCacheRetention: z.enum(['24h']).nullable().optional(),
 })
 
 export const capabilitiesSchema = z.object({
@@ -51,6 +53,7 @@ export const modelUpdateSchema = z.object({
   modelId: z.string().trim().min(1).max(120).optional(),
   displayName: z.string().trim().min(1).max(80).optional(),
   enabled: z.boolean().optional(),
+  promptCacheRetentionEnabled: z.boolean().optional(),
   kind: z.enum(['responses', 'chat', 'image']).optional(),
   capabilities: capabilitiesSchema.optional(),
   defaultSystemPrompt: z.string().nullable().optional(),
@@ -78,6 +81,7 @@ export const modelCreateSchema = z.object({
   displayName: z.string().trim().min(1, '请填写显示名称').max(80),
   kind: z.enum(['responses', 'chat', 'image']).default('responses'),
   enabled: z.boolean().default(true),
+  promptCacheRetentionEnabled: z.boolean().default(false),
   capabilities: capabilitiesSchema.default(defaultCapabilities),
   defaultSystemPrompt: z.string().nullable().optional(),
   defaultParams: modelParamsSchema.nullable().optional(),

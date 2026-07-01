@@ -22,6 +22,8 @@ export const sendMessageSchema = z
     params: modelParamsSchema.optional(),
     /** 发起生成时的浏览器首选语言，用于标题总结等服务端异步任务。 */
     clientLocale: z.string().trim().min(1).max(64).optional(),
+    /** 浏览器 IANA 时区；服务端校验后用于冻结该用户消息的 runtime context。 */
+    clientTimezone: z.string().trim().min(1).max(64).optional(),
     /** 幂等键，避免重复提交触发两次上游调用 */
     idempotencyKey: z.string().max(64).optional(),
     /** 编辑重发：被编辑用户消息的 parentId，使新消息成为兄弟分支 */

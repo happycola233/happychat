@@ -547,7 +547,7 @@ function AboutPanel() {
         </div>
       </div>
       <p className="mt-4 text-[13px] leading-6 text-neutral-600 dark:text-neutral-300">
-        一个私有的 AI 聊天站，服务端代理上游模型并把结果流式返回浏览器。仅供自用与少数朋友使用。
+        一个开源、可自托管的 AI 聊天站。
       </p>
       <a
         href="https://github.com/happycola233/happychat"

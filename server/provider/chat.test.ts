@@ -1,5 +1,38 @@
 import { describe, expect, it } from 'vitest'
-import { buildChatMessages, mapChatUsage } from './chat'
+import { buildChatBody, buildChatMessages, mapChatUsage } from './chat'
+import type { BuildBodyOptions } from './params'
+
+type ModelRow = BuildBodyOptions['model']
+
+function model(overrides: Partial<ModelRow> = {}): ModelRow {
+  return {
+    id: 'model-1',
+    providerId: 'provider-1',
+    modelId: 'gpt-test',
+    displayName: 'GPT Test',
+    kind: 'chat',
+    enabled: true,
+    promptCacheRetentionEnabled: false,
+    capabilities: {
+      vision: false,
+      file_input: false,
+      web_search: false,
+      image_generation: false,
+      reasoning: false,
+    },
+    defaultSystemPrompt: null,
+    defaultParams: null,
+    hardParams: null,
+    pricing: null,
+    allowedEfforts: null,
+    defaultEffort: null,
+    defaultWebSearch: false,
+    sort: 0,
+    createdAt: new Date(0),
+    updatedAt: new Date(0),
+    ...overrides,
+  }
+}
 
 describe('mapChatUsage', () => {
   it('maps chat/completions usage to MessageUsage', () => {
@@ -50,10 +83,26 @@ describe('buildChatMessages', () => {
 
   it('uses multimodal content when a user message has images', () => {
     const atts = new Map([
-      ['a1', { dataUrl: 'data:image/png;base64,xxx', mime: 'image/png', filename: 'x.png', kind: 'image' as const }],
+      [
+        'a1',
+        {
+          dataUrl: 'data:image/png;base64,xxx',
+          mime: 'image/png',
+          filename: 'x.png',
+          kind: 'image' as const,
+        },
+      ],
     ])
     const msgs = buildChatMessages(
-      [{ role: 'user', content: [{ type: 'input_text', text: 'look' }, { type: 'input_image', attachment_id: 'a1' }] }],
+      [
+        {
+          role: 'user',
+          content: [
+            { type: 'input_text', text: 'look' },
+            { type: 'input_image', attachment_id: 'a1' },
+          ],
+        },
+      ],
       atts,
       null,
     )
@@ -66,5 +115,44 @@ describe('buildChatMessages', () => {
         ],
       },
     ])
+  })
+
+  it('places each virtual runtime context before its user message', () => {
+    const msgs = buildChatMessages(
+      [
+        {
+          role: 'user',
+          runtimeContext: '<runtime_context>now</runtime_context>',
+          content: [{ type: 'input_text', text: 'hi' }],
+        },
+      ],
+      undefined,
+      'System instructions',
+    )
+
+    expect(msgs).toEqual([
+      { role: 'system', content: 'System instructions' },
+      { role: 'system', content: '<runtime_context>now</runtime_context>' },
+      { role: 'user', content: 'hi' },
+    ])
+  })
+})
+
+describe('buildChatBody', () => {
+  it('lets advanced hard params override generated cache parameters', () => {
+    const body = buildChatBody({
+      model: model({
+        hardParams: { prompt_cache_key: 'bad-key', prompt_cache_retention: 'in_memory' },
+      }),
+      messages: [],
+      stream: true,
+      promptCacheKey: 'happychat:conversation:one',
+      promptCacheRetention: '24h',
+    })
+
+    expect(body).toMatchObject({
+      prompt_cache_key: 'bad-key',
+      prompt_cache_retention: 'in_memory',
+    })
   })
 })

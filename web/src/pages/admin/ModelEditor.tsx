@@ -63,6 +63,9 @@ export function ModelEditor({ model, onClose }: { model: AdminModelDTO | null; o
   const [modelId, setModelId] = useState(model?.modelId ?? '')
   const [displayName, setDisplayName] = useState(model?.displayName ?? '')
   const [enabled, setEnabled] = useState(model?.enabled ?? true)
+  const [promptCacheRetentionEnabled, setPromptCacheRetentionEnabled] = useState(
+    model?.promptCacheRetentionEnabled ?? false,
+  )
   const [kind, setKind] = useState(model?.kind ?? 'responses')
   const [caps, setCaps] = useState<ModelCapabilities>(model?.capabilities ?? BLANK_CAPS)
   const [systemPrompt, setSystemPrompt] = useState(model?.defaultSystemPrompt ?? '')
@@ -104,6 +107,7 @@ export function ModelEditor({ model, onClose }: { model: AdminModelDTO | null; o
       const shared = {
         displayName,
         kind,
+        promptCacheRetentionEnabled: kind === 'image' ? false : promptCacheRetentionEnabled,
         capabilities: caps,
         defaultSystemPrompt: systemPrompt.trim() ? systemPrompt : null,
         allowedEfforts: caps.reasoning ? allowedEfforts : [],
@@ -180,7 +184,7 @@ export function ModelEditor({ model, onClose }: { model: AdminModelDTO | null; o
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="block">
             <span className="mb-1.5 block text-sm font-medium text-neutral-700 dark:text-neutral-300">
-              模型 ID（真实请求用）
+              模型 ID
             </span>
             <input
               className={fieldClass}
@@ -191,7 +195,7 @@ export function ModelEditor({ model, onClose }: { model: AdminModelDTO | null; o
           </label>
           <label className="block">
             <span className="mb-1.5 block text-sm font-medium text-neutral-700 dark:text-neutral-300">
-              显示名称（外显）
+              外显名称
             </span>
             <input
               className={fieldClass}
@@ -223,6 +227,24 @@ export function ModelEditor({ model, onClose }: { model: AdminModelDTO | null; o
             <option value="image">图片生成模型</option>
           </select>
         </label>
+
+        <div className="flex items-center justify-between gap-4 rounded-xl bg-neutral-50 p-3 dark:bg-neutral-800/50">
+          <div>
+            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
+              应用提供商的缓存保留策略
+            </label>
+            <p className="mt-1 text-xs leading-5 text-neutral-400">
+              {kind === 'image'
+                ? 'Images API 没有定义 prompt_cache_key 或 prompt_cache_retention。'
+                : '开启后发送所属提供商配置的 prompt_cache_retention；稳定 prompt_cache_key 不受此开关影响。'}
+            </p>
+          </div>
+          <Toggle
+            checked={kind !== 'image' && promptCacheRetentionEnabled}
+            onChange={setPromptCacheRetentionEnabled}
+            disabled={kind === 'image'}
+          />
+        </div>
 
         <div>
           <span className="mb-2 block text-sm font-medium text-neutral-700 dark:text-neutral-300">
@@ -297,14 +319,21 @@ export function ModelEditor({ model, onClose }: { model: AdminModelDTO | null; o
             placeholder="可选，作为该模型的默认 system 指令；支持下方变量"
           />
           <div className="mt-2 rounded-lg bg-neutral-50 p-2.5 text-xs dark:bg-neutral-800/50">
-            <div className="mb-1.5 text-neutral-500">可用变量（请求时按当前用户/模型/时间自动替换）：</div>
+            <div className="mb-1.5 text-neutral-500">
+              可用变量（请求时按当前用户、模型或时间自动替换）：
+            </div>
             <div className="grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-2 xl:grid-cols-3">
               {PROMPT_VARIABLES.map((v) => (
                 <div key={v.name} className="flex min-w-0 items-start gap-1.5">
                   <code className="shrink-0 rounded bg-neutral-200/70 px-1 font-mono text-[11px] text-neutral-700 dark:bg-neutral-700/60 dark:text-neutral-200">
                     {`{{${v.name}}}`}
                   </code>
-                  <span className="leading-5 text-neutral-400">{v.description}</span>
+                  <span
+                    className={`leading-5 ${v.cacheVolatile ? 'text-amber-600 dark:text-amber-400' : 'text-neutral-400'}`}
+                  >
+                    {v.description}
+                    {v.cacheVolatile ? '；动态值会降低缓存命中率' : ''}
+                  </span>
                 </div>
               ))}
             </div>

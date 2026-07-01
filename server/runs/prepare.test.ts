@@ -69,7 +69,7 @@ async function createRunnableModel() {
     },
   })
 
-  return { userId, modelId }
+  return { userId, modelId, providerId }
 }
 
 async function createRunnableImageModel() {
@@ -263,6 +263,136 @@ describe('prepareRun active leaf', () => {
     const path = conversationServices.buildPath(all, regenerated.conversation.activeLeafId)
     expect(path.map((m) => m.id)).toEqual([first.userMessage.id, regenerated.assistantMessage.id])
   })
+
+  it('freezes runtime context on the user message and emits stable cache routing fields', async () => {
+    const { userId, modelId } = await createRunnableModel()
+    dbClient.sqlite
+      .prepare('update models set prompt_cache_enabled = 1 where id = ?')
+      .run(modelId)
+
+    const result = assertPrepared(
+      await prepare.prepareRun({
+        userId,
+        modelId,
+        text: 'hello',
+        clientTimezone: 'Asia/Shanghai',
+      }),
+    )
+    const input = result.body.input as Array<Record<string, unknown>>
+
+    expect(result.userMessage.runtimeContext).toMatch(
+      /^<runtime_context>\ndatetime: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+08:00\ntimezone: Asia\/Shanghai\n<\/runtime_context>$/,
+    )
+    expect(input[0]).toEqual({
+      type: 'message',
+      role: 'system',
+      content: [{ type: 'input_text', text: result.userMessage.runtimeContext }],
+    })
+    expect(input[1]).toMatchObject({ type: 'message', role: 'user' })
+    expect(result.body.prompt_cache_key).toBe(`happychat:conversation:${result.conversation.id}`)
+    expect(result.body).not.toHaveProperty('prompt_cache_retention')
+    expect(result.body.instructions).toContain('<runtime_context_protocol>')
+  })
+
+  it('uses the latest admin model prompt in an existing conversation', async () => {
+    const { userId, modelId } = await createRunnableModel()
+    dbClient.sqlite
+      .prepare('update models set default_system_prompt = ? where id = ?')
+      .run('Old instructions.', modelId)
+    const first = assertPrepared(await prepare.prepareRun({ userId, modelId, text: 'first' }))
+
+    dbClient.sqlite
+      .prepare('update conversations set system_prompt_override = ? where id = ?')
+      .run('Stale conversation override.', first.conversation.id)
+    dbClient.sqlite
+      .prepare('update models set default_system_prompt = ? where id = ?')
+      .run('New instructions.', modelId)
+    const second = assertPrepared(
+      await prepare.prepareRun({
+        userId,
+        modelId,
+        conversationId: first.conversation.id,
+        text: 'second',
+      }),
+    )
+
+    expect(second.body.instructions).toMatch(/^New instructions\./)
+    expect(second.body.instructions).not.toContain('Old instructions.')
+    expect(second.body.instructions).not.toContain('Stale conversation override.')
+  })
+
+  it('reuses the original user runtime context when regenerating', async () => {
+    const { userId, modelId } = await createRunnableModel()
+    const first = assertPrepared(
+      await prepare.prepareRun({
+        userId,
+        modelId,
+        text: 'first',
+        clientTimezone: 'Asia/Shanghai',
+      }),
+    )
+
+    const regenerated = await prepare.prepareRegenerate({
+      userId,
+      modelId,
+      assistantMessageId: first.assistantMessage.id,
+    })
+    if (!regenerated.ok) throw new Error(regenerated.message)
+    const input = regenerated.body.input as Array<Record<string, unknown>>
+
+    expect(input[0]).toEqual({
+      type: 'message',
+      role: 'system',
+      content: [{ type: 'input_text', text: first.userMessage.runtimeContext }],
+    })
+  })
+
+  it('always sends a stable cache key while omitting provider retention when the model switch is off', async () => {
+    const { userId, modelId } = await createRunnableModel()
+
+    const result = assertPrepared(await prepare.prepareRun({ userId, modelId, text: 'hello' }))
+
+    expect(result.body.prompt_cache_key).toBe(`happychat:conversation:${result.conversation.id}`)
+    expect(result.body).not.toHaveProperty('prompt_cache_retention')
+  })
+
+  it('lets advanced hard params override generated cache fields', async () => {
+    const { userId, modelId } = await createRunnableModel()
+    dbClient.sqlite
+      .prepare('update models set hard_params = ? where id = ?')
+      .run(JSON.stringify({ prompt_cache_key: 'manual-key', prompt_cache_retention: '24h' }), modelId)
+
+    const result = assertPrepared(await prepare.prepareRun({ userId, modelId, text: 'hello' }))
+
+    expect(result.body.prompt_cache_key).toBe('manual-key')
+    expect(result.body.prompt_cache_retention).toBe('24h')
+  })
+
+  it('sends only a stable cache key when the provider uses its upstream default', async () => {
+    const { userId, modelId } = await createRunnableModel()
+    dbClient.sqlite
+      .prepare('update models set prompt_cache_enabled = 1 where id = ?')
+      .run(modelId)
+
+    const result = assertPrepared(await prepare.prepareRun({ userId, modelId, text: 'hello' }))
+
+    expect(result.body.prompt_cache_key).toBe(`happychat:conversation:${result.conversation.id}`)
+    expect(result.body).not.toHaveProperty('prompt_cache_retention')
+  })
+
+  it('applies the provider 24h retention policy to opted-in text models', async () => {
+    const { userId, modelId, providerId } = await createRunnableModel()
+    dbClient.sqlite
+      .prepare('update models set prompt_cache_enabled = 1 where id = ?')
+      .run(modelId)
+    dbClient.sqlite
+      .prepare('update providers set prompt_cache_retention = ? where id = ?')
+      .run('24h', providerId)
+
+    const result = assertPrepared(await prepare.prepareRun({ userId, modelId, text: 'hello' }))
+
+    expect(result.body.prompt_cache_retention).toBe('24h')
+  })
 })
 
 describe('prepareRun file inputs', () => {
@@ -282,6 +412,16 @@ describe('prepareRun file inputs', () => {
     expect(result.body).toMatchObject({
       input: [
         {
+          role: 'system',
+          content: [
+            {
+              type: 'input_text',
+              text: expect.stringMatching(/^<runtime_context>/),
+            },
+          ],
+        },
+        {
+          role: 'user',
           content: [
             { type: 'input_text', text: '读取日志' },
             {
@@ -457,7 +597,7 @@ describe('prepareRun image inputs', () => {
     const row = dbClient.sqlite
       .prepare('select instructions from runs where id = ?')
       .get(result.run.id) as { instructions: string | null } | undefined
-    expect(row?.instructions).toMatch(/^Reply using .+ \(en-US\)\.$/)
+    expect(row?.instructions).toMatch(/^Reply using .+ \(en-US\)\.\n\n<runtime_context_protocol>/)
   })
 
   it('rejects invalid gpt-image-2 sizes before creating a run', async () => {

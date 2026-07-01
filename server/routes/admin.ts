@@ -62,10 +62,10 @@ adminRoutes.get('/providers/:id', async (c) => {
 })
 
 adminRoutes.post('/providers', jsonValidator(providerCreateSchema), async (c) => {
-  const { name, baseUrl, apiKey } = c.req.valid('json')
+  const { name, baseUrl, apiKey, promptCacheRetention } = c.req.valid('json')
   const rows = await db
     .insert(providers)
-    .values({ name, baseUrl, apiKey })
+    .values({ name, baseUrl, apiKey, promptCacheRetention: promptCacheRetention ?? null })
     .returning()
   const row = rows[0]
   if (!row) return c.json({ error: { message: '创建失败' } }, 500)
@@ -83,6 +83,9 @@ adminRoutes.patch('/providers/:id', jsonValidator(providerUpdateSchema), async (
   if (input.baseUrl !== undefined) patch.baseUrl = input.baseUrl
   if (input.enabled !== undefined) patch.enabled = input.enabled
   if (input.apiKey !== undefined) patch.apiKey = input.apiKey
+  if (input.promptCacheRetention !== undefined) {
+    patch.promptCacheRetention = input.promptCacheRetention
+  }
   await db.update(providers).set(patch).where(eq(providers.id, id))
   return c.json({ ok: true })
 })
@@ -160,6 +163,9 @@ adminRoutes.patch('/models/:id', jsonValidator(modelUpdateSchema), async (c) => 
   }
   if (input.displayName !== undefined) patch.displayName = input.displayName
   if (input.enabled !== undefined) patch.enabled = input.enabled
+  if (input.promptCacheRetentionEnabled !== undefined) {
+    patch.promptCacheRetentionEnabled = input.promptCacheRetentionEnabled
+  }
   if (input.kind !== undefined) patch.kind = input.kind
   if (input.capabilities !== undefined) patch.capabilities = input.capabilities
   if (input.defaultSystemPrompt !== undefined) patch.defaultSystemPrompt = input.defaultSystemPrompt

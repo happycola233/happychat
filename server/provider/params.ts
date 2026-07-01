@@ -1,7 +1,8 @@
 import { REASONING_MIN_OUTPUT_TOKENS } from '@shared/constants'
-import type { ModelParams } from '@shared/types/domain'
+import type { ModelParams, PromptCacheRetention } from '@shared/types/domain'
 import { effectiveWebSearchEnabled } from '@shared/util/webSearch'
 import type { models } from '../db/schema'
+import { applyPromptCacheParameters } from './promptCache'
 
 type ModelRow = typeof models.$inferSelect
 
@@ -23,15 +24,17 @@ export interface BuildBodyOptions {
   instructions: string | null
   userParams?: ModelParams | null
   stream: boolean
+  promptCacheKey?: string
+  promptCacheRetention?: PromptCacheRetention | null
 }
 
 /**
  * 构建上游 /responses 请求体。
  * 参数优先级：管理员硬参数 > 用户请求参数 > 模型默认 > 代码默认。
- * 始终 store=false（本地重放，不发 previous_response_id）。
+ * 默认 store=false（本地重放，不发 previous_response_id）；高级 JSON 可显式覆盖。
  */
 export function buildResponseBody(o: BuildBodyOptions): Record<string, unknown> {
-  const { model, input, instructions, userParams, stream } = o
+  const { model, input, instructions, userParams, stream, promptCacheKey, promptCacheRetention } = o
   const defaults = model.defaultParams ?? {}
   const caps = model.capabilities
   const body: Record<string, unknown> = { model: model.modelId, input, stream }
@@ -63,10 +66,10 @@ export function buildResponseBody(o: BuildBodyOptions): Record<string, unknown> 
   if (body.reasoning) maxOut = Math.max(maxOut ?? 0, REASONING_MIN_OUTPUT_TOKENS)
   if (maxOut !== undefined && maxOut > 0) body.max_output_tokens = maxOut
 
-  // 管理员硬参数最后深合并（如 reasoning.summary='auto'）
-  if (isPlainObject(model.hardParams)) mergeDeep(body, model.hardParams)
-
+  // 应用默认值先写入；高级 JSON 最终合并，可显式覆盖包括缓存字段在内的任何参数。
   body.store = false
+  applyPromptCacheParameters(body, promptCacheKey, promptCacheRetention)
+  if (isPlainObject(model.hardParams)) mergeDeep(body, model.hardParams)
   return body
 }
 

@@ -3,6 +3,8 @@ import type { ContentPart, Role } from '@shared/types/domain'
 export interface PathMessage {
   role: Role
   content: ContentPart[]
+  /** 用户消息创建时冻结的运行环境；数据库内部字段，不进入普通消息 DTO。 */
+  runtimeContext?: string | null
 }
 
 export interface ResolvedAttachment {
@@ -25,6 +27,14 @@ export function buildInput(
   const items: unknown[] = []
 
   for (const m of messages) {
+    if (m.role === 'user' && m.runtimeContext) {
+      items.push({
+        type: 'message',
+        role: 'system',
+        content: [{ type: 'input_text', text: m.runtimeContext }],
+      })
+    }
+
     if (m.role === 'assistant') {
       const text = m.content.map((p) => (p.type === 'output_text' ? p.text : '')).join('')
       items.push({

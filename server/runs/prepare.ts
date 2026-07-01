@@ -9,6 +9,7 @@ import { must } from '../lib/assert'
 import { buildChatBody, buildChatMessages } from '../provider/chat'
 import { buildInput, type ResolvedAttachment } from '../provider/context'
 import { buildImageBody, buildImageEditBody, buildResponseBody } from '../provider/params'
+import { promptCacheKeyForConversation } from '../provider/promptCache'
 import { buildPath, getConversationMessages, getOwnedConversation } from '../services/conversations'
 import { getRunnableModel } from '../services/models'
 import {
@@ -18,6 +19,7 @@ import {
   toDataUrl,
 } from '../storage/files'
 import type { ConvRow, ImageOperation, ModelRow, MsgRow, ProviderRow, RunRow } from './types'
+import { appendRuntimeContextInstructions, buildRuntimeContext } from './runtimeContext'
 
 export interface AttachmentRef {
   attachmentId: string
@@ -199,6 +201,7 @@ async function resolveImageUrls(parts: ContentPart[]): Promise<string[]> {
 async function createAssistantAndRun(opts: {
   conversation: ConvRow
   model: ModelRow
+  provider: ProviderRow
   parentMessageId: string
   userParams?: ModelParams
   clientLocale?: string
@@ -213,6 +216,7 @@ async function createAssistantAndRun(opts: {
   const {
     conversation: conv,
     model,
+    provider,
     parentMessageId,
     userParams,
     clientLocale,
@@ -282,11 +286,15 @@ async function createAssistantAndRun(opts: {
     }
   } else {
     const attMap = await resolveAttachments(path)
-    const input = buildInput(
-      path.map((m) => ({ role: m.role, content: m.content })),
-      attMap,
-    )
-    let instructions = updatedConversation.systemPromptOverride ?? model.defaultSystemPrompt
+    const pathMessages = path.map((m) => ({
+      role: m.role,
+      content: m.content,
+      runtimeContext: m.runtimeContext,
+    }))
+    const input = buildInput(pathMessages, attMap)
+    // 始终读取模型当前提示词：管理员更新后，旧会话的下一次请求立即生效。
+    // runs.instructions 仅保存本次最终值，不参与后续请求选择。
+    let instructions = model.defaultSystemPrompt
     // 系统提示词含 {{变量}} 时按当前用户/模型/时间渲染
     if (instructions && instructions.includes('{{')) {
       const [userRow] = await db
@@ -299,17 +307,34 @@ async function createAssistantAndRun(opts: {
         buildPromptVars({ user: userRow ?? null, model, now: new Date(), clientLocale }),
       )
     }
+    instructions = appendRuntimeContextInstructions(instructions)
     // 持久化最终 instructions（启用 runs.instructions 列，便于审计）
     await db.update(runs).set({ instructions }).where(eq(runs.id, run.id))
+    // 文本会话始终使用稳定路由 key；模型开关只决定是否应用 Provider 的保留策略。
+    const promptCacheKey = promptCacheKeyForConversation(conv.id)
+    const promptCacheRetention = model.promptCacheRetentionEnabled
+      ? provider.promptCacheRetention
+      : undefined
     if (model.kind === 'chat') {
-      const chatMessages = buildChatMessages(
-        path.map((m) => ({ role: m.role, content: m.content })),
-        attMap,
-        instructions,
-      )
-      body = buildChatBody({ model, messages: chatMessages, userParams, stream: true })
+      const chatMessages = buildChatMessages(pathMessages, attMap, instructions)
+      body = buildChatBody({
+        model,
+        messages: chatMessages,
+        userParams,
+        stream: true,
+        promptCacheKey,
+        promptCacheRetention,
+      })
     } else {
-      body = buildResponseBody({ model, input, instructions, userParams, stream: true })
+      body = buildResponseBody({
+        model,
+        input,
+        instructions,
+        userParams,
+        stream: true,
+        promptCacheKey,
+        promptCacheRetention,
+      })
     }
   }
 
@@ -323,6 +348,7 @@ export interface PrepareArgs {
   text: string
   params?: ModelParams
   clientLocale?: string
+  clientTimezone?: string
   idempotencyKey?: string
   parentId?: string | null
   attachments?: AttachmentRef[]
@@ -453,6 +479,7 @@ export async function prepareRun(args: PrepareArgs): Promise<PrepareResult> {
         role: 'user',
         status: 'complete',
         content: userContent,
+        runtimeContext: buildRuntimeContext(new Date(), args.clientTimezone),
       })
       .returning()
       .then((r) => r[0]),
@@ -474,6 +501,7 @@ export async function prepareRun(args: PrepareArgs): Promise<PrepareResult> {
     {
       conversation: conv,
       model,
+      provider,
       parentMessageId: userMessage.id,
       userParams: normalizedParams.params,
       clientLocale: args.clientLocale,
@@ -535,6 +563,7 @@ export async function prepareRegenerate(args: RegenerateArgs): Promise<PrepareRe
     {
       conversation: conv,
       model,
+      provider,
       parentMessageId: oldAssistant.parentId,
       userParams: normalizedParams.params,
       clientLocale: args.clientLocale,
