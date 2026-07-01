@@ -18,13 +18,12 @@ import {
   tableEl,
   tableHead,
   tableRowHover,
+  tableScroll,
   tableShell,
   td,
   th,
 } from '../../components/ui/tableStyles'
 import { formatCompact, formatDateTime, formatUsd } from '../../lib/format'
-
-const PAGE_SIZE = 50
 
 const STATUS_OPTIONS: SelectOption[] = [
   { value: '', label: '全部状态' },
@@ -39,6 +38,7 @@ export default function RequestEventsPage() {
   const [userId, setUserId] = useState('')
   const [successSel, setSuccessSel] = useState('')
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(50)
 
   const { data: providers } = useQuery({
     queryKey: ['admin', 'providers'],
@@ -82,7 +82,7 @@ export default function RequestEventsPage() {
     userId,
     successSel,
     page,
-    pageSize: PAGE_SIZE,
+    pageSize,
   }
 
   const { data, isLoading } = useQuery({
@@ -150,8 +150,18 @@ export default function RequestEventsPage() {
         </div>
       ) : (
         <div className="space-y-4">
-          <div className="overflow-x-auto">
-            <div className={tableShell}>
+          <Pagination
+            page={data.page}
+            pageSize={data.pageSize}
+            total={data.total}
+            onPage={setPage}
+            onPageSizeChange={(n) => {
+              setPageSize(n)
+              setPage(1)
+            }}
+          />
+          <div className={tableScroll}>
+            <div className={`${tableShell} min-w-[900px]`}>
               <table className={tableEl}>
                 <thead className={tableHead}>
                   <tr>
@@ -218,6 +228,10 @@ export default function RequestEventsPage() {
             pageSize={data.pageSize}
             total={data.total}
             onPage={setPage}
+            onPageSizeChange={(n) => {
+              setPageSize(n)
+              setPage(1)
+            }}
           />
         </div>
       )}

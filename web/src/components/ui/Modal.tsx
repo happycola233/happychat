@@ -9,7 +9,13 @@ interface Props {
   title: string
   children: ReactNode
   footer?: ReactNode
-  size?: 'default' | 'wide'
+  size?: 'default' | 'form' | 'wide'
+}
+
+const SIZE_CLASS: Record<NonNullable<Props['size']>, string> = {
+  default: 'max-w-lg',
+  form: 'max-w-2xl',
+  wide: 'max-w-[min(80vw,calc(100vw-2rem))]',
 }
 
 export function Modal({ open, onClose, title, children, footer, size = 'default' }: Props) {
@@ -26,13 +32,14 @@ export function Modal({ open, onClose, title, children, footer, size = 'default'
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      {/* 面板用 flex 列布局：头/脚为固定栏，仅中间正文滚动，长表单也能常驻标题与操作。 */}
       <div
         className={clsx(
-          'hc-scrollbar hc-pop-in relative z-10 max-h-[90vh] w-full overflow-y-auto rounded-2xl bg-white p-4 shadow-xl sm:p-6 dark:bg-neutral-900',
-          size === 'wide' ? 'max-w-[min(80vw,calc(100vw-2rem))]' : 'max-w-lg',
+          'hc-pop-in relative z-10 flex max-h-[90vh] w-full flex-col overflow-hidden rounded-2xl bg-white shadow-xl dark:bg-neutral-900',
+          SIZE_CLASS[size],
         )}
       >
-        <div className="mb-4 flex items-center justify-between">
+        <div className="flex shrink-0 items-center justify-between gap-4 border-b border-neutral-200 px-4 py-3.5 sm:px-6 dark:border-neutral-800">
           <h3 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">{title}</h3>
           <button
             onClick={onClose}
@@ -42,8 +49,12 @@ export function Modal({ open, onClose, title, children, footer, size = 'default'
             <X className="h-5 w-5" />
           </button>
         </div>
-        {children}
-        {footer && <div className="mt-6 flex justify-end gap-2">{footer}</div>}
+        <div className="hc-scrollbar flex-1 overflow-y-auto px-4 py-4 sm:px-6">{children}</div>
+        {footer && (
+          <div className="flex shrink-0 justify-end gap-2 border-t border-neutral-200 px-4 py-3.5 sm:px-6 dark:border-neutral-800">
+            {footer}
+          </div>
+        )}
       </div>
     </div>
   )

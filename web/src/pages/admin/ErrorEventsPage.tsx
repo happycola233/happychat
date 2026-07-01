@@ -14,6 +14,7 @@ import {
   tableEl,
   tableHead,
   tableBody,
+  tableScroll,
   th,
   td,
   tableRowHover,
@@ -29,8 +30,6 @@ const SCOPE_OPTIONS = [
   { value: 'frontend', label: 'frontend' },
 ]
 
-const PAGE_SIZE = 50
-
 function scopeTone(scope: string): BadgeTone {
   if (scope === 'upstream') return 'warning'
   if (scope === 'server') return 'danger'
@@ -42,6 +41,7 @@ export default function ErrorEventsPage() {
   const [scopeSel, setScopeSel] = useState('')
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(50)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
   const filters = {
@@ -49,7 +49,7 @@ export default function ErrorEventsPage() {
     scopeSel,
     search,
     page,
-    pageSize: PAGE_SIZE,
+    pageSize,
   }
 
   const { data, isLoading } = useQuery<Paginated<ErrorLogDTO>>({
@@ -110,9 +110,19 @@ export default function ErrorEventsPage() {
           暂无错误日志 🎉
         </div>
       ) : (
-        <>
-          <div className={tableShell}>
-            <div className="overflow-x-auto">
+        <div className="space-y-4">
+          <Pagination
+            page={data?.page ?? page}
+            pageSize={data?.pageSize ?? pageSize}
+            total={data?.total ?? 0}
+            onPage={setPage}
+            onPageSizeChange={(n) => {
+              setPageSize(n)
+              setPage(1)
+            }}
+          />
+          <div className={tableScroll}>
+            <div className={`${tableShell} min-w-[720px]`}>
               <table className={tableEl}>
                 <thead className={tableHead}>
                   <tr>
@@ -198,11 +208,15 @@ export default function ErrorEventsPage() {
 
           <Pagination
             page={data?.page ?? page}
-            pageSize={data?.pageSize ?? PAGE_SIZE}
+            pageSize={data?.pageSize ?? pageSize}
             total={data?.total ?? 0}
             onPage={setPage}
+            onPageSizeChange={(n) => {
+              setPageSize(n)
+              setPage(1)
+            }}
           />
-        </>
+        </div>
       )}
     </div>
   )

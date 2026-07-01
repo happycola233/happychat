@@ -471,3 +471,11 @@ html.hc-font-large {
     animation: none;
   }
 }
+
+/* 去掉 recharts 图表被点击/聚焦时浏览器默认的黑色焦点框。 */
+.recharts-surface,
+.recharts-wrapper:focus,
+.recharts-wrapper :focus,
+.recharts-wrapper :focus-visible {
+  outline: none;
+}

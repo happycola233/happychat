@@ -13,6 +13,7 @@ import {
   tableEl,
   tableHead,
   tableRowHover,
+  tableScroll,
   tableShell,
   td,
   th,
@@ -26,12 +27,11 @@ import {
   formatUsd,
 } from '../../lib/format'
 
-const PAGE_SIZE = 50
-
 export default function UserDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(50)
 
   const statsQuery = useQuery({
     queryKey: ['admin', 'user-stats', id],
@@ -39,8 +39,8 @@ export default function UserDetailPage() {
     enabled: !!id,
   })
   const usageQuery = useQuery({
-    queryKey: ['admin', 'user-usage', id, page],
-    queryFn: () => getUsageEvents({ userId: id, page, pageSize: PAGE_SIZE }),
+    queryKey: ['admin', 'user-usage', id, page, pageSize],
+    queryFn: () => getUsageEvents({ userId: id, page, pageSize }),
     enabled: !!id,
   })
 
@@ -121,8 +121,18 @@ export default function UserDetailPage() {
           </div>
         ) : (
           <>
-            <div className="overflow-x-auto">
-              <div className={tableShell}>
+            <Pagination
+              page={usageQuery.data.page}
+              pageSize={usageQuery.data.pageSize}
+              total={usageQuery.data.total}
+              onPage={setPage}
+              onPageSizeChange={(n) => {
+                setPageSize(n)
+                setPage(1)
+              }}
+            />
+            <div className={tableScroll}>
+              <div className={`${tableShell} min-w-[880px]`}>
                 <table className={tableEl}>
                   <thead className={tableHead}>
                     <tr>
@@ -186,6 +196,10 @@ export default function UserDetailPage() {
               pageSize={usageQuery.data.pageSize}
               total={usageQuery.data.total}
               onPage={setPage}
+              onPageSizeChange={(n) => {
+                setPageSize(n)
+                setPage(1)
+              }}
             />
           </>
         )}

@@ -13,6 +13,7 @@ import {
   tableEl,
   tableHead,
   tableRowHover,
+  tableScroll,
   tableShell,
   td,
   th,
@@ -195,8 +196,8 @@ export default function AnalyticsPage() {
             暂无数据
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <div className={tableShell}>
+          <div className={tableScroll}>
+            <div className={`${tableShell} min-w-[1180px]`}>
               <table className={tableEl}>
                 <thead className={tableHead}>
                   <tr>

@@ -16,6 +16,7 @@ import {
   tableEl,
   tableHead,
   tableRowHover,
+  tableScroll,
   tableShell,
   td,
   th,
@@ -106,8 +107,8 @@ function UsersTab() {
   if (isLoading) return <LoadingBlock />
 
   return (
-    <div className="overflow-x-auto">
-      <div className={tableShell}>
+    <div className={tableScroll}>
+      <div className={`${tableShell} min-w-[720px]`}>
         <table className={tableEl}>
           <thead className={tableHead}>
             <tr>
@@ -246,8 +247,8 @@ function InvitesTab() {
           还没有邀请码
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <div className={tableShell}>
+        <div className={tableScroll}>
+          <div className={`${tableShell} min-w-[560px]`}>
             <table className={tableEl}>
               <thead className={tableHead}>
                 <tr>
@@ -406,8 +407,8 @@ function SessionsTab() {
     )
 
   return (
-    <div className="overflow-x-auto">
-      <div className={tableShell}>
+    <div className={tableScroll}>
+      <div className={`${tableShell} min-w-[720px]`}>
         <table className={tableEl}>
           <thead className={tableHead}>
             <tr>
