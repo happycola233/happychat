@@ -96,7 +96,7 @@ export function MessageUsageStats({
       <span className="inline-flex items-center gap-1">
         <ArrowUp className="h-3 w-3" />
         {formatTokens(usage.inputTokens)} tokens
-        {usage.cachedTokens > 0 && <span>（{formatTokens(usage.cachedTokens)} 缓存）</span>}
+        {usage.cachedTokens > 0 && <span>（{formatTokens(usage.cachedTokens)} cached）</span>}
       </span>
       <span className="inline-flex items-center gap-1">
         <ArrowDown className="h-3 w-3" />
