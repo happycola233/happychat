@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent,
@@ -80,6 +81,7 @@ export default function ChatView() {
   const programmaticScrollRef = useRef(false)
   const [scrollButtonVisible, setScrollButtonVisible] = useState(false)
   const [isScrolledFromTop, setIsScrolledFromTop] = useState(false)
+  const [scrollbarGutterWidth, setScrollbarGutterWidth] = useState(0)
 
   const allMessages = detail?.messages ?? []
   const messages = detail ? buildPath(allMessages, detail.conversation.activeLeafId) : []
@@ -114,10 +116,7 @@ export default function ChatView() {
     clearScrollButtonIdleTimer()
     setScrollButtonVisible(true)
     // 每次真实滚动都续期；停止交互后统一从同一个隐藏入口淡出。
-    scrollButtonIdleTimerRef.current = window.setTimeout(
-      hideScrollButton,
-      SCROLL_BUTTON_IDLE_MS,
-    )
+    scrollButtonIdleTimerRef.current = window.setTimeout(hideScrollButton, SCROLL_BUTTON_IDLE_MS)
   }, [clearScrollButtonIdleTimer, hideScrollButton])
 
   useEffect(() => {
@@ -132,6 +131,24 @@ export default function ChatView() {
       }
     }
   }, [clearScrollButtonIdleTimer])
+
+  useLayoutEffect(() => {
+    const scrollElement = scrollRef.current
+    if (!scrollElement) return
+
+    const updateScrollbarGutterWidth = () => {
+      // 经典滚动条会占用内容宽度；输入框需要预留同样的右侧空间才能保持同轴。
+      const nextWidth = Math.max(0, scrollElement.offsetWidth - scrollElement.clientWidth)
+      setScrollbarGutterWidth((currentWidth) =>
+        currentWidth === nextWidth ? currentWidth : nextWidth,
+      )
+    }
+
+    updateScrollbarGutterWidth()
+    const resizeObserver = new ResizeObserver(updateScrollbarGutterWidth)
+    resizeObserver.observe(scrollElement)
+    return () => resizeObserver.disconnect()
+  }, [])
 
   const cancelProgrammaticScroll = useCallback(() => {
     programmaticScrollRef.current = false
@@ -448,9 +465,7 @@ export default function ChatView() {
     <>
       <header
         className={`flex h-14 shrink-0 items-center gap-1 border-b px-2 transition-colors sm:px-4 ${
-          isScrolledFromTop
-            ? 'border-neutral-200 dark:border-neutral-800'
-            : 'border-transparent'
+          isScrolledFromTop ? 'border-neutral-200 dark:border-neutral-800' : 'border-transparent'
         }`}
       >
         <button
@@ -474,52 +489,53 @@ export default function ChatView() {
           data-testid="chat-scroll"
           className="hc-scrollbar hc-chat-scroll h-full overflow-y-auto"
         >
-        {isEmpty ? (
-          <div className="flex h-full items-center justify-center">
-            <div className="text-center">
-              <h2 className="text-2xl font-medium leading-tight text-neutral-700 sm:text-[1.65rem] dark:text-neutral-200">
-                有什么可以帮你的？
-              </h2>
+          {isEmpty ? (
+            <div className="flex h-full items-center justify-center">
+              <div className="text-center">
+                <h2 className="text-2xl font-medium leading-tight text-neutral-700 sm:text-[1.65rem] dark:text-neutral-200">
+                  有什么可以帮你的？
+                </h2>
+              </div>
             </div>
-          </div>
-        ) : (
-          <div className="hc-chat-scroll-content mx-auto max-w-3xl px-4 pt-6">
-            <div className="space-y-6">
-              {messages.map((m) => {
-                const siblings = getSiblings(allMessages, m)
-                const branch =
-                  siblings.length > 1
-                    ? {
-                        index: siblings.findIndex((s) => s.id === m.id),
-                        total: siblings.length,
-                        siblings,
-                        onSelect: onSwitch,
-                      }
-                    : undefined
-                return (
-                  <div key={m.id} className="hc-anim-in">
-                    <Message
-                      message={m}
-                      live={stream && m.id === stream.assistantMessageId ? stream : undefined}
-                      branch={branch}
-                      busy={streaming}
-                      onEdit={m.role === 'user' ? (t) => onEdit(m, t) : undefined}
-                      onRegenerate={m.role === 'assistant' ? () => onRegenerate(m.id) : undefined}
-                      onUseImageSource={m.role === 'assistant' ? onUseImageSource : undefined}
-                    />
+          ) : (
+            <div className="hc-chat-scroll-content px-4 pt-6">
+              {/* 页面留白放在限宽层外，确保消息区边界与 Composer 输入框严格对齐。 */}
+              <div className="mx-auto max-w-3xl space-y-6">
+                {messages.map((m) => {
+                  const siblings = getSiblings(allMessages, m)
+                  const branch =
+                    siblings.length > 1
+                      ? {
+                          index: siblings.findIndex((s) => s.id === m.id),
+                          total: siblings.length,
+                          siblings,
+                          onSelect: onSwitch,
+                        }
+                      : undefined
+                  return (
+                    <div key={m.id} className="hc-anim-in">
+                      <Message
+                        message={m}
+                        live={stream && m.id === stream.assistantMessageId ? stream : undefined}
+                        branch={branch}
+                        busy={streaming}
+                        onEdit={m.role === 'user' ? (t) => onEdit(m, t) : undefined}
+                        onRegenerate={m.role === 'assistant' ? () => onRegenerate(m.id) : undefined}
+                        onUseImageSource={m.role === 'assistant' ? onUseImageSource : undefined}
+                      />
+                    </div>
+                  )
+                })}
+                {optimisticUser && (
+                  <div className="flex justify-end">
+                    <div className="max-w-[85%] rounded-2xl bg-neutral-100 px-4 py-2.5 dark:bg-neutral-800">
+                      <CollapsibleUserMessageText text={optimisticUser} />
+                    </div>
                   </div>
-                )
-              })}
-              {optimisticUser && (
-                <div className="flex justify-end">
-                  <div className="max-w-[85%] rounded-2xl bg-neutral-100 px-4 py-2.5 dark:bg-neutral-800">
-                    <CollapsibleUserMessageText text={optimisticUser} />
-                  </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
-          </div>
-        )}
+          )}
         </div>
         {showScrollToBottom && (
           <button
@@ -548,6 +564,7 @@ export default function ChatView() {
         canImage={model?.capabilities.vision ?? false}
         canFile={model?.capabilities.file_input ?? false}
         imageSources={imageSources}
+        scrollbarGutterWidth={scrollbarGutterWidth}
         onRemoveImageSource={(attachmentId) =>
           setImageSources((items) => items.filter((item) => item.attachmentId !== attachmentId))
         }
