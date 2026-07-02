@@ -11,6 +11,17 @@ function trim1(x: number): string {
   return x.toFixed(1).replace(/\.0$/, '')
 }
 
+/** 耗时：<1s→"0.2s"、<10s→"5.4s"、<60s→"31s"、否则"1m 05s"。 */
+export function formatDuration(ms: number): string {
+  if (ms < 1000) return `${(ms / 1000).toFixed(1)}s`
+  const totalSec = ms / 1000
+  if (totalSec < 60) return `${totalSec < 10 ? trim1(totalSec) : Math.round(totalSec)}s`
+  const roundedSeconds = Math.round(totalSec)
+  const m = Math.floor(roundedSeconds / 60)
+  const s = roundedSeconds % 60
+  return `${m}m ${String(s).padStart(2, '0')}s`
+}
+
 /** 美元成本：0→$0、极小→<$0.01、其余按量级保留 2-3 位。 */
 export function formatUsd(n: number): string {
   if (!n) return '$0'

@@ -2,6 +2,9 @@ function trim1(x: number): string {
   return x.toFixed(1).replace(/\.0$/, '')
 }
 
+// 通用时长格式放在 lib 中；保留此导出，避免聊天组件的领域格式入口分裂。
+export { formatDuration } from '../lib/format'
+
 /** 紧凑显示 token 数：3100→"3.1K"、16→"16"、1_200_000→"1.2M"。 */
 export function formatTokens(n: number): string {
   if (n < 1000) return String(n)
@@ -21,17 +24,6 @@ export function computeTps(outputTokens: number, durationMs: number | null): num
 
 export function formatTps(tps: number): string {
   return tps >= 100 ? String(Math.round(tps)) : trim1(tps)
-}
-
-/** 耗时：<1s→"0.2s"、<10s→"5.4s"、<60s→"31s"、否则"1m 05s"。 */
-export function formatDuration(ms: number): string {
-  if (ms < 1000) return `${(ms / 1000).toFixed(1)}s`
-  const totalSec = ms / 1000
-  if (totalSec < 60) return `${totalSec < 10 ? trim1(totalSec) : Math.round(totalSec)}s`
-  const roundedSeconds = Math.round(totalSec)
-  const m = Math.floor(roundedSeconds / 60)
-  const s = roundedSeconds % 60
-  return `${m}m ${String(s).padStart(2, '0')}s`
 }
 
 /** 消息时间显示：'time'=HH:mm；'datetime'=YYYY/MM/DD HH:mm（均 24 小时制）。 */

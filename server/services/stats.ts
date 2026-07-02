@@ -17,9 +17,11 @@ import {
   errorLogs,
   messages,
   models,
+  runs,
   usageLogs,
   users,
 } from '../db/schema'
+import { computeGenerationDurationMs } from './run-timing'
 
 export interface StatsFilter {
   from?: number
@@ -354,15 +356,18 @@ export async function listUsageEvents(filter: StatsFilter): Promise<Paginated<Us
     .select({
       log: usageLogs,
       username: users.username,
+      startedAt: runs.startedAt,
+      finishedAt: runs.finishedAt,
     })
     .from(usageLogs)
     .leftJoin(users, eq(usageLogs.userId, users.id))
+    .leftJoin(runs, eq(usageLogs.runId, runs.id))
     .where(whereOf(conds))
     .orderBy(desc(usageLogs.createdAt))
     .limit(pageSize)
     .offset((page - 1) * pageSize)
 
-  const items: UsageLogDTO[] = rows.map(({ log, username }) => ({
+  const items: UsageLogDTO[] = rows.map(({ log, username, startedAt, finishedAt }) => ({
     id: log.id,
     userId: log.userId,
     username: username ?? null,
@@ -378,6 +383,7 @@ export async function listUsageEvents(filter: StatsFilter): Promise<Paginated<Us
     success: log.success,
     errorType: log.errorType,
     costUsd: costUsd(log, log.modelId ? (pricing.get(log.modelId) ?? null) : null),
+    durationMs: computeGenerationDurationMs(startedAt, finishedAt),
     createdAt: log.createdAt.getTime(),
   }))
 

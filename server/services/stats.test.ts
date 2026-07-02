@@ -115,3 +115,44 @@ describe('user stats activity', () => {
     expect(stat?.lastActive).toBe(latestUsageAt)
   })
 })
+
+describe('usage event duration', () => {
+  it('returns the run wall-clock duration for request events', async () => {
+    const user = await insertUser()
+    const [conversation] = await dbClient.db
+      .insert(schema.conversations)
+      .values({ userId: user.id })
+      .returning()
+    if (!conversation) throw new Error('failed to insert test conversation')
+
+    const startedAt = Date.UTC(2026, 6, 1, 8, 0, 0)
+    const finishedAt = startedAt + 5_400
+    const [run] = await dbClient.db
+      .insert(schema.runs)
+      .values({
+        conversationId: conversation.id,
+        userId: user.id,
+        state: 'completed',
+        startedAt: new Date(startedAt),
+        finishedAt: new Date(finishedAt),
+      })
+      .returning()
+    if (!run) throw new Error('failed to insert test run')
+
+    await insertUsageLog(finishedAt, { userId: user.id, runId: run.id })
+
+    const result = await stats.listUsageEvents({ userId: user.id })
+
+    expect(result.items).toHaveLength(1)
+    expect(result.items[0]?.durationMs).toBe(5_400)
+  })
+
+  it('returns null when an audit log no longer has an associated run', async () => {
+    const user = await insertUser()
+    await insertUsageLog(Date.UTC(2026, 6, 1, 9), { userId: user.id })
+
+    const result = await stats.listUsageEvents({ userId: user.id })
+
+    expect(result.items[0]?.durationMs).toBeNull()
+  })
+})

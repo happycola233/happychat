@@ -8,6 +8,7 @@ import { db } from '../db/client'
 import { attachments, conversations, messages, models, runEvents, runs } from '../db/schema'
 import { removeUpload } from '../storage/files'
 import { computeReasoningDurationMs, type ReasoningTimingEvent } from './reasoning-timing'
+import { computeGenerationDurationMs } from './run-timing'
 
 export type ConvRow = typeof conversations.$inferSelect
 export type MsgRow = typeof messages.$inferSelect
@@ -128,9 +129,8 @@ async function getMessageTimingByMessageId(rows: MsgRow[]): Promise<Map<string, 
   // 整次生成墙钟耗时（所有 run，不限推理）：finishedAt − startedAt。
   const generationByRun = new Map<string, number>()
   for (const row of runRows) {
-    if (row.startedAt && row.finishedAt) {
-      generationByRun.set(row.runId, Math.max(0, row.finishedAt.getTime() - row.startedAt.getTime()))
-    }
+    const durationMs = computeGenerationDurationMs(row.startedAt, row.finishedAt)
+    if (durationMs !== null) generationByRun.set(row.runId, durationMs)
   }
 
   // 推理耗时（仅推理 run，需要回放 run_events）。

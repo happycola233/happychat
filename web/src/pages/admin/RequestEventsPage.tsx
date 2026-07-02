@@ -23,7 +23,7 @@ import {
   td,
   th,
 } from '../../components/ui/tableStyles'
-import { formatCompact, formatDateTime, formatUsd } from '../../lib/format'
+import { formatCompact, formatDateTime, formatDuration, formatUsd } from '../../lib/format'
 
 const STATUS_OPTIONS: SelectOption[] = [
   { value: '', label: '全部状态' },
@@ -161,7 +161,7 @@ export default function RequestEventsPage() {
             }}
           />
           <div className={tableScroll}>
-            <div className={`${tableShell} min-w-[900px]`}>
+            <div className={`${tableShell} min-w-[980px]`}>
               <table className={tableEl}>
                 <thead className={tableHead}>
                   <tr>
@@ -175,6 +175,7 @@ export default function RequestEventsPage() {
                     <th className={th}>推理</th>
                     <th className={th}>总计</th>
                     <th className={th}>成本</th>
+                    <th className={th}>耗时</th>
                     <th className={th}>状态</th>
                   </tr>
                 </thead>
@@ -210,6 +211,11 @@ export default function RequestEventsPage() {
                       </td>
                       <td className={`${td} tabular-nums text-neutral-600 dark:text-neutral-300`}>
                         {formatUsd(row.costUsd)}
+                      </td>
+                      <td
+                        className={`${td} whitespace-nowrap tabular-nums text-neutral-600 dark:text-neutral-300`}
+                      >
+                        {row.durationMs === null ? '—' : formatDuration(row.durationMs)}
                       </td>
                       <td className={td}>
                         <Badge tone={row.success ? 'success' : 'danger'}>

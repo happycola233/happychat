@@ -236,6 +236,8 @@ export interface UsageLogDTO {
   success: boolean
   errorType: string | null
   costUsd: number
+  /** 从生成引擎开始到 run 终态的墙钟耗时；关联 run 不存在时为 null。 */
+  durationMs: number | null
   createdAt: number
 }
 
