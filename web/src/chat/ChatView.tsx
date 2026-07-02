@@ -38,6 +38,11 @@ import { Message } from './Message'
 import { CollapsibleUserMessageText } from './MessageContent'
 import { ModelSelector } from './ModelSelector'
 import type { ImageEditSource } from './imageSource'
+import {
+  captureViewportScroll,
+  restoreViewportScroll,
+  type ViewportScrollSnapshot,
+} from './scrollAnchor'
 import { resolveAutoFollowAfterScroll, type ScrollMetrics } from './scrollFollow'
 
 interface RunResult {
@@ -79,6 +84,7 @@ export default function ChatView() {
   const scrollButtonIdleTimerRef = useRef<number | null>(null)
   const programmaticScrollTimerRef = useRef<number | null>(null)
   const programmaticScrollRef = useRef(false)
+  const terminalScrollSnapshotRef = useRef<ViewportScrollSnapshot | null>(null)
   const [scrollButtonVisible, setScrollButtonVisible] = useState(false)
   const [isScrolledFromTop, setIsScrolledFromTop] = useState(false)
   const [scrollbarGutterWidth, setScrollbarGutterWidth] = useState(0)
@@ -190,6 +196,35 @@ export default function ChatView() {
     [hideScrollButton],
   )
 
+  const captureTerminalScroll = useCallback(() => {
+    const scrollElement = scrollRef.current
+    if (!scrollElement) return
+    terminalScrollSnapshotRef.current = captureViewportScroll(
+      scrollElement,
+      shouldAutoFollowRef.current,
+    )
+  }, [])
+
+  // 终态正文替换与滚动补偿在同一次绘制前完成，用户看不到中间位置或空白帧。
+  useLayoutEffect(() => {
+    if (!stream || stream.status === 'streaming') return
+    const snapshot = terminalScrollSnapshotRef.current
+    const scrollElement = scrollRef.current
+    if (!snapshot || !scrollElement) return
+    terminalScrollSnapshotRef.current = null
+
+    if (snapshot.autoFollowing) {
+      scrollToBottom()
+      return
+    }
+
+    restoreViewportScroll(scrollElement, snapshot)
+    previousScrollMetricsRef.current = {
+      scrollTop: scrollElement.scrollTop,
+      scrollHeight: scrollElement.scrollHeight,
+    }
+  }, [scrollToBottom, stream])
+
   const updateScrollState = useCallback(() => {
     const el = scrollRef.current
     if (!el) return
@@ -263,6 +298,7 @@ export default function ChatView() {
       assistantMessageId: res.assistantMessage.id,
       fromSeq: -1,
       reasoningEnabled: reasoningEnabledForRun(res.assistantMessage.modelId, requestParams),
+      onBeforeTerminal: captureTerminalScroll,
       onTerminal: () => handleRunTerminal(convId),
     })
     if (id !== convId) navigate(`/c/${convId}`)
@@ -286,13 +322,14 @@ export default function ChatView() {
         reasoningDurationMs: run.reasoningDurationMs,
         imageStartedAt: run.imageStartedAt,
         reasoningEnabled: run.reasoningEnabled,
+        onBeforeTerminal: captureTerminalScroll,
         onTerminal: () => handleRunTerminal(id),
       })
     })
     return () => {
       cancelled = true
     }
-  }, [id, handleRunTerminal])
+  }, [id, handleRunTerminal, captureTerminalScroll])
 
   // 终止后交接到持久化内容
   useEffect(() => {
@@ -513,7 +550,7 @@ export default function ChatView() {
                         }
                       : undefined
                   return (
-                    <div key={m.id} className="hc-anim-in">
+                    <div key={m.id} data-scroll-anchor={m.id} className="hc-anim-in">
                       <Message
                         message={m}
                         live={stream && m.id === stream.assistantMessageId ? stream : undefined}

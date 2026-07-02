@@ -6,9 +6,9 @@ import { db } from '../db/client'
 import { runEvents, runs } from '../db/schema'
 import { providerClientFromRow } from '../provider/client'
 import { UpstreamError } from '../provider/errors'
-import { mapUsage } from '../provider/normalize'
 import type { UpstreamResponse } from '../provider/upstream-types'
 import { runEmitter } from './emitter'
+import { reconcileFinalResponse } from './final-response'
 import { finalizeRun } from './finalize'
 import type { EngineContext } from './types'
 
@@ -51,7 +51,7 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
 
   let text = ''
   let reasoning = ''
-  const annotations: UrlCitation[] = []
+  let annotations: UrlCitation[] = []
   let usage: MessageUsage = {
     inputTokens: 0,
     cachedTokens: 0,
@@ -66,6 +66,24 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
   let errorCode: string | null = null
   let httpStatus: number | null = null
   let upstreamResponseId: string | null = null
+
+  const applyFinalResponse = (response: UpstreamResponse | undefined): void => {
+    const reconciled = reconcileFinalResponse(
+      {
+        text,
+        reasoningSummary: reasoning || null,
+        annotations,
+        usage,
+        upstreamResponseId,
+      },
+      response,
+    )
+    text = reconciled.text
+    reasoning = reconciled.reasoningSummary ?? ''
+    annotations = reconciled.annotations
+    usage = reconciled.usage
+    upstreamResponseId = reconciled.upstreamResponseId
+  }
 
   try {
     const client = providerClientFromRow(ctx.provider)
@@ -83,16 +101,15 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
           break
         case 'response.completed': {
           const resp = ev.data.response as UpstreamResponse | undefined
-          usage = mapUsage(resp?.usage)
-          upstreamResponseId = resp?.id ?? null
+          applyFinalResponse(resp)
           state = 'completed'
           break
         }
         case 'response.incomplete': {
           const resp = ev.data.response as UpstreamResponse | undefined
+          applyFinalResponse(resp)
           state = 'incomplete'
           incompleteReason = resp?.incomplete_details?.reason ?? 'max_output_tokens'
-          usage = mapUsage(resp?.usage)
           break
         }
         case 'response.failed': {

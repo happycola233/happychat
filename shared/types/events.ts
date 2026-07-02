@@ -1,4 +1,4 @@
-import type { MessageUsage, RunState } from './domain'
+import type { MessageUsage, RunState, UrlCitation } from './domain'
 
 /**
  * SSE 线格式：每帧 `id: <seq>` + `data: <WireEvent JSON>`（不使用 event: 字段，
@@ -47,6 +47,9 @@ export interface RunCreatedData {
 export interface RunDoneData {
   state: 'completed' | 'incomplete'
   messageId: string
+  /** 文本 run 的终态规范值；图片 run 不包含这两个字段。 */
+  text?: string
+  annotations?: UrlCitation[]
   usage: MessageUsage
   incompleteReason: string | null
 }

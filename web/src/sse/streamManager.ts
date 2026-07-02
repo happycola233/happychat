@@ -11,6 +11,7 @@ interface StartOptions {
   reasoningDurationMs?: number | null
   imageStartedAt?: number | null
   reasoningEnabled?: boolean
+  onBeforeTerminal?: () => void
   onTerminal?: () => void
 }
 
@@ -65,6 +66,7 @@ export function startStream(opts: StartOptions): void {
       if (typeof wire.seq === 'number') lastSeq = wire.seq
       const cur = useStreamStore.getState().byConversation[opts.conversationId]
       if (!cur || cur.runId !== opts.runId) return
+      if (isTerminalEventType(wire.type)) opts.onBeforeTerminal?.()
       useStreamStore.getState().set(opts.conversationId, { ...cur, ...reduceEvent(cur, wire) })
       if (isTerminalEventType(wire.type)) {
         finish()

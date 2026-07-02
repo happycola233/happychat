@@ -43,6 +43,30 @@ export const initialLive = (
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '')
 
+function finalAnnotations(value: unknown, fallback: UrlCitation[]): UrlCitation[] {
+  if (!Array.isArray(value)) return fallback
+  const next = value.filter(
+    (annotation): annotation is UrlCitation =>
+      typeof annotation === 'object' &&
+      annotation !== null &&
+      (annotation as { type?: unknown }).type === 'url_citation' &&
+      typeof (annotation as { url?: unknown }).url === 'string' &&
+      typeof (annotation as { title?: unknown }).title === 'string' &&
+      typeof (annotation as { start_index?: unknown }).start_index === 'number' &&
+      typeof (annotation as { end_index?: unknown }).end_index === 'number',
+  )
+  const unchanged =
+    next.length === fallback.length &&
+    next.every(
+      (annotation, index) =>
+        annotation.url === fallback[index]?.url &&
+        annotation.title === fallback[index]?.title &&
+        annotation.start_index === fallback[index]?.start_index &&
+        annotation.end_index === fallback[index]?.end_index,
+    )
+  return unchanged ? fallback : next
+}
+
 function addWebSearchCall(s: LiveMessage, id: string): LiveMessage {
   if (!id) return { ...s, webSearching: true }
   if (s.webSearchCallIds.includes(id)) return { ...s, webSearching: true }
@@ -99,12 +123,18 @@ export function reduceEvent(s: LiveMessage, ev: WireEvent): LiveMessage {
       return { ...s, imageStatus: 'generating', imageStartedAt: s.imageStartedAt ?? Date.now() }
     case 'image.generation.completed':
       return { ...s, imageStatus: 'done', imageAttachmentId: str(ev.data.attachmentId) }
-    case 'run.done':
+    case 'run.done': {
+      const completed = finishReasoning(s)
+      const finalText = typeof ev.data.text === 'string' ? ev.data.text : completed.text
       return {
-        ...finishReasoning(s),
+        ...completed,
+        // 最终正文、引用和终态一次提交；不经过空内容，避免视觉闪烁。
+        text: finalText,
+        annotations: finalAnnotations(ev.data.annotations, completed.annotations),
         status: (str(ev.data.state) as LiveStatus) || 'completed',
         webSearching: false,
       }
+    }
     case 'run.error':
       return {
         ...finishReasoning(s),
