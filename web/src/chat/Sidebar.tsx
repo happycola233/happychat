@@ -36,6 +36,12 @@ type RowMenuPlacement = 'top' | 'bottom'
 const ROW_MENU_GAP_PX = 4
 const ROW_MENU_ESTIMATED_HEIGHT_PX = 176
 
+// 移动布局和触控设备没有可靠的 hover：仅在桌面宽度且支持悬停时收起操作入口。
+const HOVER_REVEAL_CLASS =
+  'opacity-100 md:[@media(hover:hover)]:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
+const HOVER_ACTION_PADDING_CLASS =
+  'pr-7 md:[@media(hover:hover)]:pr-0 group-hover:pr-7 group-focus-within:pr-7'
+
 function findScrollBoundaryElement(el: HTMLElement): HTMLElement | null {
   let parent = el.parentElement
   while (parent) {
@@ -323,7 +329,10 @@ function ConversationRow({
           <button
             type="button"
             onClick={() => onOpen(conversation.id)}
-            className="min-w-0 flex-1 text-left text-neutral-900 transition-[padding] group-hover:pr-7 group-focus-within:pr-7 dark:text-neutral-100"
+            className={clsx(
+              'min-w-0 flex-1 text-left text-neutral-900 transition-[padding] dark:text-neutral-100',
+              actions && HOVER_ACTION_PADDING_CLASS,
+            )}
             title={titleOf(conversation)}
           >
             <span className="flex min-w-0 items-center">
@@ -351,7 +360,7 @@ function ConversationRow({
               'absolute right-1 rounded-lg p-1.5 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-800 dark:hover:bg-neutral-700 dark:hover:text-neutral-100',
               menuOpen
                 ? 'opacity-100'
-                : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
+                : HOVER_REVEAL_CLASS,
             )}
             aria-label="更多操作"
           >
@@ -440,7 +449,8 @@ function ConversationSection({
         <span>{title}</span>
         <ChevronDown
           className={clsx(
-            'h-3.5 w-3.5 text-neutral-400 opacity-0 transition group-hover:opacity-100 group-focus-visible:opacity-100',
+            'h-3.5 w-3.5 text-neutral-400 transition',
+            HOVER_REVEAL_CLASS,
             collapsed && '-rotate-90',
           )}
         />
