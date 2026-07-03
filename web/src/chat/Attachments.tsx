@@ -2,6 +2,7 @@ import { FileText, Pencil } from 'lucide-react'
 import type { ContentPart } from '@shared/types/domain'
 import { attachmentUrl } from '../api/attachments'
 import type { ImageEditSource } from './imageSource'
+import { ImagePreviewTrigger } from './ImagePreview'
 
 /** 渲染消息内容里的附件部件：图片缩略图、文件卡片、生成的图片。 */
 export function AttachmentParts({
@@ -19,36 +20,33 @@ export function AttachmentParts({
     <div className="flex flex-wrap gap-2">
       {parts.map((p, i) => {
         if (p.type === 'input_image') {
+          const url = attachmentUrl(p.attachment_id)
           return (
-            <a key={i} href={attachmentUrl(p.attachment_id)} target="_blank" rel="noreferrer">
-              <img
-                src={attachmentUrl(p.attachment_id)}
-                alt="图片"
-                className="max-h-44 max-w-[12rem] rounded-xl border border-neutral-200 object-cover dark:border-neutral-700"
-              />
-            </a>
+            <ImagePreviewTrigger
+              key={i}
+              src={url}
+              alt="用户上传的图片"
+              className="overflow-hidden rounded-xl border border-neutral-200 dark:border-neutral-700"
+              imageClassName="block max-h-44 max-w-[12rem] object-cover"
+            />
           )
         }
         if (p.type === 'image_result') {
+          const url = attachmentUrl(p.attachment_id)
           const source: ImageEditSource = {
             attachmentId: p.attachment_id,
             label: `生成图 ${i + 1}`,
           }
           return (
             <div key={i} className="flex flex-col items-start gap-1.5">
-              <a
-                href={attachmentUrl(p.attachment_id)}
-                target="_blank"
-                rel="noreferrer"
+              <ImagePreviewTrigger
+                src={url}
+                alt="模型生成的图片"
+                caption={p.revised_prompt}
+                title={p.revised_prompt}
                 className="hc-generated-image-frame"
-              >
-                <img
-                  src={attachmentUrl(p.attachment_id)}
-                  alt="生成的图片"
-                  title={p.revised_prompt}
-                  className="block max-h-[32rem] max-w-full rounded-xl"
-                />
-              </a>
+                imageClassName="block max-h-[32rem] max-w-full rounded-xl"
+              />
               {onUseImageSource && (
                 <button
                   type="button"

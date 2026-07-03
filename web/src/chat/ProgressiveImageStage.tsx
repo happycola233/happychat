@@ -4,6 +4,7 @@ import { clsx } from 'clsx'
 import type { LiveImageGeneration, LiveMessage, LiveStatus } from '../sse/eventReducer'
 import { attachmentUrl } from '../api/attachments'
 import { ElapsedLabel } from './ElapsedLabel'
+import { ImagePreviewTrigger } from './ImagePreview'
 
 interface Props {
   live: LiveMessage
@@ -118,30 +119,32 @@ function ProgressiveImageCard({
         style={aspectRatio ? { aspectRatio } : undefined}
       >
         {activeUrl && (
-          <a
-            href={activeUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="hc-image-stage-media absolute inset-0 block"
-            aria-label="打开生成图片"
-          >
-            <img
-              key={`${activeId}-${generation.previewUpdatedAt ?? 0}-${done ? 'final' : 'preview'}`}
+          <div className="hc-image-stage-media absolute inset-0 block">
+            <ImagePreviewTrigger
               src={activeUrl}
-              alt="生成的图片"
+              alt={done ? '模型生成的图片' : '生成图片预览'}
+              caption={generation.revisedPrompt}
               title={generation.revisedPrompt}
-              onLoad={(event) => {
-                const image = event.currentTarget
-                if (image.naturalWidth > 0 && image.naturalHeight > 0) {
-                  setAspectRatio(image.naturalWidth / image.naturalHeight)
-                }
-              }}
-              className={clsx(
-                'hc-progressive-image absolute inset-0 h-full w-full object-cover',
-                done ? 'hc-progressive-image-final' : 'hc-progressive-image-preview',
-              )}
-            />
-          </a>
+              className="h-full w-full overflow-hidden rounded-[inherit]"
+            >
+              <img
+                key={`${activeId}-${generation.previewUpdatedAt ?? 0}-${done ? 'final' : 'preview'}`}
+                src={activeUrl}
+                alt="生成的图片"
+                title={generation.revisedPrompt}
+                onLoad={(event) => {
+                  const image = event.currentTarget
+                  if (image.naturalWidth > 0 && image.naturalHeight > 0) {
+                    setAspectRatio(image.naturalWidth / image.naturalHeight)
+                  }
+                }}
+                className={clsx(
+                  'hc-progressive-image absolute inset-0 h-full w-full object-cover',
+                  done ? 'hc-progressive-image-final' : 'hc-progressive-image-preview',
+                )}
+              />
+            </ImagePreviewTrigger>
+          </div>
         )}
         {active && <div className="hc-image-stage-scan pointer-events-none absolute inset-0" />}
       </div>

@@ -9,6 +9,7 @@ import { useSettings } from '../store/settings'
 import { Spinner } from '../components/ui/Spinner'
 import type { ImageEditSource } from './imageSource'
 import { ArrowUpIcon } from './icons'
+import { ImagePreviewTrigger } from './ImagePreview'
 
 interface Props {
   onSend: (text: string, attachments: AttachmentDTO[], imageSources: ImageEditSource[]) => void
@@ -195,10 +196,13 @@ export function Composer({
                 key={source.attachmentId}
                 className="group relative flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 p-1 dark:border-violet-800 dark:bg-violet-950/30"
               >
-                <img
+                <ImagePreviewTrigger
                   src={attachmentUrl(source.attachmentId)}
-                  alt=""
-                  className="h-10 w-10 rounded object-cover"
+                  alt="编辑源图片"
+                  caption={`编辑源：${source.label}`}
+                  className="h-10 w-10 overflow-hidden rounded"
+                  compact
+                  imageClassName="block h-10 w-10 object-cover"
                 />
                 <span className="max-w-[8rem] truncate px-1 text-xs text-violet-700 dark:text-violet-200">
                   编辑源：{source.label}
@@ -220,10 +224,13 @@ export function Composer({
                 className="group relative flex items-center gap-1.5 rounded-lg border border-neutral-200 bg-neutral-50 p-1 dark:border-neutral-700 dark:bg-neutral-900"
               >
                 {a.kind === 'image' ? (
-                  <img
+                  <ImagePreviewTrigger
                     src={attachmentUrl(a.id)}
-                    alt=""
-                    className="h-10 w-10 rounded object-cover"
+                    alt={a.filename || '待发送图片'}
+                    caption={a.filename}
+                    className="h-10 w-10 overflow-hidden rounded"
+                    compact
+                    imageClassName="block h-10 w-10 object-cover"
                   />
                 ) : (
                   <span className="flex items-center gap-1.5 px-1.5 text-xs text-neutral-600 dark:text-neutral-300">

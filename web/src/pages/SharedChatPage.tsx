@@ -7,6 +7,7 @@ import { textFromContent } from '@shared/util/contentText'
 import type { ContentPart, UrlCitation } from '@shared/types/domain'
 import type { MessageDTO } from '@shared/types/api'
 import { getPublicShare, shareAttachmentUrl } from '../api/shares'
+import { ImagePreviewTrigger } from '../chat/ImagePreview'
 import { Markdown } from '../chat/Markdown'
 import { ReasoningCard, type ReasoningCardStatus } from '../chat/ReasoningCard'
 import {
@@ -109,24 +110,26 @@ function SharedAttachmentParts({
           )
         }
 
-        const image = (
-          <img
+        return (
+          <ImagePreviewTrigger
+            key={`${p.type}-${p.attachment_id}-${i}`}
             src={url}
-            alt={p.type === 'image_result' ? '生成的图片' : '图片'}
+            alt={p.type === 'image_result' ? '模型生成的图片' : '用户上传的图片'}
+            caption={p.type === 'image_result' ? p.revised_prompt : undefined}
             title={p.type === 'image_result' ? p.revised_prompt : undefined}
             className={clsx(
-              'rounded-xl',
+              'overflow-hidden rounded-xl',
+              p.type === 'image_result'
+                ? 'max-w-full'
+                : 'border border-neutral-200 dark:border-neutral-700',
+            )}
+            imageClassName={clsx(
+              'block rounded-xl',
               p.type === 'image_result'
                 ? 'max-h-[32rem] max-w-full'
-                : 'max-h-44 max-w-[12rem] border border-neutral-200 object-cover dark:border-neutral-700',
+                : 'max-h-44 max-w-[12rem] object-cover',
             )}
           />
-        )
-
-        return (
-          <a key={`${p.type}-${p.attachment_id}-${i}`} href={url} target="_blank" rel="noreferrer">
-            {image}
-          </a>
         )
       })}
     </div>
