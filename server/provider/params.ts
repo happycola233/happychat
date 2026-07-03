@@ -47,6 +47,7 @@ export function buildResponseBody(o: BuildBodyOptions): Record<string, unknown> 
   if (topP !== undefined) body.top_p = topP
   const verbosity = userParams?.verbosity ?? defaults.verbosity
   if (verbosity !== undefined) body.text = { verbosity }
+  const tools: Record<string, unknown>[] = []
 
   // 思考：按模型 allowedEfforts 校验；含 'none'（受硬参数 summary='auto' 控制摘要）
   const effort =
@@ -58,8 +59,10 @@ export function buildResponseBody(o: BuildBodyOptions): Record<string, unknown> 
 
   // 联网搜索：仅当模型支持且开关开启
   if (effectiveWebSearchEnabled(model, userParams)) {
-    body.tools = [{ type: 'web_search' }]
+    tools.push({ type: 'web_search' })
   }
+
+  if (tools.length > 0) body.tools = tools
 
   // max_output_tokens：开启思考时保证下限预算
   let maxOut = userParams?.max_output_tokens ?? defaults.max_output_tokens

@@ -1,5 +1,5 @@
 import { and, eq, inArray } from 'drizzle-orm'
-import type { MessageUsage, UrlCitation } from '@shared/types/domain'
+import type { ContentPart, MessageUsage, UrlCitation } from '@shared/types/domain'
 import { RUN_EVENT_TYPE } from '@shared/types/events'
 import { db } from '../db/client'
 import { conversations, errorLogs, messages, runs, usageLogs } from '../db/schema'
@@ -26,6 +26,7 @@ export interface FinalizeArgs {
   errorCode?: string | null
   httpStatus?: number | null
   upstreamResponseId: string | null
+  content?: ContentPart[]
   persistEmit: (type: string, data: Record<string, unknown>) => number
 }
 
@@ -37,7 +38,7 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
   await db
     .update(messages)
     .set({
-      content: buildAssistantContent(a.text),
+      content: a.content ?? buildAssistantContent(a.text),
       status: msgStatus,
       reasoningSummary: a.reasoningSummary,
       annotations: a.annotations.length ? a.annotations : null,

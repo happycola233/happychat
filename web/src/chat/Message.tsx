@@ -9,8 +9,6 @@ import {
 import type { MessageDTO } from '@shared/types/api'
 import type { UrlCitation } from '@shared/types/domain'
 import type { LiveMessage } from '../sse/eventReducer'
-import { attachmentUrl } from '../api/attachments'
-import { Spinner } from '../components/ui/Spinner'
 import { useModels } from '../hooks/useModels'
 import { useSettings } from '../store/settings'
 import { CollapsibleUserMessageText } from './MessageContent'
@@ -19,7 +17,6 @@ import { textFromContent } from './contentText'
 import { Markdown } from './Markdown'
 import { ReasoningCard, type ReasoningCardStatus } from './ReasoningCard'
 import { AttachmentParts } from './Attachments'
-import { ElapsedLabel } from './ElapsedLabel'
 import {
   CopyMessageButton,
   MessageIconButton,
@@ -27,6 +24,7 @@ import {
   MessageUsageStats,
 } from './MessageMeta'
 import type { ImageEditSource } from './imageSource'
+import { ProgressiveImageStage } from './ProgressiveImageStage'
 
 export interface BranchInfo {
   index: number
@@ -240,7 +238,8 @@ export function Message({
         : 'completed'
   const showReasoningCard =
     hasReasoningText || liveThinking || liveStoppedThinking || persistedStoppedThinking || hasCompletedReasoning
-  const showPendingDots = streaming && !text && !reasoning && !showReasoningCard
+  const hasLiveImage = Boolean(live?.imageStatus || live?.imageGenerations.length)
+  const showPendingDots = streaming && !text && !reasoning && !showReasoningCard && !hasLiveImage
 
   return (
     <div className="group space-y-2" data-testid="assistant-message">
@@ -258,25 +257,16 @@ export function Message({
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{error}</span>
         </div>
-      ) : live?.imageStatus ? (
-        live.imageAttachmentId ? (
-          <a href={attachmentUrl(live.imageAttachmentId)} target="_blank" rel="noreferrer">
-            <img
-              src={attachmentUrl(live.imageAttachmentId)}
-              alt="生成的图片"
-              className="max-h-96 rounded-xl border border-neutral-200 dark:border-neutral-700"
-            />
-          </a>
-        ) : (
-          <div className="flex items-center gap-2 text-sm text-neutral-400">
-            <Spinner className="h-4 w-4" />
-            <ElapsedLabel
-              prefix="正在生成图片"
-              startedAt={live.imageStartedAt}
-              active={streaming}
-            />
-          </div>
-        )
+      ) : hasLiveImage && live ? (
+        <>
+          <ProgressiveImageStage live={live} />
+          {text && (
+            <div>
+              <Markdown text={text} />
+              {streaming && <StreamingCursor />}
+            </div>
+          )}
+        </>
       ) : showPendingDots ? (
         <div className="flex items-center gap-1.5">
           <span className="h-2 w-2 animate-bounce rounded-full bg-neutral-400 [animation-delay:-0.3s]" />

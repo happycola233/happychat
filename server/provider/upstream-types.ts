@@ -28,12 +28,14 @@ export interface UpstreamSummaryPart {
 }
 
 export interface UpstreamOutputItem {
+  id?: string
   type: string
   role?: string
   content?: UpstreamContentPart[]
   summary?: UpstreamSummaryPart[]
   /** image_generation_call 结果（base64） */
   result?: string | null
+  revised_prompt?: string | null
   status?: string
 }
 

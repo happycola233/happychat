@@ -115,8 +115,10 @@ function SharedAttachmentParts({
             alt={p.type === 'image_result' ? '生成的图片' : '图片'}
             title={p.type === 'image_result' ? p.revised_prompt : undefined}
             className={clsx(
-              'rounded-xl border border-neutral-200 object-cover dark:border-neutral-700',
-              p.type === 'image_result' ? 'max-h-96' : 'max-h-44 max-w-[12rem]',
+              'rounded-xl',
+              p.type === 'image_result'
+                ? 'max-h-[32rem] max-w-full'
+                : 'max-h-44 max-w-[12rem] border border-neutral-200 object-cover dark:border-neutral-700',
             )}
           />
         )

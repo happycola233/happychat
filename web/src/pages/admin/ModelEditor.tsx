@@ -19,13 +19,16 @@ import { toast } from '../../store/toast'
 const fieldClass =
   'w-full rounded-xl border border-neutral-300 bg-white px-3.5 py-2.5 text-sm outline-none transition focus:border-neutral-900 focus:ring-2 focus:ring-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100'
 
-const CAP_LABELS: Record<keyof ModelCapabilities, string> = {
+type EditableCapability = Exclude<keyof ModelCapabilities, 'image_generation'>
+
+const CAP_LABELS: Record<EditableCapability, string> = {
   vision: '图片输入（视觉）',
   file_input: '文件输入',
   web_search: '联网搜索',
-  image_generation: '图片生成',
   reasoning: '思考（reasoning）',
 }
+
+const EDITABLE_CAP_KEYS: EditableCapability[] = ['vision', 'file_input', 'web_search', 'reasoning']
 
 const EFFORT_LABELS: Record<ReasoningEffort, string> = {
   none: '关闭',
@@ -184,11 +187,12 @@ export function ModelEditor({
 
   const save = useMutation({
     mutationFn: async () => {
+      const capabilities: ModelCapabilities = { ...caps, image_generation: kind === 'image' }
       const shared = {
         displayName,
         kind,
         promptCacheRetentionEnabled: kind === 'image' ? false : promptCacheRetentionEnabled,
-        capabilities: caps,
+        capabilities,
         defaultSystemPrompt: systemPrompt.trim() ? systemPrompt : null,
         allowedEfforts: caps.reasoning ? allowedEfforts : [],
         defaultEffort: caps.reasoning && defaultEffort ? defaultEffort : null,
@@ -320,7 +324,7 @@ export function ModelEditor({
         {/* ============ 能力 ============ */}
         <FormSection title="能力">
           <div className="space-y-2.5">
-            {(Object.keys(CAP_LABELS) as (keyof ModelCapabilities)[]).map((k) => (
+            {EDITABLE_CAP_KEYS.map((k) => (
               <label key={k} className="flex items-center justify-between text-sm">
                 <span className="text-neutral-600 dark:text-neutral-300">{CAP_LABELS[k]}</span>
                 <Toggle checked={caps[k]} onChange={() => toggleCap(k)} />

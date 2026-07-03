@@ -88,7 +88,10 @@ async function resolveAttachments(
   const ids = new Set<string>()
   for (const m of pathMessages) {
     for (const p of m.content) {
-      if ((p.type === 'input_image' || p.type === 'input_file') && p.attachment_id) {
+      if (
+        (p.type === 'input_image' || p.type === 'input_file' || p.type === 'image_result') &&
+        p.attachment_id
+      ) {
         ids.add(p.attachment_id)
       }
     }

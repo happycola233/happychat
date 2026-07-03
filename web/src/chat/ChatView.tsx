@@ -417,7 +417,8 @@ export default function ChatView() {
     const p: ModelParams = {}
     if (model?.kind === 'image') {
       p.image = { size: imageSize, quality: imageQuality }
-    } else {
+    }
+    if (model?.kind !== 'image') {
       if (activeWebSearch !== null) p.web_search = activeWebSearch
       if (activeEffort) p.reasoning_effort = activeEffort
     }
@@ -453,9 +454,7 @@ export default function ChatView() {
 
   const onUseImageSource = (source: ImageEditSource) => {
     const imageModel =
-      model?.kind === 'image'
-        ? model
-        : models?.find((m) => m.kind === 'image' && m.capabilities.image_generation)
+      model?.kind === 'image' ? model : models?.find((m) => m.kind === 'image')
     if (!imageModel) return toast.error('没有可用的图片模型')
     if (activeModelId !== imageModel.id) {
       setActiveModel(imageModel.id)
@@ -540,6 +539,7 @@ export default function ChatView() {
               <div className="mx-auto max-w-3xl space-y-6">
                 {messages.map((m) => {
                   const siblings = getSiblings(allMessages, m)
+                  const messageModel = models?.find((modelItem) => modelItem.id === m.modelId)
                   const branch =
                     siblings.length > 1
                       ? {
@@ -558,7 +558,11 @@ export default function ChatView() {
                         busy={streaming}
                         onEdit={m.role === 'user' ? (t) => onEdit(m, t) : undefined}
                         onRegenerate={m.role === 'assistant' ? () => onRegenerate(m.id) : undefined}
-                        onUseImageSource={m.role === 'assistant' ? onUseImageSource : undefined}
+                        onUseImageSource={
+                          m.role === 'assistant' && messageModel?.kind === 'image'
+                            ? onUseImageSource
+                            : undefined
+                        }
                       />
                     </div>
                   )

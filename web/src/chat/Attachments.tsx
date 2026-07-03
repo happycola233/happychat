@@ -36,12 +36,17 @@ export function AttachmentParts({
           }
           return (
             <div key={i} className="flex flex-col items-start gap-1.5">
-              <a href={attachmentUrl(p.attachment_id)} target="_blank" rel="noreferrer">
+              <a
+                href={attachmentUrl(p.attachment_id)}
+                target="_blank"
+                rel="noreferrer"
+                className="hc-generated-image-frame"
+              >
                 <img
                   src={attachmentUrl(p.attachment_id)}
                   alt="生成的图片"
                   title={p.revised_prompt}
-                  className="max-h-96 rounded-xl border border-neutral-200 dark:border-neutral-700"
+                  className="block max-h-[32rem] max-w-full rounded-xl"
                 />
               </a>
               {onUseImageSource && (

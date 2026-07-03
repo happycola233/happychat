@@ -9,6 +9,21 @@ export type LiveStatus =
   | 'canceled'
   | 'interrupted'
 
+export interface LiveImageGeneration {
+  id: string
+  callId?: string
+  index: number
+  outputIndex: number | null
+  status: 'generating' | 'done'
+  attachmentId?: string
+  previewAttachmentId?: string
+  previewIndex: number | null
+  previewUpdatedAt: number | null
+  revisedPrompt?: string
+  startedAt: number | null
+  completedAt: number | null
+}
+
 export interface LiveMessage {
   text: string
   reasoning: string
@@ -21,7 +36,13 @@ export interface LiveMessage {
   webSearching: boolean
   webSearchCallIds: string[]
   imageStatus?: 'generating' | 'done'
+  imageGenerations: LiveImageGeneration[]
+  /** 兼容旧 UI 读取；新 UI 使用 imageGenerations。 */
   imageAttachmentId?: string
+  imagePreviewAttachmentId?: string
+  imagePreviewIndex: number | null
+  imagePreviewUpdatedAt: number | null
+  imageRevisedPrompt?: string
   imageStartedAt: number | null
 }
 
@@ -38,6 +59,9 @@ export const initialLive = (
   status: 'streaming',
   webSearching: false,
   webSearchCallIds: [],
+  imageGenerations: [],
+  imagePreviewIndex: null,
+  imagePreviewUpdatedAt: null,
   imageStartedAt: null,
 })
 
@@ -88,6 +112,91 @@ function finishReasoning(s: LiveMessage): LiveMessage {
   return { ...s, reasoningDurationMs: Math.max(0, Date.now() - s.upstreamStartedAt) }
 }
 
+const num = (v: unknown): number | null =>
+  typeof v === 'number' && Number.isFinite(v) ? v : null
+
+function imageGenerationEventId(
+  data: Record<string, unknown>,
+  generations: LiveImageGeneration[],
+): string {
+  const explicit = str(data.generationId) || str(data.callId) || str(data.item_id) || str(data.id)
+  if (explicit) return explicit
+  const index = num(data.index)
+  if (index !== null) return `image-${index}`
+  const active = generations
+    .slice()
+    .reverse()
+    .find((generation) => generation.status === 'generating')
+  return active?.id ?? `image-${generations.length}`
+}
+
+function syncLegacyImageFields(s: LiveMessage): LiveMessage {
+  const generations = s.imageGenerations
+  if (!generations.length) return { ...s, imageStatus: undefined }
+  const visible =
+    generations
+      .slice()
+      .reverse()
+      .find((generation) => generation.status !== 'done') ?? generations[generations.length - 1]
+  const allDone = generations.every(
+    (generation) => generation.status === 'done' && Boolean(generation.attachmentId),
+  )
+  const firstStartedAt = generations.reduce<number | null>((earliest, generation) => {
+    if (generation.startedAt === null) return earliest
+    return earliest === null ? generation.startedAt : Math.min(earliest, generation.startedAt)
+  }, null)
+
+  return {
+    ...s,
+    imageStatus: allDone ? 'done' : 'generating',
+    imageAttachmentId: visible?.attachmentId,
+    imagePreviewAttachmentId: visible?.attachmentId || visible?.previewAttachmentId,
+    imagePreviewIndex: visible?.previewIndex ?? null,
+    imagePreviewUpdatedAt: visible?.previewUpdatedAt ?? null,
+    imageRevisedPrompt: visible?.revisedPrompt,
+    imageStartedAt: s.imageStartedAt ?? firstStartedAt,
+  }
+}
+
+function upsertImageGeneration(
+  s: LiveMessage,
+  data: Record<string, unknown>,
+  patch: Partial<LiveImageGeneration>,
+): LiveMessage {
+  const now = Date.now()
+  const id = imageGenerationEventId(data, s.imageGenerations)
+  const callId = str(data.callId) || str(data.item_id) || str(data.id) || patch.callId
+  const existingIndex = s.imageGenerations.findIndex(
+    (generation) =>
+      generation.id === id || (callId && generation.callId && generation.callId === callId),
+  )
+  const existing = existingIndex >= 0 ? s.imageGenerations[existingIndex] : null
+  const index = num(data.index) ?? existing?.index ?? s.imageGenerations.length
+  const outputIndex = num(data.outputIndex) ?? existing?.outputIndex ?? null
+  const nextGeneration: LiveImageGeneration = {
+    id: existing?.id ?? id,
+    ...(existing?.callId || callId ? { callId: existing?.callId ?? callId } : {}),
+    index,
+    outputIndex,
+    status: existing?.status ?? 'generating',
+    previewIndex: existing?.previewIndex ?? null,
+    previewUpdatedAt: existing?.previewUpdatedAt ?? null,
+    startedAt:
+      existing?.startedAt ?? (s.imageGenerations.length ? now : (s.imageStartedAt ?? now)),
+    completedAt: existing?.completedAt ?? null,
+    ...patch,
+  }
+  const nextGenerations =
+    existingIndex >= 0
+      ? s.imageGenerations.map((generation, idx) =>
+          idx === existingIndex ? nextGeneration : generation,
+        )
+      : [...s.imageGenerations, nextGeneration]
+
+  nextGenerations.sort((a, b) => a.index - b.index)
+  return syncLegacyImageFields({ ...s, imageGenerations: nextGenerations })
+}
+
 /** 将一个 SSE WireEvent 折叠进流式消息状态。 */
 export function reduceEvent(s: LiveMessage, ev: WireEvent): LiveMessage {
   switch (ev.type) {
@@ -120,9 +229,32 @@ export function reduceEvent(s: LiveMessage, ev: WireEvent): LiveMessage {
     case 'response.web_search_call.completed':
       return finishWebSearchCall(s, str(ev.data.item_id))
     case 'image.generation.in_progress':
-      return { ...s, imageStatus: 'generating', imageStartedAt: s.imageStartedAt ?? Date.now() }
+      return upsertImageGeneration(s, ev.data, { status: 'generating' })
+    case 'image.generation.partial': {
+      const attachmentId = str(ev.data.attachmentId)
+      if (!attachmentId) {
+        return upsertImageGeneration(s, ev.data, { status: 'generating' })
+      }
+      const partialIndex =
+        typeof ev.data.partialIndex === 'number'
+          ? ev.data.partialIndex
+          : s.imagePreviewIndex
+      return upsertImageGeneration(s, ev.data, {
+        status: 'generating',
+        previewAttachmentId: attachmentId,
+        previewIndex: partialIndex,
+        previewUpdatedAt: Date.now(),
+      })
+    }
     case 'image.generation.completed':
-      return { ...s, imageStatus: 'done', imageAttachmentId: str(ev.data.attachmentId) }
+      return upsertImageGeneration(s, ev.data, {
+        status: 'done',
+        attachmentId: str(ev.data.attachmentId),
+        previewAttachmentId: str(ev.data.attachmentId) || undefined,
+        previewUpdatedAt: Date.now(),
+        revisedPrompt: str(ev.data.revisedPrompt) || undefined,
+        completedAt: Date.now(),
+      })
     case 'run.done': {
       const completed = finishReasoning(s)
       const finalText = typeof ev.data.text === 'string' ? ev.data.text : completed.text

@@ -140,7 +140,12 @@ runRoutes.get('/active', async (c) => {
     .from(runEvents)
     .where(eq(runEvents.runId, r.id))
     .orderBy(asc(runEvents.sequenceNumber))
-  const firstImageEvent = eventRows.find((ev) => ev.type === 'image.generation.in_progress')
+  const firstImageEvent = eventRows.find(
+    (ev) =>
+      ev.type === 'image.generation.in_progress' ||
+      ev.type === 'image.generation.partial' ||
+      ev.type === 'image.generation.completed',
+  )
 
   return c.json({
     run: {

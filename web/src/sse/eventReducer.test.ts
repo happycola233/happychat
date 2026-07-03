@@ -71,10 +71,156 @@ describe('reduceEvent', () => {
     const started = reduceEvent(initialLive(), event('image.generation.in_progress'))
     expect(started.imageStatus).toBe('generating')
     expect(started.imageStartedAt).toBe(5000)
+    expect(started.imageGenerations).toHaveLength(1)
+    expect(started.imageGenerations[0]).toMatchObject({
+      id: 'image-0',
+      index: 0,
+      status: 'generating',
+      startedAt: 5000,
+    })
 
     vi.setSystemTime(7000)
     const repeated = reduceEvent(started, event('image.generation.in_progress'))
     expect(repeated.imageStartedAt).toBe(5000)
+  })
+
+  it('tracks partial image previews without resetting the image timer', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(5000)
+
+    const started = reduceEvent(initialLive(), event('image.generation.in_progress'))
+    vi.setSystemTime(6200)
+    const preview = reduceEvent(
+      started,
+      event('image.generation.partial', {
+        attachmentId: 'att_partial_1',
+        partialIndex: 0,
+      }),
+    )
+
+    expect(preview.imageStatus).toBe('generating')
+    expect(preview.imagePreviewAttachmentId).toBe('att_partial_1')
+    expect(preview.imagePreviewIndex).toBe(0)
+    expect(preview.imagePreviewUpdatedAt).toBe(6200)
+    expect(preview.imageStartedAt).toBe(5000)
+    expect(preview.imageGenerations[0]).toMatchObject({
+      previewAttachmentId: 'att_partial_1',
+      previewIndex: 0,
+      previewUpdatedAt: 6200,
+      startedAt: 5000,
+    })
+  })
+
+  it('promotes the completed image to the active preview', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(8000)
+
+    const preview = {
+      ...initialLive(0, false),
+      imageStatus: 'generating' as const,
+      imagePreviewAttachmentId: 'att_partial_1',
+      imagePreviewIndex: 0,
+      imagePreviewUpdatedAt: 6200,
+      imageStartedAt: 5000,
+    }
+    const done = reduceEvent(
+      preview,
+      event('image.generation.completed', {
+        attachmentId: 'att_final',
+        revisedPrompt: 'clean prompt',
+      }),
+    )
+
+    expect(done.imageStatus).toBe('done')
+    expect(done.imageAttachmentId).toBe('att_final')
+    expect(done.imagePreviewAttachmentId).toBe('att_final')
+    expect(done.imageRevisedPrompt).toBe('clean prompt')
+    expect(done.imagePreviewUpdatedAt).toBe(8000)
+    expect(done.imageStartedAt).toBe(5000)
+    expect(done.imageGenerations[0]).toMatchObject({
+      attachmentId: 'att_final',
+      status: 'done',
+      revisedPrompt: 'clean prompt',
+      startedAt: 5000,
+      completedAt: 8000,
+    })
+  })
+
+  it('keeps sequential multi-image partial states in separate slots', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1000)
+
+    let live = reduceEvent(
+      initialLive(),
+      event('image.generation.in_progress', {
+        generationId: 'ig_a',
+        callId: 'ig_a',
+        index: 0,
+        outputIndex: 1,
+      }),
+    )
+    vi.setSystemTime(2000)
+    live = reduceEvent(
+      live,
+      event('image.generation.partial', {
+        generationId: 'ig_a',
+        callId: 'ig_a',
+        index: 0,
+        attachmentId: 'att_a_partial',
+        partialIndex: 0,
+      }),
+    )
+    vi.setSystemTime(3000)
+    live = reduceEvent(
+      live,
+      event('image.generation.completed', {
+        generationId: 'ig_a',
+        callId: 'ig_a',
+        index: 0,
+        attachmentId: 'att_a_final',
+      }),
+    )
+    vi.setSystemTime(4000)
+    live = reduceEvent(
+      live,
+      event('image.generation.in_progress', {
+        generationId: 'ig_b',
+        callId: 'ig_b',
+        index: 1,
+        outputIndex: 2,
+      }),
+    )
+    vi.setSystemTime(5000)
+    live = reduceEvent(
+      live,
+      event('image.generation.partial', {
+        generationId: 'ig_b',
+        callId: 'ig_b',
+        index: 1,
+        attachmentId: 'att_b_partial',
+        partialIndex: 1,
+      }),
+    )
+
+    expect(live.imageStatus).toBe('generating')
+    expect(live.imageGenerations).toHaveLength(2)
+    expect(live.imageGenerations[0]).toMatchObject({
+      id: 'ig_a',
+      index: 0,
+      status: 'done',
+      attachmentId: 'att_a_final',
+      startedAt: 1000,
+      completedAt: 3000,
+    })
+    expect(live.imageGenerations[1]).toMatchObject({
+      id: 'ig_b',
+      index: 1,
+      status: 'generating',
+      previewAttachmentId: 'att_b_partial',
+      previewIndex: 1,
+      startedAt: 4000,
+    })
+    expect(live.imagePreviewAttachmentId).toBe('att_b_partial')
   })
 
   it('atomically replaces dirty streamed text with the final run payload', () => {

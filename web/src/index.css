@@ -455,6 +455,159 @@ html.hc-font-large {
   transform-origin: top;
 }
 
+/* Responses API 生图的渐进式图片舞台。保持固定比例，partial/final 只替换内部图层。 */
+.hc-image-stage {
+  --hc-image-stage-radius: 1rem;
+  --hc-image-stage-surface: #fafafa;
+  --hc-image-stage-line: rgb(0 0 0 / 0.055);
+  --hc-image-stage-soft-line: rgb(0 0 0 / 0.035);
+  --hc-image-stage-status: rgb(255 255 255 / 0.97);
+  --hc-image-stage-sheen: rgb(255 255 255 / 0.72);
+  --hc-image-stage-dot: #2563eb;
+  overflow: hidden;
+  isolation: isolate;
+  contain: paint;
+  border: 1px solid var(--hc-image-stage-line);
+  border-radius: var(--hc-image-stage-radius);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.055);
+  background: var(--hc-image-stage-status);
+}
+.hc-image-stage-body {
+  overflow: hidden;
+  border-radius: calc(var(--hc-image-stage-radius) - 1px)
+    calc(var(--hc-image-stage-radius) - 1px) 0 0;
+  background:
+    linear-gradient(var(--hc-image-stage-soft-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--hc-image-stage-soft-line) 1px, transparent 1px),
+    var(--hc-image-stage-surface);
+  background-size:
+    28px 28px,
+    28px 28px,
+    auto;
+}
+.hc-image-stage-media,
+.hc-image-stage-scan {
+  overflow: hidden;
+  border-radius: inherit;
+}
+.hc-image-stage-scan {
+  z-index: 2;
+}
+.hc-image-stage-scan::before {
+  content: '';
+  position: absolute;
+  top: -30%;
+  bottom: -30%;
+  left: -45%;
+  width: 42%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgb(255 255 255 / 0) 12%,
+    var(--hc-image-stage-sheen) 50%,
+    rgb(255 255 255 / 0) 88%,
+    transparent 100%
+  );
+  filter: blur(6px);
+  opacity: 0;
+  transform: translate3d(0, 0, 0) rotate(11deg);
+  transform-origin: center;
+  will-change: transform, opacity;
+  animation: hc-image-stage-scan 2.8s linear infinite;
+}
+.hc-image-stage-status {
+  position: relative;
+  z-index: 3;
+  min-height: 2.25rem;
+  border-top: 1px solid var(--hc-image-stage-line);
+  border-radius: 0 0 calc(var(--hc-image-stage-radius) - 1px)
+    calc(var(--hc-image-stage-radius) - 1px);
+  background: var(--hc-image-stage-status);
+}
+.hc-image-stage-dot {
+  display: inline-block;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 999px;
+  background: var(--hc-image-stage-dot);
+  box-shadow: 0 0 0 4px rgb(37 99 235 / 0.11);
+  animation: hc-image-stage-dot 1.1s ease-in-out infinite;
+}
+.hc-progressive-image {
+  background: white;
+  will-change: opacity, filter, transform;
+}
+.hc-progressive-image-preview {
+  animation: hc-progressive-image-preview 0.72s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.hc-progressive-image-final {
+  animation: hc-progressive-image-final 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.hc-generated-image-frame {
+  display: inline-block;
+  max-width: min(24rem, 100%);
+  overflow: hidden;
+  border-radius: 0.75rem;
+}
+@keyframes hc-image-stage-scan {
+  0% {
+    transform: translate3d(0, 0, 0) rotate(11deg);
+    opacity: 0;
+  }
+  18% {
+    opacity: 0.72;
+  }
+  68% {
+    opacity: 0.5;
+  }
+  100% {
+    transform: translate3d(350%, 0, 0) rotate(11deg);
+    opacity: 0;
+  }
+}
+@keyframes hc-image-stage-dot {
+  50% {
+    transform: scale(0.72);
+    opacity: 0.64;
+  }
+}
+@keyframes hc-progressive-image-preview {
+  from {
+    opacity: 0;
+    filter: blur(14px) saturate(0.86);
+    transform: scale(1.012);
+  }
+  to {
+    opacity: 1;
+    filter: blur(1.5px) saturate(1);
+    transform: scale(1);
+  }
+}
+@keyframes hc-progressive-image-final {
+  from {
+    opacity: 0.82;
+    filter: blur(6px) saturate(0.95);
+    transform: scale(1.006);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0) saturate(1);
+    transform: scale(1);
+  }
+}
+.dark .hc-image-stage {
+  --hc-image-stage-surface: #111;
+  --hc-image-stage-line: rgb(255 255 255 / 0.06);
+  --hc-image-stage-soft-line: rgb(255 255 255 / 0.035);
+  --hc-image-stage-status: rgb(10 10 10 / 0.96);
+  --hc-image-stage-sheen: rgb(255 255 255 / 0.16);
+  --hc-image-stage-dot: #60a5fa;
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.26);
+}
+.dark .hc-generated-image-frame {
+  color-scheme: dark;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .hc-reasoning-collapse,
   .hc-reasoning-status svg {
@@ -469,6 +622,17 @@ html.hc-font-large {
   .hc-anim-in,
   .hc-pop-in {
     animation: none;
+  }
+  .hc-image-stage-scan::before,
+  .hc-image-stage-dot,
+  .hc-progressive-image-preview,
+  .hc-progressive-image-final {
+    animation: none;
+  }
+  .hc-progressive-image-preview,
+  .hc-progressive-image-final {
+    filter: none;
+    transform: none;
   }
 }
 

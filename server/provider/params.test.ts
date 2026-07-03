@@ -71,6 +71,28 @@ describe('buildResponseBody', () => {
     expect(body.tools).toEqual([{ type: 'web_search' }])
   })
 
+  it('does not inject a Responses image generation tool from the legacy capability flag', () => {
+    const body = buildResponseBody({
+      model: model({
+        capabilities: {
+          vision: true,
+          file_input: false,
+          web_search: true,
+          image_generation: true,
+          reasoning: false,
+        },
+        defaultParams: { image: { size: '1024x1024', quality: 'low' } },
+        defaultWebSearch: true,
+      }),
+      input: [],
+      instructions: null,
+      userParams: {},
+      stream: true,
+    })
+
+    expect(body.tools).toEqual([{ type: 'web_search' }])
+  })
+
   it('lets advanced hard params override generated cache parameters', () => {
     const body = buildResponseBody({
       model: model({

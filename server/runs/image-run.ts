@@ -3,7 +3,6 @@ import type { ContentPart } from '@shared/types/domain'
 import { RUN_EVENT_TYPE } from '@shared/types/events'
 import { db } from '../db/client'
 import {
-  attachments,
   conversations,
   errorLogs,
   messages,
@@ -11,11 +10,10 @@ import {
   runs,
   usageLogs,
 } from '../db/schema'
-import { newId } from '../lib/id'
 import { providerClientFromRow } from '../provider/client'
 import { UpstreamError } from '../provider/errors'
-import { saveUpload, sha256 } from '../storage/files'
 import { runEmitter } from './emitter'
+import { storeGeneratedImageAttachment } from './generated-images'
 import type { EngineContext } from './types'
 
 interface ImageResponse {
@@ -49,7 +47,12 @@ export async function runImageEngine(ctx: EngineContext): Promise<void> {
     reasoningEnabled: false,
   })
   db.update(runs).set({ state: 'running', startedAt }).where(eq(runs.id, ctx.run.id)).run()
-  persistEmit('image.generation.in_progress', {})
+  persistEmit('image.generation.in_progress', {
+    generationId: 'image-0',
+    callId: null,
+    index: 0,
+    outputIndex: null,
+  })
 
   let state: 'completed' | 'failed' | 'canceled' = 'completed'
   let errorMessage: string | null = null
@@ -71,31 +74,26 @@ export async function runImageEngine(ctx: EngineContext): Promise<void> {
     const item = resp.data?.[0]
     if (!item?.b64_json) throw new UpstreamError({ message: '上游未返回图片数据', status: 502 })
 
-    const buf = Buffer.from(item.b64_json, 'base64')
-    const fmt = typeof resp.output_format === 'string' ? resp.output_format : 'png'
-    const mime = `image/${fmt}`
-    const id = newId()
-    const storagePath = saveUpload(id, `generated.${fmt}`, mime, buf)
-    db.insert(attachments)
-      .values({
-        id,
-        userId: ctx.run.userId,
-        messageId: ctx.assistantMessage.id,
-        kind: 'image',
-        mime,
-        filename: `generated.${fmt}`,
-        byteSize: buf.length,
-        storagePath,
-        sha256: sha256(buf),
-      })
-      .run()
-    attachmentId = id
+    const stored = storeGeneratedImageAttachment({
+      userId: ctx.run.userId,
+      messageId: ctx.assistantMessage.id,
+      b64Json: item.b64_json,
+      outputFormat: typeof resp.output_format === 'string' ? resp.output_format : null,
+    })
+    attachmentId = stored.attachmentId
     revisedPrompt = item.revised_prompt ?? null
     inputTokens = resp.usage?.input_tokens ?? 0
     outputTokens = resp.usage?.output_tokens ?? 0
     totalTokens = resp.usage?.total_tokens ?? 0
     imageTokens = resp.usage?.output_tokens_details?.image_tokens ?? outputTokens
-    persistEmit('image.generation.completed', { attachmentId, revisedPrompt })
+    persistEmit('image.generation.completed', {
+      generationId: 'image-0',
+      callId: null,
+      index: 0,
+      outputIndex: null,
+      attachmentId,
+      revisedPrompt,
+    })
   } catch (e) {
     if (ctx.abortController.signal.aborted) {
       state = 'canceled'
