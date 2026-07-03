@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { clsx } from 'clsx'
-import { Brain, Check, ChevronDown, Globe, ImageIcon, Pin } from 'lucide-react'
+import { Check, ChevronDown, Globe, ImageIcon, Pin } from 'lucide-react'
 import type { ModelDTO } from '@shared/types/api'
 import { effectiveWebSearchEnabled } from '@shared/util/webSearch'
 import {
@@ -15,6 +15,7 @@ import {
   REASONING_EFFORT_SHORT_LABELS,
 } from '../lib/reasoningLabels'
 import { useChatPrefs } from '../store/chat'
+import { ReasoningEffortIcon } from './icons'
 
 function ImageSizeSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [open, setOpen] = useState(false)
@@ -158,15 +159,16 @@ function ReasoningSelect({ model }: { model: ModelDTO }) {
         type="button"
         onClick={() => setOpen((o) => !o)}
         className={clsx(
-          'flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs transition',
+          'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs leading-none transition',
           activeEffort
             ? 'border-violet-200 bg-violet-50 text-violet-600 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-300'
             : 'border-neutral-200 text-neutral-500 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800',
         )}
         title={activeEffort ? `本次思考深度：${label}` : `思考深度：${label}（默认）`}
       >
-        <Brain className="h-3.5 w-3.5" /> 思考 · {label}
-        <ChevronDown className="h-3 w-3" />
+        <ReasoningEffortIcon effort={effective ?? 'none'} className="block h-3.5 w-3.5 shrink-0" />
+        <span className="leading-none">思考 · {label}</span>
+        <ChevronDown className="block h-3 w-3 shrink-0" />
       </button>
       {open && (
         <>
@@ -189,13 +191,13 @@ function ReasoningSelect({ model }: { model: ModelDTO }) {
                       setOpen(false)
                     }}
                     title="临时使用这个思考深度"
-                    className="flex-1 px-3 py-1.5 text-left text-sm"
+                    className={clsx(
+                      'flex flex-1 items-center gap-2 px-3 py-1.5 text-left text-sm',
+                      isActive && 'text-violet-600 dark:text-violet-300',
+                    )}
                   >
-                    <span
-                      className={clsx(isActive && 'text-violet-600 dark:text-violet-300')}
-                    >
-                      {o.label}
-                    </span>
+                    <ReasoningEffortIcon effort={o.value} className="block h-3.5 w-3.5 shrink-0" />
+                    <span>{o.label}</span>
                   </button>
                   <button
                     onClick={() => pinEffort(o.value)}
