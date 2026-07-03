@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { clsx } from 'clsx'
 import { Brain, Check, ChevronDown, Globe, ImageIcon, Pin } from 'lucide-react'
 import type { ModelDTO } from '@shared/types/api'
-import type { ReasoningEffort } from '@shared/types/domain'
 import { effectiveWebSearchEnabled } from '@shared/util/webSearch'
 import {
   GPT_IMAGE_2_SIZE_OPTIONS,
@@ -11,15 +10,11 @@ import {
   validateGptImage2Size,
 } from '@shared/util/imageSize'
 import { useModels } from '../hooks/useModels'
+import {
+  REASONING_EFFORT_OPTION_LABELS,
+  REASONING_EFFORT_SHORT_LABELS,
+} from '../lib/reasoningLabels'
 import { useChatPrefs } from '../store/chat'
-
-const EFFORT_LABELS: Record<ReasoningEffort, string> = {
-  none: '关闭',
-  low: '低',
-  medium: '中',
-  high: '高',
-  xhigh: '极高',
-}
 
 function ImageSizeSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [open, setOpen] = useState(false)
@@ -150,9 +145,12 @@ function ReasoningSelect({ model }: { model: ModelDTO }) {
   const pinEffort = useChatPrefs((s) => s.pinEffort)
   const [open, setOpen] = useState(false)
   const effective = activeEffort ?? model.defaultEffort
-  const label = effective ? EFFORT_LABELS[effective] : '默认'
+  const label = effective ? REASONING_EFFORT_SHORT_LABELS[effective] : '默认'
 
-  const options = model.allowedEfforts.map((e) => ({ value: e, label: EFFORT_LABELS[e] }))
+  const options = model.allowedEfforts.map((e) => ({
+    value: e,
+    label: REASONING_EFFORT_OPTION_LABELS[e],
+  }))
 
   return (
     <div className="relative">

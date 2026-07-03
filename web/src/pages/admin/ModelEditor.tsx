@@ -14,6 +14,7 @@ import * as adminApi from '../../api/admin'
 import { Button } from '../../components/ui/Button'
 import { Modal } from '../../components/ui/Modal'
 import { Toggle } from '../../components/ui/Toggle'
+import { REASONING_EFFORT_OPTION_LABELS } from '../../lib/reasoningLabels'
 import { toast } from '../../store/toast'
 
 const fieldClass =
@@ -29,14 +30,6 @@ const CAP_LABELS: Record<EditableCapability, string> = {
 }
 
 const EDITABLE_CAP_KEYS: EditableCapability[] = ['vision', 'file_input', 'web_search', 'reasoning']
-
-const EFFORT_LABELS: Record<ReasoningEffort, string> = {
-  none: '关闭',
-  low: '低',
-  medium: '中',
-  high: '高',
-  xhigh: '极高',
-}
 
 const BLANK_CAPS: ModelCapabilities = {
   vision: false,
@@ -349,7 +342,7 @@ export function ModelEditor({
                         : 'border-neutral-300 text-neutral-500 hover:bg-neutral-100 dark:border-neutral-600 dark:hover:bg-neutral-800'
                     }`}
                   >
-                    {EFFORT_LABELS[e]}
+                    {REASONING_EFFORT_OPTION_LABELS[e]}
                   </button>
                 ))}
               </div>
@@ -362,7 +355,7 @@ export function ModelEditor({
                   <option value="">未设置</option>
                   {allowedEfforts.map((e) => (
                     <option key={e} value={e}>
-                      {EFFORT_LABELS[e]}
+                      {REASONING_EFFORT_OPTION_LABELS[e]}
                     </option>
                   ))}
                 </select>
