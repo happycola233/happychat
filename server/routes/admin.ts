@@ -10,6 +10,10 @@ import {
 } from '@shared/schemas/model-config'
 import { inviteCreateSchema, statsFilterSchema, userUpdateSchema } from '@shared/schemas/admin'
 import { appConfigUpdateSchema } from '@shared/schemas/app-config'
+import {
+  announcementCreateSchema,
+  announcementUpdateSchema,
+} from '@shared/schemas/announcement'
 import { db } from '../db/client'
 import { inviteCodes, models, providers, users } from '../db/schema'
 import { genInviteCode } from '../lib/id'
@@ -28,6 +32,14 @@ import {
 } from '../services/stats'
 import { listSessions, revokeSession } from '../services/sessions'
 import { getAppConfig, updateAppConfig } from '../services/appConfig'
+import {
+  createAnnouncement,
+  deleteAnnouncement,
+  listAdminAnnouncements,
+  listAnnouncementReaders,
+  resetAnnouncementReads,
+  updateAnnouncement,
+} from '../services/announcements'
 import { listAllShares, revokeShare } from '../services/shares'
 import {
   createModel,
@@ -270,6 +282,40 @@ adminRoutes.get('/app-config', async (c) => c.json({ config: await getAppConfig(
 
 adminRoutes.patch('/app-config', jsonValidator(appConfigUpdateSchema), async (c) => {
   return c.json({ config: await updateAppConfig(c.req.valid('json')) })
+})
+
+// ---------------- 站内公告 ----------------
+
+adminRoutes.get('/announcements', async (c) => {
+  return c.json({ announcements: await listAdminAnnouncements() })
+})
+
+adminRoutes.post('/announcements', jsonValidator(announcementCreateSchema), async (c) => {
+  const announcement = await createAnnouncement(c.req.valid('json'), c.get('user').id)
+  return c.json({ announcement })
+})
+
+adminRoutes.patch('/announcements/:id', jsonValidator(announcementUpdateSchema), async (c) => {
+  const announcement = await updateAnnouncement(c.req.param('id'), c.req.valid('json'))
+  if (!announcement) return c.json({ error: { message: '公告不存在', code: 'not_found' } }, 404)
+  return c.json({ announcement })
+})
+
+adminRoutes.delete('/announcements/:id', async (c) => {
+  await deleteAnnouncement(c.req.param('id'))
+  return c.json({ ok: true })
+})
+
+/** 「谁已读」名单。 */
+adminRoutes.get('/announcements/:id/readers', async (c) => {
+  return c.json({ readers: await listAnnouncementReaders(c.req.param('id')) })
+})
+
+/** 重置已读：清空该公告的所有已读/曝光回执，之后会对全部受众再次推送。 */
+adminRoutes.post('/announcements/:id/reset-reads', async (c) => {
+  const ok = await resetAnnouncementReads(c.req.param('id'))
+  if (!ok) return c.json({ error: { message: '公告不存在', code: 'not_found' } }, 404)
+  return c.json({ ok: true })
 })
 
 adminRoutes.get('/shares', async (c) => c.json({ shares: await listAllShares() }))

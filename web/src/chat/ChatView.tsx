@@ -37,6 +37,8 @@ import { ArrowUpIcon } from './icons'
 import { Message } from './Message'
 import { CollapsibleUserMessageText } from './MessageContent'
 import { ModelSelector } from './ModelSelector'
+import { AnnouncementBanner } from '../announcements/AnnouncementBanner'
+import { NotificationBell } from '../announcements/NotificationBell'
 import type { ImageEditSource } from './imageSource'
 import {
   captureViewportScroll,
@@ -513,7 +515,10 @@ export default function ChatView() {
           <Menu className="h-5 w-5" />
         </button>
         <ModelSelector />
+        <NotificationBell />
       </header>
+
+      <AnnouncementBanner />
 
       <div className="relative min-h-0 flex-1">
         <div

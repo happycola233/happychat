@@ -3,6 +3,34 @@
 export type UserRole = 'admin' | 'user'
 export type Role = 'user' | 'assistant' | 'system'
 
+// ========================= 站内公告 =========================
+
+/** 公告级别：决定配色与默认触达强度（info 蓝 / success 绿 / warning 琥珀 / critical 红）。 */
+export type AnnouncementLevel = 'info' | 'success' | 'warning' | 'critical'
+
+/**
+ * 触达渠道（决定用户如何看到公告）：
+ * - silent：仅进铃铛通知中心
+ * - banner：聊天区顶部可关闭横幅
+ * - modal：首次进入自动弹窗，需确认
+ */
+export type AnnouncementChannel = 'silent' | 'banner' | 'modal'
+
+/** 受众：全体登录用户 / 仅管理员（预留可扩展按角色·按人定向）。 */
+export type AnnouncementAudience = 'all' | 'admins'
+
+/** 发布状态：草稿（永不对用户可见）/ 已发布（按生效窗口计算可见性）。 */
+export type AnnouncementStatus = 'draft' | 'published'
+
+/**
+ * 读取时按 status + 生效窗口派生的运行态（仅用于管理端展示，不落库）：
+ * - draft：草稿
+ * - scheduled：已发布但 publishAt 未到（定时待发）
+ * - active：已发布且处于生效窗口内
+ * - expired：已发布但已过 expiresAt
+ */
+export type AnnouncementPhase = 'draft' | 'scheduled' | 'active' | 'expired'
+
 /** 模型能力标记（管理员配置；前端据此显示/禁用对应控件） */
 export interface ModelCapabilities {
   vision: boolean

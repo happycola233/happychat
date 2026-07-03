@@ -1,7 +1,11 @@
-import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 import { newId } from '../lib/id'
 // 注意：schema.ts 仅用相对路径导入（含 type-only），以规避 drizzle-kit 对 @shared/* 别名解析的不确定性。
 import type {
+  AnnouncementAudience,
+  AnnouncementChannel,
+  AnnouncementLevel,
+  AnnouncementStatus,
   ContentPart,
   MessageStatus,
   ModelCapabilities,
@@ -104,6 +108,68 @@ export const appSettings = sqliteTable('app_settings', {
   titlePrompt: text('title_prompt'),
   updatedAt: updatedAt(),
 })
+
+// ========================= 站内公告 =========================
+
+/**
+ * 站内公告（多条、可排期）。可见性在读取时按
+ * status='published' 且 now ∈ [publishAt ?? -∞, expiresAt ?? +∞] 计算，
+ * 无需定时任务（本项目无 cron）。
+ */
+export const announcements = sqliteTable(
+  'announcements',
+  {
+    id: pk(),
+    title: text('title').notNull(),
+    // 正文（Markdown 源码，渲染复用 chat/Markdown.tsx，原始 HTML 惰性化）
+    body: text('body').notNull(),
+    level: text('level').$type<AnnouncementLevel>().notNull().default('info'),
+    channel: text('channel').$type<AnnouncementChannel>().notNull().default('silent'),
+    audience: text('audience').$type<AnnouncementAudience>().notNull().default('all'),
+    status: text('status').$type<AnnouncementStatus>().notNull().default('draft'),
+    // 置顶：通知中心与横幅排序时优先
+    pinned: integer('pinned', { mode: 'boolean' }).notNull().default(false),
+    // 强提示弹窗对每个用户最多自动弹出的次数（点「我知道了」后不再弹）
+    maxImpressions: integer('max_impressions').notNull().default(1),
+    // 生效起点：null=发布后立即可见；未来时间=定时发布
+    publishAt: ts('publish_at'),
+    // 失效终点：null=永不过期
+    expiresAt: ts('expires_at'),
+    // 创建者（无强关联需求，删用户后保留公告）
+    createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    index('announcements_status_publish_idx').on(t.status, t.publishAt),
+    index('announcements_pinned_idx').on(t.pinned),
+  ],
+)
+
+/**
+ * 每用户对公告的状态（复合主键）。支持逐条已读与「已读 X/Y 人」统计。
+ * - readAt：已读/已确认时间；null=仅曝光过但未确认。
+ * - impressions：强提示弹窗对该用户已自动弹出的次数（用于「通知次数」上限）。
+ */
+export const announcementReads = sqliteTable(
+  'announcement_reads',
+  {
+    announcementId: text('announcement_id')
+      .notNull()
+      .references(() => announcements.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    // null=未确认；有值=已读（bell 未读数、已读统计均以此为准）
+    readAt: ts('read_at'),
+    // 强弹窗已自动弹出次数
+    impressions: integer('impressions').notNull().default(0),
+  },
+  (t) => [
+    primaryKey({ columns: [t.announcementId, t.userId] }),
+    index('announcement_reads_user_idx').on(t.userId),
+  ],
+)
 
 // ========================= Provider / 模型 =========================
 

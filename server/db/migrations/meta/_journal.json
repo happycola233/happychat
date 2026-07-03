@@ -64,6 +64,20 @@
       "when": 1782934312917,
       "tag": "0008_superb_centennial",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1783108456532,
+      "tag": "0009_greedy_lady_bullseye",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1783110080603,
+      "tag": "0010_aberrant_ender_wiggin",
+      "breakpoints": true
     }
   ]
 }

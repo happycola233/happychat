@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   Boxes,
   LayoutDashboard,
+  Megaphone,
   Server,
   Settings,
   Share2,
@@ -24,6 +25,7 @@ const navItems = [
   { to: 'shares', label: '分享管理', icon: Share2 },
   { to: 'providers', label: '提供商', icon: Server },
   { to: 'models', label: '模型', icon: Boxes },
+  { to: 'announcements', label: '公告', icon: Megaphone },
   { to: 'settings', label: '系统设置', icon: Settings },
 ]
 

@@ -8,6 +8,7 @@ import SharedChatPage from './pages/SharedChatPage'
 import AdminLayout from './pages/admin/AdminLayout'
 import {
   AnalyticsPage,
+  AnnouncementsPage,
   AuthCenterPage,
   ErrorEventsPage,
   ModelsPage,
@@ -49,6 +50,7 @@ export const router = createBrowserRouter([
           { path: 'users/:id', element: <UserDetailPage /> },
           { path: 'providers', element: <ProvidersPage /> },
           { path: 'models', element: <ModelsPage /> },
+          { path: 'announcements', element: <AnnouncementsPage /> },
           { path: 'settings', element: <SettingsPage /> },
           // 旧路径兼容重定向
           { path: 'stats', element: <Navigate to="/admin/overview" replace /> },

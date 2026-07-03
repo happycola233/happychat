@@ -1,5 +1,6 @@
 import { Outlet } from 'react-router-dom'
 import { useConversationEvents } from '../sse/conversationEvents'
+import { AnnouncementDialog } from '../announcements/AnnouncementDialog'
 import { Sidebar } from './Sidebar'
 import { SettingsDialog } from './SettingsDialog'
 
@@ -13,6 +14,7 @@ export default function ChatLayout() {
         <Outlet />
       </div>
       <SettingsDialog />
+      <AnnouncementDialog />
     </div>
   )
 }

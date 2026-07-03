@@ -13,6 +13,7 @@ import { conversationRoutes } from './routes/conversations'
 import { runRoutes } from './routes/runs'
 import { attachmentRoutes } from './routes/attachments'
 import { shareRoutes } from './routes/shares'
+import { announcementRoutes } from './routes/announcements'
 import { recoverInterruptedRuns } from './runs/manager'
 import { UpstreamError } from './provider/errors'
 import type { AppEnv } from './http/types'
@@ -34,6 +35,7 @@ app.route('/api/conversations', conversationRoutes)
 app.route('/api/runs', runRoutes)
 app.route('/api/attachments', attachmentRoutes)
 app.route('/api/shares', shareRoutes)
+app.route('/api/announcements', announcementRoutes)
 
 // 生产环境：由后端静态托管构建后的前端（单体部署）
 const isProd = env.NODE_ENV === 'production'

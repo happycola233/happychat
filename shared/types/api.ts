@@ -1,4 +1,9 @@
 import type {
+  AnnouncementAudience,
+  AnnouncementChannel,
+  AnnouncementLevel,
+  AnnouncementPhase,
+  AnnouncementStatus,
   ContentPart,
   MessageStatus,
   MessageUsage,
@@ -323,6 +328,59 @@ export interface AppConfigDTO {
   titleEnabled: boolean
   titleModelId: string | null
   titlePrompt: string | null
+}
+
+// ===================== 站内公告 =====================
+
+/** 管理端可见的完整公告记录（含派生运行态与已读统计）。 */
+export interface AdminAnnouncementDTO {
+  id: string
+  title: string
+  body: string
+  level: AnnouncementLevel
+  channel: AnnouncementChannel
+  audience: AnnouncementAudience
+  status: AnnouncementStatus
+  pinned: boolean
+  /** 强提示弹窗对每个用户最多自动弹出的次数 */
+  maxImpressions: number
+  publishAt: number | null
+  expiresAt: number | null
+  createdByName: string | null
+  createdAt: number
+  updatedAt: number
+  /** status + 生效窗口派生的运行态 */
+  phase: AnnouncementPhase
+  /** 已读人数 */
+  readCount: number
+  /** 目标受众总人数（用于「已读 X/Y 人」） */
+  audienceCount: number
+}
+
+/** 管理端「谁已读」名单中的一项。 */
+export interface AnnouncementReaderDTO {
+  userId: string
+  username: string
+  displayName: string | null
+  readAt: number
+}
+
+/** 用户端可见的一条生效公告（含当前用户是否已读）。 */
+export interface UserAnnouncementDTO {
+  id: string
+  title: string
+  body: string
+  level: AnnouncementLevel
+  channel: AnnouncementChannel
+  pinned: boolean
+  publishAt: number | null
+  createdAt: number
+  /** 当前用户是否已读（已确认） */
+  read: boolean
+  /** 强提示弹窗的最大自动弹出次数 */
+  maxImpressions: number
+  /** 强提示弹窗对该用户已自动弹出的次数 */
+  impressions: number
 }
 
 /** 用户自己/管理员看到的一条分享记录。 */

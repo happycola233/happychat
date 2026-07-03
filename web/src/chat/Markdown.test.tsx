@@ -91,3 +91,24 @@ describe('Markdown math', () => {
     expect(warn).not.toHaveBeenCalled()
   })
 })
+
+// 公告正文复用同一渲染器（作者为管理员，但仍须保证不执行不可信 HTML）。
+describe('Markdown 安全性', () => {
+  it('不把原始 HTML 渲染为真实的脚本/图片标签', () => {
+    const html = renderToStaticMarkup(
+      <Markdown text={'<script>alert(1)</script>\n\n<img src=x onerror=alert(2)>\n\n正文照常'} />,
+    )
+
+    // 未启用 rehype-raw：原始 HTML 被转义为文本，绝不产生可执行标签。
+    expect(html).not.toContain('<script>')
+    expect(html).not.toMatch(/<img[\s>]/)
+    expect(html).toContain('正文照常')
+  })
+
+  it('中和 javascript: 链接协议', () => {
+    const html = renderToStaticMarkup(<Markdown text={'[点我](javascript:alert(1))'} />)
+
+    expect(html).not.toContain('javascript:')
+    expect(html).toContain('点我')
+  })
+})
