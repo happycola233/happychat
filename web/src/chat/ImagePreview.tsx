@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { clsx } from 'clsx'
-import { Download, Maximize2, X } from 'lucide-react'
+import { Download, X } from 'lucide-react'
 
 interface ImagePreviewTriggerProps {
   src: string
@@ -9,7 +9,6 @@ interface ImagePreviewTriggerProps {
   children?: ReactNode
   caption?: string | null
   className?: string
-  compact?: boolean
   downloadName?: string
   imageClassName?: string
   title?: string | null
@@ -29,7 +28,6 @@ export function ImagePreviewTrigger({
   children,
   caption,
   className,
-  compact = false,
   downloadName = 'happychat-image',
   imageClassName,
   title,
@@ -51,16 +49,6 @@ export function ImagePreviewTrigger({
         )}
       >
         {children ?? <img src={src} alt={alt} title={title ?? undefined} className={imageClassName} />}
-        <span
-          className={clsx(
-            'pointer-events-none absolute flex items-center justify-center rounded-full bg-black/55 text-white opacity-0 shadow-lg ring-1 ring-white/20 backdrop-blur transition',
-            'group-hover:opacity-100 group-focus-visible:opacity-100',
-            compact ? 'right-1 top-1 h-5 w-5' : 'right-2 top-2 h-7 w-7',
-          )}
-          aria-hidden="true"
-        >
-          <Maximize2 className={compact ? 'h-3 w-3' : 'h-3.5 w-3.5'} />
-        </span>
       </button>
       {open && (
         <ImagePreviewDialog

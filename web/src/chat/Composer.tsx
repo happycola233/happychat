@@ -201,7 +201,6 @@ export function Composer({
                   alt="编辑源图片"
                   caption={`编辑源：${source.label}`}
                   className="h-10 w-10 overflow-hidden rounded"
-                  compact
                   imageClassName="block h-10 w-10 object-cover"
                 />
                 <span className="max-w-[8rem] truncate px-1 text-xs text-violet-700 dark:text-violet-200">
@@ -229,7 +228,6 @@ export function Composer({
                     alt={a.filename || '待发送图片'}
                     caption={a.filename}
                     className="h-10 w-10 overflow-hidden rounded"
-                    compact
                     imageClassName="block h-10 w-10 object-cover"
                   />
                 ) : (
