@@ -540,7 +540,7 @@ export function ModelEditor({
         <FormSection title="高级">
           <Field label="请求体硬参数（JSON）">
             <textarea
-              className={`${fieldClass} min-h-[96px] resize-y font-mono text-xs`}
+              className={`${fieldClass} min-h-[168px] resize-y font-mono text-xs`}
               value={hardParamsText}
               onChange={(e) => setHardParamsText(e.target.value)}
               placeholder={'例如 {"reasoning":{"summary":"auto"}}'}

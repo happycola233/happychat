@@ -10,10 +10,60 @@ export function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
 
+const WEB_SEARCH_TOOL_TYPES = new Set(['web_search', 'web_search_preview'])
+
+function responseToolMergeKey(tool: unknown): string | null {
+  if (!isPlainObject(tool) || typeof tool.type !== 'string') return null
+  if (WEB_SEARCH_TOOL_TYPES.has(tool.type)) return 'web_search'
+  if (tool.type === 'function' && typeof tool.name === 'string') return `function:${tool.name}`
+  if (tool.type === 'mcp' && typeof tool.server_label === 'string') return `mcp:${tool.server_label}`
+  if (tool.type === 'namespace' && typeof tool.name === 'string') return `namespace:${tool.name}`
+
+  // 内置工具通常是单例配置；高级 JSON 中同一工具仍应覆盖应用生成的默认配置。
+  if (
+    [
+      'code_interpreter',
+      'computer_use_preview',
+      'file_search',
+      'image_generation',
+      'shell',
+      'tool_search',
+    ].includes(tool.type)
+  ) {
+    return tool.type
+  }
+  return null
+}
+
+function mergeResponseTools(existing: unknown[], overrides: unknown[]): unknown[] {
+  const merged = [...existing]
+  const indexByKey = new Map<string, number>()
+
+  for (const [index, tool] of merged.entries()) {
+    const key = responseToolMergeKey(tool)
+    if (key) indexByKey.set(key, index)
+  }
+
+  for (const tool of overrides) {
+    const key = responseToolMergeKey(tool)
+    const existingIndex = key ? indexByKey.get(key) : undefined
+    if (existingIndex !== undefined) {
+      merged[existingIndex] = tool
+    } else {
+      if (key) indexByKey.set(key, merged.length)
+      merged.push(tool)
+    }
+  }
+
+  return merged
+}
+
 export function mergeDeep(target: Record<string, unknown>, src: Record<string, unknown>): void {
   for (const [k, v] of Object.entries(src)) {
     const existing = target[k]
-    if (isPlainObject(v) && isPlainObject(existing)) mergeDeep(existing, v)
+    if (k === 'tools' && Array.isArray(existing) && Array.isArray(v) && v.length > 0) {
+      target[k] = mergeResponseTools(existing, v)
+    } else if (isPlainObject(v) && isPlainObject(existing)) mergeDeep(existing, v)
     else target[k] = v
   }
 }

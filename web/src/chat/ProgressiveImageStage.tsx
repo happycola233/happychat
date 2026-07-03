@@ -82,10 +82,10 @@ function ProgressiveImageCard({
   const activeUrl = activeId ? attachmentUrl(activeId) : null
   const done = generation.status === 'done' && Boolean(finalId)
   const active = liveStatus === 'streaming' && !done
-  const previewLabel =
+  const generationProgressLabel =
     generation.previewIndex === null || generation.previewIndex === undefined
-      ? '生成中'
-      : `预览 ${generation.previewIndex + 1}`
+      ? '仍在生成'
+      : `仍在生成（阶段 ${generation.previewIndex + 1}）`
   const imageLabel = total > 1 ? `图 ${generation.index + 1}` : ''
   const statusLabel = done
     ? total > 1
@@ -93,9 +93,9 @@ function ProgressiveImageCard({
       : '已完成'
     : active
       ? total > 1
-        ? `${imageLabel} · ${previewId ? previewLabel : '生成中'}`
+        ? `${imageLabel} · ${previewId ? generationProgressLabel : '生成中'}`
         : previewId
-          ? previewLabel
+          ? generationProgressLabel
           : '生成图片'
       : total > 1
         ? `${imageLabel} 已停止`

@@ -93,6 +93,66 @@ describe('buildResponseBody', () => {
     expect(body.tools).toEqual([{ type: 'web_search' }])
   })
 
+  it('merges advanced JSON tools with the generated web search tool', () => {
+    const body = buildResponseBody({
+      model: model({
+        capabilities: {
+          vision: false,
+          file_input: false,
+          web_search: true,
+          image_generation: false,
+          reasoning: true,
+        },
+        allowedEfforts: ['low', 'medium', 'high', 'xhigh'],
+        defaultEffort: 'low',
+        hardParams: {
+          reasoning: { summary: 'auto' },
+          tools: [{ type: 'image_generation', partial_images: 3 }],
+        },
+      }),
+      input: [],
+      instructions: null,
+      userParams: { web_search: true },
+      stream: true,
+    })
+
+    expect(body.reasoning).toEqual({ effort: 'low', summary: 'auto' })
+    expect(body.tools).toEqual([
+      { type: 'web_search' },
+      { type: 'image_generation', partial_images: 3 },
+    ])
+  })
+
+  it('lets advanced JSON replace the generated web search tool config', () => {
+    const body = buildResponseBody({
+      model: model({
+        hardParams: {
+          tools: [{ type: 'web_search', search_context_size: 'low' }],
+        },
+      }),
+      input: [],
+      instructions: null,
+      userParams: { web_search: true },
+      stream: true,
+    })
+
+    expect(body.tools).toEqual([{ type: 'web_search', search_context_size: 'low' }])
+  })
+
+  it('keeps an explicit empty advanced JSON tools array as an override', () => {
+    const body = buildResponseBody({
+      model: model({
+        hardParams: { tools: [] },
+      }),
+      input: [],
+      instructions: null,
+      userParams: { web_search: true },
+      stream: true,
+    })
+
+    expect(body.tools).toEqual([])
+  })
+
   it('lets advanced hard params override generated cache parameters', () => {
     const body = buildResponseBody({
       model: model({
