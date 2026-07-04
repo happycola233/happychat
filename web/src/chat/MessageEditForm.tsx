@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import type { ChangeEvent, ClipboardEvent, DragEvent } from 'react'
 import { clsx } from 'clsx'
 import { Spinner } from '../components/ui/Spinner'
@@ -11,7 +11,11 @@ import {
   type AttachmentDraftItem,
 } from './attachmentDraft'
 import { AttachmentIcon, UploadImageIcon } from './icons'
-import { MESSAGE_BODY_TEXT_CLASS } from './messageStyles'
+import {
+  getUserMessageEditVisibleHeight,
+  MESSAGE_BODY_TEXT_CLASS,
+  USER_MESSAGE_EDIT_MIN_HEIGHT,
+} from './messageStyles'
 import { useAttachmentUpload } from './useAttachmentUpload'
 
 export interface MessageEditSubmit {
@@ -40,8 +44,21 @@ export function MessageEditForm({
   const [attachments, setAttachments] = useState(initialAttachments)
   const [dragActive, setDragActive] = useState(false)
   const dragDepth = useRef(0)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const imageInput = useRef<HTMLInputElement>(null)
   const fileInput = useRef<HTMLInputElement>(null)
+
+  const resizeTextarea = useCallback(() => {
+    const el = textareaRef.current
+    if (!el) return
+
+    // 长提示词编辑时给出接近 ChatGPT 的大视窗，超出后只滚动正文区域。
+    const maxHeight = getUserMessageEditVisibleHeight(window.innerHeight)
+    el.style.height = 'auto'
+    const nextHeight = Math.min(Math.max(el.scrollHeight, USER_MESSAGE_EDIT_MIN_HEIGHT), maxHeight)
+    el.style.height = `${nextHeight}px`
+    el.style.overflowY = el.scrollHeight > maxHeight ? 'auto' : 'hidden'
+  }, [])
 
   const addAttachment = useCallback((attachment: AttachmentDTO) => {
     setAttachments((items) => [...items, attachmentDraftFromAttachment(attachment)])
@@ -53,6 +70,15 @@ export function MessageEditForm({
   })
 
   const canSubmit = canSubmitAttachmentDraft(draft, attachments) && !uploading
+
+  useLayoutEffect(() => {
+    resizeTextarea()
+  }, [attachments.length, draft, resizeTextarea])
+
+  useLayoutEffect(() => {
+    window.addEventListener('resize', resizeTextarea)
+    return () => window.removeEventListener('resize', resizeTextarea)
+  }, [resizeTextarea])
 
   const submitEdit = () => {
     if (!canSubmit) return
@@ -137,6 +163,7 @@ export function MessageEditForm({
           testId="edit-attachment-chip"
         />
         <textarea
+          ref={textareaRef}
           autoFocus
           data-testid="edit-textarea"
           value={draft}
@@ -148,7 +175,9 @@ export function MessageEditForm({
               submitEdit()
             }
           }}
-          className={`${MESSAGE_BODY_TEXT_CLASS} min-h-[4.5rem] w-full resize-none bg-transparent outline-none`}
+          rows={1}
+          className={`${MESSAGE_BODY_TEXT_CLASS} hc-scrollbar w-full resize-none overflow-hidden bg-transparent outline-none`}
+          style={{ minHeight: USER_MESSAGE_EDIT_MIN_HEIGHT }}
         />
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
           <div className="-ml-1 flex items-center gap-1">

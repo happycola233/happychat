@@ -1,9 +1,10 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { clsx } from 'clsx'
 import { ChevronDown } from 'lucide-react'
-import { MESSAGE_BODY_TEXT_CLASS } from './messageStyles'
-
-const USER_MESSAGE_COLLAPSED_HEIGHT = 224
+import {
+  getUserMessageEditVisibleHeight,
+  MESSAGE_BODY_TEXT_CLASS,
+} from './messageStyles'
 
 // P4：纯文本渲染（保留换行）。助手消息走 Markdown 组件，用户消息用这里。
 export function MessageText({ text }: { text: string }) {
@@ -17,14 +18,17 @@ export function MessageText({ text }: { text: string }) {
 export function CollapsibleUserMessageText({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false)
   const [canCollapse, setCanCollapse] = useState(false)
+  const [collapsedHeight, setCollapsedHeight] = useState(() =>
+    getUserMessageEditVisibleHeight(window.innerHeight),
+  )
   const contentRef = useRef<HTMLDivElement>(null)
 
   const measure = useCallback(() => {
     const el = contentRef.current
     if (!el) return
     const nextHeight = el.scrollHeight
-    setCanCollapse(nextHeight > USER_MESSAGE_COLLAPSED_HEIGHT + 1)
-  }, [])
+    setCanCollapse(nextHeight > collapsedHeight + 1)
+  }, [collapsedHeight])
 
   useLayoutEffect(() => {
     setExpanded(false)
@@ -48,6 +52,15 @@ export function CollapsibleUserMessageText({ text }: { text: string }) {
     return () => observer.disconnect()
   }, [measure])
 
+  useLayoutEffect(() => {
+    const updateCollapsedHeight = () => {
+      setCollapsedHeight(getUserMessageEditVisibleHeight(window.innerHeight))
+    }
+
+    window.addEventListener('resize', updateCollapsedHeight)
+    return () => window.removeEventListener('resize', updateCollapsedHeight)
+  }, [])
+
   const collapsed = canCollapse && !expanded
 
   return (
@@ -55,7 +68,7 @@ export function CollapsibleUserMessageText({ text }: { text: string }) {
       <div className="relative">
         <div
           ref={contentRef}
-          style={collapsed ? { maxHeight: USER_MESSAGE_COLLAPSED_HEIGHT } : undefined}
+          style={collapsed ? { maxHeight: collapsedHeight } : undefined}
           className={clsx('overflow-hidden transition-[max-height] duration-200 ease-out')}
         >
           <MessageText text={text} />
