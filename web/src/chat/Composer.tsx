@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, ClipboardEvent, KeyboardEvent, ReactNode } from 'react'
 import { clsx } from 'clsx'
-import { FileText, Square, X } from 'lucide-react'
+import { Square, X } from 'lucide-react'
 import type { AttachmentDTO } from '@shared/types/api'
-import { attachmentUrl, uploadAttachment } from '../api/attachments'
-import { toast } from '../store/toast'
+import { attachmentUrl } from '../api/attachments'
 import { useSettings } from '../store/settings'
 import { Spinner } from '../components/ui/Spinner'
 import type { ImageEditSource } from './imageSource'
 import { ArrowUpIcon, AttachmentIcon, UploadImageIcon } from './icons'
 import { ImagePreviewTrigger } from './ImagePreview'
+import { AttachmentDraftList } from './AttachmentDraftList'
+import { attachmentDraftsFromAttachments } from './attachmentDraft'
+import { useAttachmentUpload } from './useAttachmentUpload'
 
 interface Props {
   onSend: (text: string, attachments: AttachmentDTO[], imageSources: ImageEditSource[]) => void
@@ -39,7 +41,6 @@ export function Composer({
   const sendOnEnter = useSettings((s) => s.preferences.sendOnEnter)
   const [text, setText] = useState('')
   const [pending, setPending] = useState<AttachmentDTO[]>([])
-  const [uploading, setUploading] = useState(false)
   const [dragActive, setDragActive] = useState(false)
   const ref = useRef<HTMLTextAreaElement>(null)
   const imageInput = useRef<HTMLInputElement>(null)
@@ -53,41 +54,14 @@ export function Composer({
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`
   }
 
-  const uploadFiles = useCallback(
-    async (files: File[]) => {
-      let rejectedImageCapability = false
-      let rejectedFileCapability = false
-      const supported = files.filter((file) => {
-        const isImage = file.type.startsWith('image/')
-        if (isImage && !canImage) {
-          rejectedImageCapability = true
-          return false
-        }
-        if (!isImage && !canFile) {
-          rejectedFileCapability = true
-          return false
-        }
-        return true
-      })
-
-      if (rejectedImageCapability) toast.error('当前模型不支持图片输入')
-      if (rejectedFileCapability) toast.error('当前模型不支持文件输入')
-      if (!supported.length) return
-
-      setUploading(true)
-      try {
-        for (const file of supported) {
-          const att = await uploadAttachment(file)
-          setPending((items) => [...items, att])
-        }
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : '上传失败')
-      } finally {
-        setUploading(false)
-      }
-    },
-    [canFile, canImage],
-  )
+  const addPendingAttachment = useCallback((attachment: AttachmentDTO) => {
+    setPending((items) => [...items, attachment])
+  }, [])
+  const { uploading, uploadFiles } = useAttachmentUpload({
+    canImage,
+    canFile,
+    onUploaded: addPendingAttachment,
+  })
 
   const onPick = async (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? [])
@@ -133,26 +107,26 @@ export function Composer({
       Array.from(event.dataTransfer?.types ?? []).includes('Files')
 
     const onDragEnter = (event: DragEvent) => {
-      if (!hasFiles(event)) return
+      if (event.defaultPrevented || !hasFiles(event)) return
       event.preventDefault()
       dragDepth.current += 1
       setDragActive(true)
     }
 
     const onDragOver = (event: DragEvent) => {
-      if (!hasFiles(event)) return
+      if (event.defaultPrevented || !hasFiles(event)) return
       event.preventDefault()
       if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
     }
 
     const onDragLeave = (event: DragEvent) => {
-      if (!hasFiles(event)) return
+      if (event.defaultPrevented || !hasFiles(event)) return
       dragDepth.current = Math.max(0, dragDepth.current - 1)
       if (dragDepth.current === 0) setDragActive(false)
     }
 
     const onDrop = (event: DragEvent) => {
-      if (!hasFiles(event)) return
+      if (event.defaultPrevented || !hasFiles(event)) return
       event.preventDefault()
       const files = Array.from(event.dataTransfer?.files ?? [])
       dragDepth.current = 0
@@ -190,61 +164,42 @@ export function Composer({
           </div>
         )}
         {(imageSources.length > 0 || pending.length > 0) && (
-          <div className="mb-2 flex flex-wrap gap-2">
-            {imageSources.map((source) => (
-              <div
-                key={source.attachmentId}
-                className="group relative flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 p-1 dark:border-violet-800 dark:bg-violet-950/30"
-              >
-                <ImagePreviewTrigger
-                  src={attachmentUrl(source.attachmentId)}
-                  alt="编辑源图片"
-                  caption={`编辑源：${source.label}`}
-                  className="h-10 w-10 overflow-hidden rounded"
-                  imageClassName="block h-10 w-10 object-cover"
-                />
-                <span className="max-w-[8rem] truncate px-1 text-xs text-violet-700 dark:text-violet-200">
-                  编辑源：{source.label}
-                </span>
-                <button
-                  onClick={() => onRemoveImageSource?.(source.attachmentId)}
-                  className="rounded p-0.5 text-violet-400 hover:text-red-500"
-                  aria-label="移除编辑源"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
+          <div className="mb-2 space-y-2">
+            {imageSources.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {imageSources.map((source) => (
+                  <div
+                    key={source.attachmentId}
+                    className="group relative flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 p-1 dark:border-violet-800 dark:bg-violet-950/30"
+                  >
+                    <ImagePreviewTrigger
+                      src={attachmentUrl(source.attachmentId)}
+                      alt="编辑源图片"
+                      caption={`编辑源：${source.label}`}
+                      className="h-10 w-10 overflow-hidden rounded"
+                      imageClassName="block h-10 w-10 object-cover"
+                    />
+                    <span className="max-w-[8rem] truncate px-1 text-xs text-violet-700 dark:text-violet-200">
+                      编辑源：{source.label}
+                    </span>
+                    <button
+                      onClick={() => onRemoveImageSource?.(source.attachmentId)}
+                      className="rounded p-0.5 text-violet-400 hover:text-red-500"
+                      aria-label="移除编辑源"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
               </div>
-            ))}
-            {pending.map((a) => (
-              <div
-                key={a.id}
-                data-testid="pending-attachment"
-                data-attachment-kind={a.kind}
-                className="group relative flex items-center gap-1.5 rounded-lg border border-neutral-200 bg-neutral-50 p-1 dark:border-neutral-700 dark:bg-neutral-900"
-              >
-                {a.kind === 'image' ? (
-                  <ImagePreviewTrigger
-                    src={attachmentUrl(a.id)}
-                    alt={a.filename || '待发送图片'}
-                    caption={a.filename}
-                    className="h-10 w-10 overflow-hidden rounded"
-                    imageClassName="block h-10 w-10 object-cover"
-                  />
-                ) : (
-                  <span className="flex items-center gap-1.5 px-1.5 text-xs text-neutral-600 dark:text-neutral-300">
-                    <FileText className="h-4 w-4" />
-                    <span className="max-w-[8rem] truncate">{a.filename}</span>
-                  </span>
-                )}
-                <button
-                  onClick={() => setPending((p) => p.filter((x) => x.id !== a.id))}
-                  className="rounded p-0.5 text-neutral-400 hover:text-red-500"
-                  aria-label="移除附件"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ))}
+            )}
+            <AttachmentDraftList
+              items={attachmentDraftsFromAttachments(pending)}
+              onRemove={(draftId) =>
+                setPending((items) => items.filter((item) => item.id !== draftId))
+              }
+              testId="pending-attachment"
+            />
           </div>
         )}
 

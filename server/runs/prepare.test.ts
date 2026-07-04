@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
 let tmpDir: string
@@ -578,6 +579,53 @@ describe('prepareRun file inputs', () => {
     })
 
     expect(result.ok).toBe(true)
+  })
+
+  it('reuses a retained file attachment when editing a user message into a sibling branch', async () => {
+    const { userId, modelId } = await createRunnableFileModel()
+    const attachment = await createFileAttachment(userId, { filename: 'retained.txt' })
+    const first = assertPrepared(
+      await prepare.prepareRun({
+        userId,
+        modelId,
+        text: '原始文本',
+        attachments: [attachment],
+      }),
+    )
+
+    const edited = assertPrepared(
+      await prepare.prepareRun({
+        userId,
+        modelId,
+        conversationId: first.conversation.id,
+        parentId: first.userMessage.parentId,
+        text: '编辑后的文本',
+        attachments: [attachment],
+      }),
+    )
+
+    expect(edited.userMessage.parentId).toBe(first.userMessage.parentId)
+    expect(edited.userMessage.content).toContainEqual({
+      type: 'input_file',
+      attachment_id: attachment.attachmentId,
+      filename: attachment.filename,
+    })
+
+    const [oldUserMessage] = await dbClient.db
+      .select()
+      .from(schema.messages)
+      .where(eq(schema.messages.id, first.userMessage.id))
+      .limit(1)
+    expect(oldUserMessage?.content).toContainEqual({
+      type: 'input_file',
+      attachment_id: attachment.attachmentId,
+      filename: attachment.filename,
+    })
+
+    const attachmentRow = dbClient.sqlite
+      .prepare('select message_id as messageId from attachments where id = ?')
+      .get(attachment.attachmentId) as { messageId: string | null } | undefined
+    expect(attachmentRow?.messageId).toBe(edited.userMessage.id)
   })
 })
 

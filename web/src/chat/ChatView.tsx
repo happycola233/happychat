@@ -35,11 +35,13 @@ import { ChatControls } from './ChatControls'
 import { Composer } from './Composer'
 import { ArrowUpIcon } from './icons'
 import { Message } from './Message'
+import type { MessageEditSubmit } from './MessageEditForm'
 import { CollapsibleUserMessageText } from './MessageContent'
 import { ModelSelector } from './ModelSelector'
 import { AnnouncementBanner } from '../announcements/AnnouncementBanner'
 import { NotificationBell } from '../announcements/NotificationBell'
 import type { ImageEditSource } from './imageSource'
+import { getAttachmentDraftSupportIssue, toAttachmentRefs } from './attachmentDraft'
 import {
   captureViewportScroll,
   restoreViewportScroll,
@@ -465,18 +467,41 @@ export default function ChatView() {
     setImageSources([source])
   }
 
-  const onEdit = (msg: MessageDTO, text: string) => {
-    if (!activeModelId) return toast.error('请先选择模型')
+  const onEdit = (msg: MessageDTO, input: MessageEditSubmit): boolean => {
+    if (!activeModelId) {
+      toast.error('请先选择模型')
+      return false
+    }
+    if (model?.kind === 'image' && !input.text.trim()) {
+      toast.error('请输入图片生成或编辑提示词')
+      return false
+    }
+    if (model) {
+      const supportIssue = getAttachmentDraftSupportIssue(input.attachments, {
+        canImage: model.capabilities.vision,
+        canFile: model.capabilities.file_input,
+      })
+      if (supportIssue === 'image') {
+        toast.error('当前模型不支持图片输入，请移除图片或切换模型')
+        return false
+      }
+      if (supportIssue === 'file') {
+        toast.error('当前模型不支持文件输入，请移除文件或切换模型')
+        return false
+      }
+    }
     shouldAutoFollowRef.current = true
     sendMut.mutate({
       conversationId: id,
       modelId: activeModelId,
-      text,
+      text: input.text,
       params: params(),
       clientLocale: getBrowserLocale(),
       clientTimezone: getBrowserTimezone(),
       parentId: msg.parentId,
+      attachments: toAttachmentRefs(input.attachments),
     })
+    return true
   }
 
   const onRegenerate = (assistantMessageId: string) => {
@@ -561,7 +586,11 @@ export default function ChatView() {
                         live={stream && m.id === stream.assistantMessageId ? stream : undefined}
                         branch={branch}
                         busy={streaming}
-                        onEdit={m.role === 'user' ? (t) => onEdit(m, t) : undefined}
+                        editCapabilities={{
+                          canImage: model?.capabilities.vision,
+                          canFile: model?.capabilities.file_input,
+                        }}
+                        onEdit={m.role === 'user' ? (input) => onEdit(m, input) : undefined}
                         onRegenerate={m.role === 'assistant' ? () => onRegenerate(m.id) : undefined}
                         onUseImageSource={
                           m.role === 'assistant' && messageModel?.kind === 'image'

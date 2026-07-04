@@ -12,7 +12,6 @@ import type { LiveMessage } from '../sse/eventReducer'
 import { useModels } from '../hooks/useModels'
 import { useSettings } from '../store/settings'
 import { CollapsibleUserMessageText } from './MessageContent'
-import { MESSAGE_BODY_TEXT_CLASS } from './messageStyles'
 import { textFromContent } from './contentText'
 import { Markdown } from './Markdown'
 import { ReasoningCard, type ReasoningCardStatus } from './ReasoningCard'
@@ -25,6 +24,8 @@ import {
 } from './MessageMeta'
 import type { ImageEditSource } from './imageSource'
 import { ProgressiveImageStage } from './ProgressiveImageStage'
+import { attachmentDraftsFromContent } from './attachmentDraft'
+import { MessageEditForm, type MessageEditSubmit } from './MessageEditForm'
 
 export interface BranchInfo {
   index: number
@@ -38,7 +39,8 @@ interface Props {
   live?: LiveMessage
   branch?: BranchInfo
   busy?: boolean
-  onEdit?: (text: string) => void
+  onEdit?: (input: MessageEditSubmit) => boolean | void
+  editCapabilities?: { canImage?: boolean; canFile?: boolean }
   onRegenerate?: () => void
   onUseImageSource?: (source: ImageEditSource) => void
 }
@@ -116,11 +118,11 @@ export function Message({
   branch,
   busy,
   onEdit,
+  editCapabilities,
   onRegenerate,
   onUseImageSource,
 }: Props) {
   const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState('')
   const showMessageTime = useSettings((s) => s.preferences.showMessageTime)
   const messageTimeFormat = useSettings((s) => s.preferences.messageTimeFormat)
   const showModelLabel = useSettings((s) => s.preferences.showModelLabel)
@@ -132,46 +134,15 @@ export function Message({
   if (message.role === 'user') {
     const text = textFromContent(message.content)
     if (editing) {
-      const submitEdit = () => {
-        const t = draft.trim()
-        if (t) {
-          onEdit?.(t)
-          setEditing(false)
-        }
-      }
       return (
-        <div className="flex justify-end">
-          <div className="w-full max-w-[85%] rounded-3xl bg-neutral-100 px-4 py-3.5 dark:bg-neutral-800">
-            <textarea
-              autoFocus
-              data-testid="edit-textarea"
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                  e.preventDefault()
-                  submitEdit()
-                }
-              }}
-              className={`${MESSAGE_BODY_TEXT_CLASS} min-h-[4.5rem] w-full resize-none bg-transparent outline-none`}
-            />
-            <div className="mt-2 flex justify-end gap-2">
-              <button
-                onClick={() => setEditing(false)}
-                className="rounded-full bg-white px-4 py-1.5 text-sm font-medium text-neutral-700 shadow-sm transition hover:bg-neutral-50 dark:bg-neutral-700 dark:text-neutral-100 dark:hover:bg-neutral-600"
-              >
-                取消
-              </button>
-              <button
-                data-testid="edit-submit"
-                onClick={submitEdit}
-                className="rounded-full bg-neutral-900 px-4 py-1.5 text-sm font-medium text-white transition hover:bg-neutral-800 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
-              >
-                发送
-              </button>
-            </div>
-          </div>
-        </div>
+        <MessageEditForm
+          initialText={text}
+          initialAttachments={attachmentDraftsFromContent(message.content)}
+          canImage={editCapabilities?.canImage}
+          canFile={editCapabilities?.canFile}
+          onCancel={() => setEditing(false)}
+          onSubmit={(input) => onEdit?.(input)}
+        />
       )
     }
     const hasAtt = message.content.some((p) => p.type === 'input_image' || p.type === 'input_file')
@@ -196,7 +167,6 @@ export function Message({
                 title="编辑"
                 disabled={busy}
                 onClick={() => {
-                  setDraft(text)
                   setEditing(true)
                 }}
               >
