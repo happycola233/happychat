@@ -17,6 +17,7 @@ import {
   errorLogs,
   messages,
   models,
+  providers,
   runs,
   usageLogs,
   users,
@@ -356,23 +357,25 @@ export async function listUsageEvents(filter: StatsFilter): Promise<Paginated<Us
     .select({
       log: usageLogs,
       username: users.username,
+      providerName: providers.name,
       startedAt: runs.startedAt,
       finishedAt: runs.finishedAt,
     })
     .from(usageLogs)
     .leftJoin(users, eq(usageLogs.userId, users.id))
+    .leftJoin(providers, eq(usageLogs.providerId, providers.id))
     .leftJoin(runs, eq(usageLogs.runId, runs.id))
     .where(whereOf(conds))
     .orderBy(desc(usageLogs.createdAt))
     .limit(pageSize)
     .offset((page - 1) * pageSize)
 
-  const items: UsageLogDTO[] = rows.map(({ log, username, startedAt, finishedAt }) => ({
+  const items: UsageLogDTO[] = rows.map(({ log, username, providerName, startedAt, finishedAt }) => ({
     id: log.id,
     userId: log.userId,
     username: username ?? null,
     providerId: log.providerId,
-    providerLabel: log.providerLabel,
+    providerLabel: providerName ?? log.providerLabel,
     modelLabel: log.modelLabel,
     inputTokens: log.inputTokens,
     cachedTokens: log.cachedTokens,

@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
 let tmpDir: string
@@ -50,6 +51,19 @@ async function insertUser(lastActiveAt?: number) {
     .returning()
   if (!user) throw new Error('failed to insert test user')
   return user
+}
+
+async function insertProvider(name: string) {
+  const [provider] = await dbClient.db
+    .insert(schema.providers)
+    .values({
+      name,
+      baseUrl: 'https://api.example.com/v1',
+      apiKey: 'test-api-key',
+    })
+    .returning()
+  if (!provider) throw new Error('failed to insert test provider')
+  return provider
 }
 
 describe('stats time buckets', () => {
@@ -154,5 +168,47 @@ describe('usage event duration', () => {
     const result = await stats.listUsageEvents({ userId: user.id })
 
     expect(result.items[0]?.durationMs).toBeNull()
+  })
+})
+
+describe('usage event provider labels', () => {
+  it('uses the current provider name while the provider still exists', async () => {
+    const provider = await insertProvider('Original Provider')
+    await insertUsageLog(Date.UTC(2026, 6, 2, 8), {
+      providerId: provider.id,
+      providerLabel: provider.name,
+    })
+
+    await dbClient.db
+      .update(schema.providers)
+      .set({ name: 'Renamed Provider' })
+      .where(eq(schema.providers.id, provider.id))
+
+    const result = await stats.listUsageEvents({ providerId: provider.id })
+
+    expect(result.items).toHaveLength(1)
+    expect(result.items[0]?.providerLabel).toBe('Renamed Provider')
+  })
+
+  it('falls back to the usage log snapshot after the provider is deleted', async () => {
+    const user = await insertUser()
+    const provider = await insertProvider('Deleted Provider')
+    await insertUsageLog(Date.UTC(2026, 6, 2, 9), {
+      userId: user.id,
+      providerId: provider.id,
+      providerLabel: provider.name,
+    })
+
+    await dbClient.db
+      .update(schema.usageLogs)
+      .set({ providerId: null })
+      .where(eq(schema.usageLogs.providerId, provider.id))
+    await dbClient.db.delete(schema.providers).where(eq(schema.providers.id, provider.id))
+
+    const result = await stats.listUsageEvents({ userId: user.id })
+
+    expect(result.items).toHaveLength(1)
+    expect(result.items[0]?.providerId).toBeNull()
+    expect(result.items[0]?.providerLabel).toBe('Deleted Provider')
   })
 })

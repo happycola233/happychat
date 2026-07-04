@@ -15,7 +15,7 @@ import {
   announcementUpdateSchema,
 } from '@shared/schemas/announcement'
 import { db } from '../db/client'
-import { inviteCodes, models, providers, users } from '../db/schema'
+import { inviteCodes, models, providers, usageLogs, users } from '../db/schema'
 import { genInviteCode } from '../lib/id'
 import { providerClientFromRow } from '../provider/client'
 import { requireAdmin } from '../auth/middleware'
@@ -103,7 +103,10 @@ adminRoutes.patch('/providers/:id', jsonValidator(providerUpdateSchema), async (
 })
 
 adminRoutes.delete('/providers/:id', async (c) => {
-  await db.delete(providers).where(eq(providers.id, c.req.param('id')))
+  const id = c.req.param('id')
+  // usage_logs.provider_label 保留历史快照；先断开 provider_id，避免早期迁移里的外键阻止删除。
+  await db.update(usageLogs).set({ providerId: null }).where(eq(usageLogs.providerId, id))
+  await db.delete(providers).where(eq(providers.id, id))
   return c.json({ ok: true })
 })
 
