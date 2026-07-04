@@ -119,6 +119,7 @@ async function getMessageTimingByMessageId(rows: MsgRow[]): Promise<Map<string, 
       requestParams: runs.requestParams,
       modelKind: models.kind,
       modelCapabilities: models.capabilities,
+      modelAllowedEfforts: models.allowedEfforts,
       modelDefaultParams: models.defaultParams,
       modelDefaultEffort: models.defaultEffort,
     })
@@ -142,6 +143,7 @@ async function getMessageTimingByMessageId(rows: MsgRow[]): Promise<Map<string, 
             ? {
                 kind: row.modelKind ?? undefined,
                 capabilities: row.modelCapabilities,
+                allowedEfforts: row.modelAllowedEfforts,
                 defaultParams: row.modelDefaultParams,
                 defaultEffort: row.modelDefaultEffort,
               }
@@ -224,6 +226,7 @@ export async function getConversationLastRun(
       requestParams: runs.requestParams,
       modelKind: models.kind,
       modelCapabilities: models.capabilities,
+      modelAllowedEfforts: models.allowedEfforts,
       modelDefaultParams: models.defaultParams,
       modelDefaultEffort: models.defaultEffort,
       modelDefaultWebSearch: models.defaultWebSearch,
@@ -241,6 +244,7 @@ export async function getConversationLastRun(
     const modelConfig = {
       kind: r.modelKind ?? undefined,
       capabilities: r.modelCapabilities,
+      allowedEfforts: r.modelAllowedEfforts,
       defaultParams: r.modelDefaultParams,
       defaultEffort: r.modelDefaultEffort,
       defaultWebSearch: r.modelDefaultWebSearch,

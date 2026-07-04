@@ -17,7 +17,7 @@ import type {
   MessageDTO,
 } from '@shared/types/api'
 import type { ModelParams } from '@shared/types/domain'
-import { isReasoningEnabled } from '@shared/util/reasoning'
+import { isReasoningEffortAllowed, isReasoningEnabled } from '@shared/util/reasoning'
 import { switchBranch } from '../api/chat'
 import { abortRun, getActiveRun, regenerateRun, startRun } from '../api/runs'
 import { useConversation } from '../hooks/useConversations'
@@ -422,7 +422,7 @@ export default function ChatView() {
     }
     if (model?.kind !== 'image') {
       if (activeWebSearch !== null) p.web_search = activeWebSearch
-      if (activeEffort) p.reasoning_effort = activeEffort
+      if (isReasoningEffortAllowed(model, activeEffort)) p.reasoning_effort = activeEffort
     }
     return p
   }

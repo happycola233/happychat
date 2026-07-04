@@ -1,5 +1,6 @@
 import { REASONING_MIN_OUTPUT_TOKENS } from '@shared/constants'
 import type { ModelParams, PromptCacheRetention } from '@shared/types/domain'
+import { effectiveReasoningEffort } from '@shared/util/reasoning'
 import { effectiveWebSearchEnabled } from '@shared/util/webSearch'
 import type { models } from '../db/schema'
 import { applyPromptCacheParameters } from './promptCache'
@@ -86,7 +87,6 @@ export interface BuildBodyOptions {
 export function buildResponseBody(o: BuildBodyOptions): Record<string, unknown> {
   const { model, input, instructions, userParams, stream, promptCacheKey, promptCacheRetention } = o
   const defaults = model.defaultParams ?? {}
-  const caps = model.capabilities
   const body: Record<string, unknown> = { model: model.modelId, input, stream }
 
   if (instructions) body.instructions = instructions
@@ -99,11 +99,9 @@ export function buildResponseBody(o: BuildBodyOptions): Record<string, unknown> 
   if (verbosity !== undefined) body.text = { verbosity }
   const tools: Record<string, unknown>[] = []
 
-  // 思考：按模型 allowedEfforts 校验；含 'none'（受硬参数 summary='auto' 控制摘要）
-  const effort =
-    userParams?.reasoning_effort ?? defaults.reasoning_effort ?? model.defaultEffort ?? undefined
-  const allowed = model.allowedEfforts ?? []
-  if (caps.reasoning && effort && allowed.includes(effort)) {
+  // 思考：按当前模型 allowedEfforts 从用户请求、模型默认中选择第一个有效值。
+  const effort = effectiveReasoningEffort(model, userParams)
+  if (effort) {
     body.reasoning = { effort }
   }
 
@@ -116,7 +114,7 @@ export function buildResponseBody(o: BuildBodyOptions): Record<string, unknown> 
 
   // max_output_tokens：开启思考时保证下限预算
   let maxOut = userParams?.max_output_tokens ?? defaults.max_output_tokens
-  if (body.reasoning) maxOut = Math.max(maxOut ?? 0, REASONING_MIN_OUTPUT_TOKENS)
+  if (effort && effort !== 'none') maxOut = Math.max(maxOut ?? 0, REASONING_MIN_OUTPUT_TOKENS)
   if (maxOut !== undefined && maxOut > 0) body.max_output_tokens = maxOut
 
   // 应用默认值先写入；高级 JSON 最终合并，可显式覆盖包括缓存字段在内的任何参数。

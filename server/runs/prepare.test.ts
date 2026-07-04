@@ -219,6 +219,38 @@ describe('prepareRun active leaf', () => {
     expect(lastRun.params?.web_search).toBe(true)
   })
 
+  it('drops a pinned reasoning effort unsupported by the selected model', async () => {
+    const { userId, modelId } = await createRunnableModel()
+    dbClient.sqlite
+      .prepare('update models set capabilities = ?, allowed_efforts = ?, default_effort = ? where id = ?')
+      .run(
+        JSON.stringify({
+          vision: false,
+          file_input: false,
+          web_search: false,
+          image_generation: false,
+          reasoning: true,
+        }),
+        JSON.stringify(['low', 'medium']),
+        'low',
+        modelId,
+      )
+
+    const result = assertPrepared(
+      await prepare.prepareRun({
+        userId,
+        modelId,
+        text: 'hello',
+        params: { reasoning_effort: 'xhigh' },
+      }),
+    )
+    const lastRun = await conversationServices.getConversationLastRun(result.conversation.id)
+
+    expect(result.body.reasoning).toEqual({ effort: 'low' })
+    expect(result.run.requestParams).not.toHaveProperty('reasoning_effort')
+    expect(lastRun.params?.reasoning_effort).toBe('low')
+  })
+
   it('continues an existing conversation from the previous active leaf', async () => {
     const { userId, modelId } = await createRunnableModel()
     const first = assertPrepared(await prepare.prepareRun({ userId, modelId, text: 'first' }))

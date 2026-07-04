@@ -2,6 +2,7 @@ import { eq, inArray } from 'drizzle-orm'
 import type { ContentPart, ModelParams } from '@shared/types/domain'
 import { shouldValidateGptImage2Size, validateGptImage2Size } from '@shared/util/imageSize'
 import { renderPromptTemplate } from '@shared/util/promptTemplate'
+import { isReasoningEffortAllowed } from '@shared/util/reasoning'
 import { db } from '../db/client'
 import { attachments, conversations, messages, runs, users } from '../db/schema'
 import { buildPromptVars } from './promptVars'
@@ -79,6 +80,15 @@ function normalizeImageParamsForModel(
       },
     },
   }
+}
+
+function normalizeReasoningParamsForModel(model: ModelRow, params?: ModelParams): ModelParams | undefined {
+  if (!params?.reasoning_effort || isReasoningEffortAllowed(model, params.reasoning_effort)) {
+    return params
+  }
+  // 固定思考等级是跨模型偏好；落到某次请求前必须按当前模型能力裁剪。
+  const { reasoning_effort: _unsupportedEffort, ...rest } = params
+  return rest
 }
 
 /** 读取路径中引用的附件为内联 data URL（请求构建用）。 */
@@ -371,7 +381,8 @@ export async function prepareRun(args: PrepareArgs): Promise<PrepareResult> {
       code: 'prompt_required',
     }
   }
-  const normalizedParams = normalizeImageParamsForModel(model, args.params)
+  const reasoningParams = normalizeReasoningParamsForModel(model, args.params)
+  const normalizedParams = normalizeImageParamsForModel(model, reasoningParams)
   if (!normalizedParams.ok) return normalizedParams
 
   const refs = args.attachments ?? []
@@ -552,7 +563,8 @@ export async function prepareRegenerate(args: RegenerateArgs): Promise<PrepareRe
   if (!runnable)
     return { ok: false, status: 400, message: '所选模型不可用', code: 'model_unavailable' }
   const { model, provider } = runnable
-  const normalizedParams = normalizeImageParamsForModel(model, args.params)
+  const reasoningParams = normalizeReasoningParamsForModel(model, args.params)
+  const normalizedParams = normalizeImageParamsForModel(model, reasoningParams)
   if (!normalizedParams.ok) return normalizedParams
 
   if (model.kind === 'responses') {

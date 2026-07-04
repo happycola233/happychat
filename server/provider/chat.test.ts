@@ -139,6 +139,27 @@ describe('buildChatMessages', () => {
 })
 
 describe('buildChatBody', () => {
+  it('falls back to a supported model default when the requested reasoning effort is unsupported', () => {
+    const body = buildChatBody({
+      model: model({
+        capabilities: {
+          vision: false,
+          file_input: false,
+          web_search: false,
+          image_generation: false,
+          reasoning: true,
+        },
+        allowedEfforts: ['low', 'medium'],
+        defaultEffort: 'low',
+      }),
+      messages: [],
+      userParams: { reasoning_effort: 'xhigh' },
+      stream: true,
+    })
+
+    expect(body.reasoning_effort).toBe('low')
+  })
+
   it('lets advanced hard params override generated cache parameters', () => {
     const body = buildChatBody({
       model: model({

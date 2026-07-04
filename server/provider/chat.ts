@@ -1,5 +1,6 @@
 import { REASONING_MIN_OUTPUT_TOKENS } from '@shared/constants'
 import type { MessageUsage, ModelParams, PromptCacheRetention } from '@shared/types/domain'
+import { effectiveReasoningEffort } from '@shared/util/reasoning'
 import type { models } from '../db/schema'
 import type { PathMessage, ResolvedAttachment } from './context'
 import { isPlainObject, mergeDeep } from './params'
@@ -95,7 +96,6 @@ export interface BuildChatBodyOptions {
 export function buildChatBody(o: BuildChatBodyOptions): Record<string, unknown> {
   const { model, messages, userParams, stream, promptCacheKey, promptCacheRetention } = o
   const defaults = model.defaultParams ?? {}
-  const caps = model.capabilities
   const body: Record<string, unknown> = { model: model.modelId, messages, stream }
 
   const temperature = userParams?.temperature ?? defaults.temperature
@@ -103,15 +103,13 @@ export function buildChatBody(o: BuildChatBodyOptions): Record<string, unknown> 
   const topP = userParams?.top_p ?? defaults.top_p
   if (topP !== undefined) body.top_p = topP
 
-  const effort =
-    userParams?.reasoning_effort ?? defaults.reasoning_effort ?? model.defaultEffort ?? undefined
-  const allowed = model.allowedEfforts ?? []
-  if (caps.reasoning && effort && allowed.includes(effort)) {
+  const effort = effectiveReasoningEffort(model, userParams)
+  if (effort) {
     body.reasoning_effort = effort
   }
 
   let maxOut = userParams?.max_output_tokens ?? defaults.max_output_tokens
-  if (body.reasoning_effort) maxOut = Math.max(maxOut ?? 0, REASONING_MIN_OUTPUT_TOKENS)
+  if (effort && effort !== 'none') maxOut = Math.max(maxOut ?? 0, REASONING_MIN_OUTPUT_TOKENS)
   if (maxOut !== undefined && maxOut > 0) body.max_tokens = maxOut
 
   if (stream) body.stream_options = { include_usage: true }

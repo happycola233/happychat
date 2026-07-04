@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { clsx } from 'clsx'
 import { Check, ChevronDown, Globe, ImageIcon, Pin } from 'lucide-react'
 import type { ModelDTO } from '@shared/types/api'
+import { effectiveReasoningEffort, isReasoningEffortAllowed } from '@shared/util/reasoning'
 import { effectiveWebSearchEnabled } from '@shared/util/webSearch'
 import {
   GPT_IMAGE_2_SIZE_OPTIONS,
@@ -145,7 +146,8 @@ function ReasoningSelect({ model }: { model: ModelDTO }) {
   const pinnedEffort = useChatPrefs((s) => s.pinnedEffort)
   const pinEffort = useChatPrefs((s) => s.pinEffort)
   const [open, setOpen] = useState(false)
-  const effective = activeEffort ?? model.defaultEffort
+  const activeSupportedEffort = isReasoningEffortAllowed(model, activeEffort) ? activeEffort : null
+  const effective = activeSupportedEffort ?? effectiveReasoningEffort(model)
   const label = effective ? REASONING_EFFORT_SHORT_LABELS[effective] : '默认'
 
   const options = model.allowedEfforts.map((e) => ({
@@ -160,11 +162,11 @@ function ReasoningSelect({ model }: { model: ModelDTO }) {
         onClick={() => setOpen((o) => !o)}
         className={clsx(
           'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs leading-none transition',
-          activeEffort
+          activeSupportedEffort
             ? 'border-violet-200 bg-violet-50 text-violet-600 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-300'
             : 'border-neutral-200 text-neutral-500 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800',
         )}
-        title={activeEffort ? `本次思考深度：${label}` : `思考深度：${label}（默认）`}
+        title={activeSupportedEffort ? `本次思考深度：${label}` : `思考深度：${label}（默认）`}
       >
         <ReasoningEffortIcon effort={effective ?? 'none'} className="block h-3.5 w-3.5 shrink-0" />
         <span className="leading-none">思考 · {label}</span>
@@ -175,7 +177,7 @@ function ReasoningSelect({ model }: { model: ModelDTO }) {
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           <div className="absolute bottom-full z-20 mb-1 w-52 rounded-xl border border-neutral-200 bg-white p-1 text-neutral-700 shadow-lg dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100">
             {options.map((o) => {
-              const isActive = activeEffort === o.value
+              const isActive = activeSupportedEffort === o.value
               const isPinned = pinnedEffort === o.value
               return (
                 <div
@@ -301,7 +303,9 @@ export function ChatControls() {
   return (
     <>
       {model.capabilities.web_search && <WebToggle model={model} />}
-      {model.capabilities.reasoning && <ReasoningSelect model={model} />}
+      {model.capabilities.reasoning && model.allowedEfforts.length > 0 && (
+        <ReasoningSelect model={model} />
+      )}
     </>
   )
 }

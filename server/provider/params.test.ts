@@ -123,6 +123,28 @@ describe('buildResponseBody', () => {
     ])
   })
 
+  it('falls back to a supported model default when the requested reasoning effort is unsupported', () => {
+    const body = buildResponseBody({
+      model: model({
+        capabilities: {
+          vision: false,
+          file_input: false,
+          web_search: false,
+          image_generation: false,
+          reasoning: true,
+        },
+        allowedEfforts: ['low', 'medium'],
+        defaultEffort: 'low',
+      }),
+      input: [],
+      instructions: null,
+      userParams: { reasoning_effort: 'xhigh' },
+      stream: true,
+    })
+
+    expect(body.reasoning).toEqual({ effort: 'low' })
+  })
+
   it('lets advanced JSON replace the generated web search tool config', () => {
     const body = buildResponseBody({
       model: model({
