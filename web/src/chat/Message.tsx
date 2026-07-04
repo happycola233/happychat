@@ -3,7 +3,6 @@ import {
   AlertCircle,
   ChevronLeft,
   ChevronRight,
-  Pencil,
   RefreshCw,
 } from 'lucide-react'
 import type { MessageDTO } from '@shared/types/api'
@@ -26,6 +25,7 @@ import type { ImageEditSource } from './imageSource'
 import { ProgressiveImageStage } from './ProgressiveImageStage'
 import { attachmentDraftsFromContent } from './attachmentDraft'
 import { MessageEditForm, type MessageEditSubmit } from './MessageEditForm'
+import { EditMessageIcon } from './icons'
 
 export interface BranchInfo {
   index: number
@@ -170,7 +170,7 @@ export function Message({
                   setEditing(true)
                 }}
               >
-                <Pencil className="h-3.5 w-3.5" />
+                <EditMessageIcon className="h-[18px] w-[18px]" />
               </MessageIconButton>
             )}
           </div>

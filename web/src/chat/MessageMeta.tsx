@@ -1,10 +1,11 @@
 import { useState, type ReactNode } from 'react'
 import { clsx } from 'clsx'
-import { ArrowDown, ArrowUp, Check, Clock, Copy, Zap } from 'lucide-react'
+import { ArrowDown, ArrowUp, Check, Clock, Zap } from 'lucide-react'
 import type { MessageUsage } from '@shared/types/domain'
 import { copyToClipboard } from '../lib/clipboard'
 import { toast } from '../store/toast'
 import { computeTps, formatDuration, formatMessageTime, formatTokens, formatTps } from './usageFormat'
+import { CopyMessageIcon } from './icons'
 
 export function MessageIconButton({
   title,
@@ -54,7 +55,11 @@ export function CopyMessageButton({ text, className }: { text: string; className
           .catch(() => toast.error('复制失败'))
       }}
     >
-      {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+      {copied ? (
+        <Check className="h-[18px] w-[18px]" />
+      ) : (
+        <CopyMessageIcon className="h-[18px] w-[18px]" />
+      )}
     </MessageIconButton>
   )
 }
