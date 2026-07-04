@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { clsx } from 'clsx'
 import { Download, X } from 'lucide-react'
+import { imagePreviewMaxHeightClass } from './imagePreviewLayout'
 
 interface ImagePreviewTriggerProps {
   src: string
@@ -73,6 +74,8 @@ function ImagePreviewDialog({
   const titleId = useId()
   const captionId = useId()
   const closeRef = useRef<HTMLButtonElement>(null)
+  const visibleCaption = caption?.trim() || ''
+  const hasCaption = Boolean(visibleCaption)
 
   useEffect(() => {
     closeRef.current?.focus()
@@ -95,7 +98,7 @@ function ImagePreviewDialog({
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
-      aria-describedby={caption ? captionId : undefined}
+      aria-describedby={hasCaption ? captionId : undefined}
       className="fixed inset-0 z-[70] bg-neutral-950/86 text-white backdrop-blur-sm"
       onClick={onClose}
     >
@@ -137,15 +140,18 @@ function ImagePreviewDialog({
             <img
               src={src}
               alt={alt}
-              className="relative z-10 block max-h-[min(82dvh,calc(100dvh-8.5rem))] max-w-[calc(100dvw-2rem)] rounded-xl object-contain shadow-[0_18px_60px_rgba(0,0,0,0.38)] sm:max-w-[calc(100dvw-4rem)]"
+              className={clsx(
+                'relative z-10 block max-w-[calc(100dvw-2rem)] rounded-xl object-contain shadow-[0_18px_60px_rgba(0,0,0,0.38)] sm:max-w-[calc(100dvw-4rem)]',
+                imagePreviewMaxHeightClass(hasCaption),
+              )}
             />
           </div>
-          {caption && (
+          {hasCaption && (
             <figcaption
               id={captionId}
               className="hc-image-preview-caption max-h-20 max-w-[min(56rem,calc(100dvw-2rem))] overflow-y-auto rounded-2xl bg-black/28 px-3 py-2 text-center text-xs leading-5 text-white/70 shadow-xl backdrop-blur sm:max-h-24 sm:px-4"
             >
-              {caption}
+              {visibleCaption}
             </figcaption>
           )}
         </figure>
