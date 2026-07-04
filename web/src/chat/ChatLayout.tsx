@@ -8,9 +8,9 @@ export default function ChatLayout() {
   useConversationEvents()
 
   return (
-    <div className="flex h-full bg-white dark:bg-[#000000]">
+    <div className="flex h-full overflow-hidden bg-white dark:bg-[#000000]">
       <Sidebar />
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <Outlet />
       </div>
       <SettingsDialog />

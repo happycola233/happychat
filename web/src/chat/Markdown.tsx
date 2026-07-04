@@ -1,5 +1,5 @@
-import { Children, isValidElement, memo, useRef, useState } from 'react'
-import type { ReactElement, ReactNode } from 'react'
+import { Children, isValidElement, memo, useId, useMemo, useRef, useState } from 'react'
+import type { MouseEvent, ReactElement, ReactNode } from 'react'
 import { clsx } from 'clsx'
 import ReactMarkdown from 'react-markdown'
 import type { Components } from 'react-markdown'
@@ -19,6 +19,52 @@ interface MarkdownProps {
   text: string
   variant?: MarkdownVariant
   className?: string
+}
+
+const INTERNAL_HASH_RE = /^#[^\s#]+$/
+const FOOTNOTE_BACK_CONTENT = '↩️'
+
+function footnoteBackLabel(referenceIndex: number, rereferenceIndex: number): string {
+  return `返回正文 ${referenceIndex + 1}${rereferenceIndex > 1 ? `-${rereferenceIndex}` : ''}`
+}
+
+function safeDecodeHash(hash: string): string {
+  try {
+    return decodeURIComponent(hash)
+  } catch {
+    return hash
+  }
+}
+
+function isInternalHashLink(href: string | undefined): href is `#${string}` {
+  return Boolean(href && INTERNAL_HASH_RE.test(href))
+}
+
+function focusHashTarget(target: HTMLElement) {
+  const hadTabIndex = target.hasAttribute('tabindex')
+  if (!hadTabIndex) target.setAttribute('tabindex', '-1')
+  target.focus({ preventScroll: true })
+  if (!hadTabIndex) {
+    target.addEventListener('blur', () => target.removeAttribute('tabindex'), { once: true })
+  }
+}
+
+function scrollToHashTarget(hash: string): boolean {
+  const id = safeDecodeHash(hash.slice(1))
+  const target = document.getElementById(id)
+  if (!target) return false
+
+  window.history.pushState(null, '', `${window.location.pathname}${window.location.search}${hash}`)
+  target.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  if (target instanceof HTMLElement) {
+    focusHashTarget(target)
+  }
+  return true
+}
+
+function markdownInstancePrefix(reactId: string): string {
+  const safeId = reactId.replace(/[^A-Za-z0-9]+/g, '').toLowerCase()
+  return `user-content-hc-${safeId || 'md'}-`
 }
 
 const LANGUAGE_LABELS: Record<string, string> = {
@@ -161,21 +207,53 @@ function TableBlock({ children, variant }: { children?: ReactNode; variant: Mark
 
 const componentsFor = (variant: MarkdownVariant): Components => ({
   pre: ({ children }) => <PreBlock variant={variant}>{children}</PreBlock>,
-  a: ({ href, children }) => (
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      className="text-blue-600 underline dark:text-blue-400"
-    >
-      {children}
-    </a>
-  ),
+  a: ({ href, children, node: _node, className, onClick, ...props }) => {
+    const isHashLink = isInternalHashLink(href)
+    const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
+      onClick?.(event)
+      if (
+        !isHashLink ||
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.shiftKey
+      ) {
+        return
+      }
+
+      event.preventDefault()
+      // 脚注是页内锚点；手动滚动可避免 SPA 内部容器被浏览器当成新页面导航处理。
+      if (!scrollToHashTarget(href)) {
+        window.history.pushState(
+          null,
+          '',
+          `${window.location.pathname}${window.location.search}${href}`,
+        )
+      }
+    }
+
+    return (
+      <a
+        {...props}
+        href={href}
+        onClick={handleClick}
+        target={isHashLink ? undefined : '_blank'}
+        rel={isHashLink ? undefined : 'noreferrer'}
+        className={clsx(className, 'text-blue-600 underline dark:text-blue-400')}
+      >
+        {children}
+      </a>
+    )
+  },
   table: ({ children }) => <TableBlock variant={variant}>{children}</TableBlock>,
 })
 
 function MarkdownImpl({ text, variant = 'message', className }: MarkdownProps) {
   const normalizedText = normalizeMarkdownMath(text)
+  const reactId = useId()
+  const clobberPrefix = useMemo(() => markdownInstancePrefix(reactId), [reactId])
   return (
     <div
       className={clsx(
@@ -188,6 +266,12 @@ function MarkdownImpl({ text, variant = 'message', className }: MarkdownProps) {
     >
       <ReactMarkdown
         remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: false }]]}
+        remarkRehypeOptions={{
+          clobberPrefix,
+          footnoteLabel: '脚注',
+          footnoteBackContent: FOOTNOTE_BACK_CONTENT,
+          footnoteBackLabel,
+        }}
         rehypePlugins={[[rehypeKatex, { throwOnError: false }], rehypeHighlight]}
         components={componentsFor(variant)}
       >

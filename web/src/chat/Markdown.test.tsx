@@ -38,6 +38,30 @@ describe('Markdown tables', () => {
   })
 })
 
+describe('Markdown footnotes', () => {
+  it('keeps footnote anchors on the current page and preserves generated metadata', () => {
+    const html = renderToStaticMarkup(<Markdown text={'正文[^time]\n\n[^time]: 脚注内容。'} />)
+
+    expect(html).toContain('class="footnotes"')
+    expect(html).toContain('data-footnote-ref')
+    expect(html).toContain('aria-describedby="footnote-label"')
+    expect(html).toContain('data-footnote-backref')
+    expect(html).toContain('aria-label="返回正文 1"')
+    expect(html).toContain('↩️')
+    expect(html).toMatch(/href="#[^"]*fn-time"/)
+    expect(html).toMatch(/id="[^"]*fnref-time"/)
+    expect(html).not.toMatch(/href="#[^"]*" target="_blank"/)
+  })
+
+  it('still opens ordinary markdown links in a new tab', () => {
+    const html = renderToStaticMarkup(<Markdown text={'[OpenAI](https://openai.com)'} />)
+
+    expect(html).toContain('href="https://openai.com"')
+    expect(html).toContain('target="_blank"')
+    expect(html).toContain('rel="noreferrer"')
+  })
+})
+
 describe('Markdown math', () => {
   it('renders LaTeX display delimiters through KaTeX', () => {
     const html = renderToStaticMarkup(<Markdown text={'\\[ x=\\frac{1}{2} \\]'} />)
