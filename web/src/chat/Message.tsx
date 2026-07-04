@@ -3,7 +3,6 @@ import {
   AlertCircle,
   ChevronLeft,
   ChevronRight,
-  RefreshCw,
 } from 'lucide-react'
 import type { MessageDTO } from '@shared/types/api'
 import type { UrlCitation } from '@shared/types/domain'
@@ -25,7 +24,7 @@ import type { ImageEditSource } from './imageSource'
 import { ProgressiveImageStage } from './ProgressiveImageStage'
 import { attachmentDraftsFromContent } from './attachmentDraft'
 import { MessageEditForm, type MessageEditSubmit } from './MessageEditForm'
-import { EditMessageIcon } from './icons'
+import { EditMessageIcon, RetryMessageIcon } from './icons'
 
 export interface BranchInfo {
   index: number
@@ -260,7 +259,7 @@ export function Message({
             <CopyMessageButton text={text} />
             {onRegenerate && (
               <MessageIconButton title="重新生成" disabled={busy} onClick={onRegenerate}>
-                <RefreshCw className="h-3.5 w-3.5" />
+                <RetryMessageIcon className="h-[18px] w-[18px]" />
               </MessageIconButton>
             )}
             {showModelLabel && modelName && (
