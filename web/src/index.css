@@ -454,6 +454,32 @@ html.hc-font-large {
   animation: hc-pop-in 0.16s ease-out;
   transform-origin: top;
 }
+.hc-sidebar-panel-in {
+  animation: hc-sidebar-panel-in 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.hc-sidebar-rail-in {
+  animation: hc-sidebar-rail-in 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes hc-sidebar-panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+@keyframes hc-sidebar-rail-in {
+  from {
+    opacity: 0;
+    transform: translateX(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
 
 /* Responses API 生图的渐进式图片舞台。保持固定比例，partial/final 只替换内部图层。 */
 .hc-image-stage {
@@ -661,7 +687,9 @@ html.hc-font-large {
     -webkit-text-fill-color: currentColor;
   }
   .hc-anim-in,
-  .hc-pop-in {
+  .hc-pop-in,
+  .hc-sidebar-panel-in,
+  .hc-sidebar-rail-in {
     animation: none;
   }
   .hc-image-stage-scan::before,

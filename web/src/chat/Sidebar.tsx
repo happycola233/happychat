@@ -9,7 +9,6 @@ import {
   Moon,
   MoreHorizontal,
   Pencil,
-  Pin,
   PinOff,
   Search,
   Settings,
@@ -27,7 +26,7 @@ import { toast } from '../store/toast'
 import { useSettings } from '../store/settings'
 import { useSettingsDialog } from '../store/settingsDialog'
 import { useTitleTypingStore } from '../store/titleTyping'
-import { ChatBubbleIcon, NewChatIcon, RoutineIcon, SidebarToggleIcon } from './icons'
+import { ChatBubbleIcon, NewChatIcon, PinnedIcon, RoutineIcon, SidebarToggleIcon } from './icons'
 import { SearchDialog } from './SearchDialog'
 
 type PopoverKind = 'pinned' | 'recent'
@@ -155,12 +154,17 @@ function RailButton({
       data-rail-trigger={popoverTrigger ? 'true' : undefined}
       onClick={onClick}
       className={clsx(
-        'group relative flex h-9 w-9 items-center justify-center rounded-lg text-neutral-900 transition dark:text-neutral-100',
+        'group relative flex h-8 w-8 items-center justify-center rounded-lg text-neutral-900 transition dark:text-neutral-100',
         active ? 'bg-neutral-200 dark:bg-neutral-800' : 'hover:bg-neutral-200/70 dark:hover:bg-neutral-800',
       )}
     >
       {children}
-      <span className="pointer-events-none absolute left-full top-1/2 z-50 ml-2.5 -translate-y-1/2 whitespace-nowrap rounded-lg bg-black px-2.5 py-1 text-xs font-semibold text-white opacity-0 shadow-lg transition group-hover:opacity-100">
+      <span
+        className={clsx(
+          'pointer-events-none absolute left-full top-1/2 z-50 ml-2.5 -translate-y-1/2 whitespace-nowrap rounded-lg bg-black px-2.5 py-1 text-xs font-semibold text-white opacity-0 shadow-lg transition group-hover:opacity-100',
+          active && 'hidden',
+        )}
+      >
         {title}
       </span>
     </button>
@@ -388,7 +392,7 @@ function ConversationRow({
               重命名
             </RowMenuItem>
             <RowMenuItem
-              icon={pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
+              icon={pinned ? <PinOff className="h-4 w-4" /> : <PinnedIcon className="h-4 w-4" />}
               onClick={() => {
                 setMenuOpen(false)
                 onTogglePin?.(conversation.id, !pinned)
@@ -634,8 +638,9 @@ export function Sidebar() {
         className={clsx(
           'flex h-full shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 text-neutral-900 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100',
           // 桌面：文档流中的 rail
-          'md:relative md:translate-x-0 md:shadow-none md:transition-none',
+          'md:relative md:translate-x-0 md:shadow-none md:transition-[width,background-color,border-color] md:duration-300 md:ease-[cubic-bezier(0.22,1,0.36,1)]',
           railMode ? 'md:w-[48px]' : 'md:w-[240px]',
+          railMode ? 'md:overflow-visible' : 'overflow-hidden',
           // 移动：固定抽屉，按 mobileOpen 滑入/滑出
           'fixed inset-y-0 left-0 z-50 w-[280px] transition-transform duration-300',
           mobileOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full',
@@ -643,33 +648,36 @@ export function Sidebar() {
       >
         {railMode ? (
           <>
-            <div className="flex flex-1 flex-col items-center gap-2 py-2">
-              <RailButton title="展开侧边栏" onClick={toggleCollapsed} testId="sidebar-toggle">
-                <SidebarToggleIcon className="h-5 w-5" />
-              </RailButton>
-              <div className="h-3" />
-              <RailButton title="新聊天" onClick={newChat} testId="sidebar-new-chat">
-                <NewChatIcon className="h-[18px] w-[18px]" />
-              </RailButton>
-              <RailButton title="搜索聊天" onClick={() => setSearchOpen(true)} testId="sidebar-search">
-                <Search className="h-[17px] w-[17px]" strokeWidth={1.9} />
-              </RailButton>
-              <RailButton
-                title="已置顶"
-                active={popover === 'pinned'}
-                onClick={() => setPopover((current) => (current === 'pinned' ? null : 'pinned'))}
-                popoverTrigger
-              >
-                <Pin className="h-[18px] w-[18px]" />
-              </RailButton>
-              <RailButton
-                title="最近聊天"
-                active={popover === 'recent'}
-                onClick={() => setPopover((current) => (current === 'recent' ? null : 'recent'))}
-                popoverTrigger
-              >
-                <ChatBubbleIcon className="h-[18px] w-[18px]" />
-              </RailButton>
+            <div className="hc-sidebar-rail-in flex min-w-[48px] flex-1 flex-col">
+              <div className="flex h-14 items-center justify-center">
+                <RailButton title="展开侧边栏" onClick={toggleCollapsed} testId="sidebar-toggle">
+                  <SidebarToggleIcon className="h-5 w-5" />
+                </RailButton>
+              </div>
+              <nav className="flex flex-col items-center gap-1 px-2 pb-4">
+                <RailButton title="新聊天" onClick={newChat} testId="sidebar-new-chat">
+                  <NewChatIcon className="h-[18px] w-[18px]" />
+                </RailButton>
+                <RailButton title="搜索聊天" onClick={() => setSearchOpen(true)} testId="sidebar-search">
+                  <Search className="h-[17px] w-[17px]" strokeWidth={1.9} />
+                </RailButton>
+                <RailButton
+                  title="已置顶"
+                  active={popover === 'pinned'}
+                  onClick={() => setPopover((current) => (current === 'pinned' ? null : 'pinned'))}
+                  popoverTrigger
+                >
+                  <PinnedIcon className="h-[18px] w-[18px]" />
+                </RailButton>
+                <RailButton
+                  title="最近聊天"
+                  active={popover === 'recent'}
+                  onClick={() => setPopover((current) => (current === 'recent' ? null : 'recent'))}
+                  popoverTrigger
+                >
+                  <ChatBubbleIcon className="h-[18px] w-[18px]" />
+                </RailButton>
+              </nav>
             </div>
             <div className="flex flex-col items-center gap-1.5 py-2">
               <RailButton
@@ -714,7 +722,7 @@ export function Sidebar() {
                 ref={popoverRef}
                 className={clsx(
                   'absolute left-[42px] z-40 w-[312px] rounded-2xl border border-neutral-200 bg-white px-3 py-3.5 shadow-2xl dark:border-neutral-700 dark:bg-neutral-900',
-                  popover === 'pinned' ? 'top-[136px]' : 'top-[178px]',
+                  popover === 'pinned' ? 'top-[122px]' : 'top-[158px]',
                 )}
               >
                 <h2 className="px-2 pb-2.5 text-[15px] font-semibold">
@@ -739,7 +747,7 @@ export function Sidebar() {
             )}
           </>
         ) : (
-          <>
+          <div className="hc-sidebar-panel-in flex h-full min-w-[240px] flex-col">
             <div className="flex h-14 items-center justify-between px-4">
               <h1 className="text-lg font-semibold tracking-normal">HappyChat</h1>
               <button
@@ -846,7 +854,7 @@ export function Sidebar() {
                 </button>
               </div>
             </div>
-          </>
+          </div>
         )}
       </aside>
 
