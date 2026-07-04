@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { WireEvent } from '@shared/types/events'
-import { initialLive, reduceEvent } from './eventReducer'
+import { initialLive, reduceEvent, reduceEvents } from './eventReducer'
 
 const event = (type: string, data: Record<string, unknown> = {}): WireEvent => ({
   type,
@@ -280,5 +280,25 @@ describe('reduceEvent', () => {
 
     expect(next.text).toBe('已经生成的部分')
     expect(next.status).toBe('canceled')
+  })
+
+  it('reduces dense streamed batches without changing append semantics', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(4500)
+
+    const next = reduceEvents(initialLive(1000, true), [
+      event('response.reasoning_summary_text.delta', { delta: '思考' }),
+      event('response.reasoning_summary_text.delta', { delta: '中' }),
+      event('response.output_text.delta', { delta: '答' }),
+      event('response.output_text.delta', { delta: '案' }),
+      event('run.done', { state: 'completed', text: '答案', annotations: [] }),
+    ])
+
+    expect(next).toMatchObject({
+      reasoning: '思考中',
+      text: '答案',
+      reasoningDurationMs: 3500,
+      status: 'completed',
+    })
   })
 })

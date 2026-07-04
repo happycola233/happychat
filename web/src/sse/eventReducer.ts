@@ -66,6 +66,47 @@ export const initialLive = (
 })
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '')
+const APPEND_DELTA_TYPES = new Set([
+  'response.output_text.delta',
+  'response.reasoning_summary_text.delta',
+])
+
+function compactAppendEvents(events: WireEvent[]): WireEvent[] {
+  const compacted: WireEvent[] = []
+  let pendingType: string | null = null
+  let pendingSeq = -1
+  let pendingData: Record<string, unknown> | null = null
+
+  const flushPending = () => {
+    if (!pendingType || !pendingData) return
+    compacted.push({ type: pendingType, seq: pendingSeq, data: pendingData })
+    pendingType = null
+    pendingSeq = -1
+    pendingData = null
+  }
+
+  for (const ev of events) {
+    if (!APPEND_DELTA_TYPES.has(ev.type) || typeof ev.data.delta !== 'string') {
+      flushPending()
+      compacted.push(ev)
+      continue
+    }
+
+    if (pendingType === ev.type && pendingData) {
+      pendingSeq = ev.seq
+      pendingData = { ...ev.data, delta: str(pendingData.delta) + str(ev.data.delta) }
+      continue
+    }
+
+    flushPending()
+    pendingType = ev.type
+    pendingSeq = ev.seq
+    pendingData = { ...ev.data }
+  }
+
+  flushPending()
+  return compacted
+}
 
 function finalAnnotations(value: unknown, fallback: UrlCitation[]): UrlCitation[] {
   if (!Array.isArray(value)) return fallback
@@ -281,4 +322,9 @@ export function reduceEvent(s: LiveMessage, ev: WireEvent): LiveMessage {
     default:
       return s
   }
+}
+
+/** 批量折叠一组 SSE 事件；恢复回放时显著减少字符串复制和 store 更新次数。 */
+export function reduceEvents(s: LiveMessage, events: WireEvent[]): LiveMessage {
+  return compactAppendEvents(events).reduce((next, ev) => reduceEvent(next, ev), s)
 }

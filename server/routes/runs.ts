@@ -11,10 +11,10 @@ import { requireUser } from '../auth/middleware'
 import { jsonValidator } from '../http/validator'
 import { must } from '../lib/assert'
 import { getOwnedConversation, toConversationDTO, toMessageDTO } from '../services/conversations'
-import { computeReasoningDurationMs, reasoningStartedAtMs } from '../services/reasoning-timing'
 import { prepareRegenerate, prepareRun } from '../runs/prepare'
 import { runManager } from '../runs/manager'
 import { runEmitter, type RunEvent } from '../runs/emitter'
+import { compactRunEventsForReplay } from '../runs/replay'
 import type { AppEnv } from '../http/types'
 
 export const runRoutes = new Hono<AppEnv>()
@@ -23,6 +23,23 @@ runRoutes.use('*', requireUser)
 
 const TERMINAL_STATES = ['completed', 'incomplete', 'failed', 'canceled', 'interrupted']
 const isTerminalState = (s: string) => TERMINAL_STATES.includes(s)
+const REASONING_START_TYPES = [
+  'response.created',
+  'response.in_progress',
+  'response.reasoning_summary_text.delta',
+]
+const REASONING_END_TYPES = [
+  'response.output_text.delta',
+  RUN_EVENT_TYPE.done,
+  RUN_EVENT_TYPE.error,
+  RUN_EVENT_TYPE.canceled,
+  RUN_EVENT_TYPE.interrupted,
+]
+const IMAGE_PROGRESS_TYPES = [
+  'image.generation.in_progress',
+  'image.generation.partial',
+  'image.generation.completed',
+]
 
 function terminalTypeFor(state: string): string {
   switch (state) {
@@ -131,29 +148,56 @@ runRoutes.get('/active', async (c) => {
   const [model] = r.modelId
     ? await db.select().from(models).where(eq(models.id, r.modelId)).limit(1)
     : []
-  const eventRows = await db
+  const [reasoningStart] = await db
     .select({
       type: runEvents.type,
       sequenceNumber: runEvents.sequenceNumber,
       createdAt: runEvents.createdAt,
     })
     .from(runEvents)
-    .where(eq(runEvents.runId, r.id))
+    .where(and(eq(runEvents.runId, r.id), inArray(runEvents.type, REASONING_START_TYPES)))
     .orderBy(asc(runEvents.sequenceNumber))
-  const firstImageEvent = eventRows.find(
-    (ev) =>
-      ev.type === 'image.generation.in_progress' ||
-      ev.type === 'image.generation.partial' ||
-      ev.type === 'image.generation.completed',
-  )
+    .limit(1)
+  const [reasoningEnd] = reasoningStart
+    ? await db
+        .select({
+          type: runEvents.type,
+          sequenceNumber: runEvents.sequenceNumber,
+          createdAt: runEvents.createdAt,
+        })
+        .from(runEvents)
+        .where(
+          and(
+            eq(runEvents.runId, r.id),
+            gt(runEvents.sequenceNumber, reasoningStart.sequenceNumber),
+            inArray(runEvents.type, REASONING_END_TYPES),
+          ),
+        )
+        .orderBy(asc(runEvents.sequenceNumber))
+        .limit(1)
+    : []
+  const [firstImageEvent] = await db
+    .select({
+      type: runEvents.type,
+      sequenceNumber: runEvents.sequenceNumber,
+      createdAt: runEvents.createdAt,
+    })
+    .from(runEvents)
+    .where(and(eq(runEvents.runId, r.id), inArray(runEvents.type, IMAGE_PROGRESS_TYPES)))
+    .orderBy(asc(runEvents.sequenceNumber))
+    .limit(1)
+  const reasoningDurationMs =
+    reasoningStart && reasoningEnd
+      ? Math.max(0, reasoningEnd.createdAt.getTime() - reasoningStart.createdAt.getTime())
+      : null
 
   return c.json({
     run: {
       runId: r.id,
       assistantMessageId: r.assistantMessageId,
       lastSequenceNumber: r.lastSequenceNumber,
-      upstreamStartedAt: reasoningStartedAtMs(eventRows),
-      reasoningDurationMs: computeReasoningDurationMs(eventRows),
+      upstreamStartedAt: reasoningStart?.createdAt.getTime() ?? null,
+      reasoningDurationMs,
       imageStartedAt: firstImageEvent?.createdAt.getTime() ?? null,
       reasoningEnabled: isReasoningEnabled(model, r.requestParams as ModelParams | null),
     },
@@ -227,7 +271,7 @@ runRoutes.get('/:id/stream', async (c) => {
           .from(runEvents)
           .where(and(eq(runEvents.runId, id), gt(runEvents.sequenceNumber, from)))
           .orderBy(asc(runEvents.sequenceNumber))
-        for (const row of backfill) {
+        for (const row of compactRunEventsForReplay(backfill)) {
           if (aborted) return
           await writeEvent(row.type, row.sequenceNumber, row.data)
           lastSeq = Math.max(lastSeq, row.sequenceNumber)
@@ -243,7 +287,7 @@ runRoutes.get('/:id/stream', async (c) => {
             .from(runEvents)
             .where(and(eq(runEvents.runId, id), gt(runEvents.sequenceNumber, lastSeq)))
             .orderBy(asc(runEvents.sequenceNumber))
-          for (const row of extra) {
+          for (const row of compactRunEventsForReplay(extra)) {
             await writeEvent(row.type, row.sequenceNumber, row.data)
             lastSeq = Math.max(lastSeq, row.sequenceNumber)
             if (isTerminalEventType(row.type)) sawTerminal = true
