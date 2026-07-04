@@ -48,6 +48,7 @@ import {
   type ViewportScrollSnapshot,
 } from './scrollAnchor'
 import { resolveAutoFollowAfterScroll, type ScrollMetrics } from './scrollFollow'
+import { getConversationRunPrefs } from './runPrefs'
 
 interface RunResult {
   runId: string
@@ -282,18 +283,26 @@ export default function ChatView() {
 
   const applyRunResult = (res: RunResult, requestParams?: ModelParams | null) => {
     const convId = res.conversation.id
+    const runModel = models?.find((m) => m.id === res.assistantMessage.modelId)
+    const lastParams = getConversationRunPrefs(runModel, requestParams)
     qc.setQueryData<ConversationDetail>(['conversation', convId], (old) => {
       const base: ConversationDetail = old ?? {
         conversation: res.conversation,
         messages: [],
-        lastModelId: null,
-        lastParams: null,
+        lastModelId: res.assistantMessage.modelId,
+        lastParams,
       }
       const ids = new Set(base.messages.map((m) => m.id))
       const toAdd = [res.userMessage, res.assistantMessage].filter(
         (m): m is MessageDTO => Boolean(m) && !ids.has((m as MessageDTO).id),
       )
-      return { ...base, conversation: res.conversation, messages: [...base.messages, ...toAdd] }
+      return {
+        ...base,
+        conversation: res.conversation,
+        messages: [...base.messages, ...toAdd],
+        lastModelId: res.assistantMessage.modelId,
+        lastParams,
+      }
     })
     qc.invalidateQueries({ queryKey: ['conversations'] })
     startStream({
