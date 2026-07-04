@@ -679,7 +679,7 @@ export function Sidebar() {
                 </RailButton>
               </nav>
             </div>
-            <div className="flex flex-col items-center gap-1.5 py-2">
+            <div className="flex flex-col items-center gap-2.5 pb-2 pt-1">
               <RailButton
                 title={`主题：${theme === 'system' ? '跟随系统' : theme === 'light' ? '浅色' : '深色'}`}
                 onClick={cycleTheme}

@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, ClipboardEvent, KeyboardEvent, ReactNode } from 'react'
 import { clsx } from 'clsx'
-import { FileText, ImagePlus, Paperclip, Square, X } from 'lucide-react'
+import { FileText, Square, X } from 'lucide-react'
 import type { AttachmentDTO } from '@shared/types/api'
 import { attachmentUrl, uploadAttachment } from '../api/attachments'
 import { toast } from '../store/toast'
 import { useSettings } from '../store/settings'
 import { Spinner } from '../components/ui/Spinner'
 import type { ImageEditSource } from './imageSource'
-import { ArrowUpIcon } from './icons'
+import { ArrowUpIcon, AttachmentIcon, UploadImageIcon } from './icons'
 import { ImagePreviewTrigger } from './ImagePreview'
 
 interface Props {
@@ -264,40 +264,44 @@ export function Composer({
 
         <div className="mt-1.5 flex items-end justify-between gap-3">
           <div className="flex items-center gap-1.5">
-            {canImage && (
-              <>
-                <input
-                  ref={imageInput}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  hidden
-                  onChange={onPick}
-                />
-                <button
-                  type="button"
-                  onClick={() => imageInput.current?.click()}
-                  className="flex h-9 w-9 items-center justify-center rounded-full text-neutral-700 transition hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
-                  title="上传图片"
-                  aria-label="上传图片"
-                >
-                  <ImagePlus className="h-5 w-5" />
-                </button>
-              </>
-            )}
-            {canFile && (
-              <>
-                <input ref={fileInput} type="file" multiple hidden onChange={onPick} />
-                <button
-                  type="button"
-                  onClick={() => fileInput.current?.click()}
-                  className="flex h-9 w-9 items-center justify-center rounded-full text-neutral-700 transition hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
-                  title="上传文件"
-                  aria-label="上传文件"
-                >
-                  <Paperclip className="h-5 w-5" />
-                </button>
-              </>
+            {(canImage || canFile) && (
+              <div className="-ml-[5px] flex items-center gap-0.5">
+                {canImage && (
+                  <>
+                    <input
+                      ref={imageInput}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      hidden
+                      onChange={onPick}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => imageInput.current?.click()}
+                      className="flex h-9 w-9 items-center justify-center rounded-full text-neutral-700 transition hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
+                      title="上传图片"
+                      aria-label="上传图片"
+                    >
+                      <UploadImageIcon className="h-5 w-5" />
+                    </button>
+                  </>
+                )}
+                {canFile && (
+                  <>
+                    <input ref={fileInput} type="file" multiple hidden onChange={onPick} />
+                    <button
+                      type="button"
+                      onClick={() => fileInput.current?.click()}
+                      className="flex h-9 w-9 items-center justify-center rounded-full text-neutral-700 transition hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
+                      title="上传文件"
+                      aria-label="上传文件"
+                    >
+                      <AttachmentIcon className="h-5 w-5" />
+                    </button>
+                  </>
+                )}
+              </div>
             )}
             {uploading && <Spinner className="h-4 w-4 text-neutral-400" />}
             {leftControls}
