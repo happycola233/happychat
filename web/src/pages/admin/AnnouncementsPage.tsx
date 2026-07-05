@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Pin, Plus, RotateCcw, Trash2, Users } from 'lucide-react'
+import { Pin, Plus, RotateCcw, Users } from 'lucide-react'
 import type { AdminAnnouncementDTO } from '@shared/types/api'
 import {
   deleteAnnouncement,
@@ -21,6 +21,7 @@ import {
   PHASE_META,
 } from '../../lib/announcementMeta'
 import { toast } from '../../store/toast'
+import { DeleteIcon } from '../../chat/icons'
 import { AnnouncementEditor } from './AnnouncementEditor'
 
 /** 「谁已读」名单弹窗。 */
@@ -221,7 +222,7 @@ export default function AnnouncementsPage() {
                               if (confirm(`确定删除公告「${a.title}」？`)) remove.mutate(a.id)
                             }}
                           >
-                            <Trash2 className="h-3.5 w-3.5" />
+                            <DeleteIcon className="h-3.5 w-3.5" />
                           </Button>
                         </div>
                       </td>

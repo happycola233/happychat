@@ -5,7 +5,7 @@ import type { MessageUsage } from '@shared/types/domain'
 import { copyToClipboard } from '../lib/clipboard'
 import { toast } from '../store/toast'
 import { computeTps, formatDuration, formatMessageTime, formatTokens, formatTps } from './usageFormat'
-import { CopyMessageIcon } from './icons'
+import { CopyIcon } from './icons'
 
 export function MessageIconButton({
   title,
@@ -58,7 +58,7 @@ export function CopyMessageButton({ text, className }: { text: string; className
       {copied ? (
         <Check className="h-[18px] w-[18px]" />
       ) : (
-        <CopyMessageIcon className="h-[18px] w-[18px]" />
+        <CopyIcon className="h-[18px] w-[18px]" />
       )}
     </MessageIconButton>
   )

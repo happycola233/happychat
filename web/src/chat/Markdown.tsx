@@ -7,9 +7,10 @@ import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import rehypeHighlight from 'rehype-highlight'
-import { Check, Code2, Copy } from 'lucide-react'
+import { Check, Code2 } from 'lucide-react'
 import { copyToClipboard } from '../lib/clipboard'
 import { toast } from '../store/toast'
+import { CopyIcon } from './icons'
 import { normalizeMarkdownMath } from './markdownMath'
 import { MESSAGE_BODY_TEXT_CLASS } from './messageStyles'
 import { resolveNearestTargetScrollTop } from './scrollAnchor'
@@ -198,7 +199,11 @@ function PreBlock({ children, variant }: { children?: ReactNode; variant: Markdo
           aria-label="复制代码"
           title="复制代码"
         >
-          {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+          {copied ? (
+            <Check className="h-3.5 w-3.5" />
+          ) : (
+            <CopyIcon className="h-3.5 w-3.5" />
+          )}
         </button>
       </div>
       <pre
@@ -256,7 +261,7 @@ function TableBlock({ children, variant }: { children?: ReactNode; variant: Mark
         aria-label="复制表格"
         title="复制表格"
       >
-        {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+        {copied ? <Check className="h-4 w-4" /> : <CopyIcon className="h-4 w-4" />}
       </button>
     </div>
   )

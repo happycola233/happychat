@@ -8,13 +8,9 @@ import {
   LogOut,
   Moon,
   MoreHorizontal,
-  Pencil,
-  PinOff,
   Search,
   Settings,
-  Share2,
   Sun,
-  Trash2,
 } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { deleteConversation, pinConversation, renameConversation } from '../api/chat'
@@ -26,7 +22,17 @@ import { toast } from '../store/toast'
 import { useSettings } from '../store/settings'
 import { useSettingsDialog } from '../store/settingsDialog'
 import { useTitleTypingStore } from '../store/titleTyping'
-import { ChatBubbleIcon, NewChatIcon, PinnedIcon, RoutineIcon, SidebarToggleIcon } from './icons'
+import {
+  ChatBubbleIcon,
+  DeleteIcon,
+  EditIcon,
+  NewChatIcon,
+  PinnedIcon,
+  RoutineIcon,
+  ShareIcon,
+  SidebarToggleIcon,
+  UnpinIcon,
+} from './icons'
 import { SearchDialog } from './SearchDialog'
 
 type PopoverKind = 'pinned' | 'recent'
@@ -211,14 +217,16 @@ function RowMenuItem({
       type="button"
       onClick={onClick}
       className={clsx(
-        'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition',
+        'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-[13px] leading-5 transition',
         danger
           ? 'text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30'
           : 'text-neutral-700 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-800',
       )}
     >
-      {icon}
-      {children}
+      <span className="flex h-5 w-5 shrink-0 items-center justify-center [&>svg]:h-4 [&>svg]:w-4">
+        {icon}
+      </span>
+      <span className="flex min-h-5 items-center leading-5">{children}</span>
     </button>
   )
 }
@@ -380,7 +388,7 @@ function ConversationRow({
             )}
           >
             <RowMenuItem
-              icon={<Share2 className="h-4 w-4" />}
+              icon={<ShareIcon className="h-4 w-4" />}
               onClick={() => {
                 setMenuOpen(false)
                 onShare?.(conversation.id)
@@ -388,11 +396,11 @@ function ConversationRow({
             >
               分享
             </RowMenuItem>
-            <RowMenuItem icon={<Pencil className="h-4 w-4" />} onClick={startRename}>
+            <RowMenuItem icon={<EditIcon className="h-4 w-4" />} onClick={startRename}>
               重命名
             </RowMenuItem>
             <RowMenuItem
-              icon={pinned ? <PinOff className="h-4 w-4" /> : <PinnedIcon className="h-4 w-4" />}
+              icon={pinned ? <UnpinIcon className="h-4 w-4" /> : <PinnedIcon className="h-4 w-4" />}
               onClick={() => {
                 setMenuOpen(false)
                 onTogglePin?.(conversation.id, !pinned)
@@ -401,7 +409,7 @@ function ConversationRow({
               {pinned ? '取消置顶' : '置顶'}
             </RowMenuItem>
             <RowMenuItem
-              icon={<Trash2 className="h-4 w-4" />}
+              icon={<DeleteIcon className="h-4 w-4" />}
               danger
               onClick={() => {
                 setMenuOpen(false)

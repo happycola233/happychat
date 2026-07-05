@@ -7,7 +7,6 @@ import {
   Info,
   MessageSquareText,
   SlidersHorizontal,
-  Trash2,
   Upload,
   UserRound,
   X,
@@ -33,6 +32,7 @@ import {
 import { useSettings } from '../store/settings'
 import { useSettingsDialog, type SettingsTab } from '../store/settingsDialog'
 import { toast } from '../store/toast'
+import { DeleteIcon } from './icons'
 
 const APP_VERSION = '0.1.0'
 const USERNAME_PATTERN = /^[a-zA-Z0-9_.-]+$/
@@ -477,7 +477,7 @@ function AccountPanel() {
             </div>
           ) : (
             <Button variant="secondary" className="shrink-0" onClick={() => setConfirmClear(true)}>
-              <Trash2 className="h-4 w-4" />
+              <DeleteIcon className="h-4 w-4" />
               清除
             </Button>
           )}

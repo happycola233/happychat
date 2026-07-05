@@ -9,12 +9,12 @@ import {
   Megaphone,
   Server,
   Settings,
-  Share2,
   TrendingUp,
   Users,
 } from 'lucide-react'
 import { Link, NavLink, Outlet } from 'react-router-dom'
 import { Spinner } from '../../components/ui/Spinner'
+import { ShareIcon } from '../../chat/icons'
 
 const navItems = [
   { to: 'overview', label: '概览', icon: LayoutDashboard },
@@ -22,7 +22,7 @@ const navItems = [
   { to: 'request-events', label: '请求事件', icon: Activity },
   { to: 'error-logs', label: '错误日志', icon: AlertTriangle },
   { to: 'auth-center', label: '账号中心', icon: Users },
-  { to: 'shares', label: '分享管理', icon: Share2 },
+  { to: 'shares', label: '分享管理', icon: ShareIcon },
   { to: 'providers', label: '提供商', icon: Server },
   { to: 'models', label: '模型', icon: Boxes },
   { to: 'announcements', label: '公告', icon: Megaphone },

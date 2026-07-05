@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ExternalLink } from 'lucide-react'
 import { adminRevokeShare, listAllShares } from '../../api/shares'
+import { ExternalLinkIcon } from '../../chat/icons'
 import { Badge } from '../../components/ui/Badge'
 import { Spinner } from '../../components/ui/Spinner'
 import {
@@ -94,7 +94,7 @@ export default function SharesPage() {
                           rel="noreferrer"
                           className="inline-flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
                         >
-                          <ExternalLink className="h-3.5 w-3.5" /> 打开
+                          <ExternalLinkIcon className="h-3.5 w-3.5" /> 打开
                         </a>
                         {!s.revoked && (
                           <button

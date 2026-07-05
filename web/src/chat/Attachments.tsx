@@ -1,6 +1,7 @@
-import { FileText, Pencil } from 'lucide-react'
+import { FileText } from 'lucide-react'
 import type { ContentPart } from '@shared/types/domain'
 import { attachmentUrl } from '../api/attachments'
+import { EditIcon } from './icons'
 import type { ImageEditSource } from './imageSource'
 import { ImagePreviewTrigger } from './ImagePreview'
 
@@ -54,7 +55,7 @@ export function AttachmentParts({
                   className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-800 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
                   title="以此图编辑"
                 >
-                  <Pencil className="h-3.5 w-3.5" />
+                  <EditIcon className="h-3.5 w-3.5" />
                   以此图编辑
                 </button>
               )}

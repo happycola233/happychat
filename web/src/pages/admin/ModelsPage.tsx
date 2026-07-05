@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, Plus } from 'lucide-react'
 import type { AdminModelDTO } from '@shared/types/api'
 import type { ModelCapabilities } from '@shared/types/domain'
 import * as adminApi from '../../api/admin'
@@ -9,6 +9,7 @@ import { Spinner } from '../../components/ui/Spinner'
 import { tableScroll, tableShell } from '../../components/ui/tableStyles'
 import { Toggle } from '../../components/ui/Toggle'
 import { toast } from '../../store/toast'
+import { DeleteIcon } from '../../chat/icons'
 import { ModelEditor } from './ModelEditor'
 
 const CAP_BADGE: Partial<Record<keyof ModelCapabilities, string>> = {
@@ -202,7 +203,7 @@ export default function ModelsPage() {
                           if (confirm(`确定删除模型「${m.displayName}」？`)) remove.mutate(m.id)
                         }}
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
+                        <DeleteIcon className="h-3.5 w-3.5" />
                       </Button>
                     </td>
                   </tr>

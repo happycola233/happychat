@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Plus, RefreshCw, Trash2, Wifi } from 'lucide-react'
+import { Plus, RefreshCw, Wifi } from 'lucide-react'
 import type { ProviderDTO } from '@shared/types/api'
 import { ApiRequestError } from '../../api/client'
 import * as adminApi from '../../api/admin'
@@ -11,6 +11,7 @@ import { TextField } from '../../components/ui/TextField'
 import { Toggle } from '../../components/ui/Toggle'
 import { Spinner } from '../../components/ui/Spinner'
 import { toast } from '../../store/toast'
+import { DeleteIcon } from '../../chat/icons'
 
 export default function ProvidersPage() {
   const qc = useQueryClient()
@@ -131,7 +132,7 @@ export default function ProvidersPage() {
                       remove.mutate(p.id)
                   }}
                 >
-                  <Trash2 className="h-3.5 w-3.5" /> 删除
+                  <DeleteIcon className="h-3.5 w-3.5" /> 删除
                 </Button>
               </div>
             </div>

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { clsx } from 'clsx'
-import { Check, Copy, Plus, Trash2 } from 'lucide-react'
+import { Check, Plus } from 'lucide-react'
 import type { AdminSessionDTO, AdminUserDTO, InviteCodeDTO } from '@shared/types/api'
 import * as adminApi from '../../api/admin'
 import { useMe } from '../../hooks/useAuth'
@@ -24,6 +24,7 @@ import {
 import { formatDateTime } from '../../lib/format'
 import { copyToClipboard } from '../../lib/clipboard'
 import { toast } from '../../store/toast'
+import { CopyIcon, DeleteIcon } from '../../chat/icons'
 
 type Tab = 'users' | 'invites' | 'sessions'
 
@@ -184,7 +185,7 @@ function UsersTab() {
                         aria-label={isSelf ? '不能删除当前用户' : '删除'}
                         title={isSelf ? '不能删除当前用户' : '删除用户'}
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
+                        <DeleteIcon className="h-3.5 w-3.5" />
                       </button>
                     </div>
                   </td>
@@ -272,7 +273,7 @@ function InvitesTab() {
                         {copied === iv.code ? (
                           <Check className="h-3.5 w-3.5 text-emerald-500" />
                         ) : (
-                          <Copy className="h-3.5 w-3.5 text-neutral-400" />
+                          <CopyIcon className="h-3.5 w-3.5 text-neutral-400" />
                         )}
                       </button>
                       {iv.note && <div className="text-xs text-neutral-400">{iv.note}</div>}
@@ -301,7 +302,7 @@ function InvitesTab() {
                         className="text-neutral-400 hover:text-red-500"
                         aria-label="删除"
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
+                        <DeleteIcon className="h-3.5 w-3.5" />
                       </button>
                     </td>
                   </tr>

@@ -24,7 +24,7 @@ import type { ImageEditSource } from './imageSource'
 import { ProgressiveImageStage } from './ProgressiveImageStage'
 import { attachmentDraftsFromContent } from './attachmentDraft'
 import { MessageEditForm, type MessageEditSubmit } from './MessageEditForm'
-import { EditMessageIcon, RetryMessageIcon } from './icons'
+import { EditIcon, RetryMessageIcon } from './icons'
 
 export interface BranchInfo {
   index: number
@@ -169,7 +169,7 @@ export function Message({
                   setEditing(true)
                 }}
               >
-                <EditMessageIcon className="h-[18px] w-[18px]" />
+                <EditIcon className="h-[18px] w-[18px]" />
               </MessageIconButton>
             )}
           </div>

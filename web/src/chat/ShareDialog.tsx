@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Copy, ExternalLink, Link2 } from 'lucide-react'
+import { Check, Link2 } from 'lucide-react'
 import {
   createShare,
   getConversationShare,
@@ -12,6 +12,7 @@ import { Select } from '../components/ui/Select'
 import { Toggle } from '../components/ui/Toggle'
 import { copyToClipboard } from '../lib/clipboard'
 import { toast } from '../store/toast'
+import { CopyIcon, ExternalLinkIcon } from './icons'
 
 type Expiry = 'never' | '7' | '30'
 
@@ -112,19 +113,23 @@ export function ShareDialog({
             </span>
             <button
               onClick={copy}
-              className="rounded-md p-1.5 text-neutral-400 transition hover:bg-neutral-200 hover:text-neutral-700 dark:hover:bg-neutral-700"
+              className="rounded-md p-1.5 text-neutral-400 transition hover:bg-neutral-200 hover:text-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-700 dark:hover:text-white"
               title="复制链接"
             >
-              {copied ? <Check className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}
+              {copied ? (
+                <Check className="h-4 w-4 text-emerald-500" />
+              ) : (
+                <CopyIcon className="h-4 w-4" />
+              )}
             </button>
             <a
               href={shareUrl}
               target="_blank"
               rel="noreferrer"
-              className="rounded-md p-1.5 text-neutral-400 transition hover:bg-neutral-200 hover:text-neutral-700 dark:hover:bg-neutral-700"
+              className="rounded-md p-1.5 text-neutral-400 transition hover:bg-neutral-200 hover:text-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-700 dark:hover:text-white"
               title="打开"
             >
-              <ExternalLink className="h-4 w-4" />
+              <ExternalLinkIcon className="h-4 w-4" />
             </a>
           </div>
         )}
