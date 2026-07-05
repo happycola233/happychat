@@ -122,6 +122,9 @@ export type MessageFontSize = 'small' | 'medium' | 'large'
 /** 消息时间显示格式：仅时间 / 日期+时间 */
 export type MessageTimeFormat = 'time' | 'datetime'
 
+/** ChatGPT 风重点色：驱动用户消息气泡与发送按钮。 */
+export type AccentColor = 'default' | 'blue' | 'green' | 'yellow' | 'pink' | 'orange' | 'purple'
+
 /**
  * 账户级用户偏好：服务端为源（持久化到 user_settings.preferences），
  * 前端以 localStorage 作首屏缓存避免闪烁。注意区别于 store/chat.ts 里的
@@ -138,6 +141,8 @@ export interface UserPreferences {
   /** 默认展开推理摘要（关闭则生成完成后自动折叠） */
   defaultExpandReasoning: boolean
   // —— 消息显示 ——
+  /** 重点色：用户消息气泡、设置菜单色点与发送按钮 */
+  accentColor: AccentColor
   /** 正文字号档位 */
   messageFontSize: MessageFontSize
   /** 在每条消息上显示时间 */

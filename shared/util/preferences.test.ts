@@ -8,6 +8,7 @@ describe('mergePreferences', () => {
       showScrollToBottom: true,
       sendOnEnter: true,
       defaultExpandReasoning: true,
+      accentColor: 'default',
       messageFontSize: 'medium',
       showMessageTime: true,
       messageTimeFormat: 'datetime',
@@ -22,10 +23,20 @@ describe('mergePreferences', () => {
   })
 
   it('overrides provided keys and keeps defaults for the rest', () => {
-    const merged = mergePreferences({ sendOnEnter: false, messageFontSize: 'large' })
+    const merged = mergePreferences({
+      sendOnEnter: false,
+      accentColor: 'purple',
+      messageFontSize: 'large',
+    })
     expect(merged.sendOnEnter).toBe(false)
+    expect(merged.accentColor).toBe('purple')
     expect(merged.messageFontSize).toBe('large')
     expect(merged.showModelLabel).toBe(DEFAULT_PREFERENCES.showModelLabel)
+  })
+
+  it('falls back to the default accent color for stale invalid values', () => {
+    const merged = mergePreferences({ accentColor: 'cyan' } as never)
+    expect(merged.accentColor).toBe('default')
   })
 
   it('drops unknown/stale keys and yields exactly the known key set', () => {

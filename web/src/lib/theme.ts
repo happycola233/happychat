@@ -1,4 +1,4 @@
-import type { MessageFontSize, ThemePreference } from '@shared/types/domain'
+import type { AccentColor, MessageFontSize, ThemePreference } from '@shared/types/domain'
 
 let currentThemePreference: ThemePreference = 'system'
 let forcedSystemThemeCount = 0
@@ -43,10 +43,26 @@ export function forceSystemTheme(): () => void {
 }
 
 const FONT_CLASSES = ['hc-font-small', 'hc-font-medium', 'hc-font-large'] as const
+const ACCENT_CLASSES = [
+  'hc-accent-default',
+  'hc-accent-blue',
+  'hc-accent-green',
+  'hc-accent-yellow',
+  'hc-accent-pink',
+  'hc-accent-orange',
+  'hc-accent-purple',
+] as const
 
 /** 据字号档位切换 <html> 的 hc-font-* 类（驱动 --hc-msg-font 变量）。 */
 export function applyFontSize(size: MessageFontSize): void {
   const el = document.documentElement
   el.classList.remove(...FONT_CLASSES)
   el.classList.add(`hc-font-${size}`)
+}
+
+/** 据重点色切换 <html> 的 hc-accent-* 类（驱动聊天核心色值变量）。 */
+export function applyAccentColor(color: AccentColor): void {
+  const el = document.documentElement
+  el.classList.remove(...ACCENT_CLASSES)
+  el.classList.add(`hc-accent-${color}`)
 }

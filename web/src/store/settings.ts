@@ -4,7 +4,7 @@ import type { UserSettingsDTO } from '@shared/types/api'
 import type { ThemePreference, UserPreferences } from '@shared/types/domain'
 import { DEFAULT_PREFERENCES, mergePreferences } from '@shared/util/preferences'
 import { updateSettings } from '../api/settings'
-import { applyFontSize, applyTheme } from '../lib/theme'
+import { applyAccentColor, applyFontSize, applyTheme } from '../lib/theme'
 import { toast } from './toast'
 
 /**
@@ -40,6 +40,7 @@ export const useSettings = create<SettingsStore>()(
         set({ theme: dto.theme, preferences: dto.preferences, hydrated: true })
         applyTheme(dto.theme)
         applyFontSize(dto.preferences.messageFontSize)
+        applyAccentColor(dto.preferences.accentColor)
       },
       setTheme: (theme) => {
         set({ theme })
@@ -50,6 +51,7 @@ export const useSettings = create<SettingsStore>()(
         const preferences = { ...get().preferences, [key]: value }
         set({ preferences })
         if (key === 'messageFontSize') applyFontSize(preferences.messageFontSize)
+        if (key === 'accentColor') applyAccentColor(preferences.accentColor)
         void persistRemote({ preferences: { [key]: value } as Partial<UserPreferences> })
       },
     }),
@@ -70,6 +72,7 @@ export const useSettings = create<SettingsStore>()(
         if (state) {
           applyTheme(state.theme)
           applyFontSize(state.preferences.messageFontSize)
+          applyAccentColor(state.preferences.accentColor)
         }
       },
     },

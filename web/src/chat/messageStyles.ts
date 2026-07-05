@@ -2,6 +2,10 @@
 export const MESSAGE_BODY_TEXT_CLASS =
   'text-[length:var(--hc-msg-font)] leading-[1.6] text-neutral-800 dark:text-neutral-100'
 
+// 用户消息继承重点色文字；助手 Markdown 仍使用中性色 MESSAGE_BODY_TEXT_CLASS。
+export const USER_MESSAGE_TEXT_CLASS =
+  'text-[length:var(--hc-msg-font)] leading-[1.6] hc-user-message-text'
+
 // 用户消息内联编辑：短内容给足起步高度，长内容与折叠预览共用同一个可视上限。
 export const USER_MESSAGE_EDIT_MIN_HEIGHT = 152
 export const USER_MESSAGE_EDIT_MAX_HEIGHT = 352

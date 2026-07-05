@@ -4,6 +4,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { listMyShares, revokeConversationShare } from '../api/shares'
 import {
+  Check,
+  ChevronDown,
   Info,
   MessageSquareText,
   SlidersHorizontal,
@@ -12,11 +14,13 @@ import {
   X,
 } from 'lucide-react'
 import type {
+  AccentColor,
   MessageFontSize,
   MessageTimeFormat,
   ThemePreference,
   UserPreferences,
 } from '@shared/types/domain'
+import { useIsDark } from '../lib/useIsDark'
 import { Button } from '../components/ui/Button'
 import { TextField } from '../components/ui/TextField'
 import { Toggle } from '../components/ui/Toggle'
@@ -36,6 +40,21 @@ import { DeleteIcon } from './icons'
 
 const APP_VERSION = '0.1.0'
 const USERNAME_PATTERN = /^[a-zA-Z0-9_.-]+$/
+
+const ACCENT_OPTIONS = [
+  { value: 'default', label: '默认', light: '#b4b4b4', dark: '#9b9b9b' },
+  { value: 'blue', label: '蓝色', light: '#3a83f7', dark: '#2c67c5' },
+  { value: 'green', label: '绿色', light: '#53b559', dark: '#48a04c' },
+  { value: 'yellow', label: '黄色', light: '#f6c543', dark: '#d9a337' },
+  { value: 'pink', label: '粉色', light: '#e0766d', dark: '#c96257' },
+  { value: 'orange', label: '橙色', light: '#ee7c37', dark: '#d25e28' },
+  { value: 'purple', label: '紫色', light: '#8952ee', dark: '#7849d1' },
+] as const satisfies readonly {
+  value: AccentColor
+  label: string
+  light: string
+  dark: string
+}[]
 
 const TABS: { id: SettingsTab; label: string; icon: ComponentType<{ className?: string }> }[] = [
   { id: 'general', label: '通用', icon: SlidersHorizontal },
@@ -95,6 +114,79 @@ function Segmented<T extends string>({
   )
 }
 
+function AccentColorSelect() {
+  const value = useSettings((s) => s.preferences.accentColor)
+  const setPreference = useSettings((s) => s.setPreference)
+  const isDark = useIsDark()
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const selected = ACCENT_OPTIONS.find((o) => o.value === value) ?? ACCENT_OPTIONS[0]
+
+  useEffect(() => {
+    if (!open) return undefined
+    const onPointerDown = (event: PointerEvent) => {
+      if (!ref.current?.contains(event.target as Node)) setOpen(false)
+    }
+    window.addEventListener('pointerdown', onPointerDown)
+    return () => window.removeEventListener('pointerdown', onPointerDown)
+  }, [open])
+
+  const swatchOf = (option: (typeof ACCENT_OPTIONS)[number]) =>
+    isDark ? option.dark : option.light
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex min-w-28 items-center justify-end gap-2 rounded-lg px-2 py-1.5 text-[14px] font-medium text-neutral-800 transition hover:bg-neutral-100 dark:text-neutral-100 dark:hover:bg-neutral-800"
+      >
+        <span
+          className="h-3.5 w-3.5 rounded-full"
+          style={{ backgroundColor: swatchOf(selected) }}
+        />
+        <span>{selected.label}</span>
+        <ChevronDown className={clsx('h-4 w-4 transition-transform', open && 'rotate-180')} />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="hc-pop-in absolute right-0 top-full z-40 mt-2 w-52 rounded-xl border border-neutral-200 bg-white p-1.5 text-neutral-900 shadow-xl dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+        >
+          {ACCENT_OPTIONS.map((option) => {
+            const active = option.value === value
+            return (
+              <button
+                key={option.value}
+                type="button"
+                role="menuitemradio"
+                aria-checked={active}
+                onClick={() => {
+                  setPreference('accentColor', option.value)
+                  setOpen(false)
+                }}
+                className={clsx(
+                  'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[14px] font-medium transition hover:bg-neutral-100 dark:hover:bg-neutral-700',
+                  active && 'bg-neutral-100 dark:bg-neutral-700',
+                )}
+              >
+                <span
+                  className="h-3.5 w-3.5 rounded-full"
+                  style={{ backgroundColor: swatchOf(option) }}
+                />
+                <span className="min-w-0 flex-1">{option.label}</span>
+                {active && <Check className="h-4 w-4 shrink-0" />}
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function PrefToggleRow({
   prefKey,
   title,
@@ -131,6 +223,7 @@ function GeneralPanel() {
           />
         }
       />
+      <Row title="重点色" control={<AccentColorSelect />} />
       <Row
         title="消息字体大小"
         control={

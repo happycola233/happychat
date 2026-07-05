@@ -276,7 +276,7 @@ export function Composer({
               <button
                 onClick={submit}
                 disabled={!canSubmit}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-500 text-white transition hover:bg-blue-600 disabled:bg-neutral-200 disabled:text-white disabled:opacity-100 dark:disabled:bg-neutral-700"
+                className="hc-send-button flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition disabled:bg-neutral-200 disabled:text-white disabled:opacity-100 dark:disabled:bg-neutral-700"
                 aria-label="发送"
               >
                 <ArrowUpIcon className="h-5 w-5" />

@@ -3,13 +3,13 @@ import { clsx } from 'clsx'
 import { ChevronDown } from 'lucide-react'
 import {
   getUserMessageEditVisibleHeight,
-  MESSAGE_BODY_TEXT_CLASS,
+  USER_MESSAGE_TEXT_CLASS,
 } from './messageStyles'
 
 // P4：纯文本渲染（保留换行）。助手消息走 Markdown 组件，用户消息用这里。
 export function MessageText({ text }: { text: string }) {
   return (
-    <div className={clsx(MESSAGE_BODY_TEXT_CLASS, 'break-words whitespace-pre-wrap')}>
+    <div className={clsx(USER_MESSAGE_TEXT_CLASS, 'break-words whitespace-pre-wrap')}>
       {text}
     </div>
   )
@@ -74,7 +74,7 @@ export function CollapsibleUserMessageText({ text }: { text: string }) {
           <MessageText text={text} />
         </div>
         {collapsed && (
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-b from-neutral-100/0 to-neutral-100 dark:from-neutral-800/0 dark:to-neutral-800" />
+          <div className="hc-user-message-fade pointer-events-none absolute inset-x-0 bottom-0 h-14" />
         )}
       </div>
       {canCollapse && (

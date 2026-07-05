@@ -13,7 +13,7 @@ import {
 import { AttachmentIcon, UploadImageIcon } from './icons'
 import {
   getUserMessageEditVisibleHeight,
-  MESSAGE_BODY_TEXT_CLASS,
+  USER_MESSAGE_TEXT_CLASS,
   USER_MESSAGE_EDIT_MIN_HEIGHT,
 } from './messageStyles'
 import { useAttachmentUpload } from './useAttachmentUpload'
@@ -144,9 +144,8 @@ export function MessageEditForm({
         onDragLeave={onDragLeave}
         onDrop={onDrop}
         className={clsx(
-          'relative w-full max-w-[85%] rounded-3xl bg-neutral-100 px-4 py-3.5 dark:bg-neutral-800',
-          dragActive &&
-            'bg-blue-50/70 ring-1 ring-blue-300 dark:bg-blue-950/20 dark:ring-blue-700',
+          'hc-user-bubble relative w-full max-w-[85%] rounded-3xl px-4 py-3.5',
+          dragActive && 'ring-1 ring-blue-300 dark:ring-blue-700',
         )}
       >
         {dragActive && (
@@ -176,7 +175,7 @@ export function MessageEditForm({
             }
           }}
           rows={1}
-          className={`${MESSAGE_BODY_TEXT_CLASS} hc-scrollbar w-full resize-none overflow-hidden bg-transparent outline-none`}
+          className={`${USER_MESSAGE_TEXT_CLASS} hc-scrollbar w-full resize-none overflow-hidden bg-transparent outline-none`}
           style={{ minHeight: USER_MESSAGE_EDIT_MIN_HEIGHT }}
         />
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
@@ -233,7 +232,7 @@ export function MessageEditForm({
               data-testid="edit-submit"
               onClick={submitEdit}
               disabled={!canSubmit}
-              className="rounded-full bg-neutral-900 px-4 py-1.5 text-sm font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-300 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200 dark:disabled:bg-neutral-600 dark:disabled:text-neutral-300"
+              className="hc-send-button rounded-full px-4 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:bg-neutral-300 disabled:text-white dark:disabled:bg-neutral-600 dark:disabled:text-neutral-300"
             >
               发送
             </button>

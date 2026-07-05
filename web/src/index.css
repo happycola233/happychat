@@ -37,6 +37,131 @@ html.hc-font-large {
   --hc-msg-font: 17px;
 }
 
+/* 重点色变量：设置只切换 hc-accent-* 类，聊天核心 UI 统一读取这些 token。 */
+:root,
+html.hc-accent-default {
+  --hc-accent-swatch: #b4b4b4;
+  --hc-user-bubble-bg: #f3f3f3;
+  --hc-user-bubble-bg-transparent: rgb(243 243 243 / 0);
+  --hc-user-bubble-text: #0d0d0d;
+  --hc-send-button-bg: #000000;
+  --hc-send-button-fg: #ffffff;
+}
+html.hc-accent-blue {
+  --hc-accent-swatch: #3a83f7;
+  --hc-user-bubble-bg: #e8f3fe;
+  --hc-user-bubble-bg-transparent: rgb(232 243 254 / 0);
+  --hc-user-bubble-text: #0c274a;
+  --hc-send-button-bg: #3a83f7;
+}
+html.hc-accent-green {
+  --hc-accent-swatch: #53b559;
+  --hc-user-bubble-bg: #def3e5;
+  --hc-user-bubble-bg-transparent: rgb(222 243 229 / 0);
+  --hc-user-bubble-text: #14361a;
+  --hc-send-button-bg: #53b559;
+}
+html.hc-accent-yellow {
+  --hc-accent-swatch: #f6c543;
+  --hc-user-bubble-bg: #fdf6dc;
+  --hc-user-bubble-bg-transparent: rgb(253 246 220 / 0);
+  --hc-user-bubble-text: #51300c;
+  --hc-send-button-bg: #f6c543;
+}
+html.hc-accent-pink {
+  --hc-accent-swatch: #e0766d;
+  --hc-user-bubble-bg: #fcf1ef;
+  --hc-user-bubble-bg-transparent: rgb(252 241 239 / 0);
+  --hc-user-bubble-text: #462320;
+  --hc-send-button-bg: #e0766d;
+}
+html.hc-accent-orange {
+  --hc-accent-swatch: #ee7c37;
+  --hc-user-bubble-bg: #fbe8db;
+  --hc-user-bubble-bg-transparent: rgb(251 232 219 / 0);
+  --hc-user-bubble-text: #45240d;
+  --hc-send-button-bg: #ee7c37;
+}
+html.hc-accent-purple {
+  --hc-accent-swatch: #8952ee;
+  --hc-user-bubble-bg: #ede5fc;
+  --hc-user-bubble-bg-transparent: rgb(237 229 252 / 0);
+  --hc-user-bubble-text: #291947;
+  --hc-send-button-bg: #8952ee;
+}
+.dark,
+html.dark.hc-accent-default {
+  --hc-accent-swatch: #9b9b9b;
+  --hc-user-bubble-bg: #2b2b2b;
+  --hc-user-bubble-bg-transparent: rgb(43 43 43 / 0);
+  --hc-user-bubble-text: #ffffff;
+  --hc-send-button-bg: #ffffff;
+  --hc-send-button-fg: #ffffff;
+}
+html.dark.hc-accent-blue {
+  --hc-accent-swatch: #2c67c5;
+  --hc-user-bubble-bg: #173e76;
+  --hc-user-bubble-bg-transparent: rgb(23 62 118 / 0);
+  --hc-user-bubble-text: #f6fafe;
+  --hc-send-button-bg: #2c67c5;
+}
+html.dark.hc-accent-green {
+  --hc-accent-swatch: #48a04c;
+  --hc-user-bubble-bg: #2c6732;
+  --hc-user-bubble-bg-transparent: rgb(44 103 50 / 0);
+  --hc-user-bubble-text: #effaf3;
+  --hc-send-button-bg: #48a04c;
+}
+html.dark.hc-accent-yellow {
+  --hc-accent-swatch: #d9a337;
+  --hc-user-bubble-bg: #95611f;
+  --hc-user-bubble-bg-transparent: rgb(149 97 31 / 0);
+  --hc-user-bubble-text: #fefbee;
+  --hc-send-button-bg: #d9a337;
+}
+html.dark.hc-accent-pink {
+  --hc-accent-swatch: #c96257;
+  --hc-user-bubble-bg: #8b3f36;
+  --hc-user-bubble-bg-transparent: rgb(139 63 54 / 0);
+  --hc-user-bubble-text: #fef7f6;
+  --hc-send-button-bg: #c96257;
+}
+html.dark.hc-accent-orange {
+  --hc-accent-swatch: #d25e28;
+  --hc-user-bubble-bg: #87401d;
+  --hc-user-bubble-bg-transparent: rgb(135 64 29 / 0);
+  --hc-user-bubble-text: #fdf5f1;
+  --hc-send-button-bg: #d25e28;
+}
+html.dark.hc-accent-purple {
+  --hc-accent-swatch: #7849d1;
+  --hc-user-bubble-bg: #4e2f88;
+  --hc-user-bubble-bg-transparent: rgb(78 47 136 / 0);
+  --hc-user-bubble-text: #f8f5fd;
+  --hc-send-button-bg: #7849d1;
+}
+.hc-user-bubble {
+  background: var(--hc-user-bubble-bg);
+  color: var(--hc-user-bubble-text);
+}
+.hc-user-message-text {
+  color: var(--hc-user-bubble-text);
+}
+.hc-user-message-fade {
+  background: linear-gradient(
+    to bottom,
+    var(--hc-user-bubble-bg-transparent),
+    var(--hc-user-bubble-bg)
+  );
+}
+.hc-send-button:not(:disabled) {
+  background: var(--hc-send-button-bg);
+  color: var(--hc-send-button-fg);
+}
+.hc-send-button:not(:disabled):hover {
+  filter: brightness(0.94);
+}
+
 .hc-scrollbar {
   scrollbar-width: thin;
   scrollbar-color: rgb(163 163 163 / 0.8) transparent;

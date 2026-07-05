@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { updateProfileSchema } from './settings'
+import { updateProfileSchema, updateSettingsSchema } from './settings'
 
 describe('updateProfileSchema', () => {
   it('allows updating only the username', () => {
@@ -18,5 +18,18 @@ describe('updateProfileSchema', () => {
 
   it('rejects empty profile patches', () => {
     expect(updateProfileSchema.safeParse({}).success).toBe(false)
+  })
+})
+
+describe('updateSettingsSchema', () => {
+  it('allows updating the accent color preference', () => {
+    const parsed = updateSettingsSchema.parse({ preferences: { accentColor: 'purple' } })
+    expect(parsed).toEqual({ preferences: { accentColor: 'purple' } })
+  })
+
+  it('rejects unknown accent colors', () => {
+    expect(
+      updateSettingsSchema.safeParse({ preferences: { accentColor: 'cyan' } }).success,
+    ).toBe(false)
   })
 })
