@@ -20,6 +20,34 @@ export function resolveAnchoredScrollTop(
   return Math.min(Math.max(0, anchoredScrollTop), Math.max(0, maxScrollTop))
 }
 
+export interface NearestTargetScrollArgs {
+  currentScrollTop: number
+  scrollHeight: number
+  clientHeight: number
+  containerTop: number
+  containerBottom: number
+  targetTop: number
+  targetBottom: number
+  insetTop?: number
+  insetBottom?: number
+}
+
+/** 只滚动到“刚好看见目标”的位置，避免锚点跳转把靠后的脚注强行居中。 */
+export function resolveNearestTargetScrollTop(args: NearestTargetScrollArgs): number {
+  const visibleTop = args.containerTop + (args.insetTop ?? 0)
+  const visibleBottom = args.containerBottom - (args.insetBottom ?? 0)
+  let nextScrollTop = args.currentScrollTop
+
+  if (args.targetTop < visibleTop) {
+    nextScrollTop += args.targetTop - visibleTop
+  } else if (args.targetBottom > visibleBottom) {
+    nextScrollTop += args.targetBottom - visibleBottom
+  }
+
+  const maxScrollTop = Math.max(0, args.scrollHeight - args.clientHeight)
+  return Math.min(Math.max(0, nextScrollTop), maxScrollTop)
+}
+
 function firstVisibleMessage(scrollElement: HTMLElement): HTMLElement | null {
   const scrollRect = scrollElement.getBoundingClientRect()
   return (

@@ -12,6 +12,7 @@ import { copyToClipboard } from '../lib/clipboard'
 import { toast } from '../store/toast'
 import { normalizeMarkdownMath } from './markdownMath'
 import { MESSAGE_BODY_TEXT_CLASS } from './messageStyles'
+import { resolveNearestTargetScrollTop } from './scrollAnchor'
 
 export type MarkdownVariant = 'message' | 'reasoning'
 
@@ -22,7 +23,7 @@ interface MarkdownProps {
 }
 
 const INTERNAL_HASH_RE = /^#[^\s#]+$/
-const FOOTNOTE_BACK_CONTENT = '↩️'
+const FOOTNOTE_BACK_CONTENT = '↩'
 
 function footnoteBackLabel(referenceIndex: number, rereferenceIndex: number): string {
   return `返回正文 ${referenceIndex + 1}${rereferenceIndex > 1 ? `-${rereferenceIndex}` : ''}`
@@ -49,14 +50,70 @@ function focusHashTarget(target: HTMLElement) {
   }
 }
 
+function cssPixelValue(value: string): number {
+  const parsed = Number.parseFloat(value)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function isVerticalScroller(element: HTMLElement): boolean {
+  const overflowY = window.getComputedStyle(element).overflowY
+  return /(auto|scroll|overlay)/.test(overflowY) && element.scrollHeight > element.clientHeight
+}
+
+function findScrollContainer(target: HTMLElement): HTMLElement | null {
+  let element = target.parentElement
+  while (element) {
+    if (isVerticalScroller(element)) return element
+    element = element.parentElement
+  }
+
+  return document.scrollingElement instanceof HTMLElement ? document.scrollingElement : null
+}
+
+function scrollElementBounds(scrollElement: HTMLElement): { top: number; bottom: number } {
+  if (scrollElement === document.scrollingElement) {
+    return { top: 0, bottom: window.innerHeight }
+  }
+
+  const rect = scrollElement.getBoundingClientRect()
+  return { top: rect.top, bottom: rect.bottom }
+}
+
+function scrollTargetIntoNearestView(target: HTMLElement) {
+  const scrollElement = findScrollContainer(target)
+  if (!scrollElement) {
+    target.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' })
+    return
+  }
+
+  const targetRect = target.getBoundingClientRect()
+  const bounds = scrollElementBounds(scrollElement)
+  const scrollStyle = window.getComputedStyle(scrollElement)
+  const targetStyle = window.getComputedStyle(target)
+  const top = resolveNearestTargetScrollTop({
+    currentScrollTop: scrollElement.scrollTop,
+    scrollHeight: scrollElement.scrollHeight,
+    clientHeight: scrollElement.clientHeight,
+    containerTop: bounds.top,
+    containerBottom: bounds.bottom,
+    targetTop: targetRect.top,
+    targetBottom: targetRect.bottom,
+    insetTop: cssPixelValue(scrollStyle.scrollPaddingTop) + cssPixelValue(targetStyle.scrollMarginTop),
+    insetBottom:
+      cssPixelValue(scrollStyle.scrollPaddingBottom) + cssPixelValue(targetStyle.scrollMarginBottom),
+  })
+
+  scrollElement.scrollTo({ top, behavior: 'smooth' })
+}
+
 function scrollToHashTarget(hash: string): boolean {
   const id = safeDecodeHash(hash.slice(1))
   const target = document.getElementById(id)
   if (!target) return false
 
   window.history.pushState(null, '', `${window.location.pathname}${window.location.search}${hash}`)
-  target.scrollIntoView({ block: 'center', behavior: 'smooth' })
   if (target instanceof HTMLElement) {
+    scrollTargetIntoNearestView(target)
     focusHashTarget(target)
   }
   return true
@@ -209,6 +266,7 @@ const componentsFor = (variant: MarkdownVariant): Components => ({
   pre: ({ children }) => <PreBlock variant={variant}>{children}</PreBlock>,
   a: ({ href, children, node: _node, className, onClick, ...props }) => {
     const isHashLink = isInternalHashLink(href)
+    const isFootnoteBackref = Object.prototype.hasOwnProperty.call(props, 'data-footnote-backref')
     const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
       onClick?.(event)
       if (
@@ -241,7 +299,12 @@ const componentsFor = (variant: MarkdownVariant): Components => ({
         onClick={handleClick}
         target={isHashLink ? undefined : '_blank'}
         rel={isHashLink ? undefined : 'noreferrer'}
-        className={clsx(className, 'text-blue-600 underline dark:text-blue-400')}
+        className={clsx(
+          className,
+          isFootnoteBackref
+            ? 'text-neutral-400 no-underline transition hover:text-neutral-700 dark:text-neutral-500 dark:hover:text-neutral-200'
+            : 'text-blue-600 underline dark:text-blue-400',
+        )}
       >
         {children}
       </a>
