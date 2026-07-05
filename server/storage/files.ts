@@ -231,6 +231,13 @@ function ensureUserUploadDir(userId: string): string {
   return dir
 }
 
+/** 数据目录在当前工作目录下时，DB 中优先保存可随项目搬迁的相对路径。 */
+function toStoredPath(storagePath: string): string {
+  const rel = relative(process.cwd(), resolve(storagePath))
+  if (!rel || rel.startsWith('..') || isAbsolute(rel)) return storagePath
+  return rel
+}
+
 function extFromName(name: string, mime: string): string {
   const e = extname(name)
   if (e) return e
@@ -252,7 +259,7 @@ export function saveUpload(
   const userUploadDir = ensureUserUploadDir(userId)
   const full = join(userUploadDir, `${id}${extFromName(originalName, mime)}`)
   writeFileSync(full, buf)
-  return full
+  return toStoredPath(full)
 }
 
 export function readUpload(storagePath: string): Buffer {
