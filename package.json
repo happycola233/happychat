@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "concurrently -n server,web -c blue,green \"npm:dev:server\" \"npm:dev:web\"",
-    "dev:server": "node --watch --watch-preserve-output --import tsx server/index.ts",
+    "dev:server": "cross-env NODE_ENV=development node --watch --watch-preserve-output --import tsx server/index.ts",
     "dev:web": "vite",
     "build": "npm run build:web",
     "build:web": "vite build",
