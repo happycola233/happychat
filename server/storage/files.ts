@@ -231,11 +231,16 @@ function ensureUserUploadDir(userId: string): string {
   return dir
 }
 
+/** DB 内统一保存为跨平台的 / 分隔符。 */
+function toForwardSlashPath(storagePath: string): string {
+  return storagePath.replace(/\\/g, '/')
+}
+
 /** 数据目录在当前工作目录下时，DB 中优先保存可随项目搬迁的相对路径。 */
 function toStoredPath(storagePath: string): string {
   const rel = relative(process.cwd(), resolve(storagePath))
   if (!rel || rel.startsWith('..') || isAbsolute(rel)) return storagePath
-  return rel
+  return toForwardSlashPath(rel)
 }
 
 function extFromName(name: string, mime: string): string {
