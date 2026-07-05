@@ -138,7 +138,7 @@ export interface UserPreferences {
   showScrollToBottom: boolean
   /** 按 Enter 发送（关闭则 Enter 换行、Ctrl/⌘+Enter 发送） */
   sendOnEnter: boolean
-  /** 默认展开推理摘要（关闭则生成完成后自动折叠） */
+  /** 默认展开推理摘要（关闭则推理摘要默认保持折叠，不随生成自动展开） */
   defaultExpandReasoning: boolean
   // —— 消息显示 ——
   /** 重点色：用户消息气泡、设置菜单色点与发送按钮 */

@@ -114,13 +114,30 @@ function Segmented<T extends string>({
   )
 }
 
-function AccentColorSelect() {
-  const value = useSettings((s) => s.preferences.accentColor)
-  const setPreference = useSettings((s) => s.setPreference)
-  const isDark = useIsDark()
+type SelectOption<T extends string> = {
+  value: T
+  label: string
+}
+
+function PreferenceSelect<
+  T extends string,
+  TOption extends SelectOption<T> = SelectOption<T>,
+>({
+  value,
+  options,
+  onChange,
+  menuClassName = 'w-56',
+  leading,
+}: {
+  value: T
+  options: readonly TOption[]
+  onChange: (v: T) => void
+  menuClassName?: string
+  leading?: (option: TOption) => ReactNode
+}) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
-  const selected = ACCENT_OPTIONS.find((o) => o.value === value) ?? ACCENT_OPTIONS[0]
+  const selected = options.find((o) => o.value === value) ?? options[0]
 
   useEffect(() => {
     if (!open) return undefined
@@ -131,8 +148,7 @@ function AccentColorSelect() {
     return () => window.removeEventListener('pointerdown', onPointerDown)
   }, [open])
 
-  const swatchOf = (option: (typeof ACCENT_OPTIONS)[number]) =>
-    isDark ? option.dark : option.light
+  if (!selected) return null
 
   return (
     <div ref={ref} className="relative">
@@ -141,21 +157,24 @@ function AccentColorSelect() {
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex min-w-28 items-center justify-end gap-2 rounded-lg px-2 py-1.5 text-[14px] font-medium text-neutral-800 transition hover:bg-neutral-100 dark:text-neutral-100 dark:hover:bg-neutral-800"
+        className={clsx(
+          'inline-flex items-center gap-2 rounded-xl px-3 py-2 text-[14px] font-medium text-neutral-800 transition hover:bg-neutral-100 dark:text-neutral-100 dark:hover:bg-neutral-800',
+          open && 'bg-neutral-100 dark:bg-neutral-800',
+        )}
       >
-        <span
-          className="h-3.5 w-3.5 rounded-full"
-          style={{ backgroundColor: swatchOf(selected) }}
-        />
+        {leading?.(selected)}
         <span>{selected.label}</span>
         <ChevronDown className={clsx('h-4 w-4 transition-transform', open && 'rotate-180')} />
       </button>
       {open && (
         <div
           role="menu"
-          className="hc-pop-in absolute right-0 top-full z-40 mt-2 w-52 rounded-xl border border-neutral-200 bg-white p-1.5 text-neutral-900 shadow-xl dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+          className={clsx(
+            'hc-pop-in absolute right-0 top-full z-40 mt-2 rounded-2xl border border-black/10 bg-white p-1.5 text-neutral-900 shadow-[0_18px_45px_rgba(0,0,0,0.18)] dark:border-white/10 dark:bg-[#303030] dark:text-neutral-100 dark:shadow-[0_18px_45px_rgba(0,0,0,0.45)]',
+            menuClassName,
+          )}
         >
-          {ACCENT_OPTIONS.map((option) => {
+          {options.map((option) => {
             const active = option.value === value
             return (
               <button
@@ -164,18 +183,15 @@ function AccentColorSelect() {
                 role="menuitemradio"
                 aria-checked={active}
                 onClick={() => {
-                  setPreference('accentColor', option.value)
+                  onChange(option.value)
                   setOpen(false)
                 }}
                 className={clsx(
-                  'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[14px] font-medium transition hover:bg-neutral-100 dark:hover:bg-neutral-700',
-                  active && 'bg-neutral-100 dark:bg-neutral-700',
+                  'flex min-h-10 w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[14px] font-medium transition hover:bg-neutral-100 dark:hover:bg-white/10',
+                  active && 'bg-neutral-100 dark:bg-white/10',
                 )}
               >
-                <span
-                  className="h-3.5 w-3.5 rounded-full"
-                  style={{ backgroundColor: swatchOf(option) }}
-                />
+                {leading?.(option)}
                 <span className="min-w-0 flex-1">{option.label}</span>
                 {active && <Check className="h-4 w-4 shrink-0" />}
               </button>
@@ -184,6 +200,29 @@ function AccentColorSelect() {
         </div>
       )}
     </div>
+  )
+}
+
+function AccentColorSelect() {
+  const value = useSettings((s) => s.preferences.accentColor)
+  const setPreference = useSettings((s) => s.setPreference)
+  const isDark = useIsDark()
+  const swatchOf = (option: (typeof ACCENT_OPTIONS)[number]) =>
+    isDark ? option.dark : option.light
+
+  return (
+    <PreferenceSelect
+      value={value}
+      onChange={(v) => setPreference('accentColor', v)}
+      options={ACCENT_OPTIONS}
+      menuClassName="w-64"
+      leading={(option) => (
+        <span
+          className="h-3.5 w-3.5 rounded-full"
+          style={{ backgroundColor: swatchOf(option) }}
+        />
+      )}
+    />
   )
 }
 
@@ -212,13 +251,13 @@ function GeneralPanel() {
       <Row
         title="主题"
         control={
-          <Segmented<ThemePreference>
+          <PreferenceSelect<ThemePreference>
             value={theme}
             onChange={setTheme}
             options={[
+              { value: 'system', label: '跟随系统' },
               { value: 'light', label: '浅色' },
               { value: 'dark', label: '深色' },
-              { value: 'system', label: '跟随系统' },
             ]}
           />
         }
@@ -227,7 +266,7 @@ function GeneralPanel() {
       <Row
         title="消息字体大小"
         control={
-          <Segmented<MessageFontSize>
+          <PreferenceSelect<MessageFontSize>
             value={fontSize}
             onChange={(v) => setPreference('messageFontSize', v)}
             options={[
@@ -248,7 +287,7 @@ function GeneralPanel() {
       <PrefToggleRow
         prefKey="defaultExpandReasoning"
         title="默认展开推理摘要"
-        desc="关闭时生成完成后自动折叠推理过程。"
+        desc="关闭后推理摘要将默认保持折叠。"
       />
     </div>
   )
