@@ -63,7 +63,7 @@ export function storeGeneratedImageAttachment(args: StoreGeneratedImageArgs): St
   const id = newId()
   const prefix = args.filenamePrefix?.trim() || 'generated'
   const filename = `${prefix}.${format.ext}`
-  const storagePath = saveUpload(id, filename, format.mime, buf)
+  const storagePath = saveUpload(args.userId, id, filename, format.mime, buf)
 
   db.insert(attachments)
     .values({

@@ -15,7 +15,7 @@ import {
   announcementUpdateSchema,
 } from '@shared/schemas/announcement'
 import { db } from '../db/client'
-import { inviteCodes, models, providers, usageLogs, users } from '../db/schema'
+import { attachments, inviteCodes, models, providers, usageLogs, users } from '../db/schema'
 import { genInviteCode } from '../lib/id'
 import { providerClientFromRow } from '../provider/client'
 import { requireAdmin } from '../auth/middleware'
@@ -49,6 +49,7 @@ import {
   reorderModels,
 } from '../services/models'
 import { syncProviderModels } from '../services/providers'
+import { removeUpload } from '../storage/files'
 import type { AppEnv } from '../http/types'
 
 export const adminRoutes = new Hono<AppEnv>()
@@ -253,7 +254,19 @@ adminRoutes.delete('/users/:id', async (c) => {
   if (id === c.get('user').id) {
     return c.json({ error: { message: '不能删除自己', code: 'self' } }, 400)
   }
+  const [targetUser] = await db
+    .select({ avatarPath: users.avatarPath })
+    .from(users)
+    .where(eq(users.id, id))
+    .limit(1)
+  const attachmentRows = await db
+    .select({ storagePath: attachments.storagePath })
+    .from(attachments)
+    .where(eq(attachments.userId, id))
+
   await db.delete(users).where(eq(users.id, id))
+  for (const attachment of attachmentRows) removeUpload(attachment.storagePath)
+  if (targetUser?.avatarPath) removeUpload(targetUser.avatarPath)
   return c.json({ ok: true })
 })
 

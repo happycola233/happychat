@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
-import { extname, join } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs'
+import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { env } from '../env'
 
 const uploadsDir = join(env.DATA_DIR, 'uploads')
@@ -204,14 +204,31 @@ export function mimeFromPath(storagePath: string): string {
 /** 删除磁盘文件，文件不存在时静默忽略。 */
 export function removeUpload(storagePath: string): void {
   try {
-    if (existsSync(storagePath)) unlinkSync(storagePath)
+    if (existsSync(storagePath)) {
+      unlinkSync(storagePath)
+      removeEmptyUploadParent(storagePath)
+    }
   } catch {
     // 删除失败不应阻断主流程（如清空对话 / 更换头像）
   }
 }
 
-function ensureDir() {
-  if (!existsSync(uploadsDir)) mkdirSync(uploadsDir, { recursive: true })
+/** 删除文件后顺手清掉空的用户上传目录；只处理 uploads 根目录下的子目录。 */
+function removeEmptyUploadParent(storagePath: string): void {
+  const parent = dirname(storagePath)
+  const rel = relative(resolve(uploadsDir), resolve(parent))
+  if (!rel || rel.startsWith('..') || isAbsolute(rel)) return
+  try {
+    rmdirSync(parent)
+  } catch {
+    // 父目录非空或已被并发清理时无需处理。
+  }
+}
+
+function ensureUserUploadDir(userId: string): string {
+  const dir = join(uploadsDir, userId)
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+  return dir
 }
 
 function extFromName(name: string, mime: string): string {
@@ -225,9 +242,15 @@ function extFromName(name: string, mime: string): string {
   return ''
 }
 
-export function saveUpload(id: string, originalName: string, mime: string, buf: Buffer): string {
-  ensureDir()
-  const full = join(uploadsDir, `${id}${extFromName(originalName, mime)}`)
+export function saveUpload(
+  userId: string,
+  id: string,
+  originalName: string,
+  mime: string,
+  buf: Buffer,
+): string {
+  const userUploadDir = ensureUserUploadDir(userId)
+  const full = join(userUploadDir, `${id}${extFromName(originalName, mime)}`)
   writeFileSync(full, buf)
   return full
 }

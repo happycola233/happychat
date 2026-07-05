@@ -20,6 +20,7 @@ export const attachmentRoutes = new Hono<AppEnv>()
 attachmentRoutes.use('*', requireUser)
 
 attachmentRoutes.post('/', async (c) => {
+  const user = c.get('user')
   const body = await c.req.parseBody()
   const file = body['file']
   if (!(file instanceof File)) {
@@ -57,11 +58,11 @@ attachmentRoutes.post('/', async (c) => {
 
   const buf = Buffer.from(await file.arrayBuffer())
   const id = newId()
-  const storagePath = saveUpload(id, filename, mime, buf)
+  const storagePath = saveUpload(user.id, id, filename, mime, buf)
 
   await db.insert(attachments).values({
     id,
-    userId: c.get('user').id,
+    userId: user.id,
     kind,
     mime,
     filename,

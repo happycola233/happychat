@@ -8,7 +8,7 @@ import {
   updateSettingsSchema,
 } from '@shared/schemas/settings'
 import { db } from '../db/client'
-import { inviteCodes, userSettings, users } from '../db/schema'
+import { attachments, inviteCodes, userSettings, users } from '../db/schema'
 import { hashPassword, verifyPassword } from '../auth/password'
 import { createSession, destroyAllUserSessions, destroySession } from '../auth/session'
 import { toPublicUser } from '../auth/users'
@@ -189,7 +189,7 @@ authRoutes.post('/avatar', requireUser, async (c) => {
     return c.json({ error: { message: '头像最大 5MB', code: 'too_large' } }, 400)
   }
   const buf = Buffer.from(await file.arrayBuffer())
-  const storagePath = saveUpload(newId(), file.name || 'avatar', file.type, buf)
+  const storagePath = saveUpload(user.id, newId(), file.name || 'avatar', file.type, buf)
   if (user.avatarPath) removeUpload(user.avatarPath)
   await db.update(users).set({ avatarPath: storagePath }).where(eq(users.id, user.id))
   return c.json({ user: await freshPublicUser(user.id) })
@@ -238,9 +238,15 @@ authRoutes.delete('/account', requireUser, jsonValidator(deleteAccountSchema), a
       return c.json({ error: { message: '系统需保留至少一名管理员，无法删除', code: 'last_admin' } }, 400)
     }
   }
-  if (user.avatarPath) removeUpload(user.avatarPath)
-  // 删除用户（级联清理会话/消息/附件行/设置/会话表行）。磁盘附件文件留待后续清理任务。
+  const attachmentRows = await db
+    .select({ storagePath: attachments.storagePath })
+    .from(attachments)
+    .where(eq(attachments.userId, user.id))
+
+  // 删除用户会级联清理会话/消息/附件行/设置/会话表行；磁盘文件随后按预查路径清理。
   await db.delete(users).where(eq(users.id, user.id))
+  for (const attachment of attachmentRows) removeUpload(attachment.storagePath)
+  if (user.avatarPath) removeUpload(user.avatarPath)
   await destroySession(c)
   return c.json({ ok: true })
 })
