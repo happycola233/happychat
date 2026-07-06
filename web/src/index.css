@@ -15,6 +15,13 @@ body,
   height: 100%;
 }
 
+html.hc-ios,
+html.hc-ios body,
+html.hc-ios #root {
+  /* 只锁住 iOS/iPadOS 视口级 overscroll，避免影响 Android 的原生边缘动画。 */
+  overscroll-behavior-y: none;
+}
+
 body {
   font-family: var(--font-sans);
 }
@@ -229,6 +236,11 @@ html.dark.hc-accent-purple {
     var(--hc-composer-overlay-height, 0px) + max(2rem, env(safe-area-inset-bottom))
   );
   scroll-padding-bottom: var(--hc-chat-bottom-gap);
+}
+html.hc-ios .hc-chat-scroll {
+  /* 聊天区保留 iOS 原生弹性滚动，但不把边界滚动继续传给页面。 */
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
 }
 .hc-chat-scroll-content {
   padding-bottom: var(--hc-chat-bottom-gap);
