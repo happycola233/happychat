@@ -100,7 +100,8 @@ html.dark.hc-accent-default {
   --hc-message-edit-bg: #2f2f2f;
   --hc-message-edit-text: #ffffff;
   --hc-send-button-bg: #ffffff;
-  --hc-send-button-fg: #ffffff;
+  /* 默认重点色在深色模式使用白色发送按钮，需要黑色箭头保持对比。 */
+  --hc-send-button-fg: #000000;
 }
 html.dark.hc-accent-blue {
   --hc-accent-swatch: #2c67c5;
@@ -108,6 +109,7 @@ html.dark.hc-accent-blue {
   --hc-user-bubble-bg-transparent: rgb(23 62 118 / 0);
   --hc-user-bubble-text: #f6fafe;
   --hc-send-button-bg: #2c67c5;
+  --hc-send-button-fg: #ffffff;
 }
 html.dark.hc-accent-green {
   --hc-accent-swatch: #48a04c;
@@ -115,6 +117,7 @@ html.dark.hc-accent-green {
   --hc-user-bubble-bg-transparent: rgb(44 103 50 / 0);
   --hc-user-bubble-text: #effaf3;
   --hc-send-button-bg: #48a04c;
+  --hc-send-button-fg: #ffffff;
 }
 html.dark.hc-accent-yellow {
   --hc-accent-swatch: #d9a337;
@@ -122,6 +125,7 @@ html.dark.hc-accent-yellow {
   --hc-user-bubble-bg-transparent: rgb(149 97 31 / 0);
   --hc-user-bubble-text: #fefbee;
   --hc-send-button-bg: #d9a337;
+  --hc-send-button-fg: #ffffff;
 }
 html.dark.hc-accent-pink {
   --hc-accent-swatch: #c96257;
@@ -129,6 +133,7 @@ html.dark.hc-accent-pink {
   --hc-user-bubble-bg-transparent: rgb(139 63 54 / 0);
   --hc-user-bubble-text: #fef7f6;
   --hc-send-button-bg: #c96257;
+  --hc-send-button-fg: #ffffff;
 }
 html.dark.hc-accent-orange {
   --hc-accent-swatch: #d25e28;
@@ -136,6 +141,7 @@ html.dark.hc-accent-orange {
   --hc-user-bubble-bg-transparent: rgb(135 64 29 / 0);
   --hc-user-bubble-text: #fdf5f1;
   --hc-send-button-bg: #d25e28;
+  --hc-send-button-fg: #ffffff;
 }
 html.dark.hc-accent-purple {
   --hc-accent-swatch: #7849d1;
@@ -143,6 +149,7 @@ html.dark.hc-accent-purple {
   --hc-user-bubble-bg-transparent: rgb(78 47 136 / 0);
   --hc-user-bubble-text: #f8f5fd;
   --hc-send-button-bg: #7849d1;
+  --hc-send-button-fg: #ffffff;
 }
 .hc-user-bubble {
   background: var(--hc-user-bubble-bg);
