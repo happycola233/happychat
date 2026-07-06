@@ -2,7 +2,7 @@ import { Children, isValidElement, memo, useId, useMemo, useRef, useState } from
 import type { MouseEvent, ReactElement, ReactNode } from 'react'
 import { clsx } from 'clsx'
 import ReactMarkdown from 'react-markdown'
-import type { Components } from 'react-markdown'
+import type { Components, Options } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
@@ -12,6 +12,7 @@ import { copyToClipboard } from '../lib/clipboard'
 import { toast } from '../store/toast'
 import { CopyIcon } from './icons'
 import { normalizeMarkdownMath } from './markdownMath'
+import { rehypeStreamFade } from './markdownStreamFade'
 import { MESSAGE_BODY_TEXT_CLASS } from './messageStyles'
 import { resolveNearestTargetScrollTop } from './scrollAnchor'
 
@@ -21,6 +22,8 @@ interface MarkdownProps {
   text: string
   variant?: MarkdownVariant
   className?: string
+  /** 流式生成中：让新到达的文字逐段淡入（替代打字光标）。 */
+  animate?: boolean
 }
 
 const INTERNAL_HASH_RE = /^#[^\s#]+$/
@@ -318,10 +321,26 @@ const componentsFor = (variant: MarkdownVariant): Components => ({
   table: ({ children }) => <TableBlock variant={variant}>{children}</TableBlock>,
 })
 
-function MarkdownImpl({ text, variant = 'message', className }: MarkdownProps) {
+// 按 variant 预先固化组件映射：保持自定义组件（table/a/pre）的函数标识稳定。
+// 否则流式每 token 都会传入新标识，React 视作新类型而重挂载其子树，导致内部渐入 span 反复重播动画（“跳动”）。
+const COMPONENTS_BY_VARIANT: Record<MarkdownVariant, Components> = {
+  message: componentsFor('message'),
+  reasoning: componentsFor('reasoning'),
+}
+
+function MarkdownImpl({ text, variant = 'message', className, animate = false }: MarkdownProps) {
   const normalizedText = normalizeMarkdownMath(text)
   const reactId = useId()
   const clobberPrefix = useMemo(() => markdownInstancePrefix(reactId), [reactId])
+  // 流式时追加 rehypeStreamFade，把正文按可见单元包 span 做逐段渐入；静态时省去以免多余 span。
+  const rehypePlugins = useMemo<Options['rehypePlugins']>(
+    () => [
+      [rehypeKatex, { throwOnError: false }],
+      rehypeHighlight,
+      ...(animate ? [rehypeStreamFade] : []),
+    ],
+    [animate],
+  )
   return (
     <div
       className={clsx(
@@ -340,8 +359,8 @@ function MarkdownImpl({ text, variant = 'message', className }: MarkdownProps) {
           footnoteBackContent: FOOTNOTE_BACK_CONTENT,
           footnoteBackLabel,
         }}
-        rehypePlugins={[[rehypeKatex, { throwOnError: false }], rehypeHighlight]}
-        components={componentsFor(variant)}
+        rehypePlugins={rehypePlugins}
+        components={COMPONENTS_BY_VARIANT[variant]}
       >
         {normalizedText}
       </ReactMarkdown>

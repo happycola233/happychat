@@ -670,6 +670,20 @@ html.dark.hc-accent-purple {
   animation: hc-pop-in 0.16s ease-out;
   transform-origin: top;
 }
+
+/* 流式正文渐入：新到达的每个可见单元逐段淡入，替代打字光标（见 chat/markdownStreamFade.ts）。 */
+@keyframes hc-stream-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.hc-stream-seg {
+  animation: hc-stream-fade 0.5s ease-out both;
+}
+
 .hc-sidebar-panel-in {
   animation: hc-sidebar-panel-in 0.22s cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -905,7 +919,8 @@ html.dark.hc-accent-purple {
   .hc-anim-in,
   .hc-pop-in,
   .hc-sidebar-panel-in,
-  .hc-sidebar-rail-in {
+  .hc-sidebar-rail-in,
+  .hc-stream-seg {
     animation: none;
   }
   .hc-image-stage-scan::before,

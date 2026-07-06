@@ -117,6 +117,34 @@ describe('Markdown math', () => {
   })
 })
 
+describe('Markdown 流式渐入', () => {
+  it('animate 时把正文按可见单元包成 hc-stream-seg（CJK 逐字、ASCII 整词）', () => {
+    const html = renderToStaticMarkup(<Markdown text={'你好 world'} animate />)
+
+    expect(html).toMatch(/<span class="hc-stream-seg">你<\/span>/)
+    expect(html).toMatch(/<span class="hc-stream-seg">好<\/span>/)
+    // ASCII 单词整体成段，不逐字拆开。
+    expect(html).toMatch(/<span class="hc-stream-seg">world<\/span>/)
+    expect(html).not.toContain('>w</span>')
+  })
+
+  it('默认（非流式）不包裹，正文保持连续文本', () => {
+    const html = renderToStaticMarkup(<Markdown text={'你好世界'} />)
+
+    expect(html).not.toContain('hc-stream-seg')
+    expect(html).toContain('你好世界')
+  })
+
+  it('animate 时跳过代码块，只对普通文字渐入', () => {
+    const html = renderToStaticMarkup(<Markdown text={'看 `code` 这里'} animate />)
+
+    // 行内代码原样保留，内部不拆分。
+    expect(html).toContain('<code>code</code>')
+    expect(html).toMatch(/<span class="hc-stream-seg">看<\/span>/)
+    expect(html).toMatch(/<span class="hc-stream-seg">这<\/span>/)
+  })
+})
+
 // 公告正文复用同一渲染器（作者为管理员，但仍须保证不执行不可信 HTML）。
 describe('Markdown 安全性', () => {
   it('不把原始 HTML 渲染为真实的脚本/图片标签', () => {

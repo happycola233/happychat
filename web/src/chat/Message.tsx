@@ -44,12 +44,6 @@ interface Props {
   onUseImageSource?: (source: ImageEditSource) => void
 }
 
-function StreamingCursor() {
-  return (
-    <span className="ml-0.5 inline-block h-[1.05em] w-[3px] translate-y-[3px] animate-pulse rounded-full bg-neutral-500" />
-  )
-}
-
 function BranchSwitch({ branch }: { branch: BranchInfo }) {
   const go = (delta: number) => {
     const next = branch.index + delta
@@ -229,12 +223,7 @@ export function Message({
       ) : hasLiveImage && live ? (
         <>
           <ProgressiveImageStage live={live} />
-          {text && (
-            <div>
-              <Markdown text={text} />
-              {streaming && <StreamingCursor />}
-            </div>
-          )}
+          {text && <Markdown text={text} animate={streaming} />}
         </>
       ) : showPendingDots ? (
         <div className="flex items-center gap-1.5">
@@ -243,10 +232,7 @@ export function Message({
           <span className="h-2 w-2 animate-bounce rounded-full bg-neutral-400" />
         </div>
       ) : text ? (
-        <div>
-          <Markdown text={text} />
-          {streaming && <StreamingCursor />}
-        </div>
+        <Markdown text={text} animate={streaming} />
       ) : null}
       {message.content.some((p) => p.type === 'image_result') && (
         <AttachmentParts content={message.content} onUseImageSource={onUseImageSource} />
