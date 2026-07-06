@@ -103,6 +103,102 @@ describe('Markdown headings and inline HTML', () => {
   })
 })
 
+describe('Markdown GitHub Alerts', () => {
+  it('renders all supported GitHub alert types without leaking marker lines', () => {
+    const html = renderToStaticMarkup(
+      <Markdown
+        text={[
+          '> [!NOTE]',
+          '> 这是一条普通说明。',
+          '',
+          '> [!TIP]',
+          '> 这是一条技巧提示。',
+          '',
+          '> [!IMPORTANT]',
+          '> 这是一条重要信息。',
+          '',
+          '> [!WARNING]',
+          '> 这是一条警告信息。',
+          '',
+          '> [!CAUTION]',
+          '> 这是一条危险提示。',
+        ].join('\n')}
+      />,
+    )
+
+    for (const [type, title] of [
+      ['note', 'Note'],
+      ['tip', 'Tip'],
+      ['important', 'Important'],
+      ['warning', 'Warning'],
+      ['caution', 'Caution'],
+    ] as const) {
+      expect(html).toContain(`hc-md-alert-${type}`)
+      expect(html).toContain(`data-alert-type="${type}"`)
+      expect(html).toContain(`>${title}</span>`)
+    }
+    expect(html.match(/hc-md-alert-icon/g)).toHaveLength(5)
+    expect(html).not.toContain('[!NOTE]')
+    expect(html).not.toContain('[!TIP]')
+    expect(html).not.toContain('[!IMPORTANT]')
+    expect(html).not.toContain('[!WARNING]')
+    expect(html).not.toContain('[!CAUTION]')
+    expect(html).toContain('这是一条危险提示。')
+  })
+
+  it('keeps rich markdown content inside alerts', () => {
+    const html = renderToStaticMarkup(
+      <Markdown
+        text={[
+          '> [!TIP]',
+          '> **重点** [链接](https://example.com) 和 \\( a+b \\)',
+          '>',
+          '> - 父项',
+          '>   - 子项',
+          '>',
+          '> ```ts',
+          '> const ok = true',
+          '> ```',
+        ].join('\n')}
+      />,
+    )
+
+    expect(html).toContain('hc-md-alert-tip')
+    expect(html).toContain('<strong>重点</strong>')
+    expect(html).toContain('href="https://example.com"')
+    expect(html).toContain('target="_blank"')
+    expect(html).toContain('<ul>')
+    expect(html).toContain('子项')
+    expect(html).toContain('katex')
+    expect(html).toContain('hc-code-block')
+    expect(html).toContain('TypeScript')
+  })
+
+  it('keeps unknown, non-leading, and same-line markers as ordinary blockquotes', () => {
+    const unknown = renderToStaticMarkup(<Markdown text={'> [!FOO]\n> 普通引用'} />)
+    const nonLeading = renderToStaticMarkup(<Markdown text={'> 普通引用\n> [!NOTE]\n> 仍然普通'} />)
+    const sameLine = renderToStaticMarkup(<Markdown text={'> [!NOTE] 这不是 alert'} />)
+
+    expect(unknown).not.toContain('hc-md-alert')
+    expect(unknown).toContain('[!FOO]')
+    expect(nonLeading).not.toContain('hc-md-alert')
+    expect(nonLeading).toContain('[!NOTE]')
+    expect(sameLine).not.toContain('hc-md-alert')
+    expect(sameLine).toContain('[!NOTE] 这不是 alert')
+  })
+
+  it('recognizes alerts while streaming and keeps the title out of fade segments', () => {
+    const html = renderToStaticMarkup(<Markdown text={'> [!tip]\n> 你好 world'} animate />)
+
+    expect(html).toContain('hc-md-alert-tip')
+    expect(html).toContain('<span>Tip</span>')
+    expect(html).not.toContain('[!tip]')
+    expect(html).not.toContain('<span class="hc-stream-seg">Tip</span>')
+    expect(html).toMatch(/<span class="hc-stream-seg">你<\/span>/)
+    expect(html).toMatch(/<span class="hc-stream-seg">world<\/span>/)
+  })
+})
+
 describe('Markdown footnotes', () => {
   it('keeps footnote anchors on the current page and preserves generated metadata', () => {
     const html = renderToStaticMarkup(<Markdown text={'正文[^time]\n\n[^time]: 脚注内容。'} />)
@@ -217,7 +313,7 @@ describe('Markdown 安全性', () => {
       <Markdown text={'<script>alert(1)</script>\n\n<img src=x onerror=alert(2)>\n\n正文照常'} />,
     )
 
-    // 未启用 rehype-raw：原始 HTML 被转义为文本，绝不产生可执行标签。
+    // 即使允许一小段安全 HTML，也不能产生可执行标签。
     expect(html).not.toContain('<script>')
     expect(html).not.toMatch(/<img[\s>]/)
     expect(html).toContain('正文照常')

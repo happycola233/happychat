@@ -53,6 +53,21 @@ async function main() {
       '',
       '$$E=mc^2$$',
       '',
+      '> [!NOTE]',
+      '> 这是一条普通说明。',
+      '',
+      '> [!TIP]',
+      '> 这是一条技巧提示。',
+      '',
+      '> [!IMPORTANT]',
+      '> 这是一条重要信息。',
+      '',
+      '> [!WARNING]',
+      '> 这是一条警告信息。',
+      '',
+      '> [!CAUTION]',
+      '> 这是一条危险提示。',
+      '',
       '```mermaid',
       'flowchart TD',
       '    A[开始] --> B{是否登录}',
@@ -112,8 +127,9 @@ async function main() {
   const kbd = await msg.locator('kbd').count()
   const nestedLists = await msg.locator('ul ul').count()
   const mermaid = await msg.locator('.hc-mermaid-block').count()
+  const alerts = await msg.locator('.hc-md-alert').count()
   console.log(
-    `表格=${tables} 代码块=${pres} KaTeX=${katex} H5=${h5} H6=${h6} br=${br} mark=${mark} kbd=${kbd} 嵌套列表=${nestedLists} Mermaid=${mermaid}`,
+    `表格=${tables} 代码块=${pres} KaTeX=${katex} H5=${h5} H6=${h6} br=${br} mark=${mark} kbd=${kbd} 嵌套列表=${nestedLists} Mermaid=${mermaid} Alerts=${alerts}`,
   )
 
   await page.screenshot({ path: 'data/ui-markdown.png', fullPage: true })
@@ -130,6 +146,7 @@ async function main() {
     kbd > 0 &&
     nestedLists > 0 &&
     mermaid >= 5 &&
+    alerts >= 5 &&
     errors.length === 0
   console.log(pass ? 'MARKDOWN PASS' : 'MARKDOWN CHECK')
   await browser.close()

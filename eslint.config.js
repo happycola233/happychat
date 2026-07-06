@@ -4,7 +4,7 @@ import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 
 export default tseslint.config(
-  { ignores: ['dist/**', 'data/**', 'node_modules/**', '**/migrations/**'] },
+  { ignores: ['dist/**', 'data/**', '.tmp/**', 'node_modules/**', '**/migrations/**'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

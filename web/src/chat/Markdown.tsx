@@ -14,6 +14,12 @@ import { copyToClipboard } from '../lib/clipboard'
 import { toast } from '../store/toast'
 import { MermaidBlock } from './MermaidBlock'
 import { CopyIcon } from './icons'
+import {
+  getMarkdownAlertMeta,
+  matchMarkdownAlert,
+  stripMarkdownAlertMarker,
+} from './markdownAlerts'
+import type { MarkdownAlertType } from './markdownAlerts'
 import { normalizeMarkdownMath } from './markdownMath'
 import { rehypeStreamFade } from './markdownStreamFade'
 import { markdownSanitizeSchema, rehypeSafeInlineStyles, rehypeSanitize } from './markdownHtml'
@@ -319,7 +325,39 @@ function TableBlock({ children, variant }: { children?: ReactNode; variant: Mark
   )
 }
 
+function MarkdownAlertTitle({ type }: { type: MarkdownAlertType }) {
+  const { Icon, label } = getMarkdownAlertMeta(type)
+
+  return (
+    <p className="hc-md-alert-title">
+      <Icon aria-hidden="true" className="hc-md-alert-icon" />
+      <span>{label}</span>
+    </p>
+  )
+}
+
 const componentsFor = (variant: MarkdownVariant, renderMermaid: boolean): Components => ({
+  blockquote: ({ children, node, className, ...props }) => {
+    const alert = matchMarkdownAlert(node)
+    if (!alert) {
+      return (
+        <blockquote {...props} className={className}>
+          {children}
+        </blockquote>
+      )
+    }
+
+    return (
+      <blockquote
+        {...props}
+        className={clsx(className, 'hc-md-alert', `hc-md-alert-${alert.type}`)}
+        data-alert-type={alert.type}
+      >
+        <MarkdownAlertTitle type={alert.type} />
+        {stripMarkdownAlertMarker(children, alert.stripPrefix)}
+      </blockquote>
+    )
+  },
   pre: ({ children }) => (
     <PreBlock variant={variant} renderMermaid={renderMermaid}>
       {children}
