@@ -216,9 +216,11 @@ html.dark.hc-accent-purple {
   display: none;
 }
 
-/* 聊天滚动区的统一底部安全区，避免最后一条内容贴住输入框。 */
+/* 聊天滚动区的统一底部安全区；Composer 悬浮在滚动内容上方，需要动态让位。 */
 .hc-chat-scroll {
-  --hc-chat-bottom-gap: max(2rem, env(safe-area-inset-bottom));
+  --hc-chat-bottom-gap: calc(
+    var(--hc-composer-overlay-height, 0px) + max(2rem, env(safe-area-inset-bottom))
+  );
   scroll-padding-bottom: var(--hc-chat-bottom-gap);
 }
 .hc-chat-scroll-content {

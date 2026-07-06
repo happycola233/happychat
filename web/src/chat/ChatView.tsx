@@ -4,6 +4,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type CSSProperties,
   type KeyboardEvent,
   type WheelEvent,
 } from 'react'
@@ -93,6 +94,7 @@ export default function ChatView() {
   const [scrollButtonVisible, setScrollButtonVisible] = useState(false)
   const [isScrolledFromTop, setIsScrolledFromTop] = useState(false)
   const [scrollbarGutterWidth, setScrollbarGutterWidth] = useState(0)
+  const [composerHeight, setComposerHeight] = useState(0)
 
   const allMessages = detail?.messages ?? []
   const messages = detail ? buildPath(allMessages, detail.conversation.activeLeafId) : []
@@ -466,8 +468,7 @@ export default function ChatView() {
   }
 
   const onUseImageSource = (source: ImageEditSource) => {
-    const imageModel =
-      model?.kind === 'image' ? model : models?.find((m) => m.kind === 'image')
+    const imageModel = model?.kind === 'image' ? model : models?.find((m) => m.kind === 'image')
     if (!imageModel) return toast.error('没有可用的图片模型')
     if (activeModelId !== imageModel.id) {
       setActiveModel(imageModel.id)
@@ -532,6 +533,9 @@ export default function ChatView() {
   }
 
   const isEmpty = !optimisticUser && messages.length === 0
+  const chatViewportStyle = {
+    '--hc-composer-overlay-height': `${composerHeight}px`,
+  } as CSSProperties
 
   return (
     <>
@@ -554,7 +558,7 @@ export default function ChatView() {
 
       <AnnouncementBanner />
 
-      <div className="relative min-h-0 flex-1">
+      <div className="relative min-h-0 flex-1" style={chatViewportStyle}>
         <div
           ref={scrollRef}
           onScroll={updateScrollState}
@@ -630,29 +634,32 @@ export default function ChatView() {
             aria-hidden={!scrollButtonVisible}
             aria-label="滚动到底部"
             title="滚动到底部"
-            className={`absolute bottom-4 left-1/2 z-30 flex h-9 w-9 -translate-x-1/2 items-center justify-center rounded-full border border-black/10 bg-white/75 text-neutral-700 shadow-[0_4px_18px_rgb(0_0_0/0.14)] backdrop-blur-md backdrop-saturate-150 transition-[opacity,background-color,border-color,box-shadow] duration-200 ease-out hover:bg-white/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 motion-reduce:transition-none dark:border-white/15 dark:bg-neutral-900/70 dark:text-neutral-200 dark:shadow-[0_4px_20px_rgb(0_0_0/0.38)] dark:hover:bg-neutral-800/85 ${
+            className={`absolute bottom-[calc(var(--hc-composer-overlay-height)+1rem)] left-1/2 z-30 flex h-9 w-9 -translate-x-1/2 items-center justify-center rounded-full border border-black/10 bg-white/75 text-neutral-700 shadow-[0_4px_18px_rgb(0_0_0/0.14)] backdrop-blur-md backdrop-saturate-150 transition-[opacity,background-color,border-color,box-shadow,bottom] duration-200 ease-out hover:bg-white/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 motion-reduce:transition-none dark:border-white/15 dark:bg-neutral-900/70 dark:text-neutral-200 dark:shadow-[0_4px_20px_rgb(0_0_0/0.38)] dark:hover:bg-neutral-800/85 ${
               scrollButtonVisible ? 'opacity-100' : 'pointer-events-none opacity-0'
             }`}
           >
             <ArrowUpIcon className="h-5 w-5 rotate-180" />
           </button>
         )}
-      </div>
 
-      <Composer
-        onSend={onSend}
-        disabled={sendMut.isPending || streaming}
-        streaming={streaming}
-        onStop={onStop}
-        leftControls={<ChatControls />}
-        canImage={model?.capabilities.vision ?? false}
-        canFile={model?.capabilities.file_input ?? false}
-        imageSources={imageSources}
-        scrollbarGutterWidth={scrollbarGutterWidth}
-        onRemoveImageSource={(attachmentId) =>
-          setImageSources((items) => items.filter((item) => item.attachmentId !== attachmentId))
-        }
-      />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20">
+          <Composer
+            onSend={onSend}
+            disabled={sendMut.isPending || streaming}
+            streaming={streaming}
+            onStop={onStop}
+            leftControls={<ChatControls />}
+            canImage={model?.capabilities.vision ?? false}
+            canFile={model?.capabilities.file_input ?? false}
+            imageSources={imageSources}
+            scrollbarGutterWidth={scrollbarGutterWidth}
+            onHeightChange={setComposerHeight}
+            onRemoveImageSource={(attachmentId) =>
+              setImageSources((items) => items.filter((item) => item.attachmentId !== attachmentId))
+            }
+          />
+        </div>
+      </div>
     </>
   )
 }
