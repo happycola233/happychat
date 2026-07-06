@@ -13,7 +13,7 @@ import {
 import { AttachmentIcon, UploadImageIcon } from './icons'
 import {
   getUserMessageEditVisibleHeight,
-  USER_MESSAGE_TEXT_CLASS,
+  USER_MESSAGE_EDIT_TEXT_CLASS,
   USER_MESSAGE_EDIT_MIN_HEIGHT,
 } from './messageStyles'
 import { useAttachmentUpload } from './useAttachmentUpload'
@@ -144,7 +144,7 @@ export function MessageEditForm({
         onDragLeave={onDragLeave}
         onDrop={onDrop}
         className={clsx(
-          'hc-user-bubble relative w-full max-w-[85%] rounded-3xl px-4 py-3.5',
+          'hc-message-edit-area relative w-full max-w-[85%] rounded-3xl px-4 py-3.5',
           dragActive && 'ring-1 ring-blue-300 dark:ring-blue-700',
         )}
       >
@@ -175,7 +175,7 @@ export function MessageEditForm({
             }
           }}
           rows={1}
-          className={`${USER_MESSAGE_TEXT_CLASS} hc-scrollbar w-full resize-none overflow-hidden bg-transparent outline-none`}
+          className={`${USER_MESSAGE_EDIT_TEXT_CLASS} hc-scrollbar w-full resize-none overflow-hidden bg-transparent outline-none`}
           style={{ minHeight: USER_MESSAGE_EDIT_MIN_HEIGHT }}
         />
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
@@ -223,7 +223,7 @@ export function MessageEditForm({
             <button
               type="button"
               onClick={onCancel}
-              className="rounded-full bg-white px-4 py-1.5 text-sm font-medium text-neutral-700 shadow-sm transition hover:bg-neutral-50 dark:bg-neutral-700 dark:text-neutral-100 dark:hover:bg-neutral-600"
+              className="rounded-full bg-white px-4 py-1.5 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50 dark:bg-neutral-700 dark:text-neutral-100 dark:hover:bg-neutral-600"
             >
               取消
             </button>

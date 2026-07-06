@@ -6,6 +6,10 @@ export const MESSAGE_BODY_TEXT_CLASS =
 export const USER_MESSAGE_TEXT_CLASS =
   'text-[length:var(--hc-msg-font)] leading-[1.6] hc-user-message-text'
 
+// 编辑态需固定成 ChatGPT 式灰底与黑/白字，避免被重点色主题覆盖。
+export const USER_MESSAGE_EDIT_TEXT_CLASS =
+  'text-[length:var(--hc-msg-font)] leading-[1.6] hc-message-edit-text'
+
 // 用户消息内联编辑：短内容给足起步高度，长内容与折叠预览共用同一个可视上限。
 export const USER_MESSAGE_EDIT_MIN_HEIGHT = 152
 export const USER_MESSAGE_EDIT_MAX_HEIGHT = 352

@@ -44,6 +44,8 @@ html.hc-accent-default {
   --hc-user-bubble-bg: #f3f3f3;
   --hc-user-bubble-bg-transparent: rgb(243 243 243 / 0);
   --hc-user-bubble-text: #0d0d0d;
+  --hc-message-edit-bg: #ececec;
+  --hc-message-edit-text: #000000;
   --hc-send-button-bg: #000000;
   --hc-send-button-fg: #ffffff;
 }
@@ -95,6 +97,8 @@ html.dark.hc-accent-default {
   --hc-user-bubble-bg: #2b2b2b;
   --hc-user-bubble-bg-transparent: rgb(43 43 43 / 0);
   --hc-user-bubble-text: #ffffff;
+  --hc-message-edit-bg: #2f2f2f;
+  --hc-message-edit-text: #ffffff;
   --hc-send-button-bg: #ffffff;
   --hc-send-button-fg: #ffffff;
 }
@@ -144,8 +148,15 @@ html.dark.hc-accent-purple {
   background: var(--hc-user-bubble-bg);
   color: var(--hc-user-bubble-text);
 }
+.hc-message-edit-area {
+  background: var(--hc-message-edit-bg);
+  color: var(--hc-message-edit-text);
+}
 .hc-user-message-text {
   color: var(--hc-user-bubble-text);
+}
+.hc-message-edit-text {
+  color: var(--hc-message-edit-text);
 }
 .hc-user-message-fade {
   background: linear-gradient(
