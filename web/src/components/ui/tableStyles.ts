@@ -3,10 +3,11 @@
 /**
  * 宽表的横向滚动容器：窄屏贴边（-mx-4 + px-4）以获得完整可视宽度，
  * sm 及以上恢复常规内边距。配合内层 `tableShell + min-w-[...]` 使用，
- * 让列不足时横向滚动而非被挤压。
+ * 让列不足时横向滚动而非被挤压。这里不要限制 touch-action 为 pan-x，
+ * 否则移动端从表格区域起手的纵向拖动不会传给页面滚动容器。
  */
 export const tableScroll =
-  'hc-scrollbar -mx-4 overflow-x-auto overscroll-x-contain px-4 pb-1 [touch-action:pan-x] sm:mx-0 sm:px-0'
+  'hc-scrollbar -mx-4 overflow-x-auto overscroll-x-contain px-4 pb-1 sm:mx-0 sm:px-0'
 
 export const tableShell =
   'overflow-hidden rounded-2xl border border-neutral-200 dark:border-neutral-800'
