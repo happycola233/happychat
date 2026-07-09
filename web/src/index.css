@@ -15,6 +15,12 @@ body,
   height: 100%;
 }
 
+html.hc-chat-shell-lock,
+html.hc-chat-shell-lock body {
+  /* 聊天页只允许内部滚动区滚动；否则大段粘贴会触发浏览器焦点滚动，把整页永久顶上去。 */
+  overflow: clip;
+}
+
 html.hc-ios,
 html.hc-ios body,
 html.hc-ios #root {
