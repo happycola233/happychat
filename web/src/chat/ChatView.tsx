@@ -170,6 +170,19 @@ export default function ChatView() {
     }
   }, [clearScrollButtonIdleTimer])
 
+  // 回到全新空会话（如点「新建对话」）时立刻摘掉可能仍在计时的落底标记，
+  // 否则新对话输入框会先贴底、等 900ms 定时器到点才弹回居中。
+  // 依赖 [id]：发送→navigate 是 undefined→convId，不会把 id 变为 undefined，
+  // 故此处不会误清、也不会打断正在进行的落底动画。
+  useEffect(() => {
+    if (id) return
+    if (dockAnimationTimerRef.current !== null) {
+      window.clearTimeout(dockAnimationTimerRef.current)
+      dockAnimationTimerRef.current = null
+    }
+    setDockAnimated(false)
+  }, [id])
+
   useLayoutEffect(() => {
     const scrollElement = scrollRef.current
     if (!scrollElement) return
@@ -594,14 +607,20 @@ export default function ChatView() {
 
   const isEmpty = !optimisticUser && messages.length === 0
   // 桌面端新对话：输入框与问候语居中；发出第一条消息后平滑滑至底部。
-  const heroComposer = !id && isEmpty && !isMobile
+  // 落底动画进行中（dockAnimated）一律视为「非居中」：发送成功后 onSuccess 会先以紧急更新
+  // 清空 optimisticUser，而 navigate 的 id 更新走 React Router 的 startTransition（非紧急），
+  // 中间会提交一帧「id 未更新、optimisticUser 已清空」的瞬态渲染。若此时各处仍读到 hero，
+  // 输入框/光晕/问候语/底部遮罩会一起抽回居中位再落一次（表现为「下沉被抽回去又下沉」）。
+  // 把落底窗口并入判定，这一帧就稳定为落底态；dockAnimated 只由定时器摘除，不会打断整段动画。
+  const heroComposer = !id && isEmpty && !isMobile && !dockAnimated
   // 抬升量让「输入框视觉盒的几何中心」落在视口正中；盒子随行数长高时中心保持不动。
   const composerLift = heroComposer
     ? Math.max(0, Math.round(viewportHeight / 2 - composerMetrics.boxCenterFromBottom))
     : 0
-  // 注意：不要「heroComposer 变 true 就取消 dockAnimated」——navigate 走 React Router 的
-  // startTransition，发送成功后会先出现一帧 id 未更新、optimisticUser 已清空的瞬态 hero 渲染，
-  // 这样的取消逻辑会在该帧误触发并打断整个落底动画（实测复现）。标记统一由定时器摘除。
+  // 居中/落底期间把悬浮层与光晕提前提升为独立合成层：升层与光晕大渐变的光栅化
+  // 挪到用户读问候语/打字的空闲期完成，发送瞬间不再有「首次升层」掉帧；且落底 transform
+  // 在合成线程跑，不被首条消息挂载的主线程重排阻塞。落位后撤下标记，避免常驻 GPU 层与文字发虚。
+  const composerLayerWarm = heroComposer || dockAnimated
   const timelineItems = timelineItemsFromMessages(messages)
   const timelineVisible = !isMobile && showTimelineNav && shouldShowTimeline(timelineItems.length)
   // 视口够宽时顶栏按钮落在消息列留白里，顶部没有内容被遮挡，不需要模糊渐变。
@@ -748,6 +767,7 @@ export default function ChatView() {
           style={
             {
               transform: `translateY(-${composerLift}px)`,
+              willChange: composerLayerWarm ? 'transform' : undefined,
               '--hc-hero-glow-anchor': `${composerMetrics.boxCenterFromBottom}px`,
             } as CSSProperties
           }
@@ -760,6 +780,8 @@ export default function ChatView() {
             className={clsx(
               'hc-hero-glow',
               dockAnimated && 'transition-opacity duration-500 motion-reduce:transition-none',
+              // 光晕大渐变提前光栅化到自有合成层，落底淡出走合成线程、不逐帧重绘。
+              showNewChatGradientGlow && composerLayerWarm && '[will-change:opacity]',
               showNewChatGradientGlow && heroComposer ? 'opacity-100' : 'opacity-0',
             )}
           />
