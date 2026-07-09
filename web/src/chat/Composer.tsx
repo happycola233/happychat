@@ -21,6 +21,8 @@ const MIRROR_SINGLE_LINE_MAX_PX = 26
 const GRID_COLUMN_GAPS_PX = 12
 /** 行扩展动画的裁切标记摘除时机：略大于 CSS 过渡时长（0.2s），留一次重定向的余量。 */
 const COMPOSER_EXPAND_SETTLE_MS = 280
+/** 正文溢出时顶/底滚动渐隐的最大高度（约一行）：随滚动位置从 0 平滑增长到此值。 */
+const COMPOSER_SCROLL_FADE_PX = 24
 
 /** Composer 悬浮层的实时几何信息，供 ChatView 做滚动让位与 hero 居中。 */
 export interface ComposerMetrics {
@@ -219,26 +221,47 @@ export function Composer({
     setMultiline(mirror.scrollHeight > MIRROR_SINGLE_LINE_MAX_PX)
   }, [hasPreviews, text])
 
+  /**
+   * 顶/底滚动渐隐：把「距顶 / 距底」的滚动量（各自封顶到 COMPOSER_SCROLL_FADE_PX）
+   * 写进 CSS 变量，驱动 .hc-composer-primary 的 mask 渐变。
+   * 滚到顶 → 顶部无渐隐；滚到底 → 底部无渐隐（光标行始终清晰）；未溢出 → 两端都不渐隐。
+   */
+  const updateScrollFade = useCallback(() => {
+    const el = ref.current
+    if (!el) return
+    const max = COMPOSER_SCROLL_FADE_PX
+    const distanceFromBottom = el.scrollHeight - el.clientHeight - el.scrollTop
+    const top = Math.max(0, Math.min(el.scrollTop, max))
+    const bottom = Math.max(0, Math.min(distanceFromBottom, max))
+    el.style.setProperty('--hc-composer-fade-top', `${top}px`)
+    el.style.setProperty('--hc-composer-fade-bottom', `${bottom}px`)
+  }, [])
+
   useLayoutEffect(() => {
     measureMultiline()
   }, [measureMultiline])
 
-  // 容器宽度变化（窗口缩放/侧栏开合）时重新判定单行宽度是否还装得下。
+  // 容器宽度变化（窗口缩放/侧栏开合）时重新判定单行宽度是否还装得下，并刷新渐隐（换行改变溢出）。
   useLayoutEffect(() => {
     const grid = gridRef.current
     if (!grid) return
-    const observer = new ResizeObserver(() => measureMultiline())
+    const observer = new ResizeObserver(() => {
+      measureMultiline()
+      updateScrollFade()
+    })
     observer.observe(grid)
     return () => observer.disconnect()
-  }, [measureMultiline])
+  }, [measureMultiline, updateScrollFade])
 
-  // 正文自增高：布局（单行/多行）确定后再量高，保证以最终宽度计算。
+  // 正文自增高：布局（单行/多行）确定后再量高，保证以最终宽度计算；量高后同步渐隐。
+  // textarea 带 max-h-[200px]，height='auto' 不会真的撑大，故此刻读到的 scrollTop 仍是最终值。
   useLayoutEffect(() => {
     const el = ref.current
     if (!el) return
     el.style.height = 'auto'
     el.style.height = `${Math.min(el.scrollHeight, TEXTAREA_MAX_HEIGHT_PX)}px`
-  }, [text, multiline])
+    updateScrollFade()
+  }, [text, multiline, updateScrollFade])
 
   /**
    * 行扩展动画：网格内容（行数/布局）先瞬时排好版，外层容器高度再过渡到网格实测高度，
@@ -488,6 +511,7 @@ export function Composer({
                 onChange={(e) => setText(e.target.value)}
                 onKeyDown={onKeyDown}
                 onPaste={onPaste}
+                onScroll={updateScrollFade}
                 className="hc-composer-primary max-h-[200px] w-full resize-none bg-transparent px-1.5 py-1.5 text-[15px] leading-6 text-neutral-800 outline-none placeholder:text-neutral-400 dark:text-neutral-100"
               />
 

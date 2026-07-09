@@ -356,6 +356,59 @@ html.hc-ios .hc-chat-scroll {
 }
 .hc-composer-primary {
   grid-area: primary;
+  /* 顶/底滚动渐隐（对齐 ChatGPT 输入框）：渐隐高度由 Composer 随滚动位置注入
+     --hc-composer-fade-top / --hc-composer-fade-bottom（0 → COMPOSER_SCROLL_FADE_PX）。
+     渐隐到透明、露出输入盒本身的背景，故浅/深色与拖拽高亮态都无需各自配色。
+     静止或未溢出时两值皆为 0 → 完全不透明，短文本/单行不会被误渐隐。 */
+  --hc-composer-fade-top: 0px;
+  --hc-composer-fade-bottom: 0px;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 var(--hc-composer-fade-top),
+    #000 calc(100% - var(--hc-composer-fade-bottom)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 var(--hc-composer-fade-top),
+    #000 calc(100% - var(--hc-composer-fade-bottom)),
+    transparent 100%
+  );
+  /* 细、内敛、随主题淡色的滚动条，取代 Windows 原生「粗轨道 + 上下箭头」滚动条。
+     thumb 只在滚到中段才可能进入渐隐带，滚到顶/底时对应 fade 归 0，故 mask 不会吃掉它。 */
+  scrollbar-width: thin;
+  scrollbar-color: rgb(0 0 0 / 0.28) transparent;
+}
+.hc-composer-primary::-webkit-scrollbar {
+  width: 8px;
+}
+.hc-composer-primary::-webkit-scrollbar-track {
+  background: transparent;
+}
+.hc-composer-primary::-webkit-scrollbar-thumb {
+  min-height: 1.75rem;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.22);
+  background-clip: padding-box;
+}
+.hc-composer-primary::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(0 0 0 / 0.34);
+}
+.hc-composer-primary::-webkit-scrollbar-button,
+.hc-composer-primary::-webkit-scrollbar-corner {
+  display: none;
+}
+.dark .hc-composer-primary {
+  scrollbar-color: rgb(255 255 255 / 0.26) transparent;
+}
+.dark .hc-composer-primary::-webkit-scrollbar-thumb {
+  background-color: rgb(255 255 255 / 0.22);
+}
+.dark .hc-composer-primary::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(255 255 255 / 0.36);
 }
 .hc-composer-trailing {
   grid-area: trailing;
