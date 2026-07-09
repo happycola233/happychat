@@ -51,11 +51,11 @@ function Divider() {
 }
 
 /**
- * 思考深度：横向分段选择（点击临时生效并关闭菜单），高亮「本次请求实际会用」的档位，
+ * 思考深度：横向分段选择（点击临时生效并保持菜单打开），高亮「本次请求实际会用」的档位，
  * 与触发器标签同口径；上游实际值（low/high…）保留在悬停提示里。
  * 右上角「固定」把当前档位设为新会话默认；已固定但当前未使用的档位以小圆点标记。
  */
-function ReasoningSection({ model, onSelect }: { model: ModelDTO; onSelect: () => void }) {
+function ReasoningSection({ model }: { model: ModelDTO }) {
   const activeEffort = useChatPrefs((s) => s.activeEffort)
   const setActiveEffort = useChatPrefs((s) => s.setActiveEffort)
   const pinnedEffort = useChatPrefs((s) => s.pinnedEffort)
@@ -101,10 +101,7 @@ function ReasoningSection({ model, onSelect }: { model: ModelDTO; onSelect: () =
             <button
               key={effort}
               type="button"
-              onClick={() => {
-                setActiveEffort(effort)
-                onSelect()
-              }}
+              onClick={() => setActiveEffort(effort)}
               title={`${REASONING_EFFORT_OPTION_LABELS[effort]}，本次会话临时生效`}
               className={clsx(
                 'relative flex min-w-0 flex-1 flex-col items-center gap-1 rounded-xl border px-1 py-1.5 text-xs transition',
@@ -149,18 +146,18 @@ function WebSearchSection({ model, sheet }: { model: ModelDTO; sheet: boolean })
           sheet ? 'py-2.5' : 'py-2',
         )}
       >
-        <Globe className={clsx('h-4 w-4 shrink-0', enabled && 'text-blue-500 dark:text-blue-400')} />
+        <Globe className="h-4 w-4 shrink-0 text-neutral-500 dark:text-neutral-400" />
         <span className="min-w-0 flex-1">联网搜索</span>
         <span
           aria-hidden
           className={clsx(
             'relative h-5 w-9 shrink-0 rounded-full transition',
-            enabled ? 'bg-neutral-900 dark:bg-white' : 'bg-neutral-300 dark:bg-neutral-700',
+            enabled ? 'bg-blue-500' : 'bg-neutral-300 dark:bg-neutral-700',
           )}
         >
           <span
             className={clsx(
-              'absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all dark:bg-neutral-900',
+              'absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-all',
               enabled ? 'left-[18px]' : 'left-0.5',
             )}
           />
@@ -193,7 +190,7 @@ function AspectGlyph({ size }: { size: string }) {
 
 /** 图片模型参数：分辨率预设网格（比例缩略图）+ 自定义宽高 + 画质分段选择。
     整个分区必须始终完整可见（不允许滚动），所以自定义/画质压成单行排布。 */
-function ImageParamsSection({ onSizeSelect, sheet }: { onSizeSelect: () => void; sheet: boolean }) {
+function ImageParamsSection({ sheet }: { sheet: boolean }) {
   const { imageSize, imageQuality, setImageSize, setImageQuality } = useChatPrefs()
   const [width, setWidth] = useState('1024')
   const [height, setHeight] = useState('1024')
@@ -246,10 +243,7 @@ function ImageParamsSection({ onSizeSelect, sheet }: { onSizeSelect: () => void;
             <button
               key={size}
               type="button"
-              onClick={() => {
-                setImageSize(size)
-                onSizeSelect()
-              }}
+              onClick={() => setImageSize(size)}
               className={clsx(
                 'flex items-center justify-center gap-1.5 rounded-lg border px-1 text-[11px] tabular-nums transition',
                 sheet ? 'py-2' : 'py-1.5',
@@ -393,12 +387,10 @@ function ModelListSection({
 function MenuSections({
   models,
   model,
-  onRequestClose,
   sheet,
 }: {
   models: ModelDTO[]
   model: ModelDTO | undefined
-  onRequestClose: () => void
   sheet: boolean
 }) {
   const activeModelId = useChatPrefs((s) => s.activeModelId)
@@ -415,15 +407,12 @@ function MenuSections({
         models={models}
         activeModelId={activeModelId}
         sheet={sheet}
-        onSelectModel={(id) => {
-          setActiveModel(id)
-          onRequestClose()
-        }}
+        onSelectModel={setActiveModel}
       />
       {showReasoning && (
         <>
           <Divider />
-          <ReasoningSection model={model!} onSelect={onRequestClose} />
+          <ReasoningSection model={model!} />
         </>
       )}
       {showWebSearch && (
@@ -435,7 +424,7 @@ function MenuSections({
       {isImage && (
         <>
           <Divider />
-          <ImageParamsSection onSizeSelect={onRequestClose} sheet={sheet} />
+          <ImageParamsSection sheet={sheet} />
         </>
       )}
     </>
@@ -558,7 +547,7 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
           {effortLabel && <span className="text-neutral-400 dark:text-neutral-500"> · {effortLabel}</span>}
         </span>
         {showWebSearch && webEnabled && (
-          <Globe className="h-3.5 w-3.5 shrink-0 text-blue-500 dark:text-blue-400" aria-label="联网已开启" />
+          <Globe className="h-3.5 w-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" aria-label="联网已开启" />
         )}
         <ChevronDown
           className={clsx(
@@ -578,7 +567,7 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
               transformOrigin: effectivePlacement === 'up' ? 'bottom' : 'top',
             }}
           >
-            <MenuSections models={models} model={model} onRequestClose={close} sheet={false} />
+            <MenuSections models={models} model={model} sheet={false} />
           </div>
         </div>
       )}
@@ -598,11 +587,11 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
               aria-label="模型与参数"
               className="hc-sheet-in relative flex max-h-[min(78dvh,42rem)] flex-col rounded-t-[20px] bg-white px-1.5 pb-[max(env(safe-area-inset-bottom),0.5rem)] text-neutral-700 shadow-[0_-12px_40px_rgb(0_0_0/0.18)] dark:bg-neutral-900 dark:text-neutral-100 dark:shadow-[0_-12px_40px_rgb(0_0_0/0.55)]"
             >
-              {/* 顶部抓手：视觉提示可下滑关闭（点击遮罩/选中即关）。 */}
+              {/* 顶部抓手：视觉提示可下滑关闭（点击遮罩关闭）。 */}
               <div className="flex shrink-0 justify-center pb-0.5 pt-2.5">
                 <span className="h-1 w-9 rounded-full bg-neutral-300 dark:bg-neutral-600" />
               </div>
-              <MenuSections models={models} model={model} onRequestClose={close} sheet />
+              <MenuSections models={models} model={model} sheet />
             </div>
           </div>,
           document.body,

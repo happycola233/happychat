@@ -14,6 +14,8 @@ async function waitGenDone(page: Page, timeout = 120_000) {
 async function selectModel(page: Page, name: string) {
   await page.getByTestId('model-menu-trigger').click()
   await page.getByText(name, { exact: true }).click()
+  // 产品交互里选择后会保持菜单打开；脚本主动收起，后续需要时再展开。
+  await page.keyboard.press('Escape')
   await page.waitForTimeout(300)
 }
 

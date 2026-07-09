@@ -34,6 +34,8 @@ function makePng(w: number, h: number, rgb: [number, number, number]): Buffer {
 async function selectModel(page: Page, name: string) {
   await page.getByTestId('model-menu-trigger').click()
   await page.getByText(name, { exact: true }).click()
+  // 产品交互里选择后会保持菜单打开；脚本主动收起，避免遮挡后续上传流程。
+  await page.keyboard.press('Escape')
   await page.waitForTimeout(300)
 }
 

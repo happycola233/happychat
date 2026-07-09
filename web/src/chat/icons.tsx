@@ -128,9 +128,6 @@ export function UploadImageIcon(props: IconProps) {
     <svg
       viewBox="0 0 20 20"
       fill="currentColor"
-      stroke="currentColor"
-      strokeWidth="0.35"
-      strokeLinejoin="round"
       aria-hidden="true"
       {...props}
     >
@@ -144,9 +141,6 @@ export function AttachmentIcon(props: IconProps) {
     <svg
       viewBox="0 0 20 20"
       fill="currentColor"
-      stroke="currentColor"
-      strokeWidth="0.35"
-      strokeLinejoin="round"
       aria-hidden="true"
       {...props}
     >

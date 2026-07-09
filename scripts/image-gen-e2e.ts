@@ -6,6 +6,8 @@ const BASE = process.env.SMOKE_BASE ?? 'http://127.0.0.1:5173'
 async function selectModel(page: Page, name: string) {
   await page.getByTestId('model-menu-trigger').click()
   await page.getByText(name, { exact: true }).click()
+  // 产品交互里选择后会保持菜单打开；脚本主动收起，避免依赖自动关闭行为。
+  await page.keyboard.press('Escape')
   await page.waitForTimeout(300)
 }
 

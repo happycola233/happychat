@@ -84,36 +84,6 @@ function Row({ title, desc, control }: { title: string; desc?: ReactNode; contro
   )
 }
 
-function Segmented<T extends string>({
-  value,
-  options,
-  onChange,
-}: {
-  value: T
-  options: { value: T; label: string }[]
-  onChange: (v: T) => void
-}) {
-  return (
-    <div className="inline-flex rounded-lg bg-neutral-100 p-0.5 dark:bg-neutral-800">
-      {options.map((o) => (
-        <button
-          key={o.value}
-          type="button"
-          onClick={() => onChange(o.value)}
-          className={clsx(
-            'rounded-md px-3 py-1.5 text-[13px] font-medium transition',
-            value === o.value
-              ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-600 dark:text-white'
-              : 'text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200',
-          )}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
-  )
-}
-
 type SelectOption<T extends string> = {
   value: T
   label: string
@@ -243,8 +213,6 @@ function PrefToggleRow({
 function GeneralPanel() {
   const theme = useSettings((s) => s.theme)
   const setTheme = useSettings((s) => s.setTheme)
-  const fontSize = useSettings((s) => s.preferences.messageFontSize)
-  const setPreference = useSettings((s) => s.setPreference)
 
   return (
     <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
@@ -263,6 +231,29 @@ function GeneralPanel() {
         }
       />
       <Row title="重点色" control={<AccentColorSelect />} />
+      <PrefToggleRow
+        prefKey="sendOnEnter"
+        title="按 Enter 发送消息"
+        desc="开启后按 Enter 发送、Shift+Enter 换行；关闭后按 Enter 换行，需 Ctrl/⌘+Enter 发送。"
+      />
+      <PrefToggleRow prefKey="autoScrollOnOpen" title="打开对话时自动滚动到最新" />
+      <PrefToggleRow prefKey="showScrollToBottom" title="显示「滚动到底部」按钮" />
+      <PrefToggleRow
+        prefKey="showTimelineNav"
+        title="消息时间轴导航"
+        desc="在聊天右侧显示你发送过的消息列表，悬停查看、点击快速跳转（仅桌面端视图）。"
+      />
+    </div>
+  )
+}
+
+function MessagesPanel() {
+  const fontSize = useSettings((s) => s.preferences.messageFontSize)
+  const showMessageTime = useSettings((s) => s.preferences.showMessageTime)
+  const messageTimeFormat = useSettings((s) => s.preferences.messageTimeFormat)
+  const setPreference = useSettings((s) => s.setPreference)
+  return (
+    <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
       <Row
         title="消息字体大小"
         control={
@@ -277,39 +268,12 @@ function GeneralPanel() {
           />
         }
       />
-      <PrefToggleRow
-        prefKey="sendOnEnter"
-        title="按 Enter 发送消息"
-        desc="开启后按 Enter 发送、Shift+Enter 换行；关闭后按 Enter 换行，需 Ctrl/⌘+Enter 发送。"
-      />
-      <PrefToggleRow prefKey="autoScrollOnOpen" title="打开对话时自动滚动到最新" />
-      <PrefToggleRow prefKey="showScrollToBottom" title="显示「滚动到底部」按钮" />
-      <PrefToggleRow
-        prefKey="showTimelineNav"
-        title="消息时间轴导航"
-        desc="在聊天右侧显示你发送过的消息列表，悬停查看、点击快速跳转（仅桌面端视图）。"
-      />
-      <PrefToggleRow
-        prefKey="defaultExpandReasoning"
-        title="默认展开推理摘要"
-        desc="关闭后推理摘要将默认保持折叠。"
-      />
-    </div>
-  )
-}
-
-function MessagesPanel() {
-  const showMessageTime = useSettings((s) => s.preferences.showMessageTime)
-  const messageTimeFormat = useSettings((s) => s.preferences.messageTimeFormat)
-  const setPreference = useSettings((s) => s.setPreference)
-  return (
-    <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
       <PrefToggleRow prefKey="showMessageTime" title="显示消息时间" desc="在每条消息旁显示发送/生成时间。" />
       {showMessageTime && (
         <Row
           title="时间格式"
           control={
-            <Segmented<MessageTimeFormat>
+            <PreferenceSelect<MessageTimeFormat>
               value={messageTimeFormat}
               onChange={(v) => setPreference('messageTimeFormat', v)}
               options={[
@@ -325,6 +289,11 @@ function MessagesPanel() {
         prefKey="showUsageStats"
         title="显示用量明细"
         desc="在助手消息下方显示 Token、生成速度（tok/s）与耗时。"
+      />
+      <PrefToggleRow
+        prefKey="defaultExpandReasoning"
+        title="默认展开推理摘要"
+        desc="关闭后推理摘要将默认保持折叠。"
       />
     </div>
   )
