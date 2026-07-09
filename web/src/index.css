@@ -15,10 +15,13 @@ body,
   height: 100%;
 }
 
-html.hc-chat-shell-lock,
-html.hc-chat-shell-lock body {
-  /* 聊天页只允许内部滚动区滚动；否则大段粘贴会触发浏览器焦点滚动，把整页永久顶上去。 */
-  overflow: clip;
+html.hc-chat-shell-lock #root {
+  /* 聊天外壳脱离文档流、固定铺满视口：根滚动器没有可滚内容，大段粘贴触发的
+     浏览器焦点滚动无处可滚，整页不会被顶上去。相比给 html/body 设 overflow:clip，
+     这里不动根滚动器的 overflow / overscroll-behavior，故 Android Chrome 的
+     下拉刷新（依赖 .hc-chat-scroll 边界过滚链到根）得以保留。 */
+  position: fixed;
+  inset: 0;
 }
 
 html.hc-ios,
