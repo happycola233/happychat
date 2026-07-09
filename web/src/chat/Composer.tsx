@@ -19,8 +19,8 @@ const TEXTAREA_MAX_HEIGHT_PX = 200
 const MIRROR_SINGLE_LINE_MAX_PX = 26
 /** 网格列间距（两处 0.375rem），镜像测量可用宽度时要减去。 */
 const GRID_COLUMN_GAPS_PX = 12
-/** 行扩展动画的裁切标记摘除时机：略大于 CSS 过渡时长（0.18s），留一次重定向的余量。 */
-const COMPOSER_EXPAND_SETTLE_MS = 260
+/** 行扩展动画的裁切标记摘除时机：略大于 CSS 过渡时长（0.2s），留一次重定向的余量。 */
+const COMPOSER_EXPAND_SETTLE_MS = 280
 
 /** Composer 悬浮层的实时几何信息，供 ChatView 做滚动让位与 hero 居中。 */
 export interface ComposerMetrics {
@@ -43,8 +43,14 @@ interface Props {
   scrollbarGutterWidth?: number
   onMetricsChange?: (metrics: ComposerMetrics) => void
   onRemoveImageSource?: (attachmentId: string) => void
-  /** hero＝桌面端新对话居中态：淡出免责声明与底部遮罩。 */
+  /** hero＝桌面端新对话居中态：隐藏免责声明与底部遮罩。 */
   variant?: 'docked' | 'hero'
+  /**
+   * 是否处于「hero→落底」的平移动画期间（仅新聊天发出首条消息时为 true）。
+   * 免责声明/底部遮罩只在这段动画里做透明度过渡（延迟到输入框接近落位再淡入）；
+   * 切换会话等瞬时落位场景直接显隐，避免旧状态在错误的位置闪一下。
+   */
+  dockAnimated?: boolean
 }
 
 /** 「+」聚合菜单：图片/文件上传入口收进一个按钮，上传中显示加载态。 */
@@ -153,6 +159,7 @@ export function Composer({
   onMetricsChange,
   onRemoveImageSource,
   variant = 'docked',
+  dockAnimated = false,
 }: Props) {
   const sendOnEnter = useSettings((s) => s.preferences.sendOnEnter)
   const [text, setText] = useState('')
@@ -375,14 +382,19 @@ export function Composer({
   }, [onMetricsChange])
 
   const docked = variant === 'docked'
+  // 落底动画期间遮罩/免责声明的淡入：延迟到输入框滑到接近底部才开始，避免中途突兀出现。
+  const dockChromeFadeClass = dockAnimated
+    ? 'transition-opacity duration-500 delay-300 motion-reduce:transition-none'
+    : undefined
 
   return (
     <div ref={rootRef} className="pointer-events-none relative pb-3 pt-2">
-      {/* 底部遮罩：挡住滚动到输入框后面的内容；居中态没有内容经过，淡出以免动画期间遮挡消息。 */}
+      {/* 底部遮罩：挡住滚动到输入框后面的内容；居中态没有内容经过，隐藏以免遮挡消息。 */}
       <div
         aria-hidden="true"
         className={clsx(
-          'absolute bottom-0 left-0 top-8 bg-white transition-opacity duration-300 dark:bg-[#000000]',
+          'absolute bottom-0 left-0 top-8 bg-white dark:bg-[#000000]',
+          dockChromeFadeClass,
           !docked && 'opacity-0',
         )}
         style={{ right: `${scrollbarGutterWidth}px` }}
@@ -391,10 +403,12 @@ export function Composer({
         className="relative px-4"
         style={{ paddingRight: `calc(1rem + ${scrollbarGutterWidth}px)` }}
       >
+        {/* 视觉盒：浅色用低对比 hairline 描边 + 柔和弥散阴影撑起体积感，
+            避免生硬的灰色描边压过居中态光晕；深色以描边为主要轮廓，维持原对比。 */}
         <div
           ref={boxRef}
           className={clsx(
-            'pointer-events-auto relative mx-auto max-w-3xl rounded-[26px] border border-neutral-200 bg-white px-2 py-2 shadow-[0_1px_10px_rgba(0,0,0,0.07)] transition focus-within:border-neutral-300 focus-within:shadow-[0_2px_14px_rgba(0,0,0,0.09)] dark:border-[#303030] dark:bg-[#212121] dark:shadow-none dark:focus-within:border-[#303030] dark:focus-within:shadow-none',
+            'pointer-events-auto relative mx-auto max-w-3xl rounded-[26px] border border-black/[0.07] bg-white px-2 py-2 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_18px_rgba(0,0,0,0.055)] transition focus-within:border-black/[0.11] focus-within:shadow-[0_1px_3px_rgba(0,0,0,0.05),0_6px_24px_rgba(0,0,0,0.07)] dark:border-[#303030] dark:bg-[#212121] dark:shadow-none dark:focus-within:border-[#303030] dark:focus-within:shadow-none',
             dragActive &&
               'border-blue-300 bg-blue-50/40 shadow-[0_2px_18px_rgba(59,130,246,0.18)] dark:border-blue-600 dark:bg-blue-950/20',
           )}
@@ -512,7 +526,8 @@ export function Composer({
         </div>
         <p
           className={clsx(
-            'mx-auto mt-2 max-w-3xl text-center text-xs text-neutral-400 transition-opacity duration-300',
+            'mx-auto mt-2 max-w-3xl text-center text-xs text-neutral-400',
+            dockChromeFadeClass,
             !docked && 'opacity-0',
           )}
         >

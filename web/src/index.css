@@ -318,12 +318,14 @@ html.hc-ios .hc-chat-scroll {
 }
 
 /* 行扩展动画容器：内层网格瞬时排版，容器高度由 Composer 的 syncHeight 过渡跟随。
-   内容贴底（align-content: end）——盒子生长时发送按钮等控件保持原位，新行从顶部展开；
+   内容锚定顶部（align-content: start）——正在输入的文字与光标全程可见、绝不被裁切；
+   新增空间在底部展开，控件行（＋/发送）随快出曲线迅速回到底边落位。
+   （曾用贴底锚定让控件纹丝不动，但盒子生长时首行文字会被顶边裁掉一瞬，观感更差。）
    仅动画进行中打开裁切，静止时保持 visible 以免裁掉「+」与模型菜单弹层。 */
 .hc-composer-expand {
   display: grid;
-  align-content: end;
-  transition: height 0.18s cubic-bezier(0.33, 0, 0.2, 1);
+  align-content: start;
+  transition: height 0.2s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .hc-composer-expand[data-animating] {
   overflow: clip;
@@ -985,6 +987,32 @@ html.hc-ios .hc-chat-scroll {
   transform-origin: top;
 }
 
+/* 移动端聚合选择器的底部弹层：轻快滑入，遮罩同步淡入（克制、快出）。 */
+@keyframes hc-sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.hc-sheet-in {
+  animation: hc-sheet-in 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes hc-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.hc-sheet-backdrop {
+  animation: hc-backdrop-in 0.2s ease-out;
+}
+
 /* 流式正文渐入：新到达的每个可见单元逐段淡入，替代打字光标（见 chat/markdownStreamFade.ts）。 */
 @keyframes hc-stream-fade {
   from {
@@ -1232,6 +1260,8 @@ html.hc-ios .hc-chat-scroll {
   }
   .hc-anim-in,
   .hc-pop-in,
+  .hc-sheet-in,
+  .hc-sheet-backdrop,
   .hc-sidebar-panel-in,
   .hc-sidebar-rail-in,
   .hc-timeline-panel-in,

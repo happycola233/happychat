@@ -63,6 +63,8 @@ interface RunResult {
 
 const SCROLL_BUTTON_IDLE_MS = 2400
 const PROGRAMMATIC_SCROLL_RESET_MS = 1200
+/** 落底动画标记的持续时长：覆盖 500ms 平移 + 免责声明延迟淡入（300ms 延迟 + 500ms 过渡）。 */
+const DOCK_ANIMATION_SETTLE_MS = 900
 /** 时间轴跳转后消息顶部与视口的间距：给悬浮顶栏让位再留一点呼吸感。 */
 const TIMELINE_JUMP_OFFSET_PX = 76
 /** 消息列最大宽度（Tailwind max-w-3xl），用于判断顶栏按钮是否压在消息上。 */
@@ -504,7 +506,7 @@ export default function ChatView() {
       dockAnimationTimerRef.current = window.setTimeout(() => {
         dockAnimationTimerRef.current = null
         setDockAnimated(false)
-      }, 700)
+      }, DOCK_ANIMATION_SETTLE_MS)
     }
     shouldAutoFollowRef.current = true
     setOptimisticUser(text || null)
@@ -596,6 +598,9 @@ export default function ChatView() {
   const composerLift = heroComposer
     ? Math.max(0, Math.round(viewportHeight / 2 - composerMetrics.boxCenterFromBottom))
     : 0
+  // 注意：不要「heroComposer 变 true 就取消 dockAnimated」——navigate 走 React Router 的
+  // startTransition，发送成功后会先出现一帧 id 未更新、optimisticUser 已清空的瞬态 hero 渲染，
+  // 这样的取消逻辑会在该帧误触发并打断整个落底动画（实测复现）。标记统一由定时器摘除。
   const timelineItems = timelineItemsFromMessages(messages)
   const timelineVisible = !isMobile && showTimelineNav && shouldShowTimeline(timelineItems.length)
   // 视口够宽时顶栏按钮落在消息列留白里，顶部没有内容被遮挡，不需要模糊渐变。
@@ -757,10 +762,13 @@ export default function ChatView() {
               heroComposer ? 'opacity-100' : 'opacity-0',
             )}
           />
+          {/* 问候语的淡出过渡同样只在落底动画期间启用，切换会话时立即消失，
+              避免残影在已落底的输入框上方闪一下。 */}
           <div
             aria-hidden={!heroComposer}
             className={clsx(
-              'pointer-events-none absolute inset-x-0 bottom-full mb-6 text-center transition-opacity duration-300',
+              'pointer-events-none absolute inset-x-0 bottom-full mb-6 text-center',
+              dockAnimated && 'transition-opacity duration-300 motion-reduce:transition-none',
               heroComposer ? 'opacity-100' : 'opacity-0',
             )}
           >
@@ -782,6 +790,7 @@ export default function ChatView() {
             scrollbarGutterWidth={scrollbarGutterWidth}
             onMetricsChange={setComposerMetrics}
             variant={heroComposer ? 'hero' : 'docked'}
+            dockAnimated={dockAnimated}
             onRemoveImageSource={(attachmentId) =>
               setImageSources((items) => items.filter((item) => item.attachmentId !== attachmentId))
             }
