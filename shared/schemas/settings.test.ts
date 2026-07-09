@@ -27,6 +27,13 @@ describe('updateSettingsSchema', () => {
     expect(parsed).toEqual({ preferences: { accentColor: 'purple' } })
   })
 
+  it('allows toggling the new chat gradient glow preference', () => {
+    const parsed = updateSettingsSchema.parse({
+      preferences: { showNewChatGradientGlow: false },
+    })
+    expect(parsed).toEqual({ preferences: { showNewChatGradientGlow: false } })
+  })
+
   it('rejects unknown accent colors', () => {
     expect(
       updateSettingsSchema.safeParse({ preferences: { accentColor: 'cyan' } }).success,

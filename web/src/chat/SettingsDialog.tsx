@@ -232,6 +232,11 @@ function GeneralPanel() {
       />
       <Row title="重点色" control={<AccentColorSelect />} />
       <PrefToggleRow
+        prefKey="showNewChatGradientGlow"
+        title="启用新聊天渐变光晕背景"
+        desc="在桌面端新聊天页输入框后方显示柔和渐变光晕。"
+      />
+      <PrefToggleRow
         prefKey="sendOnEnter"
         title="按 Enter 发送消息"
         desc="开启后按 Enter 发送、Shift+Enter 换行；关闭后按 Enter 换行，需 Ctrl/⌘+Enter 发送。"

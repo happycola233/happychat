@@ -15,6 +15,7 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   autoScrollOnOpen: true,
   showScrollToBottom: true,
   showTimelineNav: true,
+  showNewChatGradientGlow: true,
   sendOnEnter: true,
   defaultExpandReasoning: true,
   accentColor: 'default',
@@ -40,6 +41,8 @@ export function mergePreferences(
     autoScrollOnOpen: partial?.autoScrollOnOpen ?? DEFAULT_PREFERENCES.autoScrollOnOpen,
     showScrollToBottom: partial?.showScrollToBottom ?? DEFAULT_PREFERENCES.showScrollToBottom,
     showTimelineNav: partial?.showTimelineNav ?? DEFAULT_PREFERENCES.showTimelineNav,
+    showNewChatGradientGlow:
+      partial?.showNewChatGradientGlow ?? DEFAULT_PREFERENCES.showNewChatGradientGlow,
     sendOnEnter: partial?.sendOnEnter ?? DEFAULT_PREFERENCES.sendOnEnter,
     defaultExpandReasoning:
       partial?.defaultExpandReasoning ?? DEFAULT_PREFERENCES.defaultExpandReasoning,

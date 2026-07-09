@@ -7,6 +7,7 @@ describe('mergePreferences', () => {
       autoScrollOnOpen: true,
       showScrollToBottom: true,
       showTimelineNav: true,
+      showNewChatGradientGlow: true,
       sendOnEnter: true,
       defaultExpandReasoning: true,
       accentColor: 'default',

@@ -86,6 +86,7 @@ export default function ChatView() {
   const autoScrollOnOpen = useSettings((s) => s.preferences.autoScrollOnOpen)
   const showScrollToBottom = useSettings((s) => s.preferences.showScrollToBottom)
   const showTimelineNav = useSettings((s) => s.preferences.showTimelineNav)
+  const showNewChatGradientGlow = useSettings((s) => s.preferences.showNewChatGradientGlow)
   const openMobileSidebar = useSidebarStore((s) => s.setMobileOpen)
   const isMobile = useIsMobile()
   const { data: models } = useModels()
@@ -759,7 +760,7 @@ export default function ChatView() {
             className={clsx(
               'hc-hero-glow',
               dockAnimated && 'transition-opacity duration-500 motion-reduce:transition-none',
-              heroComposer ? 'opacity-100' : 'opacity-0',
+              showNewChatGradientGlow && heroComposer ? 'opacity-100' : 'opacity-0',
             )}
           />
           {/* 问候语的淡出过渡同样只在落底动画期间启用，切换会话时立即消失，

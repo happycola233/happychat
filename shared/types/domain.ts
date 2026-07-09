@@ -138,6 +138,8 @@ export interface UserPreferences {
   showScrollToBottom: boolean
   /** 消息时间轴导航：聊天右侧展示用户消息快捷列表，点击跳转（仅桌面端视图） */
   showTimelineNav: boolean
+  /** 新聊天渐变光晕背景：桌面端空会话输入框后方的柔和渐变背景 */
+  showNewChatGradientGlow: boolean
   /** 按 Enter 发送（关闭则 Enter 换行、Ctrl/⌘+Enter 发送） */
   sendOnEnter: boolean
   /** 默认展开推理摘要（关闭则推理摘要默认保持折叠，不随生成自动展开） */

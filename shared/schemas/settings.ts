@@ -12,6 +12,7 @@ export const userPreferencesPatchSchema = z
     autoScrollOnOpen: z.boolean(),
     showScrollToBottom: z.boolean(),
     showTimelineNav: z.boolean(),
+    showNewChatGradientGlow: z.boolean(),
     sendOnEnter: z.boolean(),
     defaultExpandReasoning: z.boolean(),
     accentColor: accentColorSchema,
