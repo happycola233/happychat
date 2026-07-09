@@ -10,6 +10,7 @@ import {
 } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
+import { clsx } from 'clsx'
 import { Menu } from 'lucide-react'
 import type {
   AttachmentDTO,
@@ -26,19 +27,21 @@ import { useModels } from '../hooks/useModels'
 import { useChatPrefs } from '../store/chat'
 import { useSettings } from '../store/settings'
 import { useStreamStore } from '../store/stream'
-import { useSidebarStore } from '../store/sidebar'
+import { useIsMobile, useSidebarStore } from '../store/sidebar'
 import { getBrowserLocale, getBrowserTimezone } from '../lib/browserLocale'
 import { pollConversationTitleAfterRun } from '../sse/conversationEvents'
 import { startStream } from '../sse/streamManager'
 import { toast } from '../store/toast'
 import { buildPath, getSiblings } from './buildPath'
-import { ChatControls } from './ChatControls'
-import { Composer } from './Composer'
+import { Composer, type ComposerMetrics } from './Composer'
+import { ConversationMenu } from './ConversationMenu'
 import { ArrowUpIcon } from './icons'
 import { Message } from './Message'
 import type { MessageEditSubmit } from './MessageEditForm'
 import { CollapsibleUserMessageText } from './MessageContent'
-import { ModelSelector } from './ModelSelector'
+import { ModelControlMenu } from './ModelControlMenu'
+import { TimelineNav } from './TimelineNav'
+import { shouldShowTimeline, timelineItemsFromMessages } from './timelineItems'
 import { AnnouncementBanner } from '../announcements/AnnouncementBanner'
 import { NotificationBell } from '../announcements/NotificationBell'
 import type { ImageEditSource } from './imageSource'
@@ -60,6 +63,12 @@ interface RunResult {
 
 const SCROLL_BUTTON_IDLE_MS = 2400
 const PROGRAMMATIC_SCROLL_RESET_MS = 1200
+/** 时间轴跳转后消息顶部与视口的间距：给悬浮顶栏让位再留一点呼吸感。 */
+const TIMELINE_JUMP_OFFSET_PX = 76
+/** 消息列最大宽度（Tailwind max-w-3xl），用于判断顶栏按钮是否压在消息上。 */
+const MESSAGE_COLUMN_MAX_WIDTH_PX = 768
+/** 顶栏单侧按钮簇（含边距）所需的横向空间；两侧留白都超过它时按钮不会遮住消息。 */
+const TOP_BAR_SIDE_CLEARANCE_PX = 140
 
 export default function ChatView() {
   const { id } = useParams()
@@ -74,7 +83,9 @@ export default function ChatView() {
   const resetActive = useChatPrefs((s) => s.resetActive)
   const autoScrollOnOpen = useSettings((s) => s.preferences.autoScrollOnOpen)
   const showScrollToBottom = useSettings((s) => s.preferences.showScrollToBottom)
+  const showTimelineNav = useSettings((s) => s.preferences.showTimelineNav)
   const openMobileSidebar = useSidebarStore((s) => s.setMobileOpen)
+  const isMobile = useIsMobile()
   const { data: models } = useModels()
   const model = models?.find((m) => m.id === activeModelId)
   const { data: detail } = useConversation(id)
@@ -92,9 +103,17 @@ export default function ChatView() {
   const programmaticScrollRef = useRef(false)
   const terminalScrollSnapshotRef = useRef<ViewportScrollSnapshot | null>(null)
   const [scrollButtonVisible, setScrollButtonVisible] = useState(false)
-  const [isScrolledFromTop, setIsScrolledFromTop] = useState(false)
   const [scrollbarGutterWidth, setScrollbarGutterWidth] = useState(0)
-  const [composerHeight, setComposerHeight] = useState(0)
+  const [composerMetrics, setComposerMetrics] = useState<ComposerMetrics>({
+    height: 0,
+    boxCenterFromBottom: 0,
+  })
+  const [viewportHeight, setViewportHeight] = useState(0)
+  const [viewportWidth, setViewportWidth] = useState(0)
+  // 输入框「居中→落底」平移动画只在新聊天里发出首条消息时启用；
+  // 刷新页面、切换会话、点新聊天都直接落位，不做平移。
+  const [dockAnimated, setDockAnimated] = useState(false)
+  const dockAnimationTimerRef = useRef<number | null>(null)
 
   const allMessages = detail?.messages ?? []
   const messages = detail ? buildPath(allMessages, detail.conversation.activeLeafId) : []
@@ -142,6 +161,9 @@ export default function ChatView() {
       if (programmaticScrollTimerRef.current !== null) {
         window.clearTimeout(programmaticScrollTimerRef.current)
       }
+      if (dockAnimationTimerRef.current !== null) {
+        window.clearTimeout(dockAnimationTimerRef.current)
+      }
     }
   }, [clearScrollButtonIdleTimer])
 
@@ -149,16 +171,23 @@ export default function ChatView() {
     const scrollElement = scrollRef.current
     if (!scrollElement) return
 
-    const updateScrollbarGutterWidth = () => {
+    const updateViewportMetrics = () => {
       // 经典滚动条会占用内容宽度；输入框需要预留同样的右侧空间才能保持同轴。
       const nextWidth = Math.max(0, scrollElement.offsetWidth - scrollElement.clientWidth)
       setScrollbarGutterWidth((currentWidth) =>
         currentWidth === nextWidth ? currentWidth : nextWidth,
       )
+      // 视口高度用于计算新对话居中输入框的抬升量；宽度用于判断顶栏渐变是否需要。
+      setViewportHeight((current) =>
+        current === scrollElement.clientHeight ? current : scrollElement.clientHeight,
+      )
+      setViewportWidth((current) =>
+        current === scrollElement.clientWidth ? current : scrollElement.clientWidth,
+      )
     }
 
-    updateScrollbarGutterWidth()
-    const resizeObserver = new ResizeObserver(updateScrollbarGutterWidth)
+    updateViewportMetrics()
+    const resizeObserver = new ResizeObserver(updateViewportMetrics)
     resizeObserver.observe(scrollElement)
     return () => resizeObserver.disconnect()
   }, [])
@@ -176,21 +205,22 @@ export default function ChatView() {
     shouldAutoFollowRef.current = false
   }, [cancelProgrammaticScroll])
 
+  const markProgrammaticScroll = useCallback((resetAfterMs: number) => {
+    programmaticScrollRef.current = true
+    if (programmaticScrollTimerRef.current !== null) {
+      window.clearTimeout(programmaticScrollTimerRef.current)
+    }
+    programmaticScrollTimerRef.current = window.setTimeout(() => {
+      programmaticScrollRef.current = false
+      programmaticScrollTimerRef.current = null
+    }, resetAfterMs)
+  }, [])
+
   const scrollToBottom = useCallback(
     (behavior: ScrollBehavior = 'auto') => {
       const el = scrollRef.current
       if (!el) return
-      programmaticScrollRef.current = true
-      if (programmaticScrollTimerRef.current !== null) {
-        window.clearTimeout(programmaticScrollTimerRef.current)
-      }
-      programmaticScrollTimerRef.current = window.setTimeout(
-        () => {
-          programmaticScrollRef.current = false
-          programmaticScrollTimerRef.current = null
-        },
-        behavior === 'smooth' ? PROGRAMMATIC_SCROLL_RESET_MS : 80,
-      )
+      markProgrammaticScroll(behavior === 'smooth' ? PROGRAMMATIC_SCROLL_RESET_MS : 80)
       el.scrollTo({ top: el.scrollHeight, behavior })
       shouldAutoFollowRef.current = true
       previousScrollMetricsRef.current = {
@@ -198,9 +228,27 @@ export default function ChatView() {
         scrollHeight: el.scrollHeight,
       }
       hideScrollButton()
-      setIsScrolledFromTop(el.scrollHeight > el.clientHeight + 1)
     },
-    [hideScrollButton],
+    [hideScrollButton, markProgrammaticScroll],
+  )
+
+  /** 时间轴导航跳转：平滑滚到目标消息并暂停自动跟随，让用户安心回看。 */
+  const scrollToMessage = useCallback(
+    (messageId: string) => {
+      const container = scrollRef.current
+      if (!container) return
+      const anchor = container.querySelector<HTMLElement>(
+        `[data-scroll-anchor="${CSS.escape(messageId)}"]`,
+      )
+      if (!anchor) return
+      pauseAutoFollow()
+      markProgrammaticScroll(PROGRAMMATIC_SCROLL_RESET_MS)
+      const containerTop = container.getBoundingClientRect().top
+      const targetTop =
+        anchor.getBoundingClientRect().top - containerTop + container.scrollTop - TIMELINE_JUMP_OFFSET_PX
+      container.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' })
+    },
+    [markProgrammaticScroll, pauseAutoFollow],
   )
 
   const captureTerminalScroll = useCallback(() => {
@@ -246,7 +294,6 @@ export default function ChatView() {
     })
     previousScrollMetricsRef.current = currentMetrics
     if (dist <= 1) cancelProgrammaticScroll()
-    setIsScrolledFromTop(el.scrollTop > 1)
     if (dist <= 240) {
       hideScrollButton()
       return
@@ -386,7 +433,6 @@ export default function ChatView() {
     } else {
       shouldAutoFollowRef.current = false
       hideScrollButton()
-      setIsScrolledFromTop(false)
       const el = scrollRef.current
       el?.scrollTo({ top: 0 })
       if (el) {
@@ -448,6 +494,17 @@ export default function ChatView() {
     if (!activeModelId) return toast.error('请先选择模型')
     if (selectedImageSources.length > 0 && model?.kind !== 'image') {
       return toast.error('请使用图片模型编辑图片')
+    }
+    // 从居中态发出首条消息：为接下来的「落底」变化临时开启平移动画。
+    if (heroComposer) {
+      setDockAnimated(true)
+      if (dockAnimationTimerRef.current !== null) {
+        window.clearTimeout(dockAnimationTimerRef.current)
+      }
+      dockAnimationTimerRef.current = window.setTimeout(() => {
+        dockAnimationTimerRef.current = null
+        setDockAnimated(false)
+      }, 700)
     }
     shouldAutoFollowRef.current = true
     setOptimisticUser(text || null)
@@ -533,32 +590,47 @@ export default function ChatView() {
   }
 
   const isEmpty = !optimisticUser && messages.length === 0
+  // 桌面端新对话：输入框与问候语居中；发出第一条消息后平滑滑至底部。
+  const heroComposer = !id && isEmpty && !isMobile
+  // 抬升量让「输入框视觉盒的几何中心」落在视口正中；盒子随行数长高时中心保持不动。
+  const composerLift = heroComposer
+    ? Math.max(0, Math.round(viewportHeight / 2 - composerMetrics.boxCenterFromBottom))
+    : 0
+  const timelineItems = timelineItemsFromMessages(messages)
+  const timelineVisible = !isMobile && showTimelineNav && shouldShowTimeline(timelineItems.length)
+  // 视口够宽时顶栏按钮落在消息列留白里，顶部没有内容被遮挡，不需要模糊渐变。
+  const topFadeVisible =
+    viewportWidth < MESSAGE_COLUMN_MAX_WIDTH_PX + TOP_BAR_SIDE_CLEARANCE_PX * 2
   const chatViewportStyle = {
-    '--hc-composer-overlay-height': `${composerHeight}px`,
+    '--hc-composer-overlay-height': `${composerMetrics.height}px`,
   } as CSSProperties
 
   return (
     <>
-      <header
-        className={`flex h-14 shrink-0 items-center gap-1 border-b px-2 transition-colors sm:px-4 ${
-          isScrolledFromTop ? 'border-neutral-200 dark:border-neutral-800' : 'border-transparent'
-        }`}
-      >
-        <button
-          type="button"
-          onClick={() => openMobileSidebar(true)}
-          className="rounded-lg p-2 text-neutral-500 transition hover:bg-neutral-100 md:hidden dark:text-neutral-300 dark:hover:bg-neutral-800"
-          aria-label="打开侧边栏"
-        >
-          <Menu className="h-5 w-5" />
-        </button>
-        <ModelSelector />
-        <NotificationBell />
-      </header>
-
       <AnnouncementBanner />
 
       <div className="relative min-h-0 flex-1" style={chatViewportStyle}>
+        {/* 顶部悬浮栏：窄视口时用模糊交叉渐变兜住划过按钮下方的内容（宽屏按钮在消息列外，无需渐变）。 */}
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-30 h-[4.5rem]">
+          {topFadeVisible && <div className="hc-top-fade" aria-hidden="true" />}
+          <div className="pointer-events-auto relative flex h-14 items-center gap-1 px-2 sm:px-4">
+            <button
+              type="button"
+              onClick={() => openMobileSidebar(true)}
+              className="rounded-lg p-2 text-neutral-500 transition hover:bg-neutral-100 md:hidden dark:text-neutral-300 dark:hover:bg-neutral-800"
+              aria-label="打开侧边栏"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+            {/* 移动端：聚合模型选择器留在顶栏（桌面端在输入框内）。 */}
+            {isMobile && <ModelControlMenu placement="down" align="start" variant="header" />}
+            <div className="ml-auto flex items-center gap-0.5">
+              <NotificationBell />
+              {id && <ConversationMenu conversationId={id} />}
+            </div>
+          </div>
+        </div>
+
         <div
           ref={scrollRef}
           onScroll={updateScrollState}
@@ -569,15 +641,18 @@ export default function ChatView() {
           className="hc-scrollbar hc-chat-scroll h-full overflow-y-auto"
         >
           {isEmpty ? (
-            <div className="flex h-full items-center justify-center">
-              <div className="text-center">
-                <h2 className="text-2xl font-medium leading-tight text-neutral-700 sm:text-[1.65rem] dark:text-neutral-200">
-                  有什么可以帮你的？
-                </h2>
+            // 移动端空会话在页面中央显示问候语（桌面端问候语随居中输入框走）。
+            isMobile ? (
+              <div className="flex h-full items-center justify-center">
+                <div className="text-center">
+                  <h2 className="text-2xl font-medium leading-tight text-neutral-700 dark:text-neutral-200">
+                    有什么可以帮你的？
+                  </h2>
+                </div>
               </div>
-            </div>
+            ) : null
           ) : (
-            <div className="hc-chat-scroll-content px-4 pt-6">
+            <div className="hc-chat-scroll-content px-4 pt-[4.25rem]">
               {/* 页面留白放在限宽层外，确保消息区边界与 Composer 输入框严格对齐。 */}
               <div className="mx-auto max-w-3xl space-y-6">
                 {messages.map((m) => {
@@ -625,6 +700,20 @@ export default function ChatView() {
             </div>
           )}
         </div>
+
+        {/* 消息时间轴导航：仅桌面端、用户消息多于 3 条时出现在右缘中部。 */}
+        {timelineVisible && (
+          <div className="pointer-events-none absolute inset-y-0 right-1.5 z-20 hidden items-center md:flex">
+            <div className="pointer-events-auto">
+              <TimelineNav
+                items={timelineItems}
+                scrollContainerRef={scrollRef}
+                onJump={scrollToMessage}
+              />
+            </div>
+          </div>
+        )}
+
         {showScrollToBottom && (
           <button
             type="button"
@@ -642,18 +731,57 @@ export default function ChatView() {
           </button>
         )}
 
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20">
+        {/* 输入框悬浮层：桌面端新对话居中（transform 抬升）；平移动画仅在发出首条消息时启用。
+            --hc-hero-glow-anchor 让光晕与输入框共用同一个几何中心锚点。 */}
+        <div
+          className={clsx(
+            'pointer-events-none absolute inset-x-0 bottom-0 z-20',
+            dockAnimated &&
+              'transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
+          )}
+          style={
+            {
+              transform: `translateY(-${composerLift}px)`,
+              '--hc-hero-glow-anchor': `${composerMetrics.boxCenterFromBottom}px`,
+            } as CSSProperties
+          }
+        >
+          {/* 居中态输入框下方的柔和光晕（随重点色自适应）。
+              淡出过渡只在「发送首条消息」的落底动画期间启用，切换会话时立即消失，
+              避免光晕跟着输入框滑到底部才淡出。 */}
+          <div
+            aria-hidden="true"
+            className={clsx(
+              'hc-hero-glow',
+              dockAnimated && 'transition-opacity duration-500 motion-reduce:transition-none',
+              heroComposer ? 'opacity-100' : 'opacity-0',
+            )}
+          />
+          <div
+            aria-hidden={!heroComposer}
+            className={clsx(
+              'pointer-events-none absolute inset-x-0 bottom-full mb-6 text-center transition-opacity duration-300',
+              heroComposer ? 'opacity-100' : 'opacity-0',
+            )}
+          >
+            <h2 className="text-2xl font-medium leading-tight text-neutral-700 sm:text-[1.65rem] dark:text-neutral-200">
+              有什么可以帮你的？
+            </h2>
+          </div>
           <Composer
             onSend={onSend}
             disabled={sendMut.isPending || streaming}
             streaming={streaming}
             onStop={onStop}
-            leftControls={<ChatControls />}
+            modelControl={
+              !isMobile ? <ModelControlMenu placement="up" align="end" variant="composer" /> : undefined
+            }
             canImage={model?.capabilities.vision ?? false}
             canFile={model?.capabilities.file_input ?? false}
             imageSources={imageSources}
             scrollbarGutterWidth={scrollbarGutterWidth}
-            onHeightChange={setComposerHeight}
+            onMetricsChange={setComposerMetrics}
+            variant={heroComposer ? 'hero' : 'docked'}
             onRemoveImageSource={(attachmentId) =>
               setImageSources((items) => items.filter((item) => item.attachmentId !== attachmentId))
             }

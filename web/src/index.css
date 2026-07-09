@@ -56,6 +56,11 @@ html.hc-accent-default {
   --hc-send-button-bg: #000000;
   --hc-send-button-fg: #ffffff;
 }
+/* 默认（灰）重点色的 hero 光晕沿用蓝色重点色的色调（灰色光晕观感偏脏）；
+   仅 .hc-hero-glow 读取该变量，其余重点色不定义、回退到自身 swatch，不影响其他 UI。 */
+html.hc-accent-default {
+  --hc-hero-glow-tint: #3a83f7;
+}
 html.hc-accent-blue {
   --hc-accent-swatch: #3a83f7;
   --hc-user-bubble-bg: #e8f3fe;
@@ -109,6 +114,10 @@ html.dark.hc-accent-default {
   --hc-send-button-bg: #ffffff;
   /* 默认重点色在深色模式使用白色发送按钮，需要黑色箭头保持对比。 */
   --hc-send-button-fg: #000000;
+}
+html.dark.hc-accent-default {
+  /* 深色同理：光晕借用深色蓝重点色的色值。 */
+  --hc-hero-glow-tint: #2c67c5;
 }
 html.dark.hc-accent-blue {
   --hc-accent-swatch: #2c67c5;
@@ -244,6 +253,121 @@ html.hc-ios .hc-chat-scroll {
 }
 .hc-chat-scroll-content {
   padding-bottom: var(--hc-chat-bottom-gap);
+}
+
+/* 顶部悬浮栏的模糊交叉渐变：内容划过顶栏时被渐进模糊并淡出，取代旧的分隔横线。 */
+.hc-top-fade {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  -webkit-backdrop-filter: blur(12px) saturate(1.05);
+  backdrop-filter: blur(12px) saturate(1.05);
+  -webkit-mask-image: linear-gradient(to bottom, black 0%, black 44%, transparent 100%);
+  mask-image: linear-gradient(to bottom, black 0%, black 44%, transparent 100%);
+}
+.hc-top-fade::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    rgb(255 255 255 / 0.92) 0%,
+    rgb(255 255 255 / 0.55) 46%,
+    rgb(255 255 255 / 0) 100%
+  );
+}
+.dark .hc-top-fade::after {
+  background: linear-gradient(
+    to bottom,
+    rgb(0 0 0 / 0.9) 0%,
+    rgb(0 0 0 / 0.52) 46%,
+    rgb(0 0 0 / 0) 100%
+  );
+}
+
+/* 桌面端新对话居中输入框的柔和光晕（Gemini 风）：颜色随重点色自适应。
+   锚点 --hc-hero-glow-anchor＝输入框视觉盒中心到悬浮层底边的距离（ChatView 注入），
+   translate(-50%, 50%) 把光晕几何中心精确压在输入框中心上，盒子长高时全程跟随。
+   宽扁大椭圆 + 多段渐变近似高斯衰减，边缘收敛到全透明，避免出现可见光圈。 */
+.hc-hero-glow {
+  position: absolute;
+  bottom: var(--hc-hero-glow-anchor, 4rem);
+  left: 50%;
+  width: min(110rem, 165vw);
+  height: min(56rem, 120vh);
+  transform: translate(-50%, 50%);
+  pointer-events: none;
+  /* 色调优先读 --hc-hero-glow-tint（默认重点色借用蓝色），未定义时回退到当前重点色。 */
+  background: radial-gradient(
+    closest-side,
+    color-mix(in srgb, var(--hc-hero-glow-tint, var(--hc-accent-swatch)) 22%, rgb(240 246 253 / 0.9)) 0%,
+    color-mix(in srgb, var(--hc-hero-glow-tint, var(--hc-accent-swatch)) 13%, rgb(243 248 254 / 0.62)) 34%,
+    color-mix(in srgb, var(--hc-hero-glow-tint, var(--hc-accent-swatch)) 6%, rgb(247 250 254 / 0.3)) 62%,
+    rgb(255 255 255 / 0) 100%
+  );
+}
+.dark .hc-hero-glow {
+  /* 深色用更沉的藏蓝底，重点色只做轻微染色，避免发灰发亮。 */
+  background: radial-gradient(
+    closest-side,
+    color-mix(in srgb, var(--hc-hero-glow-tint, var(--hc-accent-swatch)) 12%, rgb(13 19 42 / 0.95)) 0%,
+    color-mix(in srgb, var(--hc-hero-glow-tint, var(--hc-accent-swatch)) 6%, rgb(10 15 34 / 0.6)) 36%,
+    color-mix(in srgb, var(--hc-hero-glow-tint, var(--hc-accent-swatch)) 3%, rgb(8 12 28 / 0.3)) 64%,
+    rgb(0 0 0 / 0) 100%
+  );
+}
+
+/* 行扩展动画容器：内层网格瞬时排版，容器高度由 Composer 的 syncHeight 过渡跟随。
+   内容贴底（align-content: end）——盒子生长时发送按钮等控件保持原位，新行从顶部展开；
+   仅动画进行中打开裁切，静止时保持 visible 以免裁掉「+」与模型菜单弹层。 */
+.hc-composer-expand {
+  display: grid;
+  align-content: end;
+  transition: height 0.18s cubic-bezier(0.33, 0, 0.2, 1);
+}
+.hc-composer-expand[data-animating] {
+  overflow: clip;
+}
+
+/* Composer 网格：单行时「+｜输入｜控件」同排；多行时输入独占首行，控件退到次行两端。 */
+.hc-composer-grid {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: 'leading primary trailing';
+  align-items: center;
+  column-gap: 0.375rem;
+}
+.hc-composer-grid.hc-composer-multiline {
+  grid-template-areas:
+    'primary primary primary'
+    'leading . trailing';
+  row-gap: 0.375rem;
+}
+.hc-composer-leading {
+  grid-area: leading;
+}
+.hc-composer-primary {
+  grid-area: primary;
+}
+.hc-composer-trailing {
+  grid-area: trailing;
+  justify-self: end;
+}
+
+/* 时间轴导航展开面板：从右缘轻微滑入。 */
+@keyframes hc-timeline-panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+.hc-timeline-panel-in {
+  animation: hc-timeline-panel-in 0.16s ease-out;
+  transform-origin: right center;
 }
 
 /* Markdown 渲染排版 */
@@ -1110,8 +1234,16 @@ html.hc-ios .hc-chat-scroll {
   .hc-pop-in,
   .hc-sidebar-panel-in,
   .hc-sidebar-rail-in,
+  .hc-timeline-panel-in,
   .hc-stream-seg {
     animation: none;
+  }
+  /* 行扩展直接落位；没有过渡就不会触发 transitionend，动画标记会残留，须保持不裁切。 */
+  .hc-composer-expand {
+    transition: none;
+  }
+  .hc-composer-expand[data-animating] {
+    overflow: visible;
   }
   .hc-image-stage-scan::before,
   .hc-image-stage-dot,

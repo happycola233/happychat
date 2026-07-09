@@ -285,6 +285,11 @@ function GeneralPanel() {
       <PrefToggleRow prefKey="autoScrollOnOpen" title="打开对话时自动滚动到最新" />
       <PrefToggleRow prefKey="showScrollToBottom" title="显示「滚动到底部」按钮" />
       <PrefToggleRow
+        prefKey="showTimelineNav"
+        title="消息时间轴导航"
+        desc="在聊天右侧显示你发送过的消息列表，悬停查看、点击快速跳转（仅桌面端视图）。"
+      />
+      <PrefToggleRow
         prefKey="defaultExpandReasoning"
         title="默认展开推理摘要"
         desc="关闭后推理摘要将默认保持折叠。"

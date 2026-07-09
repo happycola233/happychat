@@ -30,8 +30,9 @@ function makePng(w: number, h: number, rgb: [number, number, number]): Buffer {
   return Buffer.concat([sig, pngChunk('IHDR', ihdr), pngChunk('IDAT', idat), pngChunk('IEND', Buffer.alloc(0))])
 }
 
+// 模型选择已聚合进输入框右侧的 ModelControlMenu（桌面端）。
 async function selectModel(page: Page, name: string) {
-  await page.locator('header button').first().click()
+  await page.getByTestId('model-menu-trigger').click()
   await page.getByText(name, { exact: true }).click()
   await page.waitForTimeout(300)
 }

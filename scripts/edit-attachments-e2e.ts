@@ -107,7 +107,11 @@ async function selectCapableModel(page: Page) {
   }, model.id)
   await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' })
   await page.getByPlaceholder('发送消息…').waitFor({ timeout: 10_000 })
-  await page.getByText(model.displayName, { exact: true }).waitFor({ timeout: 10_000 })
+  // 聚合触发器可能附带思考深度后缀（如「· 中」），按包含匹配模型名。
+  await page
+    .getByTestId('model-menu-trigger')
+    .getByText(model.displayName)
+    .waitFor({ timeout: 10_000 })
   return model
 }
 

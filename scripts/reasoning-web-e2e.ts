@@ -10,8 +10,9 @@ async function waitGenDone(page: Page, timeout = 120_000) {
   await page.waitForTimeout(500)
 }
 
+// 模型/思考/联网已聚合进输入框右侧的 ModelControlMenu（桌面端）。
 async function selectModel(page: Page, name: string) {
-  await page.locator('header button').first().click()
+  await page.getByTestId('model-menu-trigger').click()
   await page.getByText(name, { exact: true }).click()
   await page.waitForTimeout(300)
 }
@@ -30,9 +31,11 @@ async function main() {
   await composer.waitFor({ timeout: 10_000 })
   await page.waitForTimeout(1200)
 
-  // —— 思考：选 gpt-5.5 ——
+  // —— 思考：选 gpt-5.5，展开聚合菜单确认思考深度分区存在 ——
   await selectModel(page, 'gpt-5.5')
-  const hasReasoningCtrl = (await page.getByTitle('思考深度').count()) > 0
+  await page.getByTestId('model-menu-trigger').click()
+  const hasReasoningCtrl = (await page.getByText('思考深度', { exact: true }).count()) > 0
+  await page.keyboard.press('Escape')
   console.log('思考深度控件可见:', hasReasoningCtrl)
   await composer.fill('9.11 和 9.9 哪个更大？请简要思考后给出结论。')
   await composer.press('Enter')
@@ -41,9 +44,11 @@ async function main() {
     (await page.getByText(/已思考|正在思考|已停止思考/).count()) > 0
   console.log('思考摘要卡片出现:', reasoningShown)
 
-  // —— 联网：切到 gpt-5.4-mini 并开启联网 ——
+  // —— 联网：切到 gpt-5.4-mini 并在聚合菜单里开启联网 ——
   await selectModel(page, 'gpt-5.4-mini')
-  await page.getByText('联网', { exact: true }).click()
+  await page.getByTestId('model-menu-trigger').click()
+  await page.getByTestId('web-search-toggle').click()
+  await page.keyboard.press('Escape')
   await page.waitForTimeout(200)
   await composer.fill('请用联网搜索查询 Node.js 官方网站地址，并在回答中给出来源链接。')
   await composer.press('Enter')

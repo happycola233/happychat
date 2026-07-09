@@ -2,8 +2,9 @@ import { chromium, type Page } from '@playwright/test'
 
 const BASE = process.env.SMOKE_BASE ?? 'http://127.0.0.1:5173'
 
+// 模型选择已聚合进输入框右侧的 ModelControlMenu（桌面端）。
 async function selectModel(page: Page, name: string) {
-  await page.locator('header button').first().click()
+  await page.getByTestId('model-menu-trigger').click()
   await page.getByText(name, { exact: true }).click()
   await page.waitForTimeout(300)
 }
@@ -23,7 +24,10 @@ async function main() {
   await page.waitForTimeout(1200)
 
   await selectModel(page, 'gpt-image-2')
-  const hasImageCtrl = (await page.getByText('自动', { exact: true }).count()) > 0
+  // 分辨率/画质在聚合菜单内：展开确认分区存在后关闭。
+  await page.getByTestId('model-menu-trigger').click()
+  const hasImageCtrl = (await page.getByText('分辨率', { exact: true }).count()) > 0
+  await page.keyboard.press('Escape')
   console.log('图片尺寸控件可见:', hasImageCtrl)
 
   await composer.fill('画一个白色背景上的简单红色圆形。')

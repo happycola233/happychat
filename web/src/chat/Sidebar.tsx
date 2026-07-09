@@ -1,6 +1,5 @@
 import { clsx } from 'clsx'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { ConversationDTO } from '@shared/types/api'
 import {
   ChevronDown,
@@ -13,12 +12,12 @@ import {
   Sun,
 } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { deleteConversation, pinConversation, renameConversation } from '../api/chat'
 import { ShareDialog } from './ShareDialog'
+import { RowMenuItem } from './RowMenuItem'
 import { useConversations } from '../hooks/useConversations'
+import { useConversationActions } from '../hooks/useConversationActions'
 import { useLogout, useMe } from '../hooks/useAuth'
 import { useIsMobile, useSidebarStore } from '../store/sidebar'
-import { toast } from '../store/toast'
 import { useSettings } from '../store/settings'
 import { useSettingsDialog } from '../store/settingsDialog'
 import { useTitleTypingStore } from '../store/titleTyping'
@@ -197,36 +196,6 @@ function NavButton({
     >
       {icon}
       <span>{label}</span>
-    </button>
-  )
-}
-
-function RowMenuItem({
-  icon,
-  onClick,
-  children,
-  danger,
-}: {
-  icon: React.ReactNode
-  onClick: () => void
-  children: React.ReactNode
-  danger?: boolean
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={clsx(
-        'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-[13px] leading-5 transition',
-        danger
-          ? 'text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30'
-          : 'text-neutral-700 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-800',
-      )}
-    >
-      <span className="flex h-5 w-5 shrink-0 items-center justify-center [&>svg]:h-4 [&>svg]:w-4">
-        {icon}
-      </span>
-      <span className="flex min-h-5 items-center leading-5">{children}</span>
     </button>
   )
 }
@@ -493,7 +462,6 @@ function ConversationSection({
 export function Sidebar() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const qc = useQueryClient()
   const { data: user } = useMe()
   const { data } = useConversations()
   const conversations = useMemo(() => data ?? [], [data])
@@ -572,31 +540,7 @@ export function Sidebar() {
     }
   }, [accountMenuOpen])
 
-  const remove = useMutation({
-    mutationFn: deleteConversation,
-    onSuccess: (_r, deletedId) => {
-      qc.invalidateQueries({ queryKey: ['conversations'] })
-      if (deletedId === id) navigate('/')
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : '删除失败'),
-  })
-
-  const pin = useMutation({
-    mutationFn: ({ convId, pinned }: { convId: string; pinned: boolean }) =>
-      pinConversation(convId, pinned),
-    onSuccess: (updated) => {
-      qc.invalidateQueries({ queryKey: ['conversations'] })
-      qc.invalidateQueries({ queryKey: ['conversation', updated.id] })
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : '置顶失败'),
-  })
-
-  const rename = useMutation({
-    mutationFn: ({ convId, title }: { convId: string; title: string }) =>
-      renameConversation(convId, title),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['conversations'] }),
-    onError: (e) => toast.error(e instanceof Error ? e.message : '重命名失败'),
-  })
+  const { deleteWithConfirm, togglePin, renameTo } = useConversationActions()
 
   const openConversation = (conversationId: string) => {
     setPopover(null)
@@ -618,18 +562,6 @@ export function Sidebar() {
     setAccountMenuOpen(false)
     setMobileOpen(false)
     openSettingsDialog()
-  }
-
-  const deleteById = (conversationId: string) => {
-    if (confirm('确定删除该会话？')) remove.mutate(conversationId)
-  }
-
-  const togglePin = (conversationId: string, pinned: boolean) => {
-    pin.mutate({ convId: conversationId, pinned })
-  }
-
-  const renameById = (conversationId: string, title: string) => {
-    rename.mutate({ convId: conversationId, title })
   }
 
   const popoverItems = popover === 'pinned' ? pinnedConversations : recentConversations
@@ -793,9 +725,9 @@ export function Sidebar() {
                 collapsed={pinnedSectionCollapsed}
                 onToggleCollapsed={togglePinnedSectionCollapsed}
                 onOpen={openConversation}
-                onDelete={deleteById}
+                onDelete={deleteWithConfirm}
                 onTogglePin={togglePin}
-                onRename={renameById}
+                onRename={renameTo}
                 onShare={setShareTarget}
               />
               <ConversationSection
@@ -806,9 +738,9 @@ export function Sidebar() {
                 collapsed={recentSectionCollapsed}
                 onToggleCollapsed={toggleRecentSectionCollapsed}
                 onOpen={openConversation}
-                onDelete={deleteById}
+                onDelete={deleteWithConfirm}
                 onTogglePin={togglePin}
-                onRename={renameById}
+                onRename={renameTo}
                 onShare={setShareTarget}
               />
             </div>

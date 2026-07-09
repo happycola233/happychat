@@ -14,6 +14,7 @@ export const ACCENT_COLORS = [
 export const DEFAULT_PREFERENCES: UserPreferences = {
   autoScrollOnOpen: true,
   showScrollToBottom: true,
+  showTimelineNav: true,
   sendOnEnter: true,
   defaultExpandReasoning: true,
   accentColor: 'default',
@@ -38,6 +39,7 @@ export function mergePreferences(
   return {
     autoScrollOnOpen: partial?.autoScrollOnOpen ?? DEFAULT_PREFERENCES.autoScrollOnOpen,
     showScrollToBottom: partial?.showScrollToBottom ?? DEFAULT_PREFERENCES.showScrollToBottom,
+    showTimelineNav: partial?.showTimelineNav ?? DEFAULT_PREFERENCES.showTimelineNav,
     sendOnEnter: partial?.sendOnEnter ?? DEFAULT_PREFERENCES.sendOnEnter,
     defaultExpandReasoning:
       partial?.defaultExpandReasoning ?? DEFAULT_PREFERENCES.defaultExpandReasoning,

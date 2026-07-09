@@ -6,6 +6,7 @@ describe('mergePreferences', () => {
     expect(DEFAULT_PREFERENCES).toEqual({
       autoScrollOnOpen: true,
       showScrollToBottom: true,
+      showTimelineNav: true,
       sendOnEnter: true,
       defaultExpandReasoning: true,
       accentColor: 'default',

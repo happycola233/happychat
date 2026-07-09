@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ChangeEvent, ClipboardEvent, KeyboardEvent, ReactNode } from 'react'
 import { clsx } from 'clsx'
-import { Square, X } from 'lucide-react'
+import { Plus, Square, X } from 'lucide-react'
 import type { AttachmentDTO } from '@shared/types/api'
 import { attachmentUrl } from '../api/attachments'
 import { useSettings } from '../store/settings'
@@ -13,18 +13,131 @@ import { AttachmentDraftList } from './AttachmentDraftList'
 import { attachmentDraftsFromAttachments } from './attachmentDraft'
 import { useAttachmentUpload } from './useAttachmentUpload'
 
+/** 输入框正文最大高度（超出内部滚动）。 */
+const TEXTAREA_MAX_HEIGHT_PX = 200
+/** 镜像单行判定阈值：正文 line-height 24px，留 2px 容差。 */
+const MIRROR_SINGLE_LINE_MAX_PX = 26
+/** 网格列间距（两处 0.375rem），镜像测量可用宽度时要减去。 */
+const GRID_COLUMN_GAPS_PX = 12
+/** 行扩展动画的裁切标记摘除时机：略大于 CSS 过渡时长（0.18s），留一次重定向的余量。 */
+const COMPOSER_EXPAND_SETTLE_MS = 260
+
+/** Composer 悬浮层的实时几何信息，供 ChatView 做滚动让位与 hero 居中。 */
+export interface ComposerMetrics {
+  /** 悬浮层整体高度：滚动区末尾内容让位用。 */
+  height: number
+  /** 输入框视觉盒中心到悬浮层底边的距离：hero 垂直居中与光晕锚点用。 */
+  boxCenterFromBottom: number
+}
+
 interface Props {
   onSend: (text: string, attachments: AttachmentDTO[], imageSources: ImageEditSource[]) => void
   disabled?: boolean
   streaming?: boolean
   onStop?: () => void
-  leftControls?: ReactNode
+  /** 聚合模型选择器，渲染在发送按钮左侧（移动端为 undefined，由顶栏承载）。 */
+  modelControl?: ReactNode
   canImage?: boolean
   canFile?: boolean
   imageSources?: ImageEditSource[]
   scrollbarGutterWidth?: number
-  onHeightChange?: (height: number) => void
+  onMetricsChange?: (metrics: ComposerMetrics) => void
   onRemoveImageSource?: (attachmentId: string) => void
+  /** hero＝桌面端新对话居中态：淡出免责声明与底部遮罩。 */
+  variant?: 'docked' | 'hero'
+}
+
+/** 「+」聚合菜单：图片/文件上传入口收进一个按钮，上传中显示加载态。 */
+function ComposerPlusMenu({
+  canImage,
+  canFile,
+  uploading,
+  onPickImage,
+  onPickFile,
+}: {
+  canImage?: boolean
+  canFile?: boolean
+  uploading: boolean
+  onPickImage: () => void
+  onPickFile: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    // 这里是 window 级监听，用 DOM 的 KeyboardEvent（顶部导入的是 React 合成事件类型）。
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    window.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const itemClass =
+    'flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-neutral-700 transition hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-800'
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="添加附件"
+        title="添加附件"
+        className={clsx(
+          'flex h-9 w-9 items-center justify-center rounded-full text-neutral-700 transition hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800 dark:hover:text-neutral-100',
+          open && 'bg-neutral-100 dark:bg-neutral-800',
+        )}
+      >
+        {uploading ? (
+          <Spinner className="h-4 w-4 text-neutral-400" />
+        ) : (
+          <Plus className={clsx('h-5 w-5 transition-transform duration-200', open && 'rotate-45')} />
+        )}
+      </button>
+      {open && (
+        <div className="absolute bottom-full left-0 z-40 mb-2 origin-bottom">
+          <div className="hc-pop-in w-40 rounded-2xl border border-neutral-200 bg-white p-1 shadow-[0_12px_40px_rgb(0_0_0/0.14)] dark:border-neutral-700 dark:bg-neutral-900 dark:shadow-[0_12px_40px_rgb(0_0_0/0.45)]">
+            {canImage && (
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false)
+                  onPickImage()
+                }}
+                className={itemClass}
+              >
+                <UploadImageIcon className="h-[18px] w-[18px]" />
+                上传图片
+              </button>
+            )}
+            {canFile && (
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false)
+                  onPickFile()
+                }}
+                className={itemClass}
+              >
+                <AttachmentIcon className="h-[18px] w-[18px]" />
+                上传文件
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 export function Composer({
@@ -32,30 +145,35 @@ export function Composer({
   disabled,
   streaming,
   onStop,
-  leftControls,
+  modelControl,
   canImage,
   canFile,
   imageSources = [],
   scrollbarGutterWidth = 0,
-  onHeightChange,
+  onMetricsChange,
   onRemoveImageSource,
+  variant = 'docked',
 }: Props) {
   const sendOnEnter = useSettings((s) => s.preferences.sendOnEnter)
   const [text, setText] = useState('')
   const [pending, setPending] = useState<AttachmentDTO[]>([])
   const [dragActive, setDragActive] = useState(false)
+  // 多行态：正文超过单行宽度或有附件预览时，输入区独占首行、控件退到次行。
+  const [multiline, setMultiline] = useState(false)
   const ref = useRef<HTMLTextAreaElement>(null)
   const rootRef = useRef<HTMLDivElement>(null)
+  const boxRef = useRef<HTMLDivElement>(null)
+  const expandRef = useRef<HTMLDivElement>(null)
+  const gridRef = useRef<HTMLDivElement>(null)
+  const leadingRef = useRef<HTMLDivElement>(null)
+  const trailingRef = useRef<HTMLDivElement>(null)
+  const mirrorRef = useRef<HTMLDivElement>(null)
   const imageInput = useRef<HTMLInputElement>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const dragDepth = useRef(0)
 
-  const resize = () => {
-    const el = ref.current
-    if (!el) return
-    el.style.height = 'auto'
-    el.style.height = `${Math.min(el.scrollHeight, 200)}px`
-  }
+  const hasPreviews = imageSources.length > 0 || pending.length > 0
+  const showPlusMenu = Boolean(canImage || canFile)
 
   const addPendingAttachment = useCallback((attachment: AttachmentDTO) => {
     setPending((items) => [...items, attachment])
@@ -65,6 +183,90 @@ export function Composer({
     canFile,
     onUploaded: addPendingAttachment,
   })
+
+  /**
+   * 用隐藏镜像在「单行可用宽度」下试排版来决定单行/多行，
+   * 而不是直接看当前 textarea 是否换行——否则切换布局后宽度变化会来回振荡。
+   */
+  const measureMultiline = useCallback(() => {
+    if (hasPreviews) {
+      setMultiline(true)
+      return
+    }
+    if (!text) {
+      setMultiline(false)
+      return
+    }
+    const mirror = mirrorRef.current
+    const grid = gridRef.current
+    if (!mirror || !grid) return
+    const leadingWidth = leadingRef.current?.offsetWidth ?? 0
+    const trailingWidth = trailingRef.current?.offsetWidth ?? 0
+    const available = grid.clientWidth - leadingWidth - trailingWidth - GRID_COLUMN_GAPS_PX
+    if (available <= 0) {
+      setMultiline(true)
+      return
+    }
+    mirror.style.width = `${available}px`
+    mirror.textContent = text
+    setMultiline(mirror.scrollHeight > MIRROR_SINGLE_LINE_MAX_PX)
+  }, [hasPreviews, text])
+
+  useLayoutEffect(() => {
+    measureMultiline()
+  }, [measureMultiline])
+
+  // 容器宽度变化（窗口缩放/侧栏开合）时重新判定单行宽度是否还装得下。
+  useLayoutEffect(() => {
+    const grid = gridRef.current
+    if (!grid) return
+    const observer = new ResizeObserver(() => measureMultiline())
+    observer.observe(grid)
+    return () => observer.disconnect()
+  }, [measureMultiline])
+
+  // 正文自增高：布局（单行/多行）确定后再量高，保证以最终宽度计算。
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, TEXTAREA_MAX_HEIGHT_PX)}px`
+  }, [text, multiline])
+
+  /**
+   * 行扩展动画：网格内容（行数/布局）先瞬时排好版，外层容器高度再过渡到网格实测高度，
+   * 于是任何“行数变化”（1⇄2、2⇄3……以及单行⇄多行布局切换）都表现为盒子高度的平滑生长。
+   * 动画期间容器打开 overflow 裁切（内容贴底、顶部渐显）；静止时不裁切，避免影响「+」与模型菜单弹层。
+   * 裁切标记用定时器摘除而非 transitionend——连续输入会不断重定向过渡（触发 transitioncancel），
+   * 事件方案会在动画中途提前解除裁切。
+   */
+  useLayoutEffect(() => {
+    const expand = expandRef.current
+    const grid = gridRef.current
+    if (!expand || !grid) return
+
+    let settleTimer: number | null = null
+    const syncHeight = () => {
+      const next = `${grid.offsetHeight}px`
+      if (expand.style.height === next) return
+      expand.dataset.animating = 'true'
+      expand.style.height = next
+      if (settleTimer !== null) window.clearTimeout(settleTimer)
+      settleTimer = window.setTimeout(() => {
+        settleTimer = null
+        delete expand.dataset.animating
+      }, COMPOSER_EXPAND_SETTLE_MS)
+    }
+
+    // 首次直接落位（height 从 auto → px 不产生过渡，无闪动）。
+    expand.style.height = `${grid.offsetHeight}px`
+    const observer = new ResizeObserver(syncHeight)
+    observer.observe(grid)
+    return () => {
+      observer.disconnect()
+      if (settleTimer !== null) window.clearTimeout(settleTimer)
+    }
+  }, [])
 
   const onPick = async (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? [])
@@ -80,7 +282,6 @@ export function Composer({
     onSend(text, pending, imageSources)
     setText('')
     setPending([])
-    if (ref.current) ref.current.style.height = 'auto'
   }
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -150,25 +351,40 @@ export function Composer({
   }, [uploadFiles])
 
   useLayoutEffect(() => {
-    const el = rootRef.current
-    if (!el || !onHeightChange) return
+    const root = rootRef.current
+    const box = boxRef.current
+    if (!root || !box || !onMetricsChange) return
 
-    const updateHeight = () => {
+    const updateMetrics = () => {
       // Composer 是悬浮层；滚动区需要知道它的实时高度来给末尾内容让位。
-      onHeightChange(Math.ceil(el.getBoundingClientRect().height))
+      // 盒中心到底边的距离用于 hero 态把「输入框几何中心」压在视口中心（光晕同锚点）。
+      const rootRect = root.getBoundingClientRect()
+      const boxRect = box.getBoundingClientRect()
+      onMetricsChange({
+        height: Math.ceil(rootRect.height),
+        boxCenterFromBottom: Math.round(rootRect.bottom - (boxRect.top + boxRect.height / 2)),
+      })
     }
 
-    updateHeight()
-    const observer = new ResizeObserver(updateHeight)
-    observer.observe(el)
+    updateMetrics()
+    // 行扩展动画期间盒高逐帧变化，观察 box 才能让居中锚点全程跟手。
+    const observer = new ResizeObserver(updateMetrics)
+    observer.observe(root)
+    observer.observe(box)
     return () => observer.disconnect()
-  }, [onHeightChange])
+  }, [onMetricsChange])
+
+  const docked = variant === 'docked'
 
   return (
     <div ref={rootRef} className="pointer-events-none relative pb-3 pt-2">
+      {/* 底部遮罩：挡住滚动到输入框后面的内容；居中态没有内容经过，淡出以免动画期间遮挡消息。 */}
       <div
         aria-hidden="true"
-        className="absolute bottom-0 left-0 top-8 bg-white dark:bg-[#000000]"
+        className={clsx(
+          'absolute bottom-0 left-0 top-8 bg-white transition-opacity duration-300 dark:bg-[#000000]',
+          !docked && 'opacity-0',
+        )}
         style={{ right: `${scrollbarGutterWidth}px` }}
       />
       <div
@@ -176,8 +392,9 @@ export function Composer({
         style={{ paddingRight: `calc(1rem + ${scrollbarGutterWidth}px)` }}
       >
         <div
+          ref={boxRef}
           className={clsx(
-            'pointer-events-auto relative mx-auto max-w-3xl rounded-[24px] border border-neutral-200 bg-white px-4 py-2.5 shadow-[0_1px_10px_rgba(0,0,0,0.07)] transition focus-within:border-neutral-300 focus-within:shadow-[0_2px_14px_rgba(0,0,0,0.09)] dark:border-[#303030] dark:bg-[#212121] dark:shadow-none dark:focus-within:border-[#303030] dark:focus-within:shadow-none',
+            'pointer-events-auto relative mx-auto max-w-3xl rounded-[26px] border border-neutral-200 bg-white px-2 py-2 shadow-[0_1px_10px_rgba(0,0,0,0.07)] transition focus-within:border-neutral-300 focus-within:shadow-[0_2px_14px_rgba(0,0,0,0.09)] dark:border-[#303030] dark:bg-[#212121] dark:shadow-none dark:focus-within:border-[#303030] dark:focus-within:shadow-none',
             dragActive &&
               'border-blue-300 bg-blue-50/40 shadow-[0_2px_18px_rgba(59,130,246,0.18)] dark:border-blue-600 dark:bg-blue-950/20',
           )}
@@ -187,8 +404,8 @@ export function Composer({
               松开以上传附件
             </div>
           )}
-          {(imageSources.length > 0 || pending.length > 0) && (
-            <div className="mb-2 space-y-2">
+          {hasPreviews && (
+            <div className="mb-2 space-y-2 px-1.5 pt-1">
               {imageSources.length > 0 && (
                 <div className="flex flex-wrap gap-2">
                   {imageSources.map((source) => (
@@ -227,89 +444,78 @@ export function Composer({
             </div>
           )}
 
-          <textarea
-            ref={ref}
-            rows={1}
-            value={text}
-            placeholder={imageSources.length > 0 ? '输入修改要求…' : '发送消息…'}
-            onChange={(e) => {
-              setText(e.target.value)
-              resize()
-            }}
-            onKeyDown={onKeyDown}
-            onPaste={onPaste}
-            className="max-h-[200px] min-h-9 w-full resize-none bg-transparent py-1.5 text-[15px] leading-6 text-neutral-800 outline-none placeholder:text-neutral-400 dark:text-neutral-100"
-          />
+          {/* 隐藏文件选择器常驻 DOM（拖拽/粘贴/E2E 依赖），入口聚合在「+」菜单里。 */}
+          <input ref={imageInput} type="file" accept="image/*" multiple hidden onChange={onPick} />
+          <input ref={fileInput} type="file" multiple hidden onChange={onPick} />
 
-          <div className="mt-1.5 flex items-end justify-between gap-3">
-            <div className="flex items-center gap-1.5">
-              {(canImage || canFile) && (
-                <div className="-ml-[5px] flex items-center gap-0.5">
-                  {canImage && (
-                    <>
-                      <input
-                        ref={imageInput}
-                        type="file"
-                        accept="image/*"
-                        multiple
-                        hidden
-                        onChange={onPick}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => imageInput.current?.click()}
-                        className="flex h-9 w-9 items-center justify-center rounded-full text-neutral-700 transition hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
-                        title="上传图片"
-                        aria-label="上传图片"
-                      >
-                        <UploadImageIcon className="h-5 w-5" />
-                      </button>
-                    </>
-                  )}
-                  {canFile && (
-                    <>
-                      <input ref={fileInput} type="file" multiple hidden onChange={onPick} />
-                      <button
-                        type="button"
-                        onClick={() => fileInput.current?.click()}
-                        className="flex h-9 w-9 items-center justify-center rounded-full text-neutral-700 transition hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
-                        title="上传文件"
-                        aria-label="上传文件"
-                      >
-                        <AttachmentIcon className="h-5 w-5" />
-                      </button>
-                    </>
-                  )}
-                </div>
-              )}
-              {uploading && <Spinner className="h-4 w-4 text-neutral-400" />}
-              {leftControls}
-            </div>
-            <div className="flex min-w-0 items-center justify-end gap-2">
-              {streaming ? (
-                <button
-                  onClick={onStop}
-                  data-testid="stop-btn"
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-white transition hover:bg-neutral-700 dark:bg-white dark:text-neutral-900"
-                  aria-label="停止生成"
-                  title="停止生成"
-                >
-                  <Square className="h-3.5 w-3.5 fill-current" />
-                </button>
-              ) : (
-                <button
-                  onClick={submit}
-                  disabled={!canSubmit}
-                  className="hc-send-button flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition disabled:bg-neutral-200 disabled:text-white disabled:opacity-100 dark:disabled:bg-neutral-700"
-                  aria-label="发送"
-                >
-                  <ArrowUpIcon className="h-5 w-5" />
-                </button>
-              )}
+          {/* 行扩展动画容器：高度由 JS 跟随内层网格实测高度过渡（见上方 syncHeight）。 */}
+          <div ref={expandRef} className="hc-composer-expand">
+            <div
+              ref={gridRef}
+              className={clsx('hc-composer-grid', multiline && 'hc-composer-multiline')}
+            >
+              <div ref={leadingRef} className="hc-composer-leading flex items-center">
+                {showPlusMenu && (
+                  <ComposerPlusMenu
+                    canImage={canImage}
+                    canFile={canFile}
+                    uploading={uploading}
+                    onPickImage={() => imageInput.current?.click()}
+                    onPickFile={() => fileInput.current?.click()}
+                  />
+                )}
+              </div>
+
+              <textarea
+                ref={ref}
+                rows={1}
+                value={text}
+                placeholder={imageSources.length > 0 ? '输入修改要求…' : '发送消息…'}
+                onChange={(e) => setText(e.target.value)}
+                onKeyDown={onKeyDown}
+                onPaste={onPaste}
+                className="hc-composer-primary max-h-[200px] w-full resize-none bg-transparent px-1.5 py-1.5 text-[15px] leading-6 text-neutral-800 outline-none placeholder:text-neutral-400 dark:text-neutral-100"
+              />
+
+              <div ref={trailingRef} className="hc-composer-trailing flex items-center gap-1">
+                {modelControl}
+                {streaming ? (
+                  <button
+                    onClick={onStop}
+                    data-testid="stop-btn"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-white transition hover:bg-neutral-700 dark:bg-white dark:text-neutral-900"
+                    aria-label="停止生成"
+                    title="停止生成"
+                  >
+                    <Square className="h-3.5 w-3.5 fill-current" />
+                  </button>
+                ) : (
+                  <button
+                    onClick={submit}
+                    disabled={!canSubmit}
+                    className="hc-send-button flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition disabled:bg-neutral-200 disabled:text-white disabled:opacity-100 dark:disabled:bg-neutral-700"
+                    aria-label="发送"
+                  >
+                    <ArrowUpIcon className="h-5 w-5" />
+                  </button>
+                )}
+              </div>
             </div>
           </div>
+
+          {/* 镜像测量元素：按单行可用宽度试排版，判定是否需要切换多行布局。 */}
+          <div
+            ref={mirrorRef}
+            aria-hidden="true"
+            className="pointer-events-none invisible absolute left-0 top-0 -z-10 whitespace-pre-wrap px-1.5 text-[15px] leading-6 [overflow-wrap:anywhere]"
+          />
         </div>
-        <p className="mx-auto mt-2 max-w-3xl text-center text-xs text-neutral-400">
+        <p
+          className={clsx(
+            'mx-auto mt-2 max-w-3xl text-center text-xs text-neutral-400 transition-opacity duration-300',
+            !docked && 'opacity-0',
+          )}
+        >
           模型可能会出错，请谨慎甄别重要信息。
         </p>
       </div>

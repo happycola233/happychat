@@ -11,6 +11,7 @@ export const userPreferencesPatchSchema = z
   .object({
     autoScrollOnOpen: z.boolean(),
     showScrollToBottom: z.boolean(),
+    showTimelineNav: z.boolean(),
     sendOnEnter: z.boolean(),
     defaultExpandReasoning: z.boolean(),
     accentColor: accentColorSchema,
