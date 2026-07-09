@@ -783,7 +783,14 @@ export default function ChatView() {
             streaming={streaming}
             onStop={onStop}
             modelControl={
-              !isMobile ? <ModelControlMenu placement="up" align="end" variant="composer" /> : undefined
+              !isMobile ? (
+                // 新对话输入框居中时上下都窄，聚合菜单改为向左侧弹；沉底后恢复向上弹。
+                <ModelControlMenu
+                  placement={heroComposer ? 'left' : 'up'}
+                  align="end"
+                  variant="composer"
+                />
+              ) : undefined
             }
             canImage={model?.capabilities.vision ?? false}
             canFile={model?.capabilities.file_input ?? false}

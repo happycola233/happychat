@@ -20,10 +20,14 @@ import { useChatPrefs } from '../store/chat'
 import { useIsMobile } from '../store/sidebar'
 import { ReasoningEffortIcon } from './icons'
 
-/** 桌面弹层方向：输入框内向上、顶栏向下（移动端为底部弹层，不用此参数）。 */
-type MenuPlacement = 'up' | 'down'
+/**
+ * 桌面弹层方向：输入框内向上、顶栏向下（移动端为底部弹层，不用此参数）。
+ * 'left' 为侧向弹层：贴触发器左侧、以其竖直中点为中心上下对称展开——
+ * 用于新对话输入框居中时（此时上下都窄，横向才宽裕）。
+ */
+type MenuPlacement = 'up' | 'down' | 'left'
 
-/** 首选方向至少要有这么高才不翻转；不够且对侧更宽裕时换边（如新对话输入框居中时向下弹）。 */
+/** 首选（上/下）方向至少要有这么高才不翻转；不够且对侧更宽裕时换边。 */
 const COMFORTABLE_MENU_HEIGHT_PX = 420
 /** 菜单与触发器的对齐边。 */
 type MenuAlign = 'start' | 'end'
@@ -433,7 +437,7 @@ function MenuSections({
 
 /**
  * 聚合选择器：模型 + 思考深度 + 联网搜索（图片模型则为分辨率/画质）收进一个菜单。
- * 桌面端为锚定弹层（输入框内向上、顶栏向下，空间不足自动翻转）；
+ * 桌面端为锚定弹层（输入框内向上、顶栏向下，空间不足自动翻转；新对话居中时向左侧弹）；
  * 移动端为底部弹层（portal 到 body，遮罩 + 安全区内边距 + 更大的触控行高）。
  */
 export function ModelControlMenu({ placement, align, variant }: Props) {
@@ -454,6 +458,14 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
     const syncPosition = () => {
       const rect = rootRef.current?.getBoundingClientRect()
       if (!rect) return
+      if (placement === 'left') {
+        // 侧向弹层以触发器竖直中点为中心上下对称展开，按较窄一侧限高保证完整可见。
+        const center = rect.top + rect.height / 2
+        const half = Math.min(center - 12, window.innerHeight - center - 12)
+        setEffectivePlacement('left')
+        setMenuMaxHeight(Math.max(180, Math.floor(half * 2)))
+        return
+      }
       const spaceAbove = rect.top - 12
       const spaceBelow = window.innerHeight - rect.bottom - 12
       const preferredSpace = placement === 'up' ? spaceAbove : spaceBelow
@@ -521,8 +533,13 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
 
   const menuPositionClass = clsx(
     'absolute z-40',
-    effectivePlacement === 'up' ? 'bottom-full mb-2 origin-bottom' : 'top-full mt-2 origin-top',
-    align === 'end' ? 'right-0' : 'left-0',
+    effectivePlacement === 'left'
+      ? // 贴触发器左侧、竖直居中；align 对侧向弹层无意义（不参与水平对齐）。
+        'right-full mr-2 top-1/2 -translate-y-1/2'
+      : clsx(
+          effectivePlacement === 'up' ? 'bottom-full mb-2' : 'top-full mt-2',
+          align === 'end' ? 'right-0' : 'left-0',
+        ),
   )
 
   return (
@@ -563,8 +580,13 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
             className="hc-pop-in hc-scrollbar flex max-h-[min(70vh,32rem)] w-80 max-w-[calc(100vw-1.5rem)] flex-col overflow-y-auto rounded-2xl border border-neutral-200 bg-white text-neutral-700 shadow-[0_12px_40px_rgb(0_0_0/0.14)] dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:shadow-[0_12px_40px_rgb(0_0_0/0.45)]"
             style={{
               ...(menuMaxHeight !== null ? { maxHeight: menuMaxHeight } : null),
-              // 弹层缩放动画从贴近触发器的一侧展开（hc-pop-in 默认 top，向上弹时改为 bottom）。
-              transformOrigin: effectivePlacement === 'up' ? 'bottom' : 'top',
+              // 缩放动画从贴近触发器的一侧展开：向上弹用 bottom、侧向弹用 right，其余用 top。
+              transformOrigin:
+                effectivePlacement === 'left'
+                  ? 'right'
+                  : effectivePlacement === 'up'
+                    ? 'bottom'
+                    : 'top',
             }}
           >
             <MenuSections models={models} model={model} sheet={false} />
