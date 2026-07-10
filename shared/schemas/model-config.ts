@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import { defaultReasoningEffortDescription } from '../constants'
+import { isSafeReasoningEffortValue } from '../util/reasoning'
 
 export const providerCreateSchema = z.object({
   name: z.string().trim().min(1, '请填写名称').max(60),
@@ -23,7 +25,44 @@ export const capabilitiesSchema = z.object({
   reasoning: z.boolean(),
 })
 
-export const effortSchema = z.enum(['none', 'low', 'medium', 'high', 'xhigh'])
+/** reasoning.effort 是上游标识符：允许自定义，但禁止空白和控制字符。 */
+export const effortSchema = z
+  .string()
+  .trim()
+  .min(1, '请填写推理等级值')
+  .max(64, '推理等级值不能超过 64 个字符')
+  .refine(isSafeReasoningEffortValue, '推理等级值不能包含空白、控制或不可见字符')
+
+export const reasoningEffortOptionSchema = z.object({
+  value: effortSchema,
+  description: z.string().trim().min(1, '请填写推理等级描述').max(80, '描述不能超过 80 个字符'),
+})
+
+// 兼容旧管理端提交的 string[]；服务端解析后始终得到对象数组。
+const reasoningEffortOptionInputSchema = z.union([
+  reasoningEffortOptionSchema,
+  effortSchema.transform((value) => ({
+    value,
+    description: defaultReasoningEffortDescription(value),
+  })),
+])
+
+export const reasoningEffortOptionsSchema = z
+  .array(reasoningEffortOptionInputSchema)
+  .max(16, '单个模型最多配置 16 个推理等级')
+  .superRefine((options, ctx) => {
+    const seen = new Set<string>()
+    options.forEach((option, index) => {
+      if (seen.has(option.value)) {
+        ctx.addIssue({
+          code: 'custom',
+          message: `推理等级值「${option.value}」重复`,
+          path: [index, 'value'],
+        })
+      }
+      seen.add(option.value)
+    })
+  })
 
 export const imageOptionsSchema = z.object({
   size: z.string().optional(),
@@ -60,7 +99,7 @@ export const modelUpdateSchema = z.object({
   defaultParams: modelParamsSchema.nullable().optional(),
   hardParams: z.record(z.string(), z.unknown()).nullable().optional(),
   pricing: pricingSchema.nullable().optional(),
-  allowedEfforts: z.array(effortSchema).optional(),
+  allowedEfforts: reasoningEffortOptionsSchema.optional(),
   defaultEffort: effortSchema.nullable().optional(),
   defaultWebSearch: z.boolean().optional(),
   sort: z.number().int().optional(),
@@ -87,7 +126,7 @@ export const modelCreateSchema = z.object({
   defaultParams: modelParamsSchema.nullable().optional(),
   hardParams: z.record(z.string(), z.unknown()).nullable().optional(),
   pricing: pricingSchema.nullable().optional(),
-  allowedEfforts: z.array(effortSchema).default([]),
+  allowedEfforts: reasoningEffortOptionsSchema.default([]),
   defaultEffort: effortSchema.nullable().optional(),
   defaultWebSearch: z.boolean().default(false),
   sort: z.number().int().default(0),

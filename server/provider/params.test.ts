@@ -145,6 +145,35 @@ describe('buildResponseBody', () => {
     expect(body.reasoning).toEqual({ effort: 'low' })
   })
 
+  it.each(['max', 'vendor-ultra'])(
+    'forwards the configured custom reasoning effort %s unchanged',
+    (reasoningEffort) => {
+      const body = buildResponseBody({
+        model: model({
+          capabilities: {
+            vision: false,
+            file_input: false,
+            web_search: false,
+            image_generation: false,
+            reasoning: true,
+          },
+          allowedEfforts: [
+            { value: 'medium', description: '中' },
+            { value: reasoningEffort, description: '自定义' },
+          ],
+          defaultEffort: 'medium',
+        }),
+        input: [],
+        instructions: null,
+        userParams: { reasoning_effort: reasoningEffort },
+        stream: true,
+      })
+
+      expect(body.reasoning).toEqual({ effort: reasoningEffort })
+      expect(body.max_output_tokens).toBe(25_000)
+    },
+  )
+
   it('lets advanced JSON replace the generated web search tool config', () => {
     const body = buildResponseBody({
       model: model({

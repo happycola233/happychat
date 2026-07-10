@@ -1,6 +1,7 @@
 import { and, eq, sql } from 'drizzle-orm'
 import type { AdminModelDTO, ModelDTO, ProviderDTO, ProviderDetailDTO } from '@shared/types/api'
 import type { ModelCreateInput } from '@shared/schemas/model-config'
+import { normalizeReasoningEffortOptions } from '@shared/util/reasoning'
 import { db } from '../db/client'
 import { models, providers } from '../db/schema'
 import { must } from '../lib/assert'
@@ -16,7 +17,8 @@ export function toModelDTO(m: ModelRow): ModelDTO {
     displayName: m.displayName,
     kind: m.kind,
     capabilities: m.capabilities,
-    allowedEfforts: m.allowedEfforts ?? [],
+    // API 只公开规范对象；旧 string[] 记录在这里无损升级，保留原顺序和子集。
+    allowedEfforts: normalizeReasoningEffortOptions(m.allowedEfforts),
     defaultEffort: m.defaultEffort ?? null,
     defaultWebSearch: m.defaultWebSearch,
     defaultParams: m.defaultParams ?? null,

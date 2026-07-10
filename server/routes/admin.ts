@@ -10,6 +10,7 @@ import {
 } from '@shared/schemas/model-config'
 import { inviteCreateSchema, statsFilterSchema, userUpdateSchema } from '@shared/schemas/admin'
 import { appConfigUpdateSchema } from '@shared/schemas/app-config'
+import { normalizeReasoningEffortOptions } from '@shared/util/reasoning'
 import {
   announcementCreateSchema,
   announcementUpdateSchema,
@@ -128,12 +129,30 @@ adminRoutes.post('/providers/:id/sync', async (c) => {
 
 // ---------------- Models ----------------
 
+function includesReasoningEffort(
+  allowedEfforts: Parameters<typeof normalizeReasoningEffortOptions>[0],
+  defaultEffort: string | null | undefined,
+): boolean {
+  if (!defaultEffort) return true
+  return normalizeReasoningEffortOptions(allowedEfforts).some(
+    (option) => option.value === defaultEffort,
+  )
+}
+
 adminRoutes.get('/models', async (c) => {
   return c.json({ models: await listAdminModels() })
 })
 
 adminRoutes.post('/models', jsonValidator(modelCreateSchema), async (c) => {
-  const result = await createModel(c.req.valid('json'))
+  const input = c.req.valid('json')
+  if (!includesReasoningEffort(input.allowedEfforts, input.defaultEffort)) {
+    return c.json(
+      { error: { message: '默认思考等级必须包含在可用等级中', code: 'invalid_default_effort' } },
+      400,
+    )
+  }
+
+  const result = await createModel(input)
   if (!result.ok) {
     const message =
       result.code === 'duplicate' ? '该供应商下已存在相同模型 ID' : '所属供应商不存在'
@@ -165,6 +184,31 @@ adminRoutes.patch('/models/:id', jsonValidator(modelUpdateSchema), async (c) => 
   const [existing] = await db.select().from(models).where(eq(models.id, id)).limit(1)
   if (!existing) return c.json({ error: { message: '模型不存在', code: 'not_found' } }, 404)
 
+  let nextReasoningConfig:
+    | Pick<typeof models.$inferInsert, 'allowedEfforts' | 'defaultEffort'>
+    | undefined
+  if (input.allowedEfforts !== undefined || input.defaultEffort !== undefined) {
+    const nextAllowedEfforts = input.allowedEfforts ?? existing.allowedEfforts
+    const nextDefaultEffort =
+      input.defaultEffort !== undefined ? input.defaultEffort : existing.defaultEffort
+    if (!includesReasoningEffort(nextAllowedEfforts, nextDefaultEffort)) {
+      return c.json(
+        {
+          error: {
+            message: '默认思考等级必须包含在可用等级中',
+            code: 'invalid_default_effort',
+          },
+        },
+        400,
+      )
+    }
+    // 两项作为一个一致性单元写入：并发的部分 PATCH 最终也只会落下完整、合法的一对配置。
+    nextReasoningConfig = {
+      allowedEfforts: nextAllowedEfforts,
+      defaultEffort: nextDefaultEffort,
+    }
+  }
+
   const patch: Partial<typeof models.$inferInsert> = {}
   if (input.modelId !== undefined && input.modelId !== existing.modelId) {
     const [dup] = await db
@@ -188,8 +232,10 @@ adminRoutes.patch('/models/:id', jsonValidator(modelUpdateSchema), async (c) => 
   if (input.defaultParams !== undefined) patch.defaultParams = input.defaultParams
   if (input.hardParams !== undefined) patch.hardParams = input.hardParams
   if (input.pricing !== undefined) patch.pricing = input.pricing
-  if (input.allowedEfforts !== undefined) patch.allowedEfforts = input.allowedEfforts
-  if (input.defaultEffort !== undefined) patch.defaultEffort = input.defaultEffort
+  if (nextReasoningConfig) {
+    patch.allowedEfforts = nextReasoningConfig.allowedEfforts
+    patch.defaultEffort = nextReasoningConfig.defaultEffort
+  }
   if (input.defaultWebSearch !== undefined) patch.defaultWebSearch = input.defaultWebSearch
   if (input.sort !== undefined) patch.sort = input.sort
   await db.update(models).set(patch).where(eq(models.id, id))

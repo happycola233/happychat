@@ -1,9 +1,13 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { clsx } from 'clsx'
 import { Check, ChevronDown, Globe, Pin } from 'lucide-react'
 import type { ModelDTO } from '@shared/types/api'
-import { effectiveReasoningEffort, isReasoningEffortAllowed } from '@shared/util/reasoning'
+import {
+  effectiveReasoningEffort,
+  findReasoningEffortOption,
+  isReasoningEffortAllowed,
+} from '@shared/util/reasoning'
 import { effectiveWebSearchEnabled } from '@shared/util/webSearch'
 import {
   GPT_IMAGE_2_SIZE_OPTIONS,
@@ -12,10 +16,6 @@ import {
   validateGptImage2Size,
 } from '@shared/util/imageSize'
 import { useModels } from '../hooks/useModels'
-import {
-  REASONING_EFFORT_OPTION_LABELS,
-  REASONING_EFFORT_SHORT_LABELS,
-} from '../lib/reasoningLabels'
 import { useChatPrefs } from '../store/chat'
 import { useIsMobile } from '../store/sidebar'
 import { ReasoningEffortIcon } from './icons'
@@ -68,6 +68,13 @@ function ReasoningSection({ model }: { model: ModelDTO }) {
   const effectiveEffort = activeSupportedEffort ?? effectiveReasoningEffort(model)
   const pinnedSupported = isReasoningEffortAllowed(model, pinnedEffort) ? pinnedEffort : null
   const isPinnedCurrent = pinnedSupported !== null && pinnedSupported === effectiveEffort
+  const effectiveOption = findReasoningEffortOption(model.allowedEfforts, effectiveEffort)
+  const activeButtonRef = useRef<HTMLButtonElement>(null)
+
+  // 档位较多需要横向滚动时，让当前生效项在首次打开和切换后始终可见。
+  useLayoutEffect(() => {
+    activeButtonRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [effectiveEffort])
 
   return (
     <div className="shrink-0 p-1.5">
@@ -77,10 +84,16 @@ function ReasoningSection({ model }: { model: ModelDTO }) {
             <button
               type="button"
               onClick={() => pinEffort(effectiveEffort)}
+              aria-pressed={isPinnedCurrent}
+              aria-label={
+                isPinnedCurrent
+                  ? `取消固定「${effectiveOption?.description ?? effectiveEffort}」`
+                  : `固定「${effectiveOption?.description ?? effectiveEffort}」为新会话默认`
+              }
               title={
                 isPinnedCurrent
                   ? '已固定为新会话默认，点击取消固定'
-                  : `将「${REASONING_EFFORT_SHORT_LABELS[effectiveEffort]}」固定为新会话默认`
+                  : `将「${effectiveOption?.description ?? effectiveEffort}」固定为新会话默认`
               }
               className={clsx(
                 'flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs transition',
@@ -89,33 +102,50 @@ function ReasoningSection({ model }: { model: ModelDTO }) {
                   : 'text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:text-neutral-500 dark:hover:bg-neutral-800 dark:hover:text-neutral-300',
               )}
             >
-              <Pin className={clsx('h-3 w-3 shrink-0', isPinnedCurrent && 'fill-current')} />
+              <Pin
+                aria-hidden
+                className={clsx('h-3 w-3 shrink-0', isPinnedCurrent && 'fill-current')}
+              />
               {isPinnedCurrent ? '默认' : '固定'}
             </button>
           )
         }
       >
-        思考深度
+        <span className="inline-flex items-center gap-1.5">
+          <ReasoningEffortIcon
+            effort={effectiveEffort}
+            className="h-3.5 w-3.5 shrink-0"
+          />
+          思考深度
+        </span>
       </SectionLabel>
-      <div className="flex gap-1 px-1.5 pb-1">
-        {model.allowedEfforts.map((effort) => {
-          const isActive = effectiveEffort === effort
-          const isPinnedHere = pinnedSupported === effort
+      <div
+        role="group"
+        aria-label="思考深度"
+        className="hc-scrollbar flex gap-1 overflow-x-auto px-1.5 pb-1"
+      >
+        {model.allowedEfforts.map((option) => {
+          const effort = option.value
+          const isActive = effectiveEffort === option.value
+          const isPinnedHere = pinnedSupported === option.value
           return (
             <button
-              key={effort}
+              key={option.value}
+              ref={isActive ? activeButtonRef : undefined}
               type="button"
               onClick={() => setActiveEffort(effort)}
-              title={`${REASONING_EFFORT_OPTION_LABELS[effort]}，本次会话临时生效`}
+              aria-pressed={isActive}
+              aria-label={`${option.description}（${option.value}），本次会话临时生效${isPinnedHere ? '，新会话默认' : ''}`}
+              title={`${option.description}（${option.value}），本次会话临时生效`}
               className={clsx(
-                'relative flex min-w-0 flex-1 flex-col items-center gap-1 rounded-xl border px-1 py-1.5 text-xs transition',
+                'relative flex h-9 items-center justify-center rounded-lg border px-1.5 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400',
+                'min-w-12 max-w-40 flex-[1_0_auto] shrink-0',
                 isActive
                   ? 'border-violet-200 bg-violet-50 text-violet-600 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-300'
                   : 'border-transparent text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200',
               )}
             >
-              <ReasoningEffortIcon effort={effort} className="block h-4 w-4 shrink-0" />
-              <span className="max-w-full truncate">{REASONING_EFFORT_SHORT_LABELS[effort]}</span>
+              <span className="max-w-full truncate">{option.description}</span>
               {isPinnedHere && !isActive && (
                 <span
                   aria-hidden
@@ -123,6 +153,7 @@ function ReasoningSection({ model }: { model: ModelDTO }) {
                   className="absolute right-1.5 top-1.5 h-1 w-1 rounded-full bg-violet-400"
                 />
               )}
+              {isPinnedHere && <span className="sr-only">新会话默认</span>}
             </button>
           )
         })}
@@ -452,6 +483,14 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
   const [effectivePlacement, setEffectivePlacement] = useState<MenuPlacement>(placement)
   const [menuMaxHeight, setMenuMaxHeight] = useState<number | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const mobileDialogRef = useRef<HTMLDivElement>(null)
+  const menuId = useId()
+
+  useLayoutEffect(() => {
+    if (!open || !isMobile) return
+    mobileDialogRef.current?.focus()
+  }, [open, isMobile])
 
   useLayoutEffect(() => {
     if (!open || isMobile) return
@@ -491,7 +530,37 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
   useEffect(() => {
     if (!open) return
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false)
+      if (event.key === 'Escape') {
+        setOpen(false)
+        triggerRef.current?.focus()
+        return
+      }
+      if (event.key === 'Tab' && isMobile && mobileDialogRef.current) {
+        const focusable = Array.from(
+          mobileDialogRef.current.querySelectorAll<HTMLElement>(
+            'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+          ),
+        )
+        if (focusable.length === 0) {
+          event.preventDefault()
+          return
+        }
+        const first = focusable[0]!
+        const last = focusable[focusable.length - 1]!
+        const activeElement = document.activeElement
+        if (
+          event.shiftKey &&
+          (activeElement === first ||
+            activeElement === mobileDialogRef.current ||
+            !mobileDialogRef.current.contains(activeElement))
+        ) {
+          event.preventDefault()
+          last.focus()
+        } else if (!event.shiftKey && activeElement === last) {
+          event.preventDefault()
+          first.focus()
+        }
+      }
     }
     window.addEventListener('keydown', onKey)
     // 点击菜单外关闭仅用于桌面弹层；底部弹层由遮罩层负责（portal 在 rootRef 之外）。
@@ -524,12 +593,15 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
   const activeSupportedEffort = isReasoningEffortAllowed(model, activeEffort) ? activeEffort : null
   const effectiveEffort = model ? (activeSupportedEffort ?? effectiveReasoningEffort(model)) : null
   const webEnabled = model ? (activeWebSearch ?? effectiveWebSearchEnabled(model)) : false
-  const effortLabel =
-    showReasoning && effectiveEffort && effectiveEffort !== 'none'
-      ? REASONING_EFFORT_SHORT_LABELS[effectiveEffort]
-      : null
+  const effectiveEffortOption = model
+    ? findReasoningEffortOption(model.allowedEfforts, effectiveEffort)
+    : null
+  const effortLabel = showReasoning ? (effectiveEffortOption?.description ?? '自动') : null
 
-  const close = () => setOpen(false)
+  const close = () => {
+    setOpen(false)
+    requestAnimationFrame(() => triggerRef.current?.focus())
+  }
 
   const menuPositionClass = clsx(
     'absolute z-40',
@@ -545,12 +617,18 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
   return (
     <div ref={rootRef} className="relative">
       <button
+        ref={triggerRef}
         type="button"
         data-testid="model-menu-trigger"
-        aria-haspopup="menu"
+        aria-haspopup="dialog"
+        aria-controls={menuId}
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        title={model ? `模型：${model.displayName}` : '选择模型'}
+        title={
+          model
+            ? `模型：${model.displayName}${showReasoning ? `；思考深度：${effectiveEffortOption ? `${effectiveEffortOption.description}（${effectiveEffortOption.value}）` : '自动（沿用上游默认）'}` : ''}`
+            : '选择模型'
+        }
         className={clsx(
           'flex max-w-[15rem] items-center gap-1.5 transition',
           variant === 'composer'
@@ -559,10 +637,13 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
           open && 'bg-neutral-100 dark:bg-neutral-800',
         )}
       >
-        <span className="truncate">
-          {model?.displayName ?? '选择模型'}
-          {effortLabel && <span className="text-neutral-400 dark:text-neutral-500"> · {effortLabel}</span>}
-        </span>
+        <span className="truncate">{model?.displayName ?? '选择模型'}</span>
+        {effortLabel && (
+          <span className="inline-flex min-w-0 shrink items-center gap-1 text-neutral-400 dark:text-neutral-400">
+            <span aria-hidden>·</span>
+            <span className="truncate">{effortLabel}</span>
+          </span>
+        )}
         {showWebSearch && webEnabled && (
           <Globe className="h-3.5 w-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" aria-label="联网已开启" />
         )}
@@ -577,6 +658,9 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
       {open && !isMobile && (
         <div className={menuPositionClass}>
           <div
+            id={menuId}
+            role="dialog"
+            aria-label="模型与参数"
             className="hc-pop-in hc-scrollbar flex max-h-[min(70vh,32rem)] w-80 max-w-[calc(100vw-1.5rem)] flex-col overflow-y-auto rounded-2xl border border-neutral-200 bg-white text-neutral-700 shadow-[0_12px_40px_rgb(0_0_0/0.14)] dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:shadow-[0_12px_40px_rgb(0_0_0/0.45)]"
             style={{
               ...(menuMaxHeight !== null ? { maxHeight: menuMaxHeight } : null),
@@ -604,9 +688,12 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
               onClick={close}
             />
             <div
+              id={menuId}
+              ref={mobileDialogRef}
               role="dialog"
               aria-modal="true"
               aria-label="模型与参数"
+              tabIndex={-1}
               className="hc-sheet-in relative flex max-h-[min(78dvh,42rem)] flex-col rounded-t-[20px] bg-white px-1.5 pb-[max(env(safe-area-inset-bottom),0.5rem)] text-neutral-700 shadow-[0_-12px_40px_rgb(0_0_0/0.18)] dark:bg-neutral-900 dark:text-neutral-100 dark:shadow-[0_-12px_40px_rgb(0_0_0/0.55)]"
             >
               {/* 顶部抓手：视觉提示可下滑关闭（点击遮罩关闭）。 */}

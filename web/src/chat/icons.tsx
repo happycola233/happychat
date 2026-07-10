@@ -1,12 +1,15 @@
 import type { SVGProps } from 'react'
 import type { ReasoningEffort } from '@shared/types/domain'
+import {
+  resolveReasoningEffortIconKey,
+  type ReasoningEffortIconKey,
+} from './reasoningEffortIcon'
 
 type IconProps = SVGProps<SVGSVGElement>
 
-type ReasoningIconEffort = ReasoningEffort
 type ReasoningIconSvg = { viewBox: string; d: string; scale?: number }
 
-const REASONING_ICON_SVGS: Record<ReasoningIconEffort, ReasoningIconSvg> = {
+const REASONING_ICON_SVGS: Record<ReasoningEffortIconKey, ReasoningIconSvg> = {
   none: {
     viewBox: '0 0 20 20',
     scale: 1.22,
@@ -44,13 +47,23 @@ function scaleIconTransform(scale = 1) {
   return `translate(10 10) scale(${scale}) translate(-10 -10)`
 }
 
-export function ReasoningEffortIcon({ effort, ...props }: IconProps & { effort: ReasoningEffort }) {
-  const icon = REASONING_ICON_SVGS[effort]
+export function ReasoningEffortIcon({
+  effort,
+  ...props
+}: IconProps & { effort: ReasoningEffort | null | undefined }) {
+  const icon = REASONING_ICON_SVGS[resolveReasoningEffortIconKey(effort)]
   const transform = normalizeIconTransform(icon.viewBox)
   const scaleTransform = scaleIconTransform(icon.scale)
 
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" {...props}>
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 20 20"
+      fill="currentColor"
+      aria-hidden="true"
+      {...props}
+    >
       <g transform={scaleTransform}>
         <path d={icon.d} transform={transform} />
       </g>

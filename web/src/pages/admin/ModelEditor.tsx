@@ -1,21 +1,19 @@
 import { useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { REASONING_EFFORTS } from '@shared/constants'
 import { PROMPT_VARIABLES } from '@shared/util/promptTemplate'
 import type { AdminModelDTO } from '@shared/types/api'
-import type {
-  ModelCapabilities,
-  ModelParams,
-  ModelPricing,
-  ReasoningEffort,
-} from '@shared/types/domain'
+import type { ModelCapabilities, ModelParams, ModelPricing } from '@shared/types/domain'
 import * as adminApi from '../../api/admin'
 import { Button } from '../../components/ui/Button'
 import { Modal } from '../../components/ui/Modal'
 import { Toggle } from '../../components/ui/Toggle'
-import { REASONING_EFFORT_OPTION_LABELS } from '../../lib/reasoningLabels'
 import { toast } from '../../store/toast'
+import { ReasoningEffortEditor } from './ReasoningEffortEditor'
+import {
+  createReasoningEffortDraft,
+  validateReasoningEffortDrafts,
+} from './reasoningEffortDrafts'
 
 const fieldClass =
   'w-full rounded-xl border border-neutral-300 bg-white px-3.5 py-2.5 text-sm outline-none transition focus:border-neutral-900 focus:ring-2 focus:ring-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100'
@@ -140,12 +138,16 @@ export function ModelEditor({
   const [kind, setKind] = useState(model?.kind ?? 'responses')
   const [caps, setCaps] = useState<ModelCapabilities>(model?.capabilities ?? BLANK_CAPS)
   const [systemPrompt, setSystemPrompt] = useState(model?.defaultSystemPrompt ?? '')
-  const [allowedEfforts, setAllowedEfforts] = useState<ReasoningEffort[]>(
-    model?.allowedEfforts ?? [],
+  const [reasoningEffortDrafts, setReasoningEffortDrafts] = useState(() =>
+    (model?.allowedEfforts ?? []).map((option) => createReasoningEffortDraft(option)),
   )
-  const [defaultEffort, setDefaultEffort] = useState<ReasoningEffort | ''>(
-    model?.defaultEffort ?? '',
-  )
+  // 绑定稳定的表单行 id，编辑上游 value 的过程中默认项不会意外丢失或指向别行。
+  const [defaultEffortDraftId, setDefaultEffortDraftId] = useState<string | null>(() => {
+    if (!model?.defaultEffort) return null
+    return (
+      reasoningEffortDrafts.find((draft) => draft.value === model.defaultEffort)?.draftId ?? null
+    )
+  })
   const [defaultWebSearch, setDefaultWebSearch] = useState(model?.defaultWebSearch ?? false)
   const [params, setParams] = useState<ModelParams>(model?.defaultParams ?? {})
   const [pricing, setPricing] = useState<ModelPricing>(model?.pricing ?? {})
@@ -180,6 +182,13 @@ export function ModelEditor({
 
   const save = useMutation({
     mutationFn: async () => {
+      const reasoningEffortError = validateReasoningEffortDrafts(reasoningEffortDrafts)
+      if (reasoningEffortError) throw new Error(reasoningEffortError)
+      const defaultEffort = defaultEffortDraftId
+        ? reasoningEffortDrafts.find((draft) => draft.draftId === defaultEffortDraftId)?.value.trim()
+        : null
+      if (defaultEffortDraftId && !defaultEffort) throw new Error('请选择有效的默认思考等级')
+
       const capabilities: ModelCapabilities = { ...caps, image_generation: kind === 'image' }
       const shared = {
         displayName,
@@ -187,8 +196,12 @@ export function ModelEditor({
         promptCacheRetentionEnabled: kind === 'image' ? false : promptCacheRetentionEnabled,
         capabilities,
         defaultSystemPrompt: systemPrompt.trim() ? systemPrompt : null,
-        allowedEfforts: caps.reasoning ? allowedEfforts : [],
-        defaultEffort: caps.reasoning && defaultEffort ? defaultEffort : null,
+        // 能力开关只控制运行时是否使用推理；暂时关闭时保留管理员配置，避免静默丢数据。
+        allowedEfforts: reasoningEffortDrafts.map((draft) => ({
+          value: draft.value.trim(),
+          description: draft.description.trim(),
+        })),
+        defaultEffort: defaultEffort || null,
         defaultWebSearch: caps.web_search ? defaultWebSearch : false,
         defaultParams: {
           temperature: params.temperature,
@@ -221,8 +234,6 @@ export function ModelEditor({
   })
 
   const toggleCap = (k: keyof ModelCapabilities) => setCaps((c) => ({ ...c, [k]: !c[k] }))
-  const toggleEffort = (e: ReasoningEffort) =>
-    setAllowedEfforts((arr) => (arr.includes(e) ? arr.filter((x) => x !== e) : [...arr, e]))
 
   /** 把 {{变量}} 插入系统提示词光标处（无焦点时追加到末尾）。 */
   const insertVariable = (name: string) => {
@@ -240,8 +251,18 @@ export function ModelEditor({
     })
   }
 
+  const effortValidationError = validateReasoningEffortDrafts(reasoningEffortDrafts)
+  const hasValidDefault =
+    !defaultEffortDraftId ||
+    reasoningEffortDrafts.some(
+      (draft) => draft.draftId === defaultEffortDraftId && Boolean(draft.value.trim()),
+    )
   const canSave =
-    !isCreate || (Boolean(providerId) && modelId.trim() !== '' && displayName.trim() !== '')
+    (!isCreate || Boolean(providerId)) &&
+    modelId.trim() !== '' &&
+    displayName.trim() !== '' &&
+    !effortValidationError &&
+    hasValidDefault
 
   return (
     <Modal
@@ -325,41 +346,19 @@ export function ModelEditor({
             ))}
           </div>
 
-          {caps.reasoning && (
-            <div className="rounded-xl bg-neutral-50 p-3 dark:bg-neutral-800/50">
-              <span className="mb-2 block text-xs font-medium text-neutral-600 dark:text-neutral-300">
-                思考等级
-              </span>
-              <div className="mb-3 flex flex-wrap gap-2">
-                {REASONING_EFFORTS.map((e) => (
-                  <button
-                    key={e}
-                    type="button"
-                    onClick={() => toggleEffort(e)}
-                    className={`rounded-lg border px-3 py-1 text-xs transition ${
-                      allowedEfforts.includes(e)
-                        ? 'border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-neutral-900'
-                        : 'border-neutral-300 text-neutral-500 hover:bg-neutral-100 dark:border-neutral-600 dark:hover:bg-neutral-800'
-                    }`}
-                  >
-                    {REASONING_EFFORT_OPTION_LABELS[e]}
-                  </button>
-                ))}
-              </div>
-              <SmallField label="默认思考等级">
-                <select
-                  className={fieldClass}
-                  value={defaultEffort}
-                  onChange={(e) => setDefaultEffort(e.target.value as ReasoningEffort | '')}
-                >
-                  <option value="">未设置</option>
-                  {allowedEfforts.map((e) => (
-                    <option key={e} value={e}>
-                      {REASONING_EFFORT_OPTION_LABELS[e]}
-                    </option>
-                  ))}
-                </select>
-              </SmallField>
+          {(caps.reasoning || reasoningEffortDrafts.length > 0) && (
+            <div className="space-y-2">
+              {!caps.reasoning && (
+                <p className="text-xs leading-5 text-amber-600 dark:text-amber-400">
+                  思考能力当前关闭；以下配置会保留，但不会在聊天中使用。
+                </p>
+              )}
+              <ReasoningEffortEditor
+                drafts={reasoningEffortDrafts}
+                defaultDraftId={defaultEffortDraftId}
+                onDraftsChange={setReasoningEffortDrafts}
+                onDefaultDraftIdChange={setDefaultEffortDraftId}
+              />
             </div>
           )}
 

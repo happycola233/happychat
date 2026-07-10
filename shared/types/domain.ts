@@ -40,8 +40,22 @@ export interface ModelCapabilities {
   reasoning: boolean
 }
 
-/** OpenAI reasoning.effort，按模型门控（5.x 不支持 minimal） */
-export type ReasoningEffort = 'none' | 'low' | 'medium' | 'high' | 'xhigh'
+/**
+ * 原样发送给上游的 reasoning.effort 值。
+ *
+ * 不再使用封闭联合类型：不同模型、OpenAI 兼容上游以及未来模型可能提供不同档位，
+ * 真正可用的值由每个模型自己的 allowedEfforts 配置门控。
+ */
+export type ReasoningEffort = string
+
+/** 一个可选推理档位：value 发给上游，description 只负责用户界面展示。 */
+export interface ReasoningEffortOption {
+  value: ReasoningEffort
+  description: string
+}
+
+/** allowed_efforts JSON 的兼容存储形态；旧记录是字符串，新记录统一写对象。 */
+export type StoredReasoningEffortOption = ReasoningEffort | ReasoningEffortOption
 
 /** 图片生成基础选项 */
 export interface ImageOptions {

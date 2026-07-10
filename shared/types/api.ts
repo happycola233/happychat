@@ -14,6 +14,7 @@ import type {
   ModelPricing,
   PromptCacheRetention,
   ReasoningEffort,
+  ReasoningEffortOption,
   Role,
   ThemePreference,
   UrlCitation,
@@ -82,7 +83,7 @@ export interface ModelDTO {
   displayName: string
   kind: ModelKind
   capabilities: ModelCapabilities
-  allowedEfforts: ReasoningEffort[]
+  allowedEfforts: ReasoningEffortOption[]
   defaultEffort: ReasoningEffort | null
   defaultWebSearch: boolean
   defaultParams: ModelParams | null

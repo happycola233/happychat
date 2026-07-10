@@ -14,7 +14,12 @@ const baseModel: ModelDTO = {
     image_generation: false,
     web_search: true,
   },
-  allowedEfforts: ['none', 'low', 'medium', 'high'],
+  allowedEfforts: [
+    { value: 'none', description: '关闭' },
+    { value: 'low', description: '低' },
+    { value: 'medium', description: '中' },
+    { value: 'high', description: '高' },
+  ],
   defaultEffort: 'medium',
   defaultWebSearch: true,
   defaultParams: null,

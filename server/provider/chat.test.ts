@@ -160,6 +160,31 @@ describe('buildChatBody', () => {
     expect(body.reasoning_effort).toBe('low')
   })
 
+  it('forwards max when the model configuration allows it', () => {
+    const body = buildChatBody({
+      model: model({
+        capabilities: {
+          vision: false,
+          file_input: false,
+          web_search: false,
+          image_generation: false,
+          reasoning: true,
+        },
+        allowedEfforts: [
+          { value: 'xhigh', description: '超高' },
+          { value: 'max', description: '极高' },
+        ],
+        defaultEffort: 'xhigh',
+      }),
+      messages: [],
+      userParams: { reasoning_effort: 'max' },
+      stream: true,
+    })
+
+    expect(body.reasoning_effort).toBe('max')
+    expect(body.max_tokens).toBe(25_000)
+  })
+
   it('lets advanced hard params override generated cache parameters', () => {
     const body = buildChatBody({
       model: model({

@@ -15,6 +15,7 @@ import type {
   ModelPricing,
   PromptCacheRetention,
   ReasoningEffort,
+  StoredReasoningEffortOption,
   Role,
   RunState,
   UrlCitation,
@@ -206,7 +207,8 @@ export const models = sqliteTable(
     defaultParams: text('default_params', { mode: 'json' }).$type<ModelParams>(),
     hardParams: text('hard_params', { mode: 'json' }).$type<ModelHardParams>(),
     pricing: text('pricing', { mode: 'json' }).$type<ModelPricing>(),
-    allowedEfforts: text('allowed_efforts', { mode: 'json' }).$type<ReasoningEffort[]>(),
+    // 旧记录为 string[]，新记录写 {value,description}[]；读取时由共享 helper 统一归一化。
+    allowedEfforts: text('allowed_efforts', { mode: 'json' }).$type<StoredReasoningEffortOption[]>(),
     defaultEffort: text('default_effort').$type<ReasoningEffort>(),
     defaultWebSearch: integer('default_web_search', { mode: 'boolean' }).notNull().default(false),
     sort: integer('sort').notNull().default(0),
