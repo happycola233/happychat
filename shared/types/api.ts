@@ -207,7 +207,15 @@ export interface AdminUserDTO {
 
 export interface StatsDTO {
   totals: { users: number; conversations: number; messages: number; runs: number; errors: number }
-  tokens: { input: number; cached: number; output: number; reasoning: number; image: number; total: number }
+  tokens: {
+    input: number
+    cacheWrite: number
+    cached: number
+    output: number
+    reasoning: number
+    image: number
+    total: number
+  }
   byModel: { model: string; calls: number; totalTokens: number }[]
   byUser: { username: string; calls: number; totalTokens: number }[]
 }
@@ -234,6 +242,7 @@ export interface UsageLogDTO {
   providerLabel: string | null
   modelLabel: string | null
   inputTokens: number
+  cacheWriteTokens: number
   cachedTokens: number
   outputTokens: number
   reasoningTokens: number
@@ -281,6 +290,7 @@ export interface AnalyticsSeriesPoint {
   ts: number
   requests: number
   inputTokens: number
+  cacheWriteTokens: number
   cachedTokens: number
   outputTokens: number
   reasoningTokens: number

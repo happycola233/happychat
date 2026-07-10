@@ -103,6 +103,35 @@ describe('stats time buckets', () => {
       { ts: hourStart + HOUR_MS, requests: 1 },
     ])
   })
+
+  it('aggregates and returns cache writes independently from cache reads', async () => {
+    const hourStart = Date.UTC(2027, 0, 5, 8)
+    await insertUsageLog(hourStart + 10_000, {
+      inputTokens: 1_000,
+      cacheWriteTokens: 600,
+      cachedTokens: 300,
+      outputTokens: 100,
+      totalTokens: 1_100,
+    })
+
+    const analytics = await stats.getAnalytics({
+      bucket: 'hour',
+      from: hourStart,
+      to: hourStart + HOUR_MS,
+    })
+    const events = await stats.listUsageEvents({ from: hourStart, to: hourStart + HOUR_MS })
+
+    expect(analytics.series).toEqual([
+      expect.objectContaining({
+        inputTokens: 1_000,
+        cacheWriteTokens: 600,
+        cachedTokens: 300,
+      }),
+    ])
+    expect(events.items[0]).toEqual(
+      expect.objectContaining({ cacheWriteTokens: 600, cachedTokens: 300 }),
+    )
+  })
 })
 
 describe('user stats activity', () => {
@@ -210,5 +239,54 @@ describe('usage event provider labels', () => {
     expect(result.items).toHaveLength(1)
     expect(result.items[0]?.providerId).toBeNull()
     expect(result.items[0]?.providerLabel).toBe('Deleted Provider')
+  })
+})
+
+describe('cache-write cost integration', () => {
+  it('uses cache-write pricing across overview, analytics, user stats and events', async () => {
+    const hourStart = Date.UTC(2027, 0, 6, 8)
+    const user = await insertUser()
+    const provider = await insertProvider('Cache Cost Provider')
+    const [model] = await dbClient.db
+      .insert(schema.models)
+      .values({
+        providerId: provider.id,
+        modelId: `cache-cost-model-${uniqueId++}`,
+        displayName: 'Cache Cost Model',
+        capabilities: {
+          vision: false,
+          file_input: false,
+          web_search: false,
+          image_generation: false,
+          reasoning: false,
+        },
+        pricing: { input: 2.5, cacheWriteInput: 3.125, cachedInput: 0.25, output: 10 },
+      })
+      .returning()
+    if (!model) throw new Error('failed to insert test model')
+
+    await insertUsageLog(hourStart + 10_000, {
+      userId: user.id,
+      providerId: provider.id,
+      modelId: model.id,
+      inputTokens: 1_000_000,
+      cacheWriteTokens: 300_000,
+      cachedTokens: 200_000,
+      outputTokens: 500_000,
+      totalTokens: 1_500_000,
+    })
+    const filter = { from: hourStart, to: hourStart + HOUR_MS, userId: user.id }
+
+    const [overview, analytics, userStats, events] = await Promise.all([
+      stats.getOverview(filter),
+      stats.getAnalytics({ ...filter, bucket: 'hour' }),
+      stats.getUserStats(filter),
+      stats.listUsageEvents(filter),
+    ])
+
+    expect(overview.totals.costUsd).toBeCloseTo(7.2375, 6)
+    expect(analytics.series[0]?.costUsd).toBeCloseTo(7.2375, 6)
+    expect(userStats[0]?.costUsd).toBeCloseTo(7.2375, 6)
+    expect(events.items[0]?.costUsd).toBeCloseTo(7.2375, 6)
   })
 })

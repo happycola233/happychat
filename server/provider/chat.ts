@@ -20,7 +20,10 @@ export interface ChatChunk {
     prompt_tokens?: number
     completion_tokens?: number
     total_tokens?: number
-    prompt_tokens_details?: { cached_tokens?: number }
+    prompt_tokens_details?: {
+      cached_tokens?: number
+      cache_write_tokens?: number
+    }
     completion_tokens_details?: { reasoning_tokens?: number }
   } | null
 }
@@ -29,6 +32,7 @@ export interface ChatChunk {
 export function mapChatUsage(u: ChatChunk['usage']): MessageUsage {
   return {
     inputTokens: u?.prompt_tokens ?? 0,
+    cacheWriteTokens: u?.prompt_tokens_details?.cache_write_tokens ?? 0,
     cachedTokens: u?.prompt_tokens_details?.cached_tokens ?? 0,
     outputTokens: u?.completion_tokens ?? 0,
     reasoningTokens: u?.completion_tokens_details?.reasoning_tokens ?? 0,

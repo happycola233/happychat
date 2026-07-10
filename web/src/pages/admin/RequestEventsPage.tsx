@@ -161,7 +161,7 @@ export default function RequestEventsPage() {
             }}
           />
           <div className={tableScroll}>
-            <div className={`${tableShell} min-w-[980px]`}>
+            <div className={`${tableShell} min-w-[1080px]`}>
               <table className={tableEl}>
                 <thead className={tableHead}>
                   <tr>
@@ -170,7 +170,8 @@ export default function RequestEventsPage() {
                     <th className={th}>模型</th>
                     <th className={th}>供应商</th>
                     <th className={th}>输入</th>
-                    <th className={th}>缓存</th>
+                    <th className={th}>缓存写入</th>
+                    <th className={th}>缓存读取</th>
                     <th className={th}>输出</th>
                     <th className={th}>推理</th>
                     <th className={th}>总计</th>
@@ -196,6 +197,9 @@ export default function RequestEventsPage() {
                       </td>
                       <td className={`${td} tabular-nums text-neutral-600 dark:text-neutral-300`}>
                         {formatCompact(row.inputTokens)}
+                      </td>
+                      <td className={`${td} tabular-nums text-neutral-600 dark:text-neutral-300`}>
+                        {formatCompact(row.cacheWriteTokens)}
                       </td>
                       <td className={`${td} tabular-nums text-neutral-600 dark:text-neutral-300`}>
                         {formatCompact(row.cachedTokens)}

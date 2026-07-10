@@ -80,7 +80,11 @@ export type ModelHardParams = Record<string, unknown>
 
 /** 按模型定价（USD / 每 100 万 token）；留空的项不计入成本估算。 */
 export interface ModelPricing {
+  /** 既未写入缓存、也未从缓存读取的普通输入 token 单价。 */
   input?: number
+  /** 写入提示词缓存的输入 token 单价。未配置时成本估算回退到普通输入价。 */
+  cacheWriteInput?: number
+  /** 从提示词缓存读取的输入 token 单价。未配置时成本估算回退到普通输入价。 */
   cachedInput?: number
   output?: number
   image?: number
@@ -109,7 +113,11 @@ export type ContentPart =
   | { type: 'image_result'; attachment_id: string; revised_prompt?: string }
 
 export interface MessageUsage {
+  /** 上游报告的总输入 token，包含缓存写入与缓存读取 token。 */
   inputTokens: number
+  /** 本次写入提示词缓存的输入 token。 */
+  cacheWriteTokens: number
+  /** 本次从提示词缓存读取的输入 token。 */
   cachedTokens: number
   outputTokens: number
   reasoningTokens: number

@@ -5,6 +5,7 @@ import { reconcileFinalResponse, type StreamedResponseSnapshot } from './final-r
 
 const usage: MessageUsage = {
   inputTokens: 10,
+  cacheWriteTokens: 1,
   cachedTokens: 2,
   outputTokens: 8,
   reasoningTokens: 3,
@@ -56,7 +57,7 @@ describe('reconcileFinalResponse', () => {
         input_tokens: 20,
         output_tokens: 5,
         total_tokens: 25,
-        input_tokens_details: { cached_tokens: 4 },
+        input_tokens_details: { cached_tokens: 4, cache_write_tokens: 6 },
         output_tokens_details: { reasoning_tokens: 1 },
       },
     }
@@ -75,6 +76,7 @@ describe('reconcileFinalResponse', () => {
       ],
       usage: {
         inputTokens: 20,
+        cacheWriteTokens: 6,
         cachedTokens: 4,
         outputTokens: 5,
         reasoningTokens: 1,

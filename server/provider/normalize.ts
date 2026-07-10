@@ -15,6 +15,7 @@ export interface ParsedResponse {
 export function mapUsage(u: UpstreamUsage | undefined): MessageUsage {
   return {
     inputTokens: u?.input_tokens ?? 0,
+    cacheWriteTokens: u?.input_tokens_details?.cache_write_tokens ?? 0,
     cachedTokens: u?.input_tokens_details?.cached_tokens ?? 0,
     outputTokens: u?.output_tokens ?? 0,
     reasoningTokens: u?.output_tokens_details?.reasoning_tokens ?? 0,

@@ -83,6 +83,7 @@ export const modelParamsSchema = z.object({
 /** 按模型定价（USD / 1M tokens），各项可选、非负。 */
 export const pricingSchema = z.object({
   input: z.number().min(0).optional(),
+  cacheWriteInput: z.number().min(0).optional(),
   cachedInput: z.number().min(0).optional(),
   output: z.number().min(0).optional(),
   image: z.number().min(0).optional(),

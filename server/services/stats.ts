@@ -83,6 +83,7 @@ function sumCost(
   rows: {
     modelId: string | null
     inputTokens: number
+    cacheWriteTokens: number
     cachedTokens: number
     outputTokens: number
     imageTokens: number
@@ -98,6 +99,7 @@ function sumCost(
 
 const TOKEN_SUMS = {
   inputTokens: sql<number>`coalesce(sum(${usageLogs.inputTokens}),0)`,
+  cacheWriteTokens: sql<number>`coalesce(sum(${usageLogs.cacheWriteTokens}),0)`,
   cachedTokens: sql<number>`coalesce(sum(${usageLogs.cachedTokens}),0)`,
   outputTokens: sql<number>`coalesce(sum(${usageLogs.outputTokens}),0)`,
   imageTokens: sql<number>`coalesce(sum(${usageLogs.imageTokens}),0)`,
@@ -198,6 +200,7 @@ export async function getAnalytics(filter: StatsFilter): Promise<AnalyticsDTO> {
       modelId: usageLogs.modelId,
       requests: sql<number>`count(*)`,
       inputTokens: TOKEN_SUMS.inputTokens,
+      cacheWriteTokens: TOKEN_SUMS.cacheWriteTokens,
       cachedTokens: TOKEN_SUMS.cachedTokens,
       outputTokens: TOKEN_SUMS.outputTokens,
       imageTokens: TOKEN_SUMS.imageTokens,
@@ -214,6 +217,7 @@ export async function getAnalytics(filter: StatsFilter): Promise<AnalyticsDTO> {
       ts: r.ts,
       requests: 0,
       inputTokens: 0,
+      cacheWriteTokens: 0,
       cachedTokens: 0,
       outputTokens: 0,
       reasoningTokens: 0,
@@ -221,6 +225,7 @@ export async function getAnalytics(filter: StatsFilter): Promise<AnalyticsDTO> {
     }
     point.requests += r.requests
     point.inputTokens += r.inputTokens
+    point.cacheWriteTokens += r.cacheWriteTokens
     point.cachedTokens += r.cachedTokens
     point.outputTokens += r.outputTokens
     point.reasoningTokens += r.reasoningTokens
@@ -261,6 +266,7 @@ export async function getUserStats(filter: StatsFilter): Promise<UserStatDTO[]> 
       modelLabel: usageLogs.modelLabel,
       calls: sql<number>`count(*)`,
       inputTokens: TOKEN_SUMS.inputTokens,
+      cacheWriteTokens: TOKEN_SUMS.cacheWriteTokens,
       cachedTokens: TOKEN_SUMS.cachedTokens,
       outputTokens: TOKEN_SUMS.outputTokens,
       imageTokens: TOKEN_SUMS.imageTokens,
@@ -378,6 +384,7 @@ export async function listUsageEvents(filter: StatsFilter): Promise<Paginated<Us
     providerLabel: providerName ?? log.providerLabel,
     modelLabel: log.modelLabel,
     inputTokens: log.inputTokens,
+    cacheWriteTokens: log.cacheWriteTokens,
     cachedTokens: log.cachedTokens,
     outputTokens: log.outputTokens,
     reasoningTokens: log.reasoningTokens,

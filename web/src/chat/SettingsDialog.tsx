@@ -293,7 +293,7 @@ function MessagesPanel() {
       <PrefToggleRow
         prefKey="showUsageStats"
         title="显示用量明细"
-        desc="在助手消息下方显示 Token、生成速度（tok/s）与耗时。"
+        desc="在助手消息下方显示 Token（含缓存写入/读取）、生成速度（tok/s）与耗时。"
       />
       <PrefToggleRow
         prefKey="defaultExpandReasoning"

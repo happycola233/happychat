@@ -125,6 +125,7 @@ export async function runImageEngine(ctx: EngineContext): Promise<void> {
       status: msgStatus,
       runId: ctx.run.id,
       inputTokens,
+      cacheWriteTokens: 0,
       outputTokens,
       totalTokens,
       errorMessage: errorMessage ?? (state === 'canceled' ? '已停止生成' : null),
@@ -152,6 +153,7 @@ export async function runImageEngine(ctx: EngineContext): Promise<void> {
       providerLabel: ctx.provider.name,
       conversationId: ctx.conversation.id,
       inputTokens,
+      cacheWriteTokens: 0,
       outputTokens,
       totalTokens,
       imageTokens,
@@ -182,7 +184,14 @@ export async function runImageEngine(ctx: EngineContext): Promise<void> {
     persistEmit(RUN_EVENT_TYPE.done, {
       state: 'completed',
       messageId: ctx.assistantMessage.id,
-      usage: { inputTokens, cachedTokens: 0, outputTokens, reasoningTokens: 0, totalTokens },
+      usage: {
+        inputTokens,
+        cacheWriteTokens: 0,
+        cachedTokens: 0,
+        outputTokens,
+        reasoningTokens: 0,
+        totalTokens,
+      },
     })
   }
 }

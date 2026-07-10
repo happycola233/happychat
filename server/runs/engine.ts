@@ -107,6 +107,7 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
   let annotations: UrlCitation[] = []
   let usage: MessageUsage = {
     inputTokens: 0,
+    cacheWriteTokens: 0,
     cachedTokens: 0,
     outputTokens: 0,
     reasoningTokens: 0,

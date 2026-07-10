@@ -41,11 +41,12 @@ describe('mapChatUsage', () => {
         prompt_tokens: 100,
         completion_tokens: 50,
         total_tokens: 150,
-        prompt_tokens_details: { cached_tokens: 20 },
+        prompt_tokens_details: { cached_tokens: 20, cache_write_tokens: 30 },
         completion_tokens_details: { reasoning_tokens: 10 },
       }),
     ).toEqual({
       inputTokens: 100,
+      cacheWriteTokens: 30,
       cachedTokens: 20,
       outputTokens: 50,
       reasoningTokens: 10,
@@ -56,6 +57,7 @@ describe('mapChatUsage', () => {
   it('defaults missing fields to zero', () => {
     expect(mapChatUsage(null)).toEqual({
       inputTokens: 0,
+      cacheWriteTokens: 0,
       cachedTokens: 0,
       outputTokens: 0,
       reasoningTokens: 0,

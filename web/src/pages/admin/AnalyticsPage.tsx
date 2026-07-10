@@ -29,7 +29,8 @@ import {
 const TOKEN_SERIES: SeriesDef[] = [
   { key: 'inputTokens', name: '输入', color: '#0ea5e9' },
   { key: 'outputTokens', name: '输出', color: '#6366f1' },
-  { key: 'cachedTokens', name: '缓存', color: '#10b981' },
+  { key: 'cacheWriteTokens', name: '缓存写入', color: '#f43f5e' },
+  { key: 'cachedTokens', name: '缓存读取', color: '#10b981' },
   { key: 'reasoningTokens', name: '推理', color: '#f59e0b' },
 ]
 const REQUEST_SERIES: SeriesDef[] = [{ key: 'requests', name: '请求', color: '#6366f1' }]

@@ -54,6 +54,7 @@ export async function getStats(): Promise<StatsDTO> {
   const [tok] = await db
     .select({
       input: sql<number>`coalesce(sum(${usageLogs.inputTokens}),0)`,
+      cacheWrite: sql<number>`coalesce(sum(${usageLogs.cacheWriteTokens}),0)`,
       cached: sql<number>`coalesce(sum(${usageLogs.cachedTokens}),0)`,
       output: sql<number>`coalesce(sum(${usageLogs.outputTokens}),0)`,
       reasoning: sql<number>`coalesce(sum(${usageLogs.reasoningTokens}),0)`,
@@ -95,6 +96,7 @@ export async function getStats(): Promise<StatsDTO> {
     },
     tokens: {
       input: tok?.input ?? 0,
+      cacheWrite: tok?.cacheWrite ?? 0,
       cached: tok?.cached ?? 0,
       output: tok?.output ?? 0,
       reasoning: tok?.reasoning ?? 0,

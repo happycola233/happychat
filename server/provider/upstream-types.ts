@@ -2,7 +2,12 @@
 
 export interface UpstreamUsage {
   input_tokens?: number
-  input_tokens_details?: { cached_tokens?: number }
+  input_tokens_details?: {
+    /** 从提示词缓存读取的 token（OpenAI Responses API 标准字段）。 */
+    cached_tokens?: number
+    /** 写入提示词缓存的 token（OpenAI Responses API 标准字段）。 */
+    cache_write_tokens?: number
+  }
   output_tokens?: number
   output_tokens_details?: { reasoning_tokens?: number }
   total_tokens?: number

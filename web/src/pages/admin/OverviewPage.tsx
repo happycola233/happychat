@@ -45,7 +45,7 @@ export default function OverviewPage() {
             <StatCard label="请求总数" value={formatInt(totals.requests)} />
             <StatCard label="成功率" value={formatPercent(totals.successRate)} />
             <StatCard label="Token 总量" value={formatCompact(totals.tokens)} />
-            <StatCard label="缓存率" value={formatPercent(totals.cacheRate)} />
+            <StatCard label="缓存读取率" value={formatPercent(totals.cacheRate)} />
             <StatCard label="RPM" value={totals.rpm.toFixed(1)} />
             <StatCard label="TPM" value={formatCompact(totals.tpm)} />
             <StatCard label="成本估算" value={formatUsd(totals.costUsd)} />

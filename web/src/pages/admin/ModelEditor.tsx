@@ -159,6 +159,7 @@ export function ModelEditor({
   const cleanedPricing = (): ModelPricing | null => {
     const p: ModelPricing = {}
     if (pricing.input != null) p.input = pricing.input
+    if (pricing.cacheWriteInput != null) p.cacheWriteInput = pricing.cacheWriteInput
     if (pricing.cachedInput != null) p.cachedInput = pricing.cachedInput
     if (pricing.output != null) p.output = pricing.output
     if (pricing.image != null) p.image = pricing.image
@@ -484,24 +485,38 @@ export function ModelEditor({
         )}
 
         {/* ============ 定价 ============ */}
-        <FormSection title="定价" hint="USD / 每 100 万 tokens，用于成本估算；留空的项不计入成本。">
+        <FormSection
+          title="定价"
+          hint="USD / 每 100 万 tokens，用于成本估算；缓存写入、读取均是总输入的子项，其价格留空时回退到普通输入价；其他价格留空不计。"
+        >
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <SmallField label="输入 input">
+            <SmallField label="普通输入 input">
               <input
                 className={fieldClass}
                 type="number"
-                step="0.01"
+                step="any"
                 min="0"
                 value={pricing.input ?? ''}
                 onChange={(e) => setPricing((p) => ({ ...p, input: numOrUndef(e.target.value) }))}
                 placeholder="未设置"
               />
             </SmallField>
-            <SmallField label="缓存输入 cached">
+            <SmallField label="输出 output">
               <input
                 className={fieldClass}
                 type="number"
-                step="0.01"
+                step="any"
+                min="0"
+                value={pricing.output ?? ''}
+                onChange={(e) => setPricing((p) => ({ ...p, output: numOrUndef(e.target.value) }))}
+                placeholder="未设置"
+              />
+            </SmallField>
+            <SmallField label="缓存读取 cache read">
+              <input
+                className={fieldClass}
+                type="number"
+                step="any"
                 min="0"
                 value={pricing.cachedInput ?? ''}
                 onChange={(e) =>
@@ -510,14 +525,16 @@ export function ModelEditor({
                 placeholder="未设置"
               />
             </SmallField>
-            <SmallField label="输出 output">
+            <SmallField label="缓存写入 cache write">
               <input
                 className={fieldClass}
                 type="number"
-                step="0.01"
+                step="any"
                 min="0"
-                value={pricing.output ?? ''}
-                onChange={(e) => setPricing((p) => ({ ...p, output: numOrUndef(e.target.value) }))}
+                value={pricing.cacheWriteInput ?? ''}
+                onChange={(e) =>
+                  setPricing((p) => ({ ...p, cacheWriteInput: numOrUndef(e.target.value) }))
+                }
                 placeholder="未设置"
               />
             </SmallField>
@@ -525,7 +542,7 @@ export function ModelEditor({
               <input
                 className={fieldClass}
                 type="number"
-                step="0.01"
+                step="any"
                 min="0"
                 value={pricing.image ?? ''}
                 onChange={(e) => setPricing((p) => ({ ...p, image: numOrUndef(e.target.value) }))}

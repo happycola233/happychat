@@ -80,7 +80,7 @@ export function MessageTimeLabel({
   )
 }
 
-/** 助手消息用量明细：输入(缓存) / 输出 / tok·s / 耗时。 */
+/** 助手消息用量明细：输入（缓存写入/读取）/ 输出 / tok·s / 耗时。 */
 export function MessageUsageStats({
   usage,
   durationMs,
@@ -91,6 +91,12 @@ export function MessageUsageStats({
   className?: string
 }) {
   const tps = computeTps(usage.outputTokens, durationMs)
+  // 兼容功能上线前创建的公开分享快照，其 usage JSON 没有 cacheWriteTokens。
+  const cacheWriteTokens = usage.cacheWriteTokens ?? 0
+  const cacheDetails = [
+    cacheWriteTokens > 0 ? `写入 ${formatTokens(cacheWriteTokens)}` : null,
+    usage.cachedTokens > 0 ? `读取 ${formatTokens(usage.cachedTokens)}` : null,
+  ].filter((value): value is string => value !== null)
   return (
     <div
       className={clsx(
@@ -102,7 +108,7 @@ export function MessageUsageStats({
         <ArrowUp className="h-3 w-3" />
         <span>
           {formatTokens(usage.inputTokens)} tokens
-          {usage.cachedTokens > 0 && `（${formatTokens(usage.cachedTokens)} cached）`}
+          {cacheDetails.length > 0 && `（缓存${cacheDetails.join(' · ')}）`}
         </span>
       </span>
       <span className="inline-flex items-center gap-1">

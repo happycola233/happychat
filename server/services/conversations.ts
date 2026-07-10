@@ -54,6 +54,7 @@ export function toMessageDTO(
       m.totalTokens != null
         ? {
             inputTokens: m.inputTokens ?? 0,
+            cacheWriteTokens: m.cacheWriteTokens ?? 0,
             cachedTokens: m.cachedTokens ?? 0,
             outputTokens: m.outputTokens ?? 0,
             reasoningTokens: m.reasoningTokens ?? 0,
