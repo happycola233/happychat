@@ -7,7 +7,9 @@ import type { AdminSessionDTO, AdminUserDTO, InviteCodeDTO } from '@shared/types
 import * as adminApi from '../../api/admin'
 import { useMe } from '../../hooks/useAuth'
 import { Button } from '../../components/ui/Button'
+import { EmptyState } from '../../components/ui/EmptyState'
 import { Modal } from '../../components/ui/Modal'
+import { PageHeader } from '../../components/ui/PageHeader'
 import { Spinner } from '../../components/ui/Spinner'
 import { TextField } from '../../components/ui/TextField'
 import { Toggle } from '../../components/ui/Toggle'
@@ -23,6 +25,7 @@ import {
 } from '../../components/ui/tableStyles'
 import { formatDateTime } from '../../lib/format'
 import { copyToClipboard } from '../../lib/clipboard'
+import { askConfirm } from '../../store/confirm'
 import { toast } from '../../store/toast'
 import { CopyIcon, DeleteIcon } from '../../chat/icons'
 
@@ -51,25 +54,31 @@ export default function AuthCenterPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">账号中心</h1>
-        <div className="inline-flex rounded-lg bg-neutral-100 p-0.5 dark:bg-neutral-800">
-          {TABS.map((t) => (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => setTab(t.key)}
-              className={clsx(
-                'rounded-md px-3 py-1 text-[13px] font-medium transition',
-                tab === t.key
-                  ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-600 dark:text-white'
-                  : 'text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200',
-              )}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+      <PageHeader title="账号中心" description="管理用户、邀请码与登录会话。" />
+
+      {/* 子入口用页头下方的下划线标签页：比缩在右上角的分段控件更显眼，也符合「设置子页」的语义。 */}
+      <div
+        role="tablist"
+        aria-label="账号中心子页"
+        className="flex gap-1 border-b border-neutral-200 dark:border-neutral-800"
+      >
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.key}
+            onClick={() => setTab(t.key)}
+            className={clsx(
+              '-mb-px border-b-2 px-3.5 py-2 text-sm transition',
+              tab === t.key
+                ? 'border-sky-500 font-medium text-sky-600 dark:border-sky-400 dark:text-sky-300'
+                : 'border-transparent text-neutral-500 hover:border-neutral-300 hover:text-neutral-800 dark:text-neutral-400 dark:hover:border-neutral-600 dark:hover:text-neutral-200',
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
 
       {tab === 'users' && <UsersTab />}
@@ -173,8 +182,14 @@ function UsersTab() {
                         disabled={isSelf}
                         onClick={() => {
                           if (isSelf) return
-                          if (confirm(`确定删除用户「${u.username}」？其会话与记录将一并删除。`))
-                            remove.mutate(u.id)
+                          void askConfirm({
+                            title: '删除用户？',
+                            description: `用户「${u.username}」及其全部会话、记录将被永久删除，且无法恢复。`,
+                            confirmLabel: '删除',
+                            tone: 'danger',
+                          }).then((ok) => {
+                            if (ok) remove.mutate(u.id)
+                          })
                         }}
                         className={clsx(
                           'text-neutral-400 transition',
@@ -244,9 +259,7 @@ function InvitesTab() {
       {isLoading ? (
         <LoadingBlock />
       ) : !invites?.length ? (
-        <div className="rounded-2xl border border-dashed border-neutral-300 py-16 text-center text-sm text-neutral-500 dark:border-neutral-700">
-          还没有邀请码
-        </div>
+        <EmptyState title="还没有邀请码" />
       ) : (
         <div className={tableScroll}>
           <div className={`${tableShell} min-w-[560px]`}>
@@ -400,12 +413,7 @@ function SessionsTab() {
 
   if (isLoading) return <LoadingBlock />
 
-  if (!sessions?.length)
-    return (
-      <div className="rounded-2xl border border-dashed border-neutral-300 py-16 text-center text-sm text-neutral-500 dark:border-neutral-700">
-        暂无活动会话
-      </div>
-    )
+  if (!sessions?.length) return <EmptyState title="暂无活动会话" />
 
   return (
     <div className={tableScroll}>

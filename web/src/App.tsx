@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { RouterProvider } from 'react-router-dom'
 import { router } from './router'
+import { ConfirmDialogHost } from './components/ui/ConfirmDialogHost'
 import { Toaster } from './components/ui/Toaster'
 import { applyTheme } from './lib/theme'
 import { useSettings } from './store/settings'
@@ -24,6 +25,7 @@ export default function App() {
     <>
       <RouterProvider router={router} />
       <Toaster />
+      <ConfirmDialogHost />
     </>
   )
 }

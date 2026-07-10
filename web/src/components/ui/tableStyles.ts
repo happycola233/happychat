@@ -10,14 +10,13 @@ export const tableScroll =
   'hc-scrollbar -mx-4 overflow-x-auto overscroll-x-contain px-4 pb-1 sm:mx-0 sm:px-0'
 
 export const tableShell =
-  'overflow-hidden rounded-2xl border border-neutral-200 dark:border-neutral-800'
+  'overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xs dark:border-neutral-800 dark:bg-neutral-900 dark:shadow-none'
 export const tableEl = 'w-full text-sm'
-// 表头需与表体（bg-white / dark:bg-neutral-900）形成对比：
-// 深色下用略亮的表面 + 底部分隔线，避免表头与表体同色而“看不见表头”。
+// 表头轻量化：不再铺灰底，只靠更淡的小字号 + 底部分隔线与表体区分，视觉更透气。
 export const tableHead =
-  'border-b border-neutral-200 bg-neutral-50 text-xs text-neutral-500 dark:border-neutral-800 dark:bg-neutral-800/50 dark:text-neutral-400'
+  'border-b border-neutral-200 text-xs text-neutral-400 dark:border-neutral-800 dark:text-neutral-500'
 export const tableBody =
-  'divide-y divide-neutral-100 bg-white dark:divide-neutral-800 dark:bg-neutral-900'
-export const th = 'px-3 py-2.5 text-left font-medium whitespace-nowrap'
-export const td = 'px-3 py-2.5 align-middle'
-export const tableRowHover = 'transition hover:bg-neutral-50 dark:hover:bg-neutral-800/40'
+  'divide-y divide-neutral-100 bg-white dark:divide-neutral-800/70 dark:bg-neutral-900'
+export const th = 'px-3.5 py-2.5 text-left font-medium whitespace-nowrap'
+export const td = 'px-3.5 py-2.5 align-middle'
+export const tableRowHover = 'transition-colors hover:bg-neutral-50/80 dark:hover:bg-neutral-800/40'

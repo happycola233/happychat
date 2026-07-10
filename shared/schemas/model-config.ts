@@ -64,6 +64,24 @@ export const reasoningEffortOptionsSchema = z
     })
   })
 
+/** 用户可见的模型简介，选择器 ⓘ 展示。 */
+export const modelDescriptionSchema = z
+  .string()
+  .trim()
+  .max(500, '模型描述不能超过 500 个字符')
+
+/** 用户可见的模型标签，直接显示在模型列表里。 */
+export const modelTagsSchema = z
+  .array(
+    z
+      .string()
+      .trim()
+      .min(1, '标签不能为空')
+      .max(16, '单个标签不能超过 16 个字符'),
+  )
+  .max(8, '单个模型最多 8 个标签')
+  .refine((tags) => new Set(tags).size === tags.length, '标签不能重复')
+
 export const imageOptionsSchema = z.object({
   size: z.string().optional(),
   quality: z.string().optional(),
@@ -92,6 +110,8 @@ export const pricingSchema = z.object({
 export const modelUpdateSchema = z.object({
   modelId: z.string().trim().min(1).max(120).optional(),
   displayName: z.string().trim().min(1).max(80).optional(),
+  description: modelDescriptionSchema.nullable().optional(),
+  tags: modelTagsSchema.optional(),
   enabled: z.boolean().optional(),
   promptCacheRetentionEnabled: z.boolean().optional(),
   kind: z.enum(['responses', 'chat', 'image']).optional(),
@@ -119,6 +139,8 @@ export const modelCreateSchema = z.object({
   providerId: z.string().min(1, '请选择所属供应商'),
   modelId: z.string().trim().min(1, '请填写模型 ID').max(120),
   displayName: z.string().trim().min(1, '请填写显示名称').max(80),
+  description: modelDescriptionSchema.nullable().optional(),
+  tags: modelTagsSchema.default([]),
   kind: z.enum(['responses', 'chat', 'image']).default('responses'),
   enabled: z.boolean().default(true),
   promptCacheRetentionEnabled: z.boolean().default(false),
@@ -133,6 +155,14 @@ export const modelCreateSchema = z.object({
   sort: z.number().int().default(0),
 })
 
+/** 管理端从上游目录挑选模型批量添加（每个 id 新建一个实例，同 id 可多实例）。 */
+export const modelImportSchema = z.object({
+  modelIds: z
+    .array(z.string().trim().min(1).max(120))
+    .min(1, '请选择要添加的模型')
+    .max(200, '一次最多添加 200 个模型'),
+})
+
 /** 管理员在模型列表中拖/点排序后，一次性提交完整顺序，避免相邻模型 sort 冲突。 */
 export const modelReorderSchema = z.object({
   modelIds: z
@@ -145,4 +175,5 @@ export type ProviderCreateInput = z.infer<typeof providerCreateSchema>
 export type ProviderUpdateInput = z.infer<typeof providerUpdateSchema>
 export type ModelUpdateInput = z.infer<typeof modelUpdateSchema>
 export type ModelCreateInput = z.infer<typeof modelCreateSchema>
+export type ModelImportInput = z.infer<typeof modelImportSchema>
 export type ModelReorderInput = z.infer<typeof modelReorderSchema>

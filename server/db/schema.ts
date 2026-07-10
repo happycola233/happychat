@@ -194,8 +194,14 @@ export const models = sqliteTable(
     providerId: text('provider_id')
       .notNull()
       .references(() => providers.id, { onDelete: 'cascade' }),
-    modelId: text('model_id').notNull(), // 上游模型 id，如 gpt-5.5
+    // 上游模型 id，如 gpt-5.5。同一供应商下允许多条同 id 记录：
+    // 参数/提示词不同的配置视为不同的模型实例（对用户表现为两个模型）。
+    modelId: text('model_id').notNull(),
     displayName: text('display_name').notNull(),
+    // 用户可见的模型简介（模型选择器 ⓘ 展示）；null=未配置。
+    description: text('description'),
+    // 用户可见的模型标签（如「内测」「禁止滥用」），直接显示在模型列表里。
+    tags: text('tags', { mode: 'json' }).$type<string[]>(),
     kind: text('kind').$type<ModelKind>().notNull().default('responses'),
     enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
     // 仅控制是否应用 Provider 的显式缓存保留策略；不控制稳定 key 或上游自动缓存。
@@ -215,7 +221,8 @@ export const models = sqliteTable(
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [uniqueIndex('models_provider_model_unique').on(t.providerId, t.modelId)],
+  // 同 id 多实例：不再有 (provider_id, model_id) 唯一约束，仅保留供应商查询索引。
+  (t) => [index('models_provider_idx').on(t.providerId)],
 )
 
 // ========================= 会话 / 消息（合并节点+内容的单表分支树）=========================

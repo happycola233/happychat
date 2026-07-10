@@ -1,8 +1,9 @@
 import { Hono } from 'hono'
 import type { Context } from 'hono'
-import { and, eq } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import {
   modelCreateSchema,
+  modelImportSchema,
   modelReorderSchema,
   modelUpdateSchema,
   providerCreateSchema,
@@ -49,7 +50,11 @@ import {
   listProviders,
   reorderModels,
 } from '../services/models'
-import { syncProviderModels } from '../services/providers'
+import {
+  getProviderModelCatalog,
+  importProviderModels,
+  syncProviderModels,
+} from '../services/providers'
 import { removeUpload } from '../storage/files'
 import type { AppEnv } from '../http/types'
 
@@ -127,6 +132,20 @@ adminRoutes.post('/providers/:id/sync', async (c) => {
   return c.json(await syncProviderModels(p))
 })
 
+/** 上游模型目录：带「已添加实例数」标注，供管理端挑选后按需添加。 */
+adminRoutes.get('/providers/:id/catalog', async (c) => {
+  const [p] = await db.select().from(providers).where(eq(providers.id, c.req.param('id'))).limit(1)
+  if (!p) return c.json({ error: { message: '提供商不存在', code: 'not_found' } }, 404)
+  return c.json({ models: await getProviderModelCatalog(p) })
+})
+
+/** 手动挑选添加：每个 id 新建一个模型实例（同 id 可多实例）。 */
+adminRoutes.post('/providers/:id/import-models', jsonValidator(modelImportSchema), async (c) => {
+  const [p] = await db.select().from(providers).where(eq(providers.id, c.req.param('id'))).limit(1)
+  if (!p) return c.json({ error: { message: '提供商不存在', code: 'not_found' } }, 404)
+  return c.json(await importProviderModels(p, c.req.valid('json').modelIds))
+})
+
 // ---------------- Models ----------------
 
 function includesReasoningEffort(
@@ -154,9 +173,7 @@ adminRoutes.post('/models', jsonValidator(modelCreateSchema), async (c) => {
 
   const result = await createModel(input)
   if (!result.ok) {
-    const message =
-      result.code === 'duplicate' ? '该供应商下已存在相同模型 ID' : '所属供应商不存在'
-    return c.json({ error: { message, code: result.code } }, 400)
+    return c.json({ error: { message: '所属供应商不存在', code: result.code } }, 400)
   }
   return c.json({ model: result.model })
 })
@@ -210,18 +227,11 @@ adminRoutes.patch('/models/:id', jsonValidator(modelUpdateSchema), async (c) => 
   }
 
   const patch: Partial<typeof models.$inferInsert> = {}
-  if (input.modelId !== undefined && input.modelId !== existing.modelId) {
-    const [dup] = await db
-      .select({ id: models.id })
-      .from(models)
-      .where(and(eq(models.providerId, existing.providerId), eq(models.modelId, input.modelId)))
-      .limit(1)
-    if (dup) {
-      return c.json({ error: { message: '该供应商下已存在相同模型 ID', code: 'duplicate' } }, 400)
-    }
-    patch.modelId = input.modelId
-  }
+  // 同 id 多实例：修改 modelId 不再检查供应商内是否重复。
+  if (input.modelId !== undefined) patch.modelId = input.modelId
   if (input.displayName !== undefined) patch.displayName = input.displayName
+  if (input.description !== undefined) patch.description = input.description
+  if (input.tags !== undefined) patch.tags = input.tags
   if (input.enabled !== undefined) patch.enabled = input.enabled
   if (input.promptCacheRetentionEnabled !== undefined) {
     patch.promptCacheRetentionEnabled = input.promptCacheRetentionEnabled

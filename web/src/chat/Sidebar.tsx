@@ -86,51 +86,54 @@ function Avatar({ label, src }: { label: string; src?: string | null }) {
 
 function AccountMenu({
   userLabel,
-  avatarUrl,
   isAdmin,
   onClose,
   onOpenSettings,
   onLogout,
 }: {
   userLabel: string
-  avatarUrl?: string | null
   isAdmin: boolean
   onClose: () => void
   onOpenSettings: () => void
   onLogout: () => void
 }) {
+  // 触发按钮上已有头像与昵称，菜单里不再重复展示大头像——
+  // 顶部只保留一行小字身份行（ChatGPT 式），图标紧贴文字，所有内容左对齐同一条线（px-3）。
   const itemClass =
-    'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[14px] text-neutral-900 transition hover:bg-neutral-100 dark:text-neutral-100 dark:hover:bg-neutral-800'
+    'flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[14px] text-neutral-700 transition hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-800'
+  const itemIconClass = 'h-[18px] w-[18px] shrink-0 text-neutral-500 dark:text-neutral-400'
   return (
-    <div className="rounded-2xl border border-neutral-200 bg-white p-3 shadow-2xl dark:border-neutral-700 dark:bg-neutral-900">
-      <div className="flex items-center gap-2.5 px-2 py-1.5">
-        <Avatar label={userLabel} src={avatarUrl} />
-        <div className="min-w-0">
-          <div className="truncate text-[14px] font-medium text-neutral-900 dark:text-neutral-100">
-            {userLabel}
-          </div>
-          <div className="truncate text-xs text-neutral-400">
-            {isAdmin ? '管理员' : 'Plus'}
-          </div>
-        </div>
+    <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white p-1.5 shadow-2xl dark:border-neutral-700 dark:bg-neutral-900">
+      <div className="truncate px-3 pb-1.5 pt-2 text-xs text-neutral-400 dark:text-neutral-500">
+        {userLabel} · {isAdmin ? '管理员' : 'Plus'}
       </div>
 
-      <div className="my-2 border-t border-neutral-200 dark:border-neutral-800" />
+      <div className="mx-1 border-t border-neutral-100 dark:border-neutral-800" />
 
-      <button type="button" onClick={onOpenSettings} className={itemClass}>
-        <Settings className="h-4 w-4" />
-        设置
-      </button>
-      {isAdmin && (
-        <Link to="/admin" onClick={onClose} className={itemClass}>
-          <LayoutDashboard className="h-4 w-4" />
-          管理后台
-        </Link>
-      )}
-      <button type="button" onClick={onLogout} className={itemClass}>
-        <LogOut className="h-4 w-4" />
-        退出登录
-      </button>
+      <div className="space-y-0.5 py-1">
+        <button type="button" onClick={onOpenSettings} className={itemClass}>
+          <Settings className={itemIconClass} />
+          设置
+        </button>
+        {isAdmin && (
+          <Link to="/admin" onClick={onClose} className={itemClass}>
+            <LayoutDashboard className={itemIconClass} />
+            管理后台
+          </Link>
+        )}
+        {/* 退出与常规入口同构，仅悬停转红提示破坏性。 */}
+        <button
+          type="button"
+          onClick={onLogout}
+          className={clsx(
+            itemClass,
+            'hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30 dark:hover:text-red-400 [&:hover>svg]:text-red-600 dark:[&:hover>svg]:text-red-400',
+          )}
+        >
+          <LogOut className={itemIconClass} />
+          退出登录
+        </button>
+      </div>
     </div>
   )
 }
@@ -642,10 +645,10 @@ export function Sidebar() {
             </div>
 
             {accountMenuOpen && (
-              <div ref={accountMenuRef} className="absolute bottom-14 left-[42px] z-50 w-[240px]">
+              // 底边与头像按钮下缘对齐（头像区 pb-2），避免菜单悬在半空显得「偏上」。
+              <div ref={accountMenuRef} className="absolute bottom-2 left-[42px] z-50 w-[240px]">
                 <AccountMenu
                   userLabel={userLabel}
-                  avatarUrl={user?.avatarUrl}
                   isAdmin={isAdmin}
                   onClose={() => setAccountMenuOpen(false)}
                   onOpenSettings={openSettings}
@@ -750,7 +753,6 @@ export function Sidebar() {
                 <div ref={accountMenuRef} className="absolute bottom-[66px] left-2 right-2 z-50">
                   <AccountMenu
                     userLabel={userLabel}
-                    avatarUrl={user?.avatarUrl}
                     isAdmin={isAdmin}
                     onClose={() => setAccountMenuOpen(false)}
                     onOpenSettings={openSettings}

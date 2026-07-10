@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { adminRevokeShare, listAllShares } from '../../api/shares'
-import { ExternalLinkIcon } from '../../chat/icons'
+import { ExternalLinkIcon, ShareIcon } from '../../chat/icons'
 import { Badge } from '../../components/ui/Badge'
+import { EmptyState } from '../../components/ui/EmptyState'
+import { PageHeader } from '../../components/ui/PageHeader'
 import { Spinner } from '../../components/ui/Spinner'
 import {
   tableBody,
@@ -33,16 +35,14 @@ export default function SharesPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">分享管理</h1>
+      <PageHeader title="分享管理" description="查看全站分享链接并可随时撤销。" />
 
       {isLoading ? (
         <div className="py-16 text-center">
           <Spinner className="h-6 w-6 text-neutral-400" />
         </div>
       ) : !shares?.length ? (
-        <div className="rounded-2xl border border-dashed border-neutral-300 py-16 text-center text-sm text-neutral-500 dark:border-neutral-700">
-          暂无分享
-        </div>
+        <EmptyState icon={ShareIcon} title="暂无分享" />
       ) : (
         <div className={tableScroll}>
           <div className={`${tableShell} min-w-[760px]`}>

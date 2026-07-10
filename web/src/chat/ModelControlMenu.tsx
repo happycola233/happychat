@@ -1,7 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { clsx } from 'clsx'
-import { Check, ChevronDown, Globe, Pin } from 'lucide-react'
+import { Check, ChevronDown, Globe, Info, Pin } from 'lucide-react'
 import type { ModelDTO } from '@shared/types/api'
 import {
   effectiveReasoningEffort,
@@ -15,6 +15,8 @@ import {
   parseImageSize,
   validateGptImage2Size,
 } from '@shared/util/imageSize'
+import { ModelTagList } from '../components/ModelTags'
+import { useHeightTransition } from '../hooks/useHeightTransition'
 import { useModels } from '../hooks/useModels'
 import { useChatPrefs } from '../store/chat'
 import { useIsMobile } from '../store/sidebar'
@@ -332,7 +334,7 @@ function ImageParamsSection({ sheet }: { sheet: boolean }) {
         <button
           type="button"
           onClick={applyCustom}
-          className="flex h-8 w-9 shrink-0 items-center justify-center rounded-lg bg-neutral-900 text-white transition hover:bg-neutral-700 dark:bg-white dark:text-neutral-900"
+          className="flex h-8 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-500 text-white transition hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-500"
           aria-label="应用自定义分辨率"
           title="应用"
         >
@@ -365,6 +367,54 @@ function ImageParamsSection({ sheet }: { sheet: boolean }) {
   )
 }
 
+/**
+ * 桌面端模型描述提示：ⓘ 悬停/聚焦时经 portal 显示浮动气泡
+ * （列表内部滚动会裁剪 absolute 子元素，必须用 fixed + portal 逃逸）。
+ */
+function ModelInfoTip({ name, description }: { name: string; description: string }) {
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null)
+
+  const show = () => {
+    const rect = buttonRef.current?.getBoundingClientRect()
+    if (rect) setAnchor({ x: rect.left + rect.width / 2, y: rect.top - 6 })
+  }
+  const hide = () => setAnchor(null)
+
+  // 气泡 max-w-64（256px）：水平方向按半宽夹取，避免贴边溢出。
+  const clampedX = anchor
+    ? Math.min(Math.max(anchor.x, 8 + 128), window.innerWidth - 8 - 128)
+    : 0
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-label={`查看模型「${name}」的描述`}
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        onFocus={show}
+        onBlur={hide}
+        className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-neutral-400 transition hover:text-neutral-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 dark:text-neutral-500 dark:hover:text-neutral-300"
+      >
+        <Info className="h-3.5 w-3.5" />
+      </button>
+      {anchor &&
+        createPortal(
+          <div
+            role="tooltip"
+            style={{ left: clampedX, top: anchor.y }}
+            className="hc-pop-in fixed z-[70] max-w-64 -translate-x-1/2 -translate-y-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs leading-5 text-neutral-600 shadow-lg dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300"
+          >
+            {description}
+          </div>,
+          document.body,
+        )}
+    </>
+  )
+}
+
 /** 模型列表：唯一允许内部滚动的分区，打开时自动把选中项滚进可视区。 */
 function ModelListSection({
   models,
@@ -378,6 +428,8 @@ function ModelListSection({
   sheet: boolean
 }) {
   const listRef = useRef<HTMLDivElement>(null)
+  // 移动端点按 ⓘ 展开的模型描述（一次只展开一条）。
+  const [openDescriptionId, setOpenDescriptionId] = useState<string | null>(null)
 
   // 菜单打开即挂载本组件：首帧把选中模型滚进列表可视区，长列表不用找。
   useLayoutEffect(() => {
@@ -390,24 +442,62 @@ function ModelListSection({
       <div ref={listRef} className="hc-scrollbar min-h-0 flex-1 overflow-y-auto">
         {models.map((m) => {
           const selected = m.id === activeModelId
+          const descriptionOpen = sheet && openDescriptionId === m.id
           return (
-            <button
-              key={m.id}
-              type="button"
-              data-active={selected || undefined}
-              onClick={() => onSelectModel(m.id)}
-              className={clsx(
-                'flex w-full items-center gap-2 rounded-lg px-3 text-left text-sm transition hover:bg-neutral-100 dark:hover:bg-neutral-800',
-                sheet ? 'py-2.5' : 'py-2',
-                selected && 'bg-neutral-100 dark:bg-neutral-800',
+            <div key={m.id} data-active={selected || undefined}>
+              <div
+                className={clsx(
+                  'flex items-center rounded-lg transition hover:bg-neutral-100 dark:hover:bg-neutral-800',
+                  selected && 'bg-neutral-100 dark:bg-neutral-800',
+                )}
+              >
+                <button
+                  type="button"
+                  onClick={() => onSelectModel(m.id)}
+                  className={clsx(
+                    'flex min-w-0 flex-1 items-center gap-2 rounded-lg px-3 text-left text-sm',
+                    sheet ? 'py-2.5' : 'py-2',
+                  )}
+                >
+                  <span className="min-w-0 shrink truncate text-neutral-800 dark:text-neutral-100">
+                    {m.displayName}
+                  </span>
+                  <ModelTagList tags={m.tags} />
+                  {m.kind === 'image' && (
+                    <span className="shrink-0 text-xs text-neutral-400">生图</span>
+                  )}
+                  {selected && (
+                    <Check className="ml-auto h-4 w-4 shrink-0 text-neutral-500 dark:text-neutral-400" />
+                  )}
+                </button>
+                {m.description &&
+                  (sheet ? (
+                    <button
+                      type="button"
+                      aria-expanded={descriptionOpen}
+                      aria-label={`查看模型「${m.displayName}」的描述`}
+                      onClick={() =>
+                        setOpenDescriptionId(descriptionOpen ? null : m.id)
+                      }
+                      className={clsx(
+                        'mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition',
+                        descriptionOpen
+                          ? 'text-neutral-700 dark:text-neutral-200'
+                          : 'text-neutral-400 dark:text-neutral-500',
+                      )}
+                    >
+                      <Info className="h-4 w-4" />
+                    </button>
+                  ) : (
+                    <ModelInfoTip name={m.displayName} description={m.description} />
+                  ))}
+              </div>
+              {descriptionOpen && m.description && (
+                <div className="px-3 pb-2 pt-1 text-xs leading-5 text-neutral-500 dark:text-neutral-400">
+                  {m.description}
+                </div>
               )}
-            >
-              <span className="min-w-0 flex-1 truncate text-neutral-800 dark:text-neutral-100">
-                {m.displayName}
-              </span>
-              {m.kind === 'image' && <span className="shrink-0 text-xs text-neutral-400">生图</span>}
-              {selected && <Check className="h-4 w-4 shrink-0 text-neutral-500 dark:text-neutral-400" />}
-            </button>
+            </div>
           )
         })}
       </div>
@@ -482,10 +572,22 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
   // 桌面弹层实际方向与限高：首选方向空间不足且对侧更宽裕时翻转，再按所选方向的空间限高。
   const [effectivePlacement, setEffectivePlacement] = useState<MenuPlacement>(placement)
   const [menuMaxHeight, setMenuMaxHeight] = useState<number | null>(null)
+  /**
+   * 侧向弹层的水平锚点（距触发器右缘的 right 偏移）：打开时按当时的触发器宽度冻结。
+   * 触发器右缘在输入框里是稳定的，标签文字（模型名/思考深度）变化只会改左缘——
+   * 若按左缘锚定（right-full），切换选项就会带着整个面板左右晃动。
+   */
+  const [menuSideOffset, setMenuSideOffset] = useState<number | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
+  const desktopPanelRef = useRef<HTMLDivElement>(null)
   const mobileDialogRef = useRef<HTMLDivElement>(null)
   const menuId = useId()
+
+  const model = models?.find((m) => m.id === activeModelId)
+  // 切换模型后分区增减（思考/联网/图片参数）会改变面板尺寸：让高度平滑过渡而非跳变。
+  useHeightTransition(desktopPanelRef, model?.id)
+  useHeightTransition(mobileDialogRef, model?.id)
 
   useLayoutEffect(() => {
     if (!open || !isMobile) return
@@ -503,6 +605,7 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
         const half = Math.min(center - 12, window.innerHeight - center - 12)
         setEffectivePlacement('left')
         setMenuMaxHeight(Math.max(180, Math.floor(half * 2)))
+        setMenuSideOffset(rect.width + 8)
         return
       }
       const spaceAbove = rect.top - 12
@@ -582,7 +685,6 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
     return <span className="px-2 text-sm text-neutral-400">暂无可用模型</span>
   }
 
-  const model = models.find((m) => m.id === activeModelId)
   const isImage = model?.kind === 'image'
   const showReasoning = Boolean(
     model && !isImage && model.capabilities.reasoning && model.allowedEfforts.length > 0,
@@ -606,13 +708,16 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
   const menuPositionClass = clsx(
     'absolute z-40',
     effectivePlacement === 'left'
-      ? // 贴触发器左侧、竖直居中；align 对侧向弹层无意义（不参与水平对齐）。
-        'right-full mr-2 top-1/2 -translate-y-1/2'
+      ? // 贴触发器左侧、竖直居中；水平位置用打开时冻结的 right 偏移（见 menuSideOffset）。
+        'top-1/2 -translate-y-1/2'
       : clsx(
           effectivePlacement === 'up' ? 'bottom-full mb-2' : 'top-full mt-2',
           align === 'end' ? 'right-0' : 'left-0',
         ),
   )
+  // 侧向弹层首帧 syncPosition 尚未跑完时回退到等价的 right-full + mr-2。
+  const menuPositionStyle =
+    effectivePlacement === 'left' ? { right: menuSideOffset ?? 'calc(100% + 0.5rem)' } : undefined
 
   return (
     <div ref={rootRef} className="relative">
@@ -656,9 +761,10 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
       </button>
 
       {open && !isMobile && (
-        <div className={menuPositionClass}>
+        <div className={menuPositionClass} style={menuPositionStyle}>
           <div
             id={menuId}
+            ref={desktopPanelRef}
             role="dialog"
             aria-label="模型与参数"
             className="hc-pop-in hc-scrollbar flex max-h-[min(70vh,32rem)] w-80 max-w-[calc(100vw-1.5rem)] flex-col overflow-y-auto rounded-2xl border border-neutral-200 bg-white text-neutral-700 shadow-[0_12px_40px_rgb(0_0_0/0.14)] dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:shadow-[0_12px_40px_rgb(0_0_0/0.45)]"

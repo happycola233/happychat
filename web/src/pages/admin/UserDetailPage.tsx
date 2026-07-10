@@ -7,6 +7,7 @@ import { getUsageEvents, getUserStats } from '../../api/admin'
 import { StatCard } from '../../components/ui/StatCard'
 import { Badge } from '../../components/ui/Badge'
 import { Pagination } from '../../components/ui/Pagination'
+import { cardSurface } from '../../components/ui/Card'
 import { Spinner } from '../../components/ui/Spinner'
 import {
   tableBody,
@@ -92,7 +93,7 @@ export default function UserDetailPage() {
             <StatCard label="最近活跃" value={formatRelative(stat.lastActive)} />
           </div>
 
-          <div className="rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+          <div className={`${cardSurface} p-5`}>
             <div className="text-xs text-neutral-500 dark:text-neutral-400">常用模型</div>
             <div className="mt-1 text-sm text-neutral-800 dark:text-neutral-200">
               {stat.topModels.length

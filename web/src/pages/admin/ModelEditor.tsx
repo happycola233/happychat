@@ -14,9 +14,14 @@ import {
   createReasoningEffortDraft,
   validateReasoningEffortDrafts,
 } from './reasoningEffortDrafts'
+import { TagsInput } from './TagsInput'
 
 const fieldClass =
-  'w-full rounded-xl border border-neutral-300 bg-white px-3.5 py-2.5 text-sm outline-none transition focus:border-neutral-900 focus:ring-2 focus:ring-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100'
+  'w-full rounded-xl border border-neutral-300 bg-white px-3.5 py-2.5 text-sm outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100'
+
+/** 紧凑输入：参数/定价这类短数值多列排布用，避免一屏全是大输入框。 */
+const compactFieldClass =
+  'w-full rounded-lg border border-neutral-300 bg-white px-2.5 py-1.5 text-sm tabular-nums outline-none transition placeholder:text-neutral-400 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100'
 
 type EditableCapability = Exclude<keyof ModelCapabilities, 'image_generation'>
 
@@ -131,6 +136,8 @@ export function ModelEditor({
   const [providerId, setProviderId] = useState(model?.providerId ?? '')
   const [modelId, setModelId] = useState(model?.modelId ?? '')
   const [displayName, setDisplayName] = useState(model?.displayName ?? '')
+  const [description, setDescription] = useState(model?.description ?? '')
+  const [tags, setTags] = useState<string[]>(model?.tags ?? [])
   const [enabled, setEnabled] = useState(model?.enabled ?? true)
   const [promptCacheRetentionEnabled, setPromptCacheRetentionEnabled] = useState(
     model?.promptCacheRetentionEnabled ?? false,
@@ -193,6 +200,8 @@ export function ModelEditor({
       const capabilities: ModelCapabilities = { ...caps, image_generation: kind === 'image' }
       const shared = {
         displayName,
+        description: description.trim() || null,
+        tags,
         kind,
         promptCacheRetentionEnabled: kind === 'image' ? false : promptCacheRetentionEnabled,
         capabilities,
@@ -333,14 +342,29 @@ export function ModelEditor({
             </select>
           </Field>
 
+          <Field label="模型描述（可选）">
+            <textarea
+              className={`${fieldClass} min-h-[72px] resize-y leading-6`}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              maxLength={500}
+              placeholder="用户在模型选择器中点击 ⓘ 可查看，例如：适合复杂推理与长文写作"
+            />
+          </Field>
+
+          <Field label="标签（可选）">
+            <TagsInput tags={tags} onChange={setTags} />
+          </Field>
+
           <ToggleRow label="在用户端启用" checked={enabled} onChange={setEnabled} />
         </FormSection>
 
         {/* ============ 能力 ============ */}
         <FormSection title="能力">
-          <div className="space-y-2.5">
+          {/* 两列开关：四项能力收进两行，缩短长表单。 */}
+          <div className="grid grid-cols-1 gap-x-8 gap-y-2.5 sm:grid-cols-2">
             {EDITABLE_CAP_KEYS.map((k) => (
-              <label key={k} className="flex items-center justify-between text-sm">
+              <label key={k} className="flex items-center justify-between gap-3 text-sm">
                 <span className="text-neutral-600 dark:text-neutral-300">{CAP_LABELS[k]}</span>
                 <Toggle checked={caps[k]} onChange={() => toggleCap(k)} />
               </label>
@@ -429,10 +453,10 @@ export function ModelEditor({
         {/* ============ 默认参数（仅 responses） ============ */}
         {kind === 'responses' && (
           <FormSection title="默认参数" hint="用户未覆盖时使用；留空表示交给上游默认。">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 sm:grid-cols-4">
               <SmallField label="temperature">
                 <input
-                  className={fieldClass}
+                  className={compactFieldClass}
                   type="number"
                   step="0.1"
                   value={params.temperature ?? ''}
@@ -444,7 +468,7 @@ export function ModelEditor({
               </SmallField>
               <SmallField label="top_p">
                 <input
-                  className={fieldClass}
+                  className={compactFieldClass}
                   type="number"
                   step="0.05"
                   value={params.top_p ?? ''}
@@ -454,7 +478,7 @@ export function ModelEditor({
               </SmallField>
               <SmallField label="verbosity">
                 <select
-                  className={fieldClass}
+                  className={compactFieldClass}
                   value={params.verbosity ?? ''}
                   onChange={(e) =>
                     setParams((p) => ({
@@ -471,7 +495,7 @@ export function ModelEditor({
               </SmallField>
               <SmallField label="max_output_tokens">
                 <input
-                  className={fieldClass}
+                  className={compactFieldClass}
                   type="number"
                   value={params.max_output_tokens ?? ''}
                   onChange={(e) =>
@@ -489,66 +513,30 @@ export function ModelEditor({
           title="定价"
           hint="USD / 每 100 万 tokens，用于成本估算；缓存写入、读取均是总输入的子项，其价格留空时回退到普通输入价；其他价格留空不计。"
         >
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <SmallField label="普通输入 input">
-              <input
-                className={fieldClass}
-                type="number"
-                step="any"
-                min="0"
-                value={pricing.input ?? ''}
-                onChange={(e) => setPricing((p) => ({ ...p, input: numOrUndef(e.target.value) }))}
-                placeholder="未设置"
-              />
-            </SmallField>
-            <SmallField label="输出 output">
-              <input
-                className={fieldClass}
-                type="number"
-                step="any"
-                min="0"
-                value={pricing.output ?? ''}
-                onChange={(e) => setPricing((p) => ({ ...p, output: numOrUndef(e.target.value) }))}
-                placeholder="未设置"
-              />
-            </SmallField>
-            <SmallField label="缓存读取 cache read">
-              <input
-                className={fieldClass}
-                type="number"
-                step="any"
-                min="0"
-                value={pricing.cachedInput ?? ''}
-                onChange={(e) =>
-                  setPricing((p) => ({ ...p, cachedInput: numOrUndef(e.target.value) }))
-                }
-                placeholder="未设置"
-              />
-            </SmallField>
-            <SmallField label="缓存写入 cache write">
-              <input
-                className={fieldClass}
-                type="number"
-                step="any"
-                min="0"
-                value={pricing.cacheWriteInput ?? ''}
-                onChange={(e) =>
-                  setPricing((p) => ({ ...p, cacheWriteInput: numOrUndef(e.target.value) }))
-                }
-                placeholder="未设置"
-              />
-            </SmallField>
-            <SmallField label="图片 image">
-              <input
-                className={fieldClass}
-                type="number"
-                step="any"
-                min="0"
-                value={pricing.image ?? ''}
-                onChange={(e) => setPricing((p) => ({ ...p, image: numOrUndef(e.target.value) }))}
-                placeholder="未设置"
-              />
-            </SmallField>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 sm:grid-cols-3">
+            {(
+              [
+                ['input', '普通输入 input'],
+                ['output', '输出 output'],
+                ['cachedInput', '缓存读取 cache read'],
+                ['cacheWriteInput', '缓存写入 cache write'],
+                ['image', '图片 image'],
+              ] as const
+            ).map(([key, label]) => (
+              <SmallField key={key} label={label}>
+                <input
+                  className={compactFieldClass}
+                  type="number"
+                  step="any"
+                  min="0"
+                  value={pricing[key] ?? ''}
+                  onChange={(e) =>
+                    setPricing((p) => ({ ...p, [key]: numOrUndef(e.target.value) }))
+                  }
+                  placeholder="未设置"
+                />
+              </SmallField>
+            ))}
           </div>
         </FormSection>
 

@@ -4,6 +4,7 @@ import type {
   AdminUserDTO,
   AnalyticsDTO,
   ErrorLogDTO,
+  ImportModelsResult,
   InviteCodeDTO,
   OverviewDTO,
   Paginated,
@@ -12,11 +13,13 @@ import type {
   ProviderTestResult,
   StatsDTO,
   SyncModelsResult,
+  UpstreamCatalogModelDTO,
   UsageLogDTO,
   UserStatDTO,
 } from '@shared/types/api'
 import type {
   ModelCreateInput,
+  ModelImportInput,
   ModelReorderInput,
   ModelUpdateInput,
   ProviderCreateInput,
@@ -61,6 +64,12 @@ export const deleteProvider = (id: string) => apiDelete<{ ok: true }>(`/admin/pr
 export const testProvider = (id: string) =>
   apiPost<ProviderTestResult>(`/admin/providers/${id}/test`)
 export const syncModels = (id: string) => apiPost<SyncModelsResult>(`/admin/providers/${id}/sync`)
+export const getProviderCatalog = (id: string) =>
+  apiGet<{ models: UpstreamCatalogModelDTO[] }>(`/admin/providers/${id}/catalog`).then(
+    (r) => r.models,
+  )
+export const importProviderModels = (id: string, input: ModelImportInput) =>
+  apiPost<ImportModelsResult>(`/admin/providers/${id}/import-models`, input)
 
 export const listAdminModels = () =>
   apiGet<{ models: AdminModelDTO[] }>('/admin/models').then((r) => r.models)

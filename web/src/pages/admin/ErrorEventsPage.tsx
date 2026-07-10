@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query'
 import type { ErrorLogDTO, Paginated } from '@shared/types/api'
 import { getErrorEvents } from '../../api/admin'
 import { DateRangePicker } from '../../components/ui/DateRangePicker'
+import { EmptyState } from '../../components/ui/EmptyState'
+import { PageHeader } from '../../components/ui/PageHeader'
 import { type RangeKey } from '../../lib/dateRange'
 import { Select } from '../../components/ui/Select'
 import { TextField } from '../../components/ui/TextField'
@@ -71,7 +73,7 @@ export default function ErrorEventsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">错误日志</h1>
+      <PageHeader title="错误日志" />
 
       <div className="flex flex-wrap items-center gap-3">
         <DateRangePicker
@@ -106,9 +108,7 @@ export default function ErrorEventsPage() {
           <Spinner className="h-6 w-6 text-neutral-400" />
         </div>
       ) : items.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-neutral-300 py-16 text-center text-sm text-neutral-500 dark:border-neutral-700">
-          暂无错误日志 🎉
-        </div>
+        <EmptyState title="暂无错误日志 🎉" />
       ) : (
         <div className="space-y-4">
           <Pagination

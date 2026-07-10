@@ -10,7 +10,9 @@ import {
 } from '../../api/announcements'
 import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
+import { EmptyState } from '../../components/ui/EmptyState'
 import { Modal } from '../../components/ui/Modal'
+import { PageHeader } from '../../components/ui/PageHeader'
 import { Spinner } from '../../components/ui/Spinner'
 import { tableScroll, tableShell } from '../../components/ui/tableStyles'
 import {
@@ -20,6 +22,7 @@ import {
   LEVEL_META,
   PHASE_META,
 } from '../../lib/announcementMeta'
+import { askConfirm } from '../../store/confirm'
 import { toast } from '../../store/toast'
 import { DeleteIcon } from '../../chat/icons'
 import { AnnouncementEditor } from './AnnouncementEditor'
@@ -109,32 +112,35 @@ export default function AnnouncementsPage() {
   })
 
   return (
-    <div className="mx-auto max-w-5xl">
-      <div className="mb-6 flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">公告</h1>
-          <p className="mt-1 text-sm text-neutral-500">
-            发布站内公告：Markdown 正文、级别配色、触达渠道（铃铛 / 横幅 / 强弹窗）、定时发布与过期。
-          </p>
-        </div>
-        <Button className="shrink-0" onClick={openCreate}>
-          <Plus className="h-4 w-4" /> 新建公告
-        </Button>
-      </div>
+    <div className="mx-auto max-w-5xl space-y-5">
+      <PageHeader
+        title="公告"
+        description="发布站内公告：Markdown 正文、级别配色、触达渠道（铃铛 / 横幅 / 强弹窗）、定时发布与过期。"
+        actions={
+          <Button onClick={openCreate}>
+            <Plus className="h-4 w-4" /> 新建公告
+          </Button>
+        }
+      />
 
       {isLoading ? (
         <div className="py-16 text-center">
           <Spinner className="h-6 w-6 text-neutral-400" />
         </div>
       ) : !list?.length ? (
-        <div className="rounded-2xl border border-dashed border-neutral-300 py-16 text-center text-sm text-neutral-500 dark:border-neutral-700">
-          还没有公告，点右上角「新建公告」开始。
-        </div>
+        <EmptyState
+          title="还没有公告"
+          action={
+            <Button variant="secondary" className="!px-3 !py-1.5 text-xs" onClick={openCreate}>
+              <Plus className="h-3.5 w-3.5" /> 新建公告
+            </Button>
+          }
+        />
       ) : (
         <div className={tableScroll}>
           <div className={`${tableShell} min-w-[820px]`}>
             <table className="w-full text-sm">
-              <thead className="border-b border-neutral-200 bg-neutral-50 text-left text-xs text-neutral-500 dark:border-neutral-800 dark:bg-neutral-800/50 dark:text-neutral-400">
+              <thead className="border-b border-neutral-200 text-left text-xs text-neutral-400 dark:border-neutral-800 dark:text-neutral-500">
                 <tr>
                   <th className="px-4 py-3 font-medium">公告</th>
                   <th className="px-4 py-3 font-medium">渠道</th>
@@ -199,10 +205,13 @@ export default function AnnouncementsPage() {
                             variant="ghost"
                             className="!px-2.5 !py-1 text-xs"
                             onClick={() => {
-                              if (
-                                confirm(`重置公告「${a.title}」的已读状态？将对全部受众重新推送。`)
-                              )
-                                resetReads.mutate(a.id)
+                              void askConfirm({
+                                title: '重置已读状态？',
+                                description: `公告「${a.title}」的已读回执将被清空，并对全部受众重新推送。`,
+                                confirmLabel: '重置并推送',
+                              }).then((ok) => {
+                                if (ok) resetReads.mutate(a.id)
+                              })
                             }}
                             title="重置已读（重新推送）"
                           >
@@ -219,7 +228,14 @@ export default function AnnouncementsPage() {
                             variant="ghost"
                             className="!px-2.5 !py-1 text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30"
                             onClick={() => {
-                              if (confirm(`确定删除公告「${a.title}」？`)) remove.mutate(a.id)
+                              void askConfirm({
+                                title: '删除公告？',
+                                description: `公告「${a.title}」将被永久删除，且无法恢复。`,
+                                confirmLabel: '删除',
+                                tone: 'danger',
+                              }).then((ok) => {
+                                if (ok) remove.mutate(a.id)
+                              })
                             }}
                           >
                             <DeleteIcon className="h-3.5 w-3.5" />

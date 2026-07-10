@@ -54,7 +54,7 @@ const STATUS_OPTIONS: { value: AnnouncementStatus; label: string }[] = [
 ]
 
 const textareaClass =
-  'h-full min-h-[260px] w-full resize-y rounded-xl border border-neutral-300 bg-white px-3.5 py-2.5 font-mono text-[13px] leading-6 text-neutral-800 outline-none transition focus:border-neutral-900 focus:ring-2 focus:ring-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100'
+  'h-full min-h-[260px] w-full resize-y rounded-xl border border-neutral-300 bg-white px-3.5 py-2.5 font-mono text-[13px] leading-6 text-neutral-800 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100'
 
 export function AnnouncementEditor({ announcement, onClose }: Props) {
   const qc = useQueryClient()
@@ -228,7 +228,7 @@ export function AnnouncementEditor({ announcement, onClose }: Props) {
                 onChange={(e) =>
                   setMaxImpressions(Math.min(20, Math.max(1, Math.floor(Number(e.target.value) || 1))))
                 }
-                className="w-20 shrink-0 rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-center text-sm text-neutral-800 outline-none transition focus:border-neutral-900 focus:ring-2 focus:ring-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+                className="w-20 shrink-0 rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-center text-sm text-neutral-800 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
               />
             </div>
           )}
@@ -243,7 +243,7 @@ export function AnnouncementEditor({ announcement, onClose }: Props) {
           {scheduled && (
             <input
               type="datetime-local"
-              className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-sm text-neutral-800 outline-none transition focus:border-neutral-900 focus:ring-2 focus:ring-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+              className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-sm text-neutral-800 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
               value={publishAt}
               onChange={(e) => setPublishAt(e.target.value)}
             />
@@ -259,7 +259,7 @@ export function AnnouncementEditor({ announcement, onClose }: Props) {
           {hasExpiry && (
             <input
               type="datetime-local"
-              className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-sm text-neutral-800 outline-none transition focus:border-neutral-900 focus:ring-2 focus:ring-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+              className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-sm text-neutral-800 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
               value={expiresAt}
               onChange={(e) => setExpiresAt(e.target.value)}
             />

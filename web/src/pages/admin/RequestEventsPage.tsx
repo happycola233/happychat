@@ -8,6 +8,8 @@ import {
 } from '../../api/admin'
 import { Badge } from '../../components/ui/Badge'
 import { DateRangePicker } from '../../components/ui/DateRangePicker'
+import { EmptyState } from '../../components/ui/EmptyState'
+import { PageHeader } from '../../components/ui/PageHeader'
 import { type RangeKey } from '../../lib/dateRange'
 import { Pagination } from '../../components/ui/Pagination'
 import { Select, type SelectOption } from '../../components/ui/Select'
@@ -92,7 +94,7 @@ export default function RequestEventsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">请求事件</h1>
+      <PageHeader title="请求事件" />
 
       <div className="flex flex-wrap items-end gap-3">
         <DateRangePicker
@@ -145,9 +147,7 @@ export default function RequestEventsPage() {
           <Spinner className="h-6 w-6 text-neutral-400" />
         </div>
       ) : !data?.items.length ? (
-        <div className="rounded-2xl border border-dashed border-neutral-300 py-16 text-center text-sm text-neutral-500 dark:border-neutral-700">
-          暂无请求事件
-        </div>
+        <EmptyState title="暂无请求事件" />
       ) : (
         <div className="space-y-4">
           <Pagination
@@ -161,7 +161,7 @@ export default function RequestEventsPage() {
             }}
           />
           <div className={tableScroll}>
-            <div className={`${tableShell} min-w-[1080px]`}>
+            <div className={`${tableShell} min-w-[1180px]`}>
               <table className={tableEl}>
                 <thead className={tableHead}>
                   <tr>
@@ -186,13 +186,13 @@ export default function RequestEventsPage() {
                       <td className={`${td} whitespace-nowrap text-neutral-600 dark:text-neutral-300`}>
                         {formatDateTime(row.createdAt)}
                       </td>
-                      <td className={`${td} text-neutral-700 dark:text-neutral-200`}>
+                      <td className={`${td} whitespace-nowrap text-neutral-700 dark:text-neutral-200`}>
                         {row.username ?? '—'}
                       </td>
-                      <td className={`${td} text-neutral-700 dark:text-neutral-200`}>
+                      <td className={`${td} whitespace-nowrap text-neutral-700 dark:text-neutral-200`}>
                         {row.modelLabel ?? '—'}
                       </td>
-                      <td className={`${td} text-neutral-700 dark:text-neutral-200`}>
+                      <td className={`${td} whitespace-nowrap text-neutral-700 dark:text-neutral-200`}>
                         {row.providerLabel ?? '—'}
                       </td>
                       <td className={`${td} tabular-nums text-neutral-600 dark:text-neutral-300`}>

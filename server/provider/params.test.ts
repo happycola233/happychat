@@ -10,6 +10,8 @@ function model(overrides: Partial<ModelForBuild> = {}): ModelForBuild {
     providerId: 'provider-1',
     modelId: 'gpt-test',
     displayName: 'GPT Test',
+    description: null,
+    tags: null,
     kind: 'responses',
     enabled: true,
     promptCacheRetentionEnabled: false,

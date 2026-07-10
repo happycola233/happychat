@@ -206,6 +206,13 @@ export function Composer({
       setMultiline(false)
       return
     }
+    // 显式换行必然多行。镜像是 pre-wrap 的 div，行尾换行符不会像 textarea 那样
+    // 产生新行盒（scrollHeight 不变），只靠镜像会漏判「第二行是空行」的情形，
+    // 表现为盒子已两行高但布局仍是单行、两侧控件被垂直居中。
+    if (text.includes('\n')) {
+      setMultiline(true)
+      return
+    }
     const mirror = mirrorRef.current
     const grid = gridRef.current
     if (!mirror || !grid) return

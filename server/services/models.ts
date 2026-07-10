@@ -17,6 +17,8 @@ export function toModelDTO(m: ModelRow): ModelDTO {
     displayName: m.displayName,
     kind: m.kind,
     capabilities: m.capabilities,
+    description: m.description ?? null,
+    tags: m.tags ?? [],
     // API 只公开规范对象；旧 string[] 记录在这里无损升级，保留原顺序和子集。
     allowedEfforts: normalizeReasoningEffortOptions(m.allowedEfforts),
     defaultEffort: m.defaultEffort ?? null,
@@ -116,9 +118,12 @@ export async function listAdminModels(): Promise<AdminModelDTO[]> {
 
 export type CreateModelResult =
   | { ok: true; model: AdminModelDTO }
-  | { ok: false; code: 'provider_missing' | 'duplicate' }
+  | { ok: false; code: 'provider_missing' }
 
-/** 手动添加模型：校验供应商存在、(providerId, modelId) 不重复后入库。 */
+/**
+ * 手动添加模型：校验供应商存在后入库。
+ * 同一供应商下允许多条同 modelId 记录（参数不同视为不同的模型实例）。
+ */
 export async function createModel(input: ModelCreateInput): Promise<CreateModelResult> {
   const [provider] = await db
     .select()
@@ -127,13 +132,6 @@ export async function createModel(input: ModelCreateInput): Promise<CreateModelR
     .limit(1)
   if (!provider) return { ok: false, code: 'provider_missing' }
 
-  const [existing] = await db
-    .select({ id: models.id })
-    .from(models)
-    .where(and(eq(models.providerId, input.providerId), eq(models.modelId, input.modelId)))
-    .limit(1)
-  if (existing) return { ok: false, code: 'duplicate' }
-
   const row = must(
     await db
       .insert(models)
@@ -141,6 +139,8 @@ export async function createModel(input: ModelCreateInput): Promise<CreateModelR
         providerId: input.providerId,
         modelId: input.modelId,
         displayName: input.displayName,
+        description: input.description ?? null,
+        tags: input.tags,
         kind: input.kind,
         enabled: input.enabled,
         promptCacheRetentionEnabled: input.promptCacheRetentionEnabled,

@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import { deleteConversation, pinConversation, renameConversation } from '../api/chat'
+import { askConfirm } from '../store/confirm'
 import { toast } from '../store/toast'
 
 /** 会话操作（删除/置顶/重命名），侧栏行内菜单与聊天顶栏三点菜单共用。 */
@@ -36,7 +37,14 @@ export function useConversationActions() {
   })
 
   const deleteWithConfirm = (conversationId: string) => {
-    if (confirm('确定删除该会话？')) remove.mutate(conversationId)
+    void askConfirm({
+      title: '删除聊天？',
+      description: '该聊天及其全部消息、附件将被永久删除，且无法恢复。',
+      confirmLabel: '删除',
+      tone: 'danger',
+    }).then((confirmed) => {
+      if (confirmed) remove.mutate(conversationId)
+    })
   }
 
   const togglePin = (conversationId: string, pinned: boolean) => {

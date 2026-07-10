@@ -24,6 +24,22 @@ export function defaultReasoningEffortDescription(value: string): string {
   return DEFAULT_REASONING_EFFORT_OPTIONS.find((option) => option.value === value)?.description ?? value
 }
 
+/**
+ * 内置的聊天标题总结提示词。管理端「系统设置」把它作为已填写的初始值展示，
+ * 方便管理员在默认文案基础上直接修改；保存值与它一致时存 null（跟随内置默认）。
+ */
+export const DEFAULT_TITLE_PROMPT = `I will give you some dialogue content in the \`<content>\` block.
+You need to summarize the conversation between user and assistant into a short title.
+1. The title language should be consistent with the user's primary language
+2. Do not use punctuation or other special symbols
+3. Reply directly with the title
+4. Summarize using {locale} language
+5. The title should not exceed 12 characters
+
+<content>
+{content}
+</content>`
+
 /** 开启思考时，max_output_tokens 的下限（为思考 token 预留预算） */
 export const REASONING_MIN_OUTPUT_TOKENS = 25_000
 

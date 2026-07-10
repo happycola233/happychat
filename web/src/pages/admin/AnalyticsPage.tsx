@@ -4,7 +4,9 @@ import { useQuery } from '@tanstack/react-query'
 import type { StatsQuery } from '../../api/admin'
 import { getAnalytics, getUserStats, listAdminModels, listProviders, listUsers } from '../../api/admin'
 import { TrendChart, type SeriesDef } from '../../components/charts'
+import { cardSurface } from '../../components/ui/Card'
 import { DateRangePicker } from '../../components/ui/DateRangePicker'
+import { PageHeader } from '../../components/ui/PageHeader'
 import { rangeToFilter, type RangeKey } from '../../lib/dateRange'
 import { Select, type SelectOption } from '../../components/ui/Select'
 import { Spinner } from '../../components/ui/Spinner'
@@ -36,8 +38,7 @@ const TOKEN_SERIES: SeriesDef[] = [
 const REQUEST_SERIES: SeriesDef[] = [{ key: 'requests', name: '请求', color: '#6366f1' }]
 const COST_SERIES: SeriesDef[] = [{ key: 'costUsd', name: '成本', color: '#10b981' }]
 
-const cardClass =
-  'rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900'
+const cardClass = `${cardSurface} p-5`
 
 export default function AnalyticsPage() {
   const [rangeKey, setRangeKey] = useState<RangeKey>('7d')
@@ -107,10 +108,10 @@ export default function AnalyticsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <h1 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">分析</h1>
-        <DateRangePicker value={rangeKey} onChange={setRangeKey} />
-      </div>
+      <PageHeader
+        title="分析"
+        actions={<DateRangePicker value={rangeKey} onChange={setRangeKey} />}
+      />
 
       <div className="flex flex-wrap items-end gap-3">
         <Select
@@ -186,7 +187,8 @@ export default function AnalyticsPage() {
         </div>
       </div>
 
-      <div className={cardClass}>
+      {/* 表格外壳自带卡片描边，不再套一层卡片（双重边框显得笨重）。 */}
+      <section>
         <h2 className="mb-3 text-sm font-medium text-neutral-700 dark:text-neutral-200">分用户统计</h2>
         {userStatsLoading ? (
           <div className="flex h-40 items-center justify-center">
@@ -260,7 +262,7 @@ export default function AnalyticsPage() {
             </div>
           </div>
         )}
-      </div>
+      </section>
     </div>
   )
 }

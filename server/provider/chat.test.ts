@@ -10,6 +10,8 @@ function model(overrides: Partial<ModelRow> = {}): ModelRow {
     providerId: 'provider-1',
     modelId: 'gpt-test',
     displayName: 'GPT Test',
+    description: null,
+    tags: null,
     kind: 'chat',
     enabled: true,
     promptCacheRetentionEnabled: false,

@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, ne } from 'drizzle-orm'
+import { DEFAULT_TITLE_PROMPT } from '@shared/constants'
 import { textFromContent } from '@shared/util/contentText'
 import { titleLocaleFromBrowser } from '@shared/util/titleLocale'
 import { db } from '../db/client'
@@ -11,18 +12,6 @@ import { conversationEvents } from './conversation-events'
 
 type ModelRow = typeof models.$inferSelect
 type ProviderRow = typeof providers.$inferSelect
-
-export const DEFAULT_TITLE_PROMPT = `I will give you some dialogue content in the \`<content>\` block.
-You need to summarize the conversation between user and assistant into a short title.
-1. The title language should be consistent with the user's primary language
-2. Do not use punctuation or other special symbols
-3. Reply directly with the title
-4. Summarize using {locale} language
-5. The title should not exceed 12 characters
-
-<content>
-{content}
-</content>`
 
 /** 清洗模型输出为标题：去引号/取首行/去尾标点/限长。 */
 export function cleanTitle(raw: string): string {

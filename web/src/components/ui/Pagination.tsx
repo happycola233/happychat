@@ -28,8 +28,7 @@ const btnBase =
   'inline-flex h-8 min-w-8 items-center justify-center rounded-lg border px-2 text-sm tabular-nums transition disabled:cursor-not-allowed disabled:opacity-40'
 const btnIdle =
   'border-neutral-300 text-neutral-700 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800'
-const btnActive =
-  'border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-neutral-900'
+const btnActive = 'border-sky-500 bg-sky-500 text-white'
 
 export function Pagination({
   page,
@@ -57,7 +56,7 @@ export function Pagination({
             <select
               value={pageSize}
               onChange={(e) => onPageSizeChange(Number(e.target.value))}
-              className="rounded-lg border border-neutral-300 bg-white px-2 py-1 text-sm text-neutral-700 outline-none transition focus:border-neutral-900 focus:ring-2 focus:ring-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200 dark:focus:border-neutral-400"
+              className="rounded-lg border border-neutral-300 bg-white px-2 py-1 text-sm text-neutral-700 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200 dark:focus:border-sky-400"
             >
               {pageSizeOptions.map((n) => (
                 <option key={n} value={n}>

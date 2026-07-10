@@ -4,12 +4,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { listMyShares, revokeConversationShare } from '../api/shares'
 import {
+  Camera,
   Check,
   ChevronDown,
   Info,
   MessageSquareText,
+  Share2,
   SlidersHorizontal,
-  Upload,
   UserRound,
   X,
 } from 'lucide-react'
@@ -36,7 +37,10 @@ import {
 import { useSettings } from '../store/settings'
 import { useSettingsDialog, type SettingsTab } from '../store/settingsDialog'
 import { toast } from '../store/toast'
-import { DeleteIcon } from './icons'
+import { copyToClipboard } from '../lib/clipboard'
+import { formatDateTime } from '../lib/format'
+import { AvatarCropDialog } from './AvatarCropDialog'
+import { CopyIcon, DeleteIcon, ExternalLinkIcon } from './icons'
 
 const APP_VERSION = '0.1.0'
 const USERNAME_PATTERN = /^[a-zA-Z0-9_.-]+$/
@@ -60,6 +64,7 @@ const TABS: { id: SettingsTab; label: string; icon: ComponentType<{ className?: 
   { id: 'general', label: '通用', icon: SlidersHorizontal },
   { id: 'messages', label: '消息显示', icon: MessageSquareText },
   { id: 'account', label: '账户', icon: UserRound },
+  { id: 'shares', label: '我的分享', icon: Share2 },
   { id: 'about', label: '关于', icon: Info },
 ]
 
@@ -304,17 +309,43 @@ function MessagesPanel() {
   )
 }
 
-function SectionTitle({ children }: { children: ReactNode }) {
+/** 设置面板内的分区卡片：标题 + 说明 + 内容，账户/分享页共用。 */
+function SectionCard({
+  title,
+  description,
+  danger,
+  children,
+}: {
+  title: string
+  description?: ReactNode
+  danger?: boolean
+  children: ReactNode
+}) {
   return (
-    <h4 className="mb-2 mt-5 text-[12px] font-semibold uppercase tracking-wide text-neutral-400">
-      {children}
-    </h4>
+    <section
+      className={clsx(
+        'rounded-2xl border p-4',
+        danger
+          ? 'border-red-200 dark:border-red-900/40'
+          : 'border-neutral-200 dark:border-neutral-800',
+      )}
+    >
+      <h4 className="text-[13px] font-semibold text-neutral-800 dark:text-neutral-100">{title}</h4>
+      {description && (
+        <p className="mt-0.5 text-[12px] leading-5 text-neutral-400 dark:text-neutral-500">
+          {description}
+        </p>
+      )}
+      <div className="mt-3.5">{children}</div>
+    </section>
   )
 }
 
-function MySharesSection() {
+/** 「我的分享」独立页：链接可复制/打开，可随时停止分享。 */
+function SharesPanel() {
   const qc = useQueryClient()
-  const { data: shares } = useQuery({ queryKey: ['my-shares'], queryFn: listMyShares })
+  const { data: shares, isLoading } = useQuery({ queryKey: ['my-shares'], queryFn: listMyShares })
+  const [copiedId, setCopiedId] = useState<string | null>(null)
   const revoke = useMutation({
     mutationFn: (conversationId: string) => revokeConversationShare(conversationId),
     onSuccess: () => {
@@ -323,40 +354,83 @@ function MySharesSection() {
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : '操作失败'),
   })
+
+  const copyLink = (id: string, token: string) => {
+    void copyToClipboard(`${window.location.origin}/s/${token}`).then((ok) => {
+      if (!ok) {
+        toast.error('复制失败')
+        return
+      }
+      setCopiedId(id)
+      setTimeout(() => setCopiedId((current) => (current === id ? null : current)), 1500)
+    })
+  }
+
+  const active = (shares ?? []).filter((s) => !s.revoked)
+
   return (
-    <>
-      <SectionTitle>我的分享</SectionTitle>
-      {!shares?.length ? (
-        <p className="text-sm text-neutral-400">还没有分享的聊天。</p>
+    <div className="py-4">
+      <p className="text-[12px] leading-5 text-neutral-400 dark:text-neutral-500">
+        分享链接是创建时的快照，对方无需登录即可查看；停止分享后链接立即失效。
+      </p>
+      {isLoading ? null : active.length === 0 ? (
+        <div className="mt-6 flex flex-col items-center gap-2 py-10 text-center">
+          <Share2 className="h-7 w-7 text-neutral-300 dark:text-neutral-600" />
+          <p className="text-sm text-neutral-400">还没有分享的聊天</p>
+          <p className="text-[12px] text-neutral-400 dark:text-neutral-500">
+            在会话右上角的「⋯」菜单里选择「分享」即可创建链接。
+          </p>
+        </div>
       ) : (
-        <div className="space-y-2">
-          {shares.map((s) => (
-            <div
-              key={s.id}
-              className="flex items-center gap-2 rounded-xl border border-neutral-200 px-3 py-2 dark:border-neutral-800"
-            >
-              <a
-                href={`/s/${s.token}`}
-                target="_blank"
-                rel="noreferrer"
-                className="min-w-0 flex-1 truncate text-sm text-neutral-700 hover:underline dark:text-neutral-200"
-              >
-                {s.title ?? '（无标题）'}
-              </a>
-              <span className="shrink-0 text-xs text-neutral-400">
-                {s.expiresAt ? '有期限' : '永久'}
-              </span>
-              <button
-                onClick={() => revoke.mutate(s.conversationId)}
-                className="shrink-0 text-xs text-red-500 hover:text-red-600"
-              >
-                停止
-              </button>
-            </div>
-          ))}
+        <div className="mt-3 overflow-hidden rounded-2xl border border-neutral-200 dark:border-neutral-800">
+          <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
+            {active.map((s) => (
+              <div key={s.id} className="flex items-center gap-2 px-3.5 py-2.5">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm text-neutral-800 dark:text-neutral-100">
+                    {s.title ?? '（无标题）'}
+                  </div>
+                  <div className="mt-0.5 text-[12px] text-neutral-400">
+                    {formatDateTime(s.createdAt)} ·{' '}
+                    {s.expiresAt ? `${formatDateTime(s.expiresAt)} 过期` : '永久有效'}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => copyLink(s.id, s.token)}
+                  aria-label="复制链接"
+                  title="复制链接"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+                >
+                  {copiedId === s.id ? (
+                    <Check className="h-4 w-4 text-emerald-500" />
+                  ) : (
+                    <CopyIcon className="h-4 w-4" />
+                  )}
+                </button>
+                <a
+                  href={`/s/${s.token}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label="打开分享页"
+                  title="打开分享页"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+                >
+                  <ExternalLinkIcon className="h-4 w-4" />
+                </a>
+                <button
+                  type="button"
+                  onClick={() => revoke.mutate(s.conversationId)}
+                  className="shrink-0 rounded-lg px-2 py-1.5 text-xs text-red-500 transition hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30"
+                >
+                  停止分享
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
-    </>
+    </div>
   )
 }
 
@@ -378,11 +452,19 @@ function AccountPanel() {
   const [confirmClear, setConfirmClear] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deletePassword, setDeletePassword] = useState('')
+  // 待裁切图片的 object URL：选择文件后打开裁切对话框，上传/取消后回收。
+  const [cropImageSrc, setCropImageSrc] = useState<string | null>(null)
 
   useEffect(() => {
     setUsername(me?.username ?? '')
     setDisplayName(me?.displayName ?? '')
   }, [me?.displayName, me?.username])
+
+  // 关闭裁切（或组件卸载）时释放 object URL。
+  useEffect(() => {
+    if (!cropImageSrc) return
+    return () => URL.revokeObjectURL(cropImageSrc)
+  }, [cropImageSrc])
 
   const trimmedUsername = username.trim()
   const trimmedDisplayName = displayName.trim()
@@ -394,10 +476,22 @@ function AccountPanel() {
     trimmedUsername !== (me?.username ?? '') || trimmedDisplayName !== (me?.displayName ?? '')
   const canSaveProfile = Boolean(trimmedUsername) && !usernameError && profileChanged
 
+  // 选择文件 → 先进入裁切，而不是直接上传。
   const onPickAvatar = (file: File | undefined) => {
     if (!file) return
+    if (!file.type.startsWith('image/')) {
+      toast.error('请选择图片文件')
+      return
+    }
+    setCropImageSrc(URL.createObjectURL(file))
+  }
+
+  const onCropConfirm = (file: File) => {
     uploadAvatar.mutate(file, {
-      onSuccess: () => toast.success('头像已更新'),
+      onSuccess: () => {
+        toast.success('头像已更新')
+        setCropImageSrc(null)
+      },
       onError: (e) => toast.error(e instanceof Error ? e.message : '上传失败'),
     })
   }
@@ -457,21 +551,9 @@ function AccountPanel() {
   const avatarInitial = (me?.displayName ?? me?.username ?? 'U').slice(0, 1).toLocaleUpperCase()
 
   return (
-    <div className="pb-4">
-      <SectionTitle>个人资料</SectionTitle>
-      <div className="flex items-center gap-4 py-2">
-        {me?.avatarUrl ? (
-          <img
-            src={me.avatarUrl}
-            alt="头像"
-            className="h-16 w-16 rounded-full object-cover"
-          />
-        ) : (
-          <span className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-sky-300 via-indigo-300 to-fuchsia-300 text-xl font-semibold text-white">
-            {avatarInitial}
-          </span>
-        )}
-        <div className="flex flex-wrap gap-2">
+    <div className="space-y-4 py-4">
+      <SectionCard title="个人资料">
+        <div className="flex items-center gap-4">
           <input
             ref={fileRef}
             type="file"
@@ -482,32 +564,56 @@ function AccountPanel() {
               e.target.value = ''
             }}
           />
-          <Button
-            variant="secondary"
-            loading={uploadAvatar.isPending}
+          {/* 头像即入口：点击选图进入裁切，悬停浮现相机遮罩提示可更换。 */}
+          <button
+            type="button"
             onClick={() => fileRef.current?.click()}
+            aria-label="更换头像"
+            title="更换头像"
+            className="group relative h-16 w-16 shrink-0 overflow-hidden rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-neutral-900"
           >
-            <Upload className="h-4 w-4" />
-            上传头像
-          </Button>
-          {me?.avatarUrl && (
-            <Button
-              variant="ghost"
-              loading={removeAvatar.isPending}
-              onClick={() =>
-                removeAvatar.mutate(undefined, {
-                  onSuccess: () => toast.success('已移除头像'),
-                })
-              }
-            >
-              移除
-            </Button>
-          )}
+            {me?.avatarUrl ? (
+              <img src={me.avatarUrl} alt="头像" className="h-full w-full object-cover" />
+            ) : (
+              <span className="flex h-full w-full items-center justify-center bg-gradient-to-br from-sky-300 via-indigo-300 to-fuchsia-300 text-xl font-semibold text-white">
+                {avatarInitial}
+              </span>
+            )}
+            <span className="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+              <Camera className="h-5 w-5 text-white" />
+            </span>
+          </button>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="secondary"
+                className="!px-2.5 !py-1.5 text-xs"
+                onClick={() => fileRef.current?.click()}
+              >
+                更换头像
+              </Button>
+              {me?.avatarUrl && (
+                <Button
+                  variant="ghost"
+                  className="!px-2.5 !py-1.5 text-xs"
+                  loading={removeAvatar.isPending}
+                  onClick={() =>
+                    removeAvatar.mutate(undefined, {
+                      onSuccess: () => toast.success('已移除头像'),
+                    })
+                  }
+                >
+                  移除
+                </Button>
+              )}
+            </div>
+            <p className="mt-1.5 text-[12px] text-neutral-400">
+              支持 PNG / JPG / WebP，上传前可裁切合适的区域。
+            </p>
+          </div>
         </div>
-      </div>
 
-      <div className="mt-3 space-y-3">
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <TextField
             label="用户名"
             value={username}
@@ -522,12 +628,13 @@ function AccountPanel() {
             value={displayName}
             maxLength={48}
             placeholder={me?.username ?? ''}
+            hint="展示给自己与分享页"
             onChange={(e) => setDisplayName(e.target.value)}
           />
         </div>
-        <div className="flex justify-end">
+        <div className="mt-3 flex justify-end">
           <Button
-            variant="secondary"
+            className="!px-3 !py-1.5 text-xs"
             loading={updateProfile.isPending}
             disabled={!canSaveProfile}
             onClick={onSaveProfile}
@@ -535,28 +642,30 @@ function AccountPanel() {
             保存资料
           </Button>
         </div>
-      </div>
+      </SectionCard>
 
-      <SectionTitle>更换密码</SectionTitle>
-      <div className="space-y-2.5">
-        <TextField
-          type="password"
-          label="当前密码"
-          autoComplete="current-password"
-          value={currentPassword}
-          onChange={(e) => setCurrentPassword(e.target.value)}
-        />
-        <TextField
-          type="password"
-          label="新密码"
-          autoComplete="new-password"
-          hint="至少 6 位"
-          value={newPassword}
-          onChange={(e) => setNewPassword(e.target.value)}
-        />
-        <div className="flex justify-end">
+      <SectionCard title="更换密码" description="更新密码后，其它设备上的登录将全部失效。">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <TextField
+            type="password"
+            label="当前密码"
+            autoComplete="current-password"
+            value={currentPassword}
+            onChange={(e) => setCurrentPassword(e.target.value)}
+          />
+          <TextField
+            type="password"
+            label="新密码"
+            autoComplete="new-password"
+            hint="至少 6 位"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+          />
+        </div>
+        <div className="mt-3 flex justify-end">
           <Button
             variant="secondary"
+            className="!px-3 !py-1.5 text-xs"
             loading={changePassword.isPending}
             disabled={currentPassword.length < 1 || newPassword.length < 6}
             onClick={onChangePassword}
@@ -564,13 +673,19 @@ function AccountPanel() {
             更新密码
           </Button>
         </div>
-        <p className="text-[12px] text-neutral-400">更新密码后，其它设备上的登录将全部失效。</p>
-      </div>
+      </SectionCard>
 
-      <MySharesSection />
+      {cropImageSrc && (
+        <AvatarCropDialog
+          imageSrc={cropImageSrc}
+          uploading={uploadAvatar.isPending}
+          onCancel={() => setCropImageSrc(null)}
+          onConfirm={onCropConfirm}
+        />
+      )}
 
-      <SectionTitle>危险操作</SectionTitle>
-      <div className="space-y-3 rounded-xl border border-red-200 p-4 dark:border-red-900/40">
+      <SectionCard title="危险操作" danger>
+        <div className="space-y-3">
         {/* 清除所有对话 */}
         <div className="flex items-center justify-between gap-4">
           <div>
@@ -640,7 +755,8 @@ function AccountPanel() {
             </div>
           )}
         </div>
-      </div>
+        </div>
+      </SectionCard>
     </div>
   )
 }
@@ -733,6 +849,7 @@ export function SettingsDialog() {
             {tab === 'general' && <GeneralPanel />}
             {tab === 'messages' && <MessagesPanel />}
             {tab === 'account' && <AccountPanel />}
+            {tab === 'shares' && <SharesPanel />}
             {tab === 'about' && <AboutPanel />}
           </div>
         </div>

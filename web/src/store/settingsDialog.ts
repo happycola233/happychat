@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-export type SettingsTab = 'general' | 'messages' | 'account' | 'about'
+export type SettingsTab = 'general' | 'messages' | 'account' | 'shares' | 'about'
 
 interface SettingsDialogStore {
   open: boolean

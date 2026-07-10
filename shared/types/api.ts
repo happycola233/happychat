@@ -83,6 +83,10 @@ export interface ModelDTO {
   displayName: string
   kind: ModelKind
   capabilities: ModelCapabilities
+  /** 用户可见的模型简介（模型选择器 ⓘ 展示）；null=未配置 */
+  description: string | null
+  /** 用户可见的模型标签（如「内测」「禁止滥用」），直接显示在模型列表里 */
+  tags: string[]
   allowedEfforts: ReasoningEffortOption[]
   defaultEffort: ReasoningEffort | null
   defaultWebSearch: boolean
@@ -106,6 +110,17 @@ export interface SyncModelsResult {
   added: number
   total: number
   models: { modelId: string; isNew: boolean }[]
+}
+
+/** 供应商上游模型目录中的一项（管理端「挑选模型」用）。 */
+export interface UpstreamCatalogModelDTO {
+  modelId: string
+  /** 该上游模型 id 在本站已存在的实例数（>0 时界面显示「已添加」）。 */
+  existingCount: number
+}
+
+export interface ImportModelsResult {
+  added: number
 }
 
 export interface ProviderTestResult {
