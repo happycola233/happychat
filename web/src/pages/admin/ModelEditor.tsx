@@ -518,7 +518,7 @@ export function ModelEditor({
               [
                 ['input', '普通输入 input'],
                 ['output', '输出 output'],
-                ['cachedInput', '缓存读取 cache read'],
+                ['cachedInput', '缓存读取/输入 cache read/input'],
                 ['cacheWriteInput', '缓存写入 cache write'],
                 ['image', '图片 image'],
               ] as const

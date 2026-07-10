@@ -59,7 +59,7 @@ function Divider() {
 /**
  * 思考深度：横向分段选择（点击临时生效并保持菜单打开），高亮「本次请求实际会用」的档位，
  * 与触发器标签同口径；上游实际值（low/high…）保留在悬停提示里。
- * 右上角「固定」把当前档位设为新会话默认；已固定但当前未使用的档位以小圆点标记。
+ * 右上角「固定/已固定」按钮把当前档位设为新会话默认；已固定但当前未使用的档位以小圆点标记。
  */
 function ReasoningSection({ model }: { model: ModelDTO }) {
   const activeEffort = useChatPrefs((s) => s.activeEffort)
@@ -108,7 +108,7 @@ function ReasoningSection({ model }: { model: ModelDTO }) {
                 aria-hidden
                 className={clsx('h-3 w-3 shrink-0', isPinnedCurrent && 'fill-current')}
               />
-              {isPinnedCurrent ? '默认' : '固定'}
+              {isPinnedCurrent ? '已固定' : '固定'}
             </button>
           )
         }
