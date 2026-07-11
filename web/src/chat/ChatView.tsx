@@ -42,6 +42,7 @@ import { CollapsibleUserMessageText } from './MessageContent'
 import { ModelControlMenu } from './ModelControlMenu'
 import { TimelineNav } from './TimelineNav'
 import { shouldShowTimeline, timelineItemsFromMessages } from './timelineItems'
+import { shouldShowTopFade } from './topFade'
 import { AnnouncementBanner } from '../announcements/AnnouncementBanner'
 import { NotificationBell } from '../announcements/NotificationBell'
 import type { ImageEditSource } from './imageSource'
@@ -67,10 +68,6 @@ const PROGRAMMATIC_SCROLL_RESET_MS = 1200
 const DOCK_ANIMATION_SETTLE_MS = 900
 /** 时间轴跳转后消息顶部与视口的间距：给悬浮顶栏让位再留一点呼吸感。 */
 const TIMELINE_JUMP_OFFSET_PX = 76
-/** 消息列最大宽度（Tailwind max-w-3xl），用于判断顶栏按钮是否压在消息上。 */
-const MESSAGE_COLUMN_MAX_WIDTH_PX = 768
-/** 顶栏单侧按钮簇（含边距）所需的横向空间；两侧留白都超过它时按钮不会遮住消息。 */
-const TOP_BAR_SIDE_CLEARANCE_PX = 140
 
 export default function ChatView() {
   const { id } = useParams()
@@ -623,9 +620,12 @@ export default function ChatView() {
   const composerLayerWarm = heroComposer || dockAnimated
   const timelineItems = timelineItemsFromMessages(messages)
   const timelineVisible = !isMobile && showTimelineNav && shouldShowTimeline(timelineItems.length)
-  // 视口够宽时顶栏按钮落在消息列留白里，顶部没有内容被遮挡，不需要模糊渐变。
-  const topFadeVisible =
-    viewportWidth < MESSAGE_COLUMN_MAX_WIDTH_PX + TOP_BAR_SIDE_CLEARANCE_PX * 2
+  const topFadeVisible = shouldShowTopFade({
+    viewportWidth,
+    hasConversation: Boolean(id),
+    hasVisibleMessages: !isEmpty,
+    isDocking: dockAnimated,
+  })
   const chatViewportStyle = {
     '--hc-composer-overlay-height': `${composerMetrics.height}px`,
   } as CSSProperties
@@ -635,7 +635,7 @@ export default function ChatView() {
       <AnnouncementBanner />
 
       <div className="relative min-h-0 flex-1" style={chatViewportStyle}>
-        {/* 顶部悬浮栏：窄视口时用模糊交叉渐变兜住划过按钮下方的内容（宽屏按钮在消息列外，无需渐变）。 */}
+        {/* 顶部悬浮栏：仅消息可能划过按钮时按视口宽度显示渐变；空白新聊天保持透明。 */}
         <div className="pointer-events-none absolute inset-x-0 top-0 z-30 h-[4.5rem]">
           {topFadeVisible && <div className="hc-top-fade" aria-hidden="true" />}
           {/* 透明顶栏只让实际控件接收事件；中间留白必须透传给下方 sticky 思考状态。 */}
