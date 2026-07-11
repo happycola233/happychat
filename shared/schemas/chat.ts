@@ -17,7 +17,8 @@ export const sendMessageSchema = z
   .object({
     conversationId: z.string().optional(),
     modelId: z.string().min(1, '请选择模型'),
-    text: z.string().max(100_000).default(''),
+    /** 文本容量由所选上游模型的 Token/上下文窗口约束，不在应用层设置统一字符上限。 */
+    text: z.string().default(''),
     /** 用户可调参数（思考等级、联网开关等） */
     params: modelParamsSchema.optional(),
     /** 发起生成时的浏览器首选语言，用于标题总结等服务端异步任务。 */
