@@ -638,18 +638,23 @@ export default function ChatView() {
         {/* 顶部悬浮栏：窄视口时用模糊交叉渐变兜住划过按钮下方的内容（宽屏按钮在消息列外，无需渐变）。 */}
         <div className="pointer-events-none absolute inset-x-0 top-0 z-30 h-[4.5rem]">
           {topFadeVisible && <div className="hc-top-fade" aria-hidden="true" />}
-          <div className="pointer-events-auto relative flex h-14 items-center gap-1 px-2 sm:px-4">
+          {/* 透明顶栏只让实际控件接收事件；中间留白必须透传给下方 sticky 思考状态。 */}
+          <div className="pointer-events-none relative flex h-14 items-center gap-1 px-2 sm:px-4">
             <button
               type="button"
               onClick={() => openMobileSidebar(true)}
-              className="rounded-lg p-2 text-neutral-500 transition hover:bg-neutral-100 md:hidden dark:text-neutral-300 dark:hover:bg-neutral-800"
+              className="pointer-events-auto rounded-lg p-2 text-neutral-500 transition hover:bg-neutral-100 md:hidden dark:text-neutral-300 dark:hover:bg-neutral-800"
               aria-label="打开侧边栏"
             >
               <Menu className="h-5 w-5" />
             </button>
             {/* 移动端：聚合模型选择器留在顶栏（桌面端在输入框内）。 */}
-            {isMobile && <ModelControlMenu placement="down" align="start" variant="header" />}
-            <div className="ml-auto flex items-center gap-0.5">
+            {isMobile && (
+              <div className="pointer-events-auto">
+                <ModelControlMenu placement="down" align="start" variant="header" />
+              </div>
+            )}
+            <div className="pointer-events-auto ml-auto flex items-center gap-0.5">
               <NotificationBell />
               {id && <ConversationMenu conversationId={id} />}
             </div>
