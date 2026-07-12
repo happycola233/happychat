@@ -175,16 +175,16 @@ export const announcementReads = sqliteTable(
 // ========================= Provider / 模型 =========================
 
 export const providers = sqliteTable('providers', {
-    id: pk(),
-    name: text('name').notNull(),
-    baseUrl: text('base_url').notNull(),
-    // API Key 明文存库；管理员列表 DTO 固定脱敏，编辑详情接口按需返回完整值。
-    apiKey: text('api_key').notNull(),
-    // null=沿用上游默认保留策略；24h=供已选择应用该策略的文本模型使用扩展缓存。
-    promptCacheRetention: text('prompt_cache_retention').$type<PromptCacheRetention>(),
-    enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
-    createdAt: createdAt(),
-    updatedAt: updatedAt(),
+  id: pk(),
+  name: text('name').notNull(),
+  baseUrl: text('base_url').notNull(),
+  // API Key 明文存库；管理员列表 DTO 固定脱敏，编辑详情接口按需返回完整值。
+  apiKey: text('api_key').notNull(),
+  // null=沿用上游默认保留策略；24h=供已选择应用该策略的文本模型使用扩展缓存。
+  promptCacheRetention: text('prompt_cache_retention').$type<PromptCacheRetention>(),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
 })
 
 export const models = sqliteTable(
@@ -214,7 +214,9 @@ export const models = sqliteTable(
     hardParams: text('hard_params', { mode: 'json' }).$type<ModelHardParams>(),
     pricing: text('pricing', { mode: 'json' }).$type<ModelPricing>(),
     // 旧记录为 string[]，新记录写 {value,description}[]；读取时由共享 helper 统一归一化。
-    allowedEfforts: text('allowed_efforts', { mode: 'json' }).$type<StoredReasoningEffortOption[]>(),
+    allowedEfforts: text('allowed_efforts', { mode: 'json' }).$type<
+      StoredReasoningEffortOption[]
+    >(),
     defaultEffort: text('default_effort').$type<ReasoningEffort>(),
     defaultWebSearch: integer('default_web_search', { mode: 'boolean' }).notNull().default(false),
     sort: integer('sort').notNull().default(0),
@@ -227,6 +229,26 @@ export const models = sqliteTable(
 
 // ========================= 会话 / 消息（合并节点+内容的单表分支树）=========================
 
+/** 聊天文件夹（每用户私有）：名称 + 可选主题色/Emoji 图标，支持置顶。 */
+export const folders = sqliteTable(
+  'folders',
+  {
+    id: pk(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    // 主题色（#RRGGBB）；null=默认中性色
+    color: text('color'),
+    // 图标 Emoji（可能是多码点序列，如 ZWJ 组合）；null=默认文件夹图标
+    emoji: text('emoji'),
+    pinnedAt: ts('pinned_at'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index('folders_user_idx').on(t.userId)],
+)
+
 export const conversations = sqliteTable(
   'conversations',
   {
@@ -236,6 +258,8 @@ export const conversations = sqliteTable(
       .references(() => users.id, { onDelete: 'cascade' }),
     title: text('title'),
     modelId: text('model_id').references(() => models.id, { onDelete: 'set null' }),
+    // 所属文件夹；删除文件夹时会话自动移回未分组（set null）
+    folderId: text('folder_id').references(() => folders.id, { onDelete: 'set null' }),
     // 当前可见分支的叶子消息 id（无 DB 级 FK，避免与 messages 循环引用，由应用维护）
     activeLeafId: text('active_leaf_id'),
     systemPromptOverride: text('system_prompt_override'),
@@ -248,6 +272,7 @@ export const conversations = sqliteTable(
   (t) => [
     index('conversations_user_updated_idx').on(t.userId, t.updatedAt),
     index('conversations_user_pinned_idx').on(t.userId, t.pinnedAt),
+    index('conversations_folder_idx').on(t.folderId),
   ],
 )
 

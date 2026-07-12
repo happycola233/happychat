@@ -24,6 +24,7 @@ export function toConversationDTO(c: ConvRow): ConversationDTO {
     id: c.id,
     title: c.title,
     modelId: c.modelId,
+    folderId: c.folderId,
     activeLeafId: c.activeLeafId,
     pinnedAt: c.pinnedAt?.getTime() ?? null,
     createdAt: c.createdAt.getTime(),
@@ -97,6 +98,73 @@ export async function setConversationPinned(
     .where(eq(conversations.id, conv.id))
     .returning()
   return updated ? toConversationDTO(updated) : null
+}
+
+/**
+ * 批量移动会话到文件夹（folderId=null 表示移出）。只处理属于该用户的会话；
+ * 逐行保留 updatedAt 原值，避免整批会话跳到「最近」顶部。返回实际移动数。
+ */
+export async function moveConversationsToFolder(
+  userId: string,
+  ids: string[],
+  folderId: string | null,
+): Promise<number> {
+  const owned = await db
+    .select({ id: conversations.id, updatedAt: conversations.updatedAt })
+    .from(conversations)
+    .where(and(eq(conversations.userId, userId), inArray(conversations.id, ids)))
+  if (owned.length === 0) return 0
+  db.transaction((tx) => {
+    for (const c of owned) {
+      tx.update(conversations)
+        .set({ folderId, updatedAt: c.updatedAt })
+        .where(eq(conversations.id, c.id))
+        .run()
+    }
+  })
+  return owned.length
+}
+
+/** inArray 参数分块，避免逼近 SQLite 变量上限。 */
+function chunked<T>(items: T[], size = 500): T[][] {
+  const out: T[][] = []
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size))
+  return out
+}
+
+/**
+ * 批量删除会话（messages/runs/run_events 由外键级联），并清理这些会话消息
+ * 关联的附件（行 + 磁盘文件）。单条删除也走这里，保证清理行为一致。
+ * 返回实际删除的会话数。
+ */
+export async function deleteConversations(userId: string, ids: string[]): Promise<number> {
+  const owned = await db
+    .select({ id: conversations.id })
+    .from(conversations)
+    .where(and(eq(conversations.userId, userId), inArray(conversations.id, ids)))
+  if (owned.length === 0) return 0
+  const ownedIds = owned.map((c) => c.id)
+
+  // 先在删除前收集附件（messages 行删除后无法再回溯 messageId 归属）。
+  const msgRows = await db
+    .select({ id: messages.id })
+    .from(messages)
+    .where(inArray(messages.conversationId, ownedIds))
+  const attachmentRows: (typeof attachments.$inferSelect)[] = []
+  for (const chunk of chunked(msgRows.map((m) => m.id))) {
+    attachmentRows.push(
+      ...(await db.select().from(attachments).where(inArray(attachments.messageId, chunk))),
+    )
+  }
+
+  await db.delete(conversations).where(inArray(conversations.id, ownedIds))
+  if (attachmentRows.length > 0) {
+    for (const chunk of chunked(attachmentRows.map((a) => a.id))) {
+      await db.delete(attachments).where(inArray(attachments.id, chunk))
+    }
+    for (const a of attachmentRows) removeUpload(a.storagePath)
+  }
+  return ownedIds.length
 }
 
 export async function getConversationMessages(conversationId: string): Promise<MsgRow[]> {
@@ -210,14 +278,16 @@ export async function getConversationMessageDTOs(conversationId: string): Promis
     getModelLabelsByModelId(rows),
   ])
   return rows.map((m) =>
-    toMessageDTO(m, timings.get(m.id) ?? null, m.modelId ? (modelLabels.get(m.modelId) ?? null) : null),
+    toMessageDTO(
+      m,
+      timings.get(m.id) ?? null,
+      m.modelId ? (modelLabels.get(m.modelId) ?? null) : null,
+    ),
   )
 }
 
 /** 会话最近一次生成所用的模型与联网/思考参数（用于打开会话时恢复控件）。 */
-export async function getConversationLastRun(
-  conversationId: string,
-): Promise<{
+export async function getConversationLastRun(conversationId: string): Promise<{
   modelId: string | null
   params: { web_search?: boolean; reasoning_effort?: ReasoningEffort } | null
 }> {
@@ -250,7 +320,8 @@ export async function getConversationLastRun(
       defaultEffort: r.modelDefaultEffort,
       defaultWebSearch: r.modelDefaultWebSearch,
     }
-    if (r.modelCapabilities.web_search) params.web_search = effectiveWebSearchEnabled(modelConfig, rp)
+    if (r.modelCapabilities.web_search)
+      params.web_search = effectiveWebSearchEnabled(modelConfig, rp)
     const effort = effectiveReasoningEffort(modelConfig, rp)
     if (effort) params.reasoning_effort = effort
   } else {
@@ -275,10 +346,7 @@ export async function clearAllConversations(userId: string): Promise<number> {
     .from(conversations)
     .where(eq(conversations.userId, userId))
 
-  const attachmentRows = await db
-    .select()
-    .from(attachments)
-    .where(eq(attachments.userId, userId))
+  const attachmentRows = await db.select().from(attachments).where(eq(attachments.userId, userId))
 
   await db.delete(conversations).where(eq(conversations.userId, userId))
 
@@ -320,7 +388,12 @@ export async function searchConversations(
   const msgRows = await db
     .select()
     .from(messages)
-    .where(inArray(messages.conversationId, convRows.map((c) => c.id)))
+    .where(
+      inArray(
+        messages.conversationId,
+        convRows.map((c) => c.id),
+      ),
+    )
     .orderBy(asc(messages.createdAt))
 
   const byConversation = new Map<string, MsgRow[]>()
@@ -344,7 +417,9 @@ export async function searchConversations(
       })
     } else {
       const path = buildPath(byConversation.get(conv.id) ?? [], conv.activeLeafId)
-      const hit = path.find((msg) => textFromContent(msg.content).toLocaleLowerCase().includes(needle))
+      const hit = path.find((msg) =>
+        textFromContent(msg.content).toLocaleLowerCase().includes(needle),
+      )
       if (hit) {
         results.push({
           conversation: toConversationDTO(conv),

@@ -156,7 +156,22 @@ export interface ConversationDTO {
   id: string
   title: string | null
   modelId: string | null
+  /** 所属文件夹 id；null=未分组 */
+  folderId: string | null
   activeLeafId: string | null
+  pinnedAt: number | null
+  createdAt: number
+  updatedAt: number
+}
+
+/** 聊天文件夹（侧边栏分组）：支持自定义主题色、Emoji 图标与置顶。 */
+export interface FolderDTO {
+  id: string
+  name: string
+  /** 主题色（#RRGGBB）；null=默认中性色 */
+  color: string | null
+  /** 图标 Emoji；null=默认文件夹图标 */
+  emoji: string | null
   pinnedAt: number | null
   createdAt: number
   updatedAt: number

@@ -68,6 +68,24 @@ export const switchBranchSchema = z.object({
   messageId: z.string().min(1),
 })
 
+/** 批量操作的会话 id 列表：上限防止误提交超大数组。 */
+const conversationIdsSchema = z
+  .array(z.string().min(1))
+  .min(1, '请至少选择一个聊天')
+  .max(500, '一次最多操作 500 个聊天')
+
+export const batchDeleteConversationsSchema = z.object({
+  ids: conversationIdsSchema,
+})
+
+/** 批量移动到文件夹；folderId=null 表示移出文件夹（回到未分组）。 */
+export const moveConversationsSchema = z.object({
+  ids: conversationIdsSchema,
+  folderId: z.string().min(1).nullable(),
+})
+
 export type RegenerateInput = z.infer<typeof regenerateSchema>
 export type SwitchBranchInput = z.infer<typeof switchBranchSchema>
 export type PinConversationInput = z.infer<typeof pinConversationSchema>
+export type BatchDeleteConversationsInput = z.infer<typeof batchDeleteConversationsSchema>
+export type MoveConversationsInput = z.infer<typeof moveConversationsSchema>

@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { clsx } from 'clsx'
-import { MoreHorizontal } from 'lucide-react'
+import { ChevronLeft, FolderInput, MoreHorizontal } from 'lucide-react'
 import { useConversations } from '../hooks/useConversations'
 import { useConversationActions } from '../hooks/useConversationActions'
+import { useFolders } from '../hooks/useFolders'
+import { useFolderEditor } from '../store/folderEditor'
 import { RowMenuItem } from './RowMenuItem'
 import { ShareDialog } from './ShareDialog'
+import { FolderMenuList } from './FolderMenuList'
 import { DeleteIcon, EditIcon, PinnedIcon, ShareIcon, UnpinIcon } from './icons'
 
 interface Props {
@@ -74,12 +77,16 @@ function RenameDialog({
   )
 }
 
-/** 聊天顶栏右上角三点菜单：分享 / 重命名 / 置顶 / 删除（与侧栏行内菜单同一套操作）。 */
+/** 聊天顶栏右上角三点菜单：分享 / 重命名 / 置顶 / 移动到文件夹 / 删除（与侧栏行内菜单同一套操作）。 */
 export function ConversationMenu({ conversationId }: Props) {
   const { data: conversations } = useConversations()
   const conversation = conversations?.find((c) => c.id === conversationId)
-  const { deleteWithConfirm, togglePin, renameTo } = useConversationActions()
+  const { data: folderData } = useFolders()
+  const folders = folderData ?? []
+  const { deleteWithConfirm, moveToFolder, togglePin, renameTo } = useConversationActions()
+  const openFolderEditorCreate = useFolderEditor((s) => s.openCreate)
   const [open, setOpen] = useState(false)
+  const [menuView, setMenuView] = useState<'root' | 'move'>('root')
   const [sharing, setSharing] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -108,7 +115,10 @@ export function ConversationMenu({ conversationId }: Props) {
       <button
         type="button"
         data-testid="conversation-menu-trigger"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          setMenuView('root')
+          setOpen((v) => !v)
+        }}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label="会话操作"
@@ -122,48 +132,105 @@ export function ConversationMenu({ conversationId }: Props) {
       </button>
 
       {open && (
-        <div className="hc-pop-in absolute right-0 top-full z-40 mt-1 w-40 origin-top-right rounded-xl border border-neutral-200 bg-white p-1 text-[13px] shadow-2xl dark:border-neutral-700 dark:bg-neutral-900">
-          <RowMenuItem
-            icon={<ShareIcon className="h-4 w-4" />}
-            onClick={() => {
-              setOpen(false)
-              setSharing(true)
-            }}
-          >
-            分享
-          </RowMenuItem>
-          <RowMenuItem
-            icon={<EditIcon className="h-4 w-4" />}
-            onClick={() => {
-              setOpen(false)
-              setRenaming(true)
-            }}
-          >
-            重命名
-          </RowMenuItem>
-          <RowMenuItem
-            icon={pinned ? <UnpinIcon className="h-4 w-4" /> : <PinnedIcon className="h-4 w-4" />}
-            onClick={() => {
-              setOpen(false)
-              togglePin(conversation.id, !pinned)
-            }}
-          >
-            {pinned ? '取消置顶' : '置顶'}
-          </RowMenuItem>
-          <RowMenuItem
-            icon={<DeleteIcon className="h-4 w-4" />}
-            danger
-            onClick={() => {
-              setOpen(false)
-              deleteWithConfirm(conversation.id)
-            }}
-          >
-            删除
-          </RowMenuItem>
+        <div
+          className={clsx(
+            'hc-pop-in absolute right-0 top-full z-40 mt-1 origin-top-right rounded-xl border border-neutral-200 bg-white p-1 text-[13px] shadow-2xl dark:border-neutral-700 dark:bg-neutral-900',
+            menuView === 'move' ? 'w-52' : 'w-40',
+          )}
+        >
+          {menuView === 'root' ? (
+            <>
+              <RowMenuItem
+                icon={<ShareIcon className="h-4 w-4" />}
+                onClick={() => {
+                  setOpen(false)
+                  setSharing(true)
+                }}
+              >
+                分享
+              </RowMenuItem>
+              <RowMenuItem
+                icon={<EditIcon className="h-4 w-4" />}
+                onClick={() => {
+                  setOpen(false)
+                  setRenaming(true)
+                }}
+              >
+                重命名
+              </RowMenuItem>
+              <RowMenuItem
+                icon={
+                  pinned ? <UnpinIcon className="h-4 w-4" /> : <PinnedIcon className="h-4 w-4" />
+                }
+                onClick={() => {
+                  setOpen(false)
+                  togglePin(conversation.id, !pinned)
+                }}
+              >
+                {pinned ? '取消置顶' : '置顶'}
+              </RowMenuItem>
+              <RowMenuItem
+                // 菜单里其余图标是 fill 风格自绘图标：lucide 描边图标压细笔画、
+                // 缩小一号（!important 盖过 RowMenuItem 的 [&>svg]:h-4）对齐视觉重量
+                icon={<FolderInput className="!h-[15px] !w-[15px]" strokeWidth={1.6} />}
+                onClick={() => setMenuView('move')}
+              >
+                移动到文件夹
+              </RowMenuItem>
+              <RowMenuItem
+                icon={<DeleteIcon className="h-4 w-4" />}
+                danger
+                onClick={() => {
+                  setOpen(false)
+                  deleteWithConfirm(conversation.id)
+                }}
+              >
+                删除
+              </RowMenuItem>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center gap-1 px-1 pb-1 pt-0.5">
+                <button
+                  type="button"
+                  onClick={() => setMenuView('root')}
+                  aria-label="返回"
+                  className="flex h-6 w-6 items-center justify-center rounded-md text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">
+                  移动到文件夹
+                </span>
+              </div>
+              <FolderMenuList
+                folders={folders}
+                currentFolderId={conversation.folderId}
+                showRemove={Boolean(conversation.folderId)}
+                onSelect={(folderId) => {
+                  setOpen(false)
+                  if (folderId === conversation.folderId) return
+                  moveToFolder(
+                    [conversation.id],
+                    folderId,
+                    folders.find((f) => f.id === folderId)?.name,
+                  )
+                }}
+                onCreateNew={() => {
+                  setOpen(false)
+                  openFolderEditorCreate((folder) =>
+                    moveToFolder([conversation.id], folder.id, folder.name),
+                  )
+                }}
+              />
+            </>
+          )}
         </div>
       )}
 
-      {sharing && <ShareDialog conversationId={conversation.id} onClose={() => setSharing(false)} />}
+      {sharing && (
+        <ShareDialog conversationId={conversation.id} onClose={() => setSharing(false)} />
+      )}
       {renaming && (
         <RenameDialog
           initialTitle={conversation.title ?? '新聊天'}

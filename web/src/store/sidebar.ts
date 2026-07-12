@@ -12,6 +12,11 @@ interface SidebarStore {
   setRecentSectionCollapsed: (collapsed: boolean) => void
   togglePinnedSectionCollapsed: () => void
   toggleRecentSectionCollapsed: () => void
+  /** 展开的文件夹 id 集合（持久化，跨会话记住展开状态） */
+  expandedFolders: Record<string, boolean>
+  toggleFolderExpanded: (folderId: string) => void
+  /** 仅展开（用于打开文件夹内会话时自动定位） */
+  expandFolder: (folderId: string) => void
   /** 移动端抽屉是否打开（不持久化） */
   mobileOpen: boolean
   setMobileOpen: (open: boolean) => void
@@ -31,6 +36,20 @@ export const useSidebarStore = create<SidebarStore>()(
         set((state) => ({ pinnedSectionCollapsed: !state.pinnedSectionCollapsed })),
       toggleRecentSectionCollapsed: () =>
         set((state) => ({ recentSectionCollapsed: !state.recentSectionCollapsed })),
+      expandedFolders: {},
+      toggleFolderExpanded: (folderId) =>
+        set((state) => ({
+          expandedFolders: {
+            ...state.expandedFolders,
+            [folderId]: !state.expandedFolders[folderId],
+          },
+        })),
+      expandFolder: (folderId) =>
+        set((state) =>
+          state.expandedFolders[folderId]
+            ? state
+            : { expandedFolders: { ...state.expandedFolders, [folderId]: true } },
+        ),
       mobileOpen: false,
       setMobileOpen: (open) => set({ mobileOpen: open }),
     }),
@@ -40,6 +59,7 @@ export const useSidebarStore = create<SidebarStore>()(
         collapsed: s.collapsed,
         pinnedSectionCollapsed: s.pinnedSectionCollapsed,
         recentSectionCollapsed: s.recentSectionCollapsed,
+        expandedFolders: s.expandedFolders,
       }),
     },
   ),

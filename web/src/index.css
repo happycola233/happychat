@@ -1357,3 +1357,35 @@ html.hc-ios .hc-chat-scroll {
 .recharts-wrapper :focus-visible {
   outline: none;
 }
+
+/* ===================== 聊天文件夹 ===================== */
+
+/* 文件夹图标芯片：任意 #RRGGBB 主题色经 color-mix 派生浅底 + 主题色前景；
+   深色模式提高底色浓度并向白色方向提亮前景，保证中等饱和度颜色在深底上可读。 */
+.hc-folder-glyph {
+  background: color-mix(in srgb, var(--hc-folder-color) 15%, transparent);
+  color: var(--hc-folder-color);
+}
+.dark .hc-folder-glyph {
+  background: color-mix(in srgb, var(--hc-folder-color) 24%, transparent);
+  color: color-mix(in srgb, var(--hc-folder-color) 78%, white);
+}
+
+/* react-colorful（文件夹自定义取色）：尺寸铺满面板、圆角对齐弹窗风格。 */
+.hc-color-picker .react-colorful {
+  width: 100%;
+  height: 150px;
+}
+.hc-color-picker .react-colorful__saturation {
+  border-radius: 10px 10px 0 0;
+}
+.hc-color-picker .react-colorful__last-control {
+  border-radius: 0 0 10px 10px;
+}
+.hc-color-picker .react-colorful__hue {
+  height: 18px;
+}
+.hc-color-picker .react-colorful__pointer {
+  width: 18px;
+  height: 18px;
+}

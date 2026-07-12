@@ -4,6 +4,7 @@ import { useConversationEvents } from '../sse/conversationEvents'
 import { AnnouncementDialog } from '../announcements/AnnouncementDialog'
 import { Sidebar } from './Sidebar'
 import { SettingsDialog } from './SettingsDialog'
+import { FolderEditorDialog } from './FolderEditorDialog'
 
 const CHAT_SHELL_LOCK_CLASS = 'hc-chat-shell-lock'
 
@@ -23,6 +24,7 @@ export default function ChatLayout() {
         <Outlet />
       </div>
       <SettingsDialog />
+      <FolderEditorDialog />
       <AnnouncementDialog />
     </div>
   )

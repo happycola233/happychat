@@ -3,6 +3,8 @@ import { streamSSE } from 'hono/streaming'
 import { eq } from 'drizzle-orm'
 import { CONVERSATION_EVENT_TYPE } from '@shared/types/events'
 import {
+  batchDeleteConversationsSchema,
+  moveConversationsSchema,
   pinConversationSchema,
   renameConversationSchema,
   switchBranchSchema,
@@ -15,15 +17,18 @@ import { jsonValidator } from '../http/validator'
 import {
   clearAllConversations,
   deepestLeaf,
+  deleteConversations,
   getConversationLastRun,
   getConversationMessageDTOs,
   getConversationMessages,
   getOwnedConversation,
   listConversations,
+  moveConversationsToFolder,
   searchConversations,
   setConversationPinned,
   toConversationDTO,
 } from '../services/conversations'
+import { getOwnedFolder } from '../services/folders'
 import {
   canUserShare,
   createShare,
@@ -56,6 +61,26 @@ conversationRoutes.get('/search', async (c) => {
 /** 我的分享列表（字面量路由，须在 /:id 之前注册）。 */
 conversationRoutes.get('/shared', async (c) => {
   return c.json({ shares: await listOwnerShares(c.get('user').id) })
+})
+
+/** 批量删除会话（含附件清理；字面量路由，须在 /:id 之前注册）。 */
+conversationRoutes.post(
+  '/batch-delete',
+  jsonValidator(batchDeleteConversationsSchema),
+  async (c) => {
+    const deletedCount = await deleteConversations(c.get('user').id, c.req.valid('json').ids)
+    return c.json({ deletedCount })
+  },
+)
+
+/** 批量移动会话到文件夹；folderId=null 表示移出文件夹。 */
+conversationRoutes.post('/batch-move', jsonValidator(moveConversationsSchema), async (c) => {
+  const { ids, folderId } = c.req.valid('json')
+  if (folderId !== null && !(await getOwnedFolder(c.get('user').id, folderId))) {
+    return c.json({ error: { message: '文件夹不存在', code: 'not_found' } }, 404)
+  }
+  const movedCount = await moveConversationsToFolder(c.get('user').id, ids, folderId)
+  return c.json({ movedCount })
 })
 
 /** 用户级会话事件流：标题自动总结完成后实时通知前端刷新缓存。 */
@@ -171,9 +196,11 @@ conversationRoutes.post('/:id/switch', jsonValidator(switchBranchSchema), async 
 })
 
 conversationRoutes.delete('/:id', async (c) => {
-  const conv = await getOwnedConversation(c.get('user').id, c.req.param('id'))
-  if (!conv) return c.json({ error: { message: '会话不存在', code: 'not_found' } }, 404)
-  await db.delete(conversations).where(eq(conversations.id, conv.id))
+  // 与批量删除共用服务（级联消息/runs + 清理附件行与磁盘文件）。
+  const deletedCount = await deleteConversations(c.get('user').id, [c.req.param('id')])
+  if (deletedCount === 0) {
+    return c.json({ error: { message: '会话不存在', code: 'not_found' } }, 404)
+  }
   return c.json({ ok: true })
 })
 

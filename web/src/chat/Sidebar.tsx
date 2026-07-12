@@ -1,9 +1,14 @@
 import { clsx } from 'clsx'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { ConversationDTO } from '@shared/types/api'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { ConversationDTO, FolderDTO } from '@shared/types/api'
 import {
+  Check,
   ChevronDown,
+  ChevronLeft,
+  FolderInput,
+  FolderPlus,
   LayoutDashboard,
+  ListChecks,
   LogOut,
   Moon,
   MoreHorizontal,
@@ -14,13 +19,19 @@ import {
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ShareDialog } from './ShareDialog'
 import { RowMenuItem } from './RowMenuItem'
+import { FolderRow } from './FolderRow'
+import { FolderMenuList } from './FolderMenuList'
+import { buildSidebarSections, type FolderGroup } from './sidebarSections'
 import { useConversations } from '../hooks/useConversations'
 import { useConversationActions } from '../hooks/useConversationActions'
+import { useFolderActions, useFolders } from '../hooks/useFolders'
 import { useLogout, useMe } from '../hooks/useAuth'
 import { useIsMobile, useSidebarStore } from '../store/sidebar'
+import { useFolderEditor } from '../store/folderEditor'
 import { useSettings } from '../store/settings'
 import { useSettingsDialog } from '../store/settingsDialog'
 import { useTitleTypingStore } from '../store/titleTyping'
+import { HOVER_ACTION_PADDING_CLASS, HOVER_REVEAL_CLASS, useRowMenu } from './rowMenu'
 import {
   ChatBubbleIcon,
   DeleteIcon,
@@ -35,40 +46,26 @@ import {
 import { SearchDialog } from './SearchDialog'
 
 type PopoverKind = 'pinned' | 'recent'
-type RowMenuPlacement = 'top' | 'bottom'
-
-const ROW_MENU_GAP_PX = 4
-const ROW_MENU_ESTIMATED_HEIGHT_PX = 176
-
-// 移动布局和触控设备没有可靠的 hover：仅在桌面宽度且支持悬停时收起操作入口。
-const HOVER_REVEAL_CLASS =
-  'opacity-100 md:[@media(hover:hover)]:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
-const HOVER_ACTION_PADDING_CLASS =
-  'pr-7 md:[@media(hover:hover)]:pr-0 group-hover:pr-7 group-focus-within:pr-7'
-
-function findScrollBoundaryElement(el: HTMLElement): HTMLElement | null {
-  let parent = el.parentElement
-  while (parent) {
-    const overflowY = window.getComputedStyle(parent).overflowY
-    if (/(auto|scroll|overlay)/.test(overflowY)) return parent
-    parent = parent.parentElement
-  }
-  return null
-}
-
-function rowMenuPlacement(row: HTMLElement, menuHeight = ROW_MENU_ESTIMATED_HEIGHT_PX) {
-  const rowRect = row.getBoundingClientRect()
-  const boundaryRect = findScrollBoundaryElement(row)?.getBoundingClientRect()
-  const boundaryTop = boundaryRect?.top ?? 0
-  const boundaryBottom = boundaryRect?.bottom ?? window.innerHeight
-  const spaceAbove = rowRect.top - boundaryTop - ROW_MENU_GAP_PX
-  const spaceBelow = boundaryBottom - rowRect.bottom - ROW_MENU_GAP_PX
-
-  return spaceBelow < menuHeight && spaceAbove > spaceBelow ? 'top' : 'bottom'
-}
 
 function titleOf(conversation: ConversationDTO): string {
   return conversation.title ?? '新聊天'
+}
+
+/** 会话行处理器集合：普通列表与文件夹内列表共用同一组回调。 */
+interface ConversationRowHandlers {
+  onOpen: (id: string) => void
+  onDelete: (id: string) => void
+  onTogglePin: (id: string, pinned: boolean) => void
+  onRename: (id: string, title: string) => void
+  onShare: (id: string) => void
+  onMove: (id: string, folderId: string | null, folderName?: string) => void
+  onMoveToNewFolder: (id: string) => void
+}
+
+/** 批量模式上下文：选中集合 + 切换回调；null 表示未进入批量模式。 */
+interface BatchContext {
+  selectedIds: ReadonlySet<string>
+  onToggleSelect: (id: string) => void
 }
 
 function Avatar({ label, src }: { label: string; src?: string | null }) {
@@ -163,7 +160,9 @@ function RailButton({
       onClick={onClick}
       className={clsx(
         'group relative flex h-8 w-8 items-center justify-center rounded-lg text-neutral-900 transition dark:text-neutral-100',
-        active ? 'bg-neutral-200 dark:bg-neutral-800' : 'hover:bg-neutral-200/70 dark:hover:bg-neutral-800',
+        active
+          ? 'bg-neutral-200 dark:bg-neutral-800'
+          : 'hover:bg-neutral-200/70 dark:hover:bg-neutral-800',
       )}
     >
       {children}
@@ -203,72 +202,60 @@ function NavButton({
   )
 }
 
+/** 批量模式的圆形选择标记。 */
+function SelectDot({ checked }: { checked: boolean }) {
+  return (
+    <span
+      aria-hidden
+      className={clsx(
+        'mr-2 flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border transition',
+        checked
+          ? 'border-sky-500 bg-sky-500 text-white'
+          : 'border-neutral-300 bg-white text-transparent dark:border-neutral-600 dark:bg-neutral-900',
+      )}
+    >
+      <Check className="h-3 w-3" strokeWidth={3} />
+    </span>
+  )
+}
+
 function ConversationRow({
   conversation,
   active,
   actions,
+  folders,
+  batch,
   onOpen,
   onDelete,
   onTogglePin,
   onRename,
   onShare,
+  onMove,
+  onMoveToNewFolder,
 }: {
   conversation: ConversationDTO
   active: boolean
   actions: boolean
+  /** 「移动到文件夹」的目标列表；未提供时菜单不含该项（如折叠栏 popover） */
+  folders?: FolderDTO[]
+  /** 批量模式：提供后行点击 = 切换选中，隐藏行内菜单 */
+  batch?: { selected: boolean; onToggleSelect: (id: string) => void } | null
   onOpen: (id: string) => void
   onDelete?: (id: string) => void
   onTogglePin?: (id: string, pinned: boolean) => void
   onRename?: (id: string, title: string) => void
   onShare?: (id: string) => void
+  onMove?: (id: string, folderId: string | null, folderName?: string) => void
+  onMoveToNewFolder?: (id: string) => void
 }) {
   const pinned = Boolean(conversation.pinnedAt)
-  const [menuOpen, setMenuOpen] = useState(false)
-  const [menuPlacement, setMenuPlacement] = useState<RowMenuPlacement>('bottom')
+  const [menuView, setMenuView] = useState<'root' | 'move'>('root')
+  // 菜单切换到「移动」视图会改变高度，remeasureKey 触发重估上下翻转方向。
+  const { menuOpen, setMenuOpen, menuPlacement, menuRef, rowRef, toggleMenu } = useRowMenu(menuView)
   const [renaming, setRenaming] = useState(false)
   const [draft, setDraft] = useState('')
-  const menuRef = useRef<HTMLDivElement>(null)
-  const rowRef = useRef<HTMLDivElement>(null)
   const typingTitle = useTitleTypingStore((state) => state.byConversation[conversation.id])
   const displayTitle = typingTitle?.text ?? titleOf(conversation)
-
-  useEffect(() => {
-    if (!menuOpen) return
-    const onDown = (e: PointerEvent) => {
-      const t = e.target
-      if (!(t instanceof HTMLElement)) return
-      if (menuRef.current?.contains(t) || rowRef.current?.contains(t)) return
-      setMenuOpen(false)
-    }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setMenuOpen(false)
-    }
-    window.addEventListener('pointerdown', onDown)
-    window.addEventListener('keydown', onKey)
-    return () => {
-      window.removeEventListener('pointerdown', onDown)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [menuOpen])
-
-  useLayoutEffect(() => {
-    if (!menuOpen) return undefined
-    const row = rowRef.current
-    if (!row) return undefined
-
-    const syncPlacement = () => {
-      setMenuPlacement(rowMenuPlacement(row, menuRef.current?.offsetHeight))
-    }
-    syncPlacement()
-
-    const scrollBoundary = findScrollBoundaryElement(row)
-    window.addEventListener('resize', syncPlacement)
-    scrollBoundary?.addEventListener('scroll', syncPlacement, { passive: true })
-    return () => {
-      window.removeEventListener('resize', syncPlacement)
-      scrollBoundary?.removeEventListener('scroll', syncPlacement)
-    }
-  }, [menuOpen])
 
   const startRename = () => {
     setDraft(titleOf(conversation))
@@ -280,6 +267,33 @@ function ConversationRow({
     if (t && t !== titleOf(conversation)) onRename?.(conversation.id, t)
     setRenaming(false)
   }
+
+  // 批量模式：整行变成选择开关，不导航、不弹菜单。
+  if (batch) {
+    return (
+      <li data-conversation-id={conversation.id}>
+        <button
+          type="button"
+          onClick={() => batch.onToggleSelect(conversation.id)}
+          aria-pressed={batch.selected}
+          title={titleOf(conversation)}
+          className={clsx(
+            'flex w-full items-center rounded-lg px-2.5 py-1.5 text-left text-[13px] transition',
+            batch.selected
+              ? 'bg-sky-100/70 dark:bg-sky-950/50'
+              : 'hover:bg-neutral-200/70 dark:hover:bg-neutral-800',
+          )}
+        >
+          <SelectDot checked={batch.selected} />
+          <span className="min-w-0 flex-1 truncate text-neutral-900 dark:text-neutral-100">
+            {displayTitle}
+          </span>
+        </button>
+      </li>
+    )
+  }
+
+  const showMove = Boolean(folders && onMove)
 
   return (
     <li data-conversation-id={conversation.id}>
@@ -335,16 +349,12 @@ function ConversationRow({
             type="button"
             onClick={(e) => {
               e.stopPropagation()
-              if (!menuOpen && rowRef.current) {
-                setMenuPlacement(rowMenuPlacement(rowRef.current))
-              }
-              setMenuOpen((o) => !o)
+              setMenuView('root')
+              toggleMenu()
             }}
             className={clsx(
               'absolute right-1 rounded-lg p-1.5 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-800 dark:hover:bg-neutral-700 dark:hover:text-neutral-100',
-              menuOpen
-                ? 'opacity-100'
-                : HOVER_REVEAL_CLASS,
+              menuOpen ? 'opacity-100' : HOVER_REVEAL_CLASS,
             )}
             aria-label="更多操作"
           >
@@ -355,41 +365,92 @@ function ConversationRow({
           <div
             ref={menuRef}
             className={clsx(
-              'hc-pop-in absolute right-0 z-40 w-40 rounded-xl border border-neutral-200 bg-white p-1 text-[13px] shadow-2xl dark:border-neutral-700 dark:bg-neutral-900',
+              'hc-pop-in absolute right-0 z-40 rounded-xl border border-neutral-200 bg-white p-1 text-[13px] shadow-2xl dark:border-neutral-700 dark:bg-neutral-900',
+              menuView === 'move' ? 'w-52' : 'w-40',
               menuPlacement === 'top' ? 'bottom-full mb-1' : 'top-full mt-1',
             )}
           >
-            <RowMenuItem
-              icon={<ShareIcon className="h-4 w-4" />}
-              onClick={() => {
-                setMenuOpen(false)
-                onShare?.(conversation.id)
-              }}
-            >
-              分享
-            </RowMenuItem>
-            <RowMenuItem icon={<EditIcon className="h-4 w-4" />} onClick={startRename}>
-              重命名
-            </RowMenuItem>
-            <RowMenuItem
-              icon={pinned ? <UnpinIcon className="h-4 w-4" /> : <PinnedIcon className="h-4 w-4" />}
-              onClick={() => {
-                setMenuOpen(false)
-                onTogglePin?.(conversation.id, !pinned)
-              }}
-            >
-              {pinned ? '取消置顶' : '置顶'}
-            </RowMenuItem>
-            <RowMenuItem
-              icon={<DeleteIcon className="h-4 w-4" />}
-              danger
-              onClick={() => {
-                setMenuOpen(false)
-                onDelete?.(conversation.id)
-              }}
-            >
-              删除
-            </RowMenuItem>
+            {menuView === 'root' ? (
+              <>
+                <RowMenuItem
+                  icon={<ShareIcon className="h-4 w-4" />}
+                  onClick={() => {
+                    setMenuOpen(false)
+                    onShare?.(conversation.id)
+                  }}
+                >
+                  分享
+                </RowMenuItem>
+                <RowMenuItem icon={<EditIcon className="h-4 w-4" />} onClick={startRename}>
+                  重命名
+                </RowMenuItem>
+                <RowMenuItem
+                  icon={
+                    pinned ? <UnpinIcon className="h-4 w-4" /> : <PinnedIcon className="h-4 w-4" />
+                  }
+                  onClick={() => {
+                    setMenuOpen(false)
+                    onTogglePin?.(conversation.id, !pinned)
+                  }}
+                >
+                  {pinned ? '取消置顶' : '置顶'}
+                </RowMenuItem>
+                {showMove && (
+                  <RowMenuItem
+                    // 菜单里其余图标是 fill 风格自绘图标：lucide 描边图标压细笔画、
+                    // 缩小一号（!important 盖过 RowMenuItem 的 [&>svg]:h-4）对齐视觉重量
+                    icon={<FolderInput className="!h-[15px] !w-[15px]" strokeWidth={1.6} />}
+                    onClick={() => setMenuView('move')}
+                  >
+                    移动到文件夹
+                  </RowMenuItem>
+                )}
+                <RowMenuItem
+                  icon={<DeleteIcon className="h-4 w-4" />}
+                  danger
+                  onClick={() => {
+                    setMenuOpen(false)
+                    onDelete?.(conversation.id)
+                  }}
+                >
+                  删除
+                </RowMenuItem>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center gap-1 px-1 pb-1 pt-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setMenuView('root')}
+                    aria-label="返回"
+                    className="flex h-6 w-6 items-center justify-center rounded-md text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">
+                    移动到文件夹
+                  </span>
+                </div>
+                <FolderMenuList
+                  folders={folders ?? []}
+                  currentFolderId={conversation.folderId}
+                  showRemove={Boolean(conversation.folderId)}
+                  onSelect={(folderId) => {
+                    setMenuOpen(false)
+                    if (folderId === conversation.folderId) return
+                    onMove?.(
+                      conversation.id,
+                      folderId,
+                      folders?.find((f) => f.id === folderId)?.name,
+                    )
+                  }}
+                  onCreateNew={() => {
+                    setMenuOpen(false)
+                    onMoveToNewFolder?.(conversation.id)
+                  }}
+                />
+              </>
+            )}
           </div>
         )}
       </div>
@@ -397,68 +458,149 @@ function ConversationRow({
   )
 }
 
-function ConversationSection({
+/** 分区标题右侧的小图标按钮（批量管理/新建文件夹）。 */
+function SectionActionButton({
   title,
-  conversations,
-  activeId,
-  emptyText,
-  collapsed,
-  onToggleCollapsed,
-  onOpen,
-  onDelete,
-  onTogglePin,
-  onRename,
-  onShare,
+  active,
+  onClick,
+  testId,
+  children,
 }: {
   title: string
-  conversations: ConversationDTO[]
-  activeId: string | undefined
-  emptyText?: string
+  active?: boolean
+  onClick: () => void
+  testId?: string
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      aria-pressed={active}
+      data-testid={testId}
+      onClick={onClick}
+      className={clsx(
+        'flex h-6 w-6 items-center justify-center rounded-md transition',
+        active
+          ? 'bg-neutral-200 text-neutral-800 dark:bg-neutral-800 dark:text-neutral-100'
+          : 'text-neutral-400 hover:bg-neutral-200/70 hover:text-neutral-700 dark:text-neutral-500 dark:hover:bg-neutral-800 dark:hover:text-neutral-200',
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+function SidebarSection({
+  title,
+  collapsed,
+  onToggleCollapsed,
+  actions,
+  children,
+}: {
+  title: string
   collapsed: boolean
   onToggleCollapsed: () => void
-  onOpen: (id: string) => void
-  onDelete: (id: string) => void
-  onTogglePin: (id: string, pinned: boolean) => void
-  onRename: (id: string, title: string) => void
-  onShare: (id: string) => void
+  /** 标题右侧的操作按钮 */
+  actions?: React.ReactNode
+  children?: React.ReactNode
 }) {
   return (
     <section className="pb-3.5">
-      <button
-        type="button"
-        onClick={onToggleCollapsed}
-        aria-expanded={!collapsed}
-        className="group flex w-full items-center gap-1 px-2.5 pb-1.5 text-left text-[13px] font-semibold text-neutral-900 dark:text-neutral-100"
-      >
-        <span>{title}</span>
-        <ChevronDown
-          className={clsx(
-            'h-3.5 w-3.5 text-neutral-400 transition',
-            HOVER_REVEAL_CLASS,
-            collapsed && '-rotate-90',
-          )}
-        />
-      </button>
-      {!collapsed && conversations.length ? (
-        <ul className="space-y-0.5">
-          {conversations.map((conversation) => (
-            <ConversationRow
-              key={conversation.id}
-              conversation={conversation}
-              active={conversation.id === activeId}
-              actions
-              onOpen={onOpen}
-              onDelete={onDelete}
-              onTogglePin={onTogglePin}
-              onRename={onRename}
-              onShare={onShare}
-            />
-          ))}
-        </ul>
-      ) : !collapsed && emptyText ? (
-        <p className="px-2.5 py-1.5 text-[13px] text-neutral-400">{emptyText}</p>
-      ) : null}
+      <div className="group flex items-center gap-1 pb-1.5 pl-2.5 pr-1">
+        <button
+          type="button"
+          onClick={onToggleCollapsed}
+          aria-expanded={!collapsed}
+          className="flex min-w-0 flex-1 items-center gap-1 text-left text-[13px] font-semibold text-neutral-900 dark:text-neutral-100"
+        >
+          <span className="truncate">{title}</span>
+          <ChevronDown
+            className={clsx(
+              'h-3.5 w-3.5 shrink-0 text-neutral-400 transition',
+              HOVER_REVEAL_CLASS,
+              collapsed && '-rotate-90',
+            )}
+          />
+        </button>
+        {actions && <div className="flex shrink-0 items-center gap-0.5">{actions}</div>}
+      </div>
+      {!collapsed && children}
     </section>
+  )
+}
+
+/** 文件夹操作集合（编辑/置顶/删除），由 Sidebar 统一注入。 */
+interface FolderHandlers {
+  onEdit: (folder: FolderDTO) => void
+  onTogglePin: (folderId: string, pinned: boolean) => void
+  onDelete: (folder: FolderDTO, memberCount: number) => void
+}
+
+/** 文件夹行 + 展开的成员列表。 */
+function FolderBlock({
+  group,
+  activeId,
+  expanded,
+  onToggleExpand,
+  batch,
+  folders,
+  rowHandlers,
+  folderHandlers,
+}: {
+  group: FolderGroup
+  activeId: string | undefined
+  expanded: boolean
+  onToggleExpand: () => void
+  batch: BatchContext | null
+  folders: FolderDTO[]
+  rowHandlers: ConversationRowHandlers
+  folderHandlers: FolderHandlers
+}) {
+  const { folder, conversations: members } = group
+  const containsActive = Boolean(activeId && members.some((c) => c.id === activeId))
+  return (
+    <FolderRow
+      folder={folder}
+      count={members.length}
+      expanded={expanded}
+      containsActive={containsActive}
+      batchMode={Boolean(batch)}
+      onToggleExpand={onToggleExpand}
+      onEdit={() => folderHandlers.onEdit(folder)}
+      onTogglePin={(pinned) => folderHandlers.onTogglePin(folder.id, pinned)}
+      onDelete={() => folderHandlers.onDelete(folder, members.length)}
+    >
+      {expanded &&
+        (members.length ? (
+          // 缩进 + 引导线：线对齐文件夹图标芯片的竖直中线（px-2.5 + 芯片半宽）。
+          <ul className="ml-[22px] mt-0.5 space-y-0.5 border-l border-neutral-200 pl-1.5 dark:border-neutral-800">
+            {members.map((conversation) => (
+              <ConversationRow
+                key={conversation.id}
+                conversation={conversation}
+                active={conversation.id === activeId}
+                actions
+                folders={folders}
+                batch={
+                  batch
+                    ? {
+                        selected: batch.selectedIds.has(conversation.id),
+                        onToggleSelect: batch.onToggleSelect,
+                      }
+                    : null
+                }
+                {...rowHandlers}
+              />
+            ))}
+          </ul>
+        ) : (
+          <p className="ml-[22px] border-l border-neutral-200 py-1.5 pl-3 text-xs text-neutral-400 dark:border-neutral-800">
+            文件夹是空的
+          </p>
+        ))}
+    </FolderRow>
   )
 }
 
@@ -468,12 +610,17 @@ export function Sidebar() {
   const { data: user } = useMe()
   const { data } = useConversations()
   const conversations = useMemo(() => data ?? [], [data])
+  const { data: folderData } = useFolders()
+  const folders = useMemo(() => folderData ?? [], [folderData])
   const logout = useLogout()
   const { collapsed, toggleCollapsed } = useSidebarStore()
   const pinnedSectionCollapsed = useSidebarStore((s) => s.pinnedSectionCollapsed)
   const recentSectionCollapsed = useSidebarStore((s) => s.recentSectionCollapsed)
   const togglePinnedSectionCollapsed = useSidebarStore((s) => s.togglePinnedSectionCollapsed)
   const toggleRecentSectionCollapsed = useSidebarStore((s) => s.toggleRecentSectionCollapsed)
+  const expandedFolders = useSidebarStore((s) => s.expandedFolders)
+  const toggleFolderExpanded = useSidebarStore((s) => s.toggleFolderExpanded)
+  const expandFolder = useSidebarStore((s) => s.expandFolder)
   const mobileOpen = useSidebarStore((s) => s.mobileOpen)
   const setMobileOpen = useSidebarStore((s) => s.setMobileOpen)
   const isMobile = useIsMobile()
@@ -481,6 +628,8 @@ export function Sidebar() {
   const theme = useSettings((s) => s.theme)
   const setTheme = useSettings((s) => s.setTheme)
   const openSettingsDialog = useSettingsDialog((s) => s.openDialog)
+  const openFolderEditorCreate = useFolderEditor((s) => s.openCreate)
+  const openFolderEditorEdit = useFolderEditor((s) => s.openEdit)
   const [searchOpen, setSearchOpen] = useState(false)
   const [popover, setPopover] = useState<PopoverKind | null>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
@@ -488,20 +637,41 @@ export function Sidebar() {
   const accountMenuRef = useRef<HTMLDivElement>(null)
   const [shareTarget, setShareTarget] = useState<string | null>(null)
 
+  // 批量管理：选中集合仅存在于本次进入期间，退出即清空。
+  const [batchMode, setBatchMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set())
+  const [movePickerOpen, setMovePickerOpen] = useState(false)
+  const movePickerRef = useRef<HTMLDivElement>(null)
+
   const cycleTheme = () =>
     setTheme(theme === 'system' ? 'light' : theme === 'light' ? 'dark' : 'system')
   const ThemeIcon = theme === 'light' ? Sun : theme === 'dark' ? Moon : RoutineIcon
   const userLabel = user?.displayName ?? user?.username ?? 'U'
   const isAdmin = user?.role === 'admin'
 
-  const pinnedConversations = useMemo(
-    () => conversations.filter((conversation) => conversation.pinnedAt),
-    [conversations],
+  const sections = useMemo(
+    () => buildSidebarSections(folders, conversations),
+    [folders, conversations],
   )
-  const recentConversations = useMemo(
+  const unpinnedConversations = useMemo(
     () => conversations.filter((conversation) => !conversation.pinnedAt),
     [conversations],
   )
+
+  // 打开文件夹内的会话时自动展开所在文件夹（如从搜索进入），便于在列表中定位。
+  const activeFolderId = conversations.find((c) => c.id === id)?.folderId ?? null
+  useEffect(() => {
+    if (activeFolderId) expandFolder(activeFolderId)
+  }, [activeFolderId, expandFolder])
+
+  // 折叠为 rail 时批量模式没有承载界面，直接退出。
+  useEffect(() => {
+    if (railMode && batchMode) {
+      setBatchMode(false)
+      setSelectedIds(new Set())
+      setMovePickerOpen(false)
+    }
+  }, [railMode, batchMode])
 
   useEffect(() => {
     if (!popover) return
@@ -543,7 +713,28 @@ export function Sidebar() {
     }
   }, [accountMenuOpen])
 
-  const { deleteWithConfirm, togglePin, renameTo } = useConversationActions()
+  useEffect(() => {
+    if (!movePickerOpen) return
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target
+      if (!(target instanceof Node)) return
+      if (movePickerRef.current?.contains(target)) return
+      setMovePickerOpen(false)
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMovePickerOpen(false)
+    }
+    window.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [movePickerOpen])
+
+  const { deleteWithConfirm, batchDeleteWithConfirm, moveToFolder, togglePin, renameTo } =
+    useConversationActions()
+  const folderActions = useFolderActions()
 
   const openConversation = (conversationId: string) => {
     setPopover(null)
@@ -567,7 +758,83 @@ export function Sidebar() {
     openSettingsDialog()
   }
 
-  const popoverItems = popover === 'pinned' ? pinnedConversations : recentConversations
+  // ---------- 批量管理 ----------
+  const exitBatchMode = () => {
+    setBatchMode(false)
+    setSelectedIds(new Set())
+    setMovePickerOpen(false)
+  }
+  const toggleSelected = (conversationId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(conversationId)) next.delete(conversationId)
+      else next.add(conversationId)
+      return next
+    })
+  }
+  const allSelected = conversations.length > 0 && selectedIds.size === conversations.length
+  const toggleSelectAll = () => {
+    setSelectedIds(allSelected ? new Set() : new Set(conversations.map((c) => c.id)))
+  }
+  const selectedList = useMemo(() => [...selectedIds], [selectedIds])
+
+  const batch: BatchContext | null = batchMode
+    ? { selectedIds, onToggleSelect: toggleSelected }
+    : null
+
+  // ---------- 会话/文件夹行的回调 ----------
+  const rowHandlers: ConversationRowHandlers = {
+    onOpen: openConversation,
+    onDelete: deleteWithConfirm,
+    onTogglePin: togglePin,
+    onRename: renameTo,
+    onShare: setShareTarget,
+    onMove: (conversationId, folderId, folderName) =>
+      moveToFolder([conversationId], folderId, folderName),
+    onMoveToNewFolder: (conversationId) =>
+      openFolderEditorCreate((folder) => moveToFolder([conversationId], folder.id, folder.name)),
+  }
+
+  const folderHandlers: FolderHandlers = {
+    onEdit: openFolderEditorEdit,
+    onTogglePin: folderActions.togglePin,
+    onDelete: folderActions.deleteWithConfirm,
+  }
+
+  const renderFolderBlock = (group: FolderGroup) => (
+    <FolderBlock
+      key={group.folder.id}
+      group={group}
+      activeId={id}
+      expanded={Boolean(expandedFolders[group.folder.id])}
+      onToggleExpand={() => toggleFolderExpanded(group.folder.id)}
+      batch={batch}
+      folders={folders}
+      rowHandlers={rowHandlers}
+      folderHandlers={folderHandlers}
+    />
+  )
+
+  const renderConversationRow = (conversation: ConversationDTO) => (
+    <ConversationRow
+      key={conversation.id}
+      conversation={conversation}
+      active={conversation.id === id}
+      actions
+      folders={folders}
+      batch={
+        batch
+          ? {
+              selected: batch.selectedIds.has(conversation.id),
+              onToggleSelect: batch.onToggleSelect,
+            }
+          : null
+      }
+      {...rowHandlers}
+    />
+  )
+
+  const popoverItems = popover === 'pinned' ? sections.pinnedConversations : unpinnedConversations
 
   return (
     <>
@@ -601,7 +868,11 @@ export function Sidebar() {
                 <RailButton title="新聊天" onClick={newChat} testId="sidebar-new-chat">
                   <NewChatIcon className="h-[18px] w-[18px]" />
                 </RailButton>
-                <RailButton title="搜索聊天" onClick={() => setSearchOpen(true)} testId="sidebar-search">
+                <RailButton
+                  title="搜索聊天"
+                  onClick={() => setSearchOpen(true)}
+                  testId="sidebar-search"
+                >
                   <Search className="h-[17px] w-[17px]" strokeWidth={1.9} />
                 </RailButton>
                 <RailButton
@@ -721,32 +992,130 @@ export function Sidebar() {
             </nav>
 
             <div className="hc-scrollbar flex-1 overflow-y-auto px-2">
-              <ConversationSection
+              <SidebarSection
                 title="已置顶"
-                conversations={pinnedConversations}
-                activeId={id}
                 collapsed={pinnedSectionCollapsed}
                 onToggleCollapsed={togglePinnedSectionCollapsed}
-                onOpen={openConversation}
-                onDelete={deleteWithConfirm}
-                onTogglePin={togglePin}
-                onRename={renameTo}
-                onShare={setShareTarget}
-              />
-              <ConversationSection
+              >
+                {sections.pinnedFolders.length || sections.pinnedConversations.length ? (
+                  <ul className="space-y-0.5">
+                    {sections.pinnedFolders.map(renderFolderBlock)}
+                    {sections.pinnedConversations.map(renderConversationRow)}
+                  </ul>
+                ) : null}
+              </SidebarSection>
+              <SidebarSection
                 title="聊天"
-                conversations={recentConversations}
-                activeId={id}
-                emptyText="还没有会话"
                 collapsed={recentSectionCollapsed}
                 onToggleCollapsed={toggleRecentSectionCollapsed}
-                onOpen={openConversation}
-                onDelete={deleteWithConfirm}
-                onTogglePin={togglePin}
-                onRename={renameTo}
-                onShare={setShareTarget}
-              />
+                actions={
+                  <>
+                    <SectionActionButton
+                      title={batchMode ? '退出批量管理' : '批量管理'}
+                      active={batchMode}
+                      testId="sidebar-batch-manage"
+                      onClick={() => (batchMode ? exitBatchMode() : setBatchMode(true))}
+                    >
+                      <ListChecks className="h-[15px] w-[15px]" strokeWidth={1.8} />
+                    </SectionActionButton>
+                    <SectionActionButton
+                      title="新建文件夹"
+                      testId="sidebar-new-folder"
+                      onClick={() => openFolderEditorCreate()}
+                    >
+                      <FolderPlus className="h-[15px] w-[15px]" strokeWidth={1.8} />
+                    </SectionActionButton>
+                  </>
+                }
+              >
+                {sections.folders.length || sections.looseConversations.length ? (
+                  <ul className="space-y-0.5">
+                    {sections.folders.map(renderFolderBlock)}
+                    {sections.looseConversations.map(renderConversationRow)}
+                  </ul>
+                ) : (
+                  <p className="px-2.5 py-1.5 text-[13px] text-neutral-400">还没有会话</p>
+                )}
+              </SidebarSection>
             </div>
+
+            {/* 批量管理工具栏：仅批量模式显示，覆盖在账号区上方 */}
+            {batchMode && (
+              <div
+                className="hc-pop-in border-t border-neutral-200 px-3 pb-2.5 pt-2 dark:border-neutral-800"
+                data-testid="batch-toolbar"
+              >
+                <div className="flex items-center justify-between pb-2">
+                  <span
+                    className="text-[13px] font-medium text-neutral-900 dark:text-neutral-100"
+                    data-testid="batch-selected-count"
+                  >
+                    已选 {selectedIds.size} 个聊天
+                  </span>
+                  <button
+                    type="button"
+                    onClick={toggleSelectAll}
+                    className="rounded-md px-1.5 py-0.5 text-xs text-neutral-500 transition hover:bg-neutral-200/70 hover:text-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+                  >
+                    {allSelected ? '取消全选' : '全选'}
+                  </button>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div ref={movePickerRef} className="relative flex-1">
+                    <button
+                      type="button"
+                      disabled={selectedIds.size === 0}
+                      data-testid="batch-move"
+                      onClick={() => setMovePickerOpen((open) => !open)}
+                      className="w-full rounded-lg bg-neutral-200/70 px-2 py-1.5 text-[13px] font-medium text-neutral-800 transition hover:bg-neutral-200 disabled:opacity-40 dark:bg-neutral-800 dark:text-neutral-100 dark:hover:bg-neutral-700"
+                    >
+                      移动
+                    </button>
+                    {movePickerOpen && (
+                      <div className="hc-pop-in absolute bottom-full left-0 z-50 mb-1.5 w-56 rounded-xl border border-neutral-200 bg-white p-1 shadow-2xl dark:border-neutral-700 dark:bg-neutral-900">
+                        <FolderMenuList
+                          folders={folders}
+                          showRemove
+                          onSelect={(folderId) => {
+                            setMovePickerOpen(false)
+                            moveToFolder(
+                              selectedList,
+                              folderId,
+                              folders.find((f) => f.id === folderId)?.name,
+                              exitBatchMode,
+                            )
+                          }}
+                          onCreateNew={() => {
+                            setMovePickerOpen(false)
+                            const ids = selectedList
+                            openFolderEditorCreate((folder) =>
+                              moveToFolder(ids, folder.id, folder.name, exitBatchMode),
+                            )
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    disabled={selectedIds.size === 0}
+                    data-testid="batch-delete"
+                    onClick={() => batchDeleteWithConfirm(selectedList, exitBatchMode)}
+                    className="flex-1 rounded-lg bg-red-50 px-2 py-1.5 text-[13px] font-medium text-red-600 transition hover:bg-red-100 disabled:opacity-40 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-950/60"
+                  >
+                    删除
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="batch-done"
+                    onClick={exitBatchMode}
+                    className="rounded-lg bg-neutral-900 px-3 py-1.5 text-[13px] font-medium text-white transition hover:bg-neutral-700 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
+                  >
+                    完成
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div className="relative border-t border-neutral-200 px-2 py-2 dark:border-neutral-800">
               {accountMenuOpen && (

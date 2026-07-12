@@ -32,5 +32,17 @@ export const switchBranch = (id: string, messageId: string) =>
 
 export const deleteConversation = (id: string) => apiDelete<{ ok: true }>(`/conversations/${id}`)
 
+/** 批量删除会话，返回实际删除数。 */
+export const batchDeleteConversations = (ids: string[]) =>
+  apiPost<{ deletedCount: number }>('/conversations/batch-delete', { ids }).then(
+    (r) => r.deletedCount,
+  )
+
+/** 批量移动会话到文件夹（folderId=null 表示移出），返回实际移动数。 */
+export const moveConversationsToFolder = (ids: string[], folderId: string | null) =>
+  apiPost<{ movedCount: number }>('/conversations/batch-move', { ids, folderId }).then(
+    (r) => r.movedCount,
+  )
+
 export const clearAllConversations = () =>
   apiDelete<{ deletedCount: number }>('/conversations').then((r) => r.deletedCount)
