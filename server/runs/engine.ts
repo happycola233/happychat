@@ -2,6 +2,7 @@ import { and, eq } from 'drizzle-orm'
 import type { ContentPart, MessageUsage, ModelParams, UrlCitation } from '@shared/types/domain'
 import { RUN_EVENT_TYPE } from '@shared/types/events'
 import { isReasoningEnabled } from '@shared/util/reasoning'
+import { appendReasoningSummaryDelta } from '@shared/util/reasoningSummary'
 import { db } from '../db/client'
 import { runEvents, runs } from '../db/schema'
 import { providerClientFromRow } from '../provider/client'
@@ -104,6 +105,7 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
 
   let text = ''
   let reasoning = ''
+  let reasoningPartKey: string | null = null
   let annotations: UrlCitation[] = []
   let usage: MessageUsage = {
     inputTokens: 0,
@@ -373,9 +375,15 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
         case 'response.output_text.delta':
           text += str(ev.data.delta)
           break
-        case 'response.reasoning_summary_text.delta':
-          reasoning += str(ev.data.delta)
+        case 'response.reasoning_summary_text.delta': {
+          const accumulatedReasoning = appendReasoningSummaryDelta(
+            { text: reasoning, partKey: reasoningPartKey },
+            ev.data,
+          )
+          reasoning = accumulatedReasoning.text
+          reasoningPartKey = accumulatedReasoning.partKey
           break
+        }
         case 'response.output_text.annotation.added':
           pushCitation(annotations, ev.data.annotation)
           break

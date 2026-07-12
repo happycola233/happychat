@@ -1,3 +1,5 @@
+import { responseDeltaIdentityKey } from '@shared/util/reasoningSummary'
+
 export interface ReplayableRunEvent {
   type: string
   sequenceNumber: number
@@ -9,17 +11,11 @@ const APPEND_DELTA_TYPES = new Set([
   'response.reasoning_summary_text.delta',
 ])
 
-const DELTA_IDENTITY_FIELDS = ['item_id', 'output_index', 'content_index', 'summary_index']
-
 const str = (v: unknown): string => (typeof v === 'string' ? v : '')
 
 function deltaReplayKey(ev: ReplayableRunEvent): string | null {
   if (!APPEND_DELTA_TYPES.has(ev.type)) return null
-  if (typeof ev.data.delta !== 'string') return null
-  return JSON.stringify([
-    ev.type,
-    ...DELTA_IDENTITY_FIELDS.map((field) => ev.data[field] ?? null),
-  ])
+  return responseDeltaIdentityKey(ev.type, ev.data)
 }
 
 /**

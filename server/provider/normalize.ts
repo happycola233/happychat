@@ -1,4 +1,5 @@
 import type { ContentPart, MessageUsage, UrlCitation } from '@shared/types/domain'
+import { joinReasoningSummaryParts } from '@shared/util/reasoningSummary'
 import type { UpstreamResponse, UpstreamUsage } from './upstream-types'
 
 export interface ParsedResponse {
@@ -26,7 +27,7 @@ export function mapUsage(u: UpstreamUsage | undefined): MessageUsage {
 /** 解析非流式 Response 对象的 output[]：拼接正文、收集引用与思考摘要。 */
 export function parseResponse(r: UpstreamResponse): ParsedResponse {
   let text = ''
-  let reasoning = ''
+  const reasoningParts: string[] = []
   const annotations: UrlCitation[] = []
 
   for (const item of r.output ?? []) {
@@ -48,16 +49,20 @@ export function parseResponse(r: UpstreamResponse): ParsedResponse {
         }
       }
     } else if (item.type === 'reasoning') {
-      for (const s of item.summary ?? []) reasoning += s.text ?? ''
+      for (const summaryPart of item.summary ?? []) {
+        reasoningParts.push(summaryPart.text ?? '')
+      }
     }
   }
+
+  const reasoningSummary = joinReasoningSummaryParts(reasoningParts)
 
   return {
     responseId: r.id ?? null,
     status: r.status ?? 'completed',
     text,
     annotations,
-    reasoningSummary: reasoning || null,
+    reasoningSummary: reasoningSummary || null,
     usage: mapUsage(r.usage),
     incompleteReason: r.incomplete_details?.reason ?? null,
     error: r.error ? { message: r.error.message ?? '生成失败', code: r.error.code } : null,

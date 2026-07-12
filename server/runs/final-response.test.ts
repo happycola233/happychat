@@ -103,6 +103,28 @@ describe('reconcileFinalResponse', () => {
     expect(reconcileFinalResponse(current(), response).text).toBe('第一段第二段')
   })
 
+  it('以段落边界拼接多个 reasoning item 的 summary part', () => {
+    const response: UpstreamResponse = {
+      output: [
+        {
+          type: 'reasoning',
+          summary: [
+            { type: 'summary_text', text: '**Planning**' },
+            { type: 'summary_text', text: '**Checking**' },
+          ],
+        },
+        {
+          type: 'reasoning',
+          summary: [{ type: 'summary_text', text: '**Answering**' }],
+        },
+      ],
+    }
+
+    expect(reconcileFinalResponse(current(), response).reasoningSummary).toBe(
+      '**Planning**\n\n**Checking**\n\n**Answering**',
+    )
+  })
+
   it('不完整响应仍使用其中携带的最终部分正文', () => {
     const response: UpstreamResponse = {
       status: 'incomplete',

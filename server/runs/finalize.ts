@@ -116,6 +116,7 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
       messageId: a.assistantMessage.id,
       // 与终态状态同帧交给前端，避免先清空流式内容再读取数据库造成闪烁。
       text: a.text,
+      reasoningSummary: a.reasoningSummary,
       annotations: a.annotations,
       usage: a.usage,
       incompleteReason: a.incompleteReason,

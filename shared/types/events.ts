@@ -47,8 +47,9 @@ export interface RunCreatedData {
 export interface RunDoneData {
   state: 'completed' | 'incomplete'
   messageId: string
-  /** 文本 run 的终态规范值；图片 run 不包含这两个字段。 */
+  /** 文本 run 的终态规范值；图片 run 不包含这三个字段。 */
   text?: string
+  reasoningSummary?: string | null
   annotations?: UrlCitation[]
   usage: MessageUsage
   incompleteReason: string | null

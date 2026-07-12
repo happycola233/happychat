@@ -2,6 +2,19 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { ReasoningCard } from './ReasoningCard'
 
+const ADJACENT_REASONING_HEADINGS = [
+  'Analyzing primary requirement',
+  'Checking input constraints',
+  'Comparing candidate approaches',
+  'Selecting implementation strategy',
+  'Validating edge case behavior',
+  'Reviewing compatibility safeguards',
+  'Confirming final output structure',
+  'Preparing concise response',
+]
+  .map((title) => `**${title}**`)
+  .join('')
+
 describe('ReasoningCard', () => {
   it('renders reasoning sections with Markdown bodies', () => {
     const html = renderToStaticMarkup(
@@ -16,6 +29,23 @@ describe('ReasoningCard', () => {
     expect(html).toContain('<li>item</li>')
     expect(html).toContain('<code>code</code>')
     expect(html).not.toContain('Intro.**Heading**')
+  })
+
+  it('renders every adjacent OpenAI summary heading as a separate section', () => {
+    const html = renderToStaticMarkup(
+      <ReasoningCard
+        text={ADJACENT_REASONING_HEADINGS}
+        status="completed"
+        startedAt={null}
+        durationMs={32_000}
+        defaultExpanded
+      />,
+    )
+
+    expect(html.match(/hc-reasoning-section/g)).toHaveLength(8)
+    expect(html).toContain('Analyzing primary requirement')
+    expect(html).toContain('Preparing concise response')
+    expect(html).not.toContain('<strong>')
   })
 
   it('does not render a toggle or body before reasoning text arrives', () => {

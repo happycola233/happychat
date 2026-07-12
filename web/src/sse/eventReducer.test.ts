@@ -48,6 +48,44 @@ describe('reduceEvent', () => {
     expect(next.upstreamStartedAt).toBe(4000)
   })
 
+  it('preserves boundaries between structured reasoning summary parts in batched events', () => {
+    const next = reduceEvents(initialLive(), [
+      event('response.reasoning_summary_text.delta', {
+        delta: '**Analyzing primary ',
+        item_id: 'rs_1',
+        output_index: 0,
+        summary_index: 0,
+      }),
+      event('response.reasoning_summary_text.delta', {
+        delta: 'requirement**',
+        item_id: 'rs_1',
+        output_index: 0,
+        summary_index: 0,
+      }),
+      event('response.reasoning_summary_text.delta', {
+        delta: '**Checking input constraints**',
+        item_id: 'rs_1',
+        output_index: 0,
+        summary_index: 1,
+      }),
+      event('response.reasoning_summary_text.delta', {
+        delta: '**Comparing candidate approaches**',
+        item_id: 'rs_2',
+        output_index: 1,
+        summary_index: 0,
+      }),
+    ])
+
+    expect(next.reasoning).toBe(
+      [
+        '**Analyzing primary requirement**',
+        '**Checking input constraints**',
+        '**Comparing candidate approaches**',
+      ].join('\n\n'),
+    )
+    expect(next.reasoningPartKey).toBe(JSON.stringify(['item', 'rs_2', 0]))
+  })
+
   it('locks reasoning duration when the first output text arrives', () => {
     vi.useFakeTimers()
     vi.setSystemTime(4500)
@@ -227,6 +265,8 @@ describe('reduceEvent', () => {
     const streamed = {
       ...initialLive(),
       text: '正文【turn5view0†L276-L',
+      reasoning: '流式思考残片',
+      reasoningPartKey: 'stream-part',
       annotations: [
         {
           type: 'url_citation' as const,
@@ -242,16 +282,39 @@ describe('reduceEvent', () => {
       event('run.done', {
         state: 'completed',
         text: '正文',
+        reasoningSummary: '最终思考摘要',
         annotations: [],
       }),
     )
 
     expect(next).toMatchObject({
       text: '正文',
+      reasoning: '最终思考摘要',
+      reasoningPartKey: null,
       annotations: [],
       status: 'completed',
       webSearching: false,
     })
+  })
+
+  it('clears streamed reasoning when the final payload explicitly contains null', () => {
+    const streamed = {
+      ...initialLive(),
+      reasoning: '不应保留的流式思考',
+      reasoningPartKey: 'stream-part',
+    }
+    const next = reduceEvent(
+      streamed,
+      event('run.done', {
+        state: 'completed',
+        text: '正文',
+        reasoningSummary: null,
+        annotations: [],
+      }),
+    )
+
+    expect(next.reasoning).toBe('')
+    expect(next.reasoningPartKey).toBeNull()
   })
 
   it('keeps stable final text and citation references when no correction is needed', () => {
@@ -264,13 +327,21 @@ describe('reduceEvent', () => {
         end_index: 4,
       },
     ]
-    const streamed = { ...initialLive(), text: '相同正文', annotations }
+    const streamed = {
+      ...initialLive(),
+      text: '相同正文',
+      reasoning: '保留流式思考',
+      reasoningPartKey: 'stream-part',
+      annotations,
+    }
     const next = reduceEvent(
       streamed,
       event('run.done', { state: 'completed', text: '相同正文', annotations: [...annotations] }),
     )
 
     expect(next.text).toBe(streamed.text)
+    expect(next.reasoning).toBe(streamed.reasoning)
+    expect(next.reasoningPartKey).toBe(streamed.reasoningPartKey)
     expect(next.annotations).toBe(annotations)
   })
 

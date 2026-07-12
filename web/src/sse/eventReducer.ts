@@ -1,5 +1,9 @@
 import type { UrlCitation } from '@shared/types/domain'
 import type { WireEvent } from '@shared/types/events'
+import {
+  appendReasoningSummaryDelta,
+  responseDeltaIdentityKey,
+} from '@shared/util/reasoningSummary'
 
 export type LiveStatus =
   | 'streaming'
@@ -27,6 +31,8 @@ export interface LiveImageGeneration {
 export interface LiveMessage {
   text: string
   reasoning: string
+  /** 当前 OpenAI reasoning summary part 的身份，用于在结构化 part 之间保留段落边界。 */
+  reasoningPartKey: string | null
   upstreamStartedAt: number | null
   reasoningDurationMs: number | null
   reasoningEnabled: boolean
@@ -52,6 +58,7 @@ export const initialLive = (
 ): LiveMessage => ({
   text: '',
   reasoning: '',
+  reasoningPartKey: null,
   upstreamStartedAt,
   reasoningDurationMs: null,
   reasoningEnabled,
@@ -74,6 +81,7 @@ const APPEND_DELTA_TYPES = new Set([
 function compactAppendEvents(events: WireEvent[]): WireEvent[] {
   const compacted: WireEvent[] = []
   let pendingType: string | null = null
+  let pendingKey: string | null = null
   let pendingSeq = -1
   let pendingData: Record<string, unknown> | null = null
 
@@ -81,18 +89,22 @@ function compactAppendEvents(events: WireEvent[]): WireEvent[] {
     if (!pendingType || !pendingData) return
     compacted.push({ type: pendingType, seq: pendingSeq, data: pendingData })
     pendingType = null
+    pendingKey = null
     pendingSeq = -1
     pendingData = null
   }
 
   for (const ev of events) {
-    if (!APPEND_DELTA_TYPES.has(ev.type) || typeof ev.data.delta !== 'string') {
+    const eventKey = APPEND_DELTA_TYPES.has(ev.type)
+      ? responseDeltaIdentityKey(ev.type, ev.data)
+      : null
+    if (!eventKey) {
       flushPending()
       compacted.push(ev)
       continue
     }
 
-    if (pendingType === ev.type && pendingData) {
+    if (pendingKey === eventKey && pendingData) {
       pendingSeq = ev.seq
       pendingData = { ...ev.data, delta: str(pendingData.delta) + str(ev.data.delta) }
       continue
@@ -100,6 +112,7 @@ function compactAppendEvents(events: WireEvent[]): WireEvent[] {
 
     flushPending()
     pendingType = ev.type
+    pendingKey = eventKey
     pendingSeq = ev.seq
     pendingData = { ...ev.data }
   }
@@ -254,11 +267,17 @@ export function reduceEvent(s: LiveMessage, ev: WireEvent): LiveMessage {
       return markUpstreamStarted(s)
     case 'response.output_text.delta':
       return { ...finishReasoning(s), text: s.text + str(ev.data.delta) }
-    case 'response.reasoning_summary_text.delta':
+    case 'response.reasoning_summary_text.delta': {
+      const nextReasoning = appendReasoningSummaryDelta(
+        { text: s.reasoning, partKey: s.reasoningPartKey },
+        ev.data,
+      )
       return {
         ...markUpstreamStarted(s),
-        reasoning: s.reasoning + str(ev.data.delta),
+        reasoning: nextReasoning.text,
+        reasoningPartKey: nextReasoning.partKey,
       }
+    }
     case 'response.output_text.annotation.added': {
       const a = ev.data.annotation as UrlCitation | undefined
       if (a && a.type === 'url_citation') return { ...s, annotations: [...s.annotations, a] }
@@ -299,10 +318,17 @@ export function reduceEvent(s: LiveMessage, ev: WireEvent): LiveMessage {
     case 'run.done': {
       const completed = finishReasoning(s)
       const finalText = typeof ev.data.text === 'string' ? ev.data.text : completed.text
+      const hasFinalReasoning =
+        Object.prototype.hasOwnProperty.call(ev.data, 'reasoningSummary') &&
+        (typeof ev.data.reasoningSummary === 'string' || ev.data.reasoningSummary === null)
       return {
         ...completed,
-        // 最终正文、引用和终态一次提交；不经过空内容，避免视觉闪烁。
+        // 最终正文、思考、引用和终态一次提交；不经过空内容，避免视觉闪烁。
         text: finalText,
+        reasoning: hasFinalReasoning
+          ? (ev.data.reasoningSummary as string | null) ?? ''
+          : completed.reasoning,
+        reasoningPartKey: hasFinalReasoning ? null : completed.reasoningPartKey,
         annotations: finalAnnotations(ev.data.annotations, completed.annotations),
         status: (str(ev.data.state) as LiveStatus) || 'completed',
         webSearching: false,

@@ -30,15 +30,35 @@ describe('compactRunEventsForReplay', () => {
   it('does not merge across event types or output slots', () => {
     const compacted = compactRunEventsForReplay([
       ev(1, 'response.output_text.delta', { delta: 'a', item_id: 'msg_1' }),
-      ev(2, 'response.reasoning_summary_text.delta', { delta: 'b', item_id: 'rs_1' }),
-      ev(3, 'response.reasoning_summary_text.delta', { delta: 'c', item_id: 'rs_2' }),
+      ev(2, 'response.reasoning_summary_text.delta', {
+        delta: 'b',
+        item_id: 'rs_1',
+        output_index: 0,
+        summary_index: 0,
+      }),
+      ev(3, 'response.reasoning_summary_text.delta', {
+        delta: 'c',
+        item_id: 'rs_1',
+        output_index: 0,
+        summary_index: 1,
+      }),
       ev(4, 'response.output_text.delta', { delta: 'd', item_id: 'msg_1' }),
     ])
 
     expect(compacted).toEqual([
       ev(1, 'response.output_text.delta', { delta: 'a', item_id: 'msg_1' }),
-      ev(2, 'response.reasoning_summary_text.delta', { delta: 'b', item_id: 'rs_1' }),
-      ev(3, 'response.reasoning_summary_text.delta', { delta: 'c', item_id: 'rs_2' }),
+      ev(2, 'response.reasoning_summary_text.delta', {
+        delta: 'b',
+        item_id: 'rs_1',
+        output_index: 0,
+        summary_index: 0,
+      }),
+      ev(3, 'response.reasoning_summary_text.delta', {
+        delta: 'c',
+        item_id: 'rs_1',
+        output_index: 0,
+        summary_index: 1,
+      }),
       ev(4, 'response.output_text.delta', { delta: 'd', item_id: 'msg_1' }),
     ])
   })
