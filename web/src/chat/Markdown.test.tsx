@@ -103,6 +103,105 @@ describe('Markdown headings and inline HTML', () => {
   })
 })
 
+describe('Markdown CJK-friendly emphasis', () => {
+  it.each([
+    ['粗体', '**文字。**文字', '<strong>文字。</strong>文字'],
+    ['斜体', '*文字。*文字', '<em>文字。</em>文字'],
+    ['日文', '**テスト。**続き', '<strong>テスト。</strong>続き'],
+    ['韩文', '**테스트(완료)**다음', '<strong>테스트(완료)</strong>다음'],
+    ['GFM 删除线', '~~文字。~~文字', '<del>文字。</del>文字'],
+  ])('renders adjacent %s delimiters around CJK punctuation', (_label, text, expected) => {
+    const html = renderToStaticMarkup(<Markdown text={text} />)
+
+    expect(html).toContain(expected)
+  })
+
+  it('supports CJK punctuation next to both opening and closing delimiters', () => {
+    const html = renderToStaticMarkup(<Markdown text={'前文**（重点。）**后文'} />)
+
+    expect(html).toContain('前文<strong>（重点。）</strong>后文')
+  })
+
+  it('handles common CJK closing punctuation before an adjacent sentence', () => {
+    const punctuationMarks = [
+      '。',
+      '，',
+      '、',
+      '！',
+      '？',
+      '；',
+      '：',
+      '）',
+      '》',
+      '】',
+      '”',
+      '’',
+      '…',
+      '—',
+    ]
+
+    for (const punctuation of punctuationMarks) {
+      const html = renderToStaticMarkup(<Markdown text={`**文字${punctuation}**后文`} />)
+
+      expect(html, `punctuation: ${punctuation}`).toContain(
+        `<strong>文字${punctuation}</strong>后文`,
+      )
+    }
+  })
+
+  it('keeps nested Markdown inside CJK-friendly strong emphasis', () => {
+    const html = renderToStaticMarkup(
+      <Markdown text={'**请看[文档](https://example.com)。**继续'} />,
+    )
+
+    expect(html).toContain('<strong>请看<a href="https://example.com"')
+    expect(html).toContain('>文档</a>。</strong>继续')
+  })
+
+  it('also applies while streaming without leaking delimiter markers', () => {
+    const html = renderToStaticMarkup(<Markdown text={'**文字。**文字'} animate />)
+
+    expect(html).toContain('<strong>')
+    expect(html).not.toContain('**')
+    expect(html).toMatch(/<span class="hc-stream-seg">文<\/span>/)
+  })
+
+  it('keeps emphasis stable when text arrives after a completed CJK delimiter', () => {
+    const incomplete = renderToStaticMarkup(<Markdown text={'**文字'} animate />)
+    const justClosed = renderToStaticMarkup(<Markdown text={'**文字。**'} animate />)
+    const continued = renderToStaticMarkup(<Markdown text={'**文字。**后'} animate />)
+
+    expect(incomplete).not.toContain('<strong>')
+    expect(justClosed).toContain('<strong>')
+    expect(continued).toContain('<strong>')
+    expect(continued).not.toContain('**')
+  })
+
+  it('does not relax the original CommonMark rules for non-CJK text', () => {
+    const html = renderToStaticMarkup(<Markdown text={'**English.**word'} />)
+
+    expect(html).toContain('**English.**word')
+    expect(html).not.toContain('<strong>')
+  })
+
+  it('keeps delimiter-like text inside code literal', () => {
+    const html = renderToStaticMarkup(
+      <Markdown text={'`**文字。**文字`\n\n```md\n**文字。**文字\n```'} />,
+    )
+
+    expect(html).toContain('<code>**文字。**文字</code>')
+    expect(html).toContain('**文字。**文字')
+    expect(html).not.toContain('<strong>')
+  })
+
+  it('keeps escaped delimiters literal', () => {
+    const html = renderToStaticMarkup(<Markdown text={'\\*\\*文字。\\*\\*文字'} />)
+
+    expect(html).toContain('**文字。**文字')
+    expect(html).not.toContain('<strong>')
+  })
+})
+
 describe('Markdown GitHub Alerts', () => {
   it('renders all supported GitHub alert types without leaking marker lines', () => {
     const html = renderToStaticMarkup(
