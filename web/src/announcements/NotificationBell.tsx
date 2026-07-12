@@ -110,7 +110,12 @@ export function NotificationBell() {
         aria-haspopup="dialog"
         aria-expanded={open}
       >
-        {unread > 0 ? <BellRing className="h-5 w-5" /> : <Bell className="h-5 w-5" />}
+        {/* 铃铛轮廓视觉体量偏大，特意使用 18px，使其与右侧 20px 三点图标在视觉上保持一致。 */}
+        {unread > 0 ? (
+          <BellRing className="h-[18px] w-[18px]" />
+        ) : (
+          <Bell className="h-[18px] w-[18px]" />
+        )}
         {unread > 0 && (
           <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-semibold text-white tabular-nums">
             {unread > 99 ? '99+' : unread}
