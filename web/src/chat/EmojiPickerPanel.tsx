@@ -56,7 +56,14 @@ function Emoji({ emoji, ...props }: EmojiPickerListEmojiProps) {
  * 同源 `/api/emoji-data` 按需拉取（服务端自托管 Emojibase，不依赖公网 CDN），
  * frimousse 会缓存进 localStorage。经 React.lazy 懒加载，不进主包。
  */
-export default function EmojiPickerPanel({ onSelect }: { onSelect: (emoji: string) => void }) {
+export default function EmojiPickerPanel({
+  autoFocusSearch,
+  onSelect,
+}: {
+  /** 桌面端可直接搜索；移动端关闭，避免点开图标面板时再次唤起软键盘。 */
+  autoFocusSearch: boolean
+  onSelect: (emoji: string) => void
+}) {
   const containerRef = useRef<HTMLDivElement>(null)
   // 网格参数在首次布局时按容器宽度计算：虚拟化要求单元格尺寸固定（不能 flex 拉伸，
   // 否则分类末行不满时按钮会被拉宽），所以列数取整后把可用宽度均分成固定边长。
@@ -79,7 +86,7 @@ export default function EmojiPickerPanel({ onSelect }: { onSelect: (emoji: strin
   return (
     <div
       ref={containerRef}
-      className="h-[286px] w-full"
+      className="h-full min-h-0 w-full"
       style={grid ? ({ '--hc-emoji-cell': `${grid.cellPx}px` } as CSSProperties) : undefined}
     >
       {grid !== null && (
@@ -93,7 +100,7 @@ export default function EmojiPickerPanel({ onSelect }: { onSelect: (emoji: strin
           {/* 抬高层级并带背景：粘性分类头等 viewport 内元素在任何浏览器/缩放下都不会盖到搜索框 */}
           <div className="relative z-10 bg-white px-2.5 pb-2 pt-2.5 dark:bg-neutral-900">
             <EmojiPicker.Search
-              autoFocus
+              autoFocus={autoFocusSearch}
               placeholder="搜索表情…"
               className="w-full rounded-lg bg-neutral-100 px-2.5 py-1.5 text-[13px] text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:ring-1 focus:ring-neutral-300 dark:bg-neutral-800 dark:text-neutral-100 dark:placeholder:text-neutral-500 dark:focus:ring-neutral-600"
             />

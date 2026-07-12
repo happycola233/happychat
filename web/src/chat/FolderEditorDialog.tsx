@@ -5,6 +5,7 @@ import { HexColorInput, HexColorPicker } from 'react-colorful'
 import type { FolderDTO } from '@shared/types/api'
 import { useFolderActions } from '../hooks/useFolders'
 import { useFolderEditor } from '../store/folderEditor'
+import { useIsMobile } from '../store/sidebar'
 import { FOLDER_COLOR_PRESETS } from './folderColors'
 import { FolderGlyph } from './folderVisuals'
 
@@ -31,6 +32,7 @@ function FolderEditorDialogInner({
   const [color, setColor] = useState<string | null>(folder?.color ?? null)
   const [emoji, setEmoji] = useState<string | null>(folder?.emoji ?? null)
   const [panel, setPanel] = useState<ExpandedPanel>(null)
+  const isMobile = useIsMobile()
 
   const saving = create.isPending || update.isPending
   const canSubmit = name.trim().length > 0 && !saving
@@ -41,15 +43,14 @@ function FolderEditorDialogInner({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
-      setPanel((current) => {
-        if (current) return null
-        onClose()
-        return current
-      })
+      // 不在 setState 的更新函数里关闭全局弹窗，否则会形成“渲染当前组件时
+      // 更新外部 store”的 React 警告。
+      if (panel) setPanel(null)
+      else onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [onClose, panel])
 
   const submit = async () => {
     const trimmed = name.trim()
@@ -75,7 +76,14 @@ function FolderEditorDialogInner({
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
       <div
         data-testid="folder-editor"
-        className="hc-pop-in hc-scrollbar relative z-10 max-h-[85dvh] w-full max-w-sm overflow-y-auto rounded-2xl bg-white p-5 shadow-xl dark:bg-neutral-900"
+        className={clsx(
+          'hc-pop-in relative z-10 flex w-full max-w-sm flex-col overflow-hidden rounded-2xl bg-white p-5 shadow-xl dark:bg-neutral-900',
+          // Emoji 展开时给弹窗一个明确的视口内高度，让中间列表承担剩余空间；
+          // 浏览器放大导致 CSS 视口变矮时，也不会再给整个弹窗套一层滚动条。
+          panel === 'emoji'
+            ? 'h-[min(38rem,calc(100dvh-2rem))]'
+            : 'max-h-[calc(100dvh-2rem)]',
+        )}
       >
         <h3 className="text-[15px] font-semibold text-neutral-900 dark:text-neutral-100">
           {isEdit ? '文件夹设置' : '新建文件夹'}
@@ -102,7 +110,8 @@ function FolderEditorDialogInner({
             </span>
           </button>
           <input
-            autoFocus={!isEdit}
+            // 桌面端保留打开即输入；移动端不主动唤起软键盘。
+            autoFocus={!isEdit && !isMobile}
             value={name}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => {
@@ -121,8 +130,8 @@ function FolderEditorDialogInner({
 
         {/* Emoji 选择面板（内联展开，避免小屏弹层溢出视口） */}
         {panel === 'emoji' && (
-          <div className="mt-3 overflow-hidden rounded-xl border border-neutral-200 dark:border-neutral-800">
-            <div className="flex items-center justify-between px-2.5 pt-2">
+          <div className="mt-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-neutral-200 dark:border-neutral-800">
+            <div className="flex shrink-0 items-center justify-between px-2.5 pt-2">
               <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">
                 选择图标
               </span>
@@ -141,12 +150,13 @@ function FolderEditorDialogInner({
             </div>
             <Suspense
               fallback={
-                <div className="flex h-[286px] items-center justify-center text-[13px] text-neutral-400">
+                <div className="flex h-full min-h-0 items-center justify-center text-[13px] text-neutral-400">
                   表情加载中…
                 </div>
               }
             >
               <EmojiPickerPanel
+                autoFocusSearch={!isMobile}
                 onSelect={(selected) => {
                   setEmoji(selected)
                   setPanel(null)
