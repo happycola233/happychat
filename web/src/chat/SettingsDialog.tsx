@@ -242,9 +242,14 @@ function GeneralPanel() {
         desc="在桌面端新聊天页输入框后方显示柔和渐变光晕。"
       />
       <PrefToggleRow
-        prefKey="sendOnEnter"
-        title="按 Enter 发送消息"
+        prefKey="sendOnEnterDesktop"
+        title="桌面端按 Enter 发送消息"
         desc="开启后按 Enter 发送、Shift+Enter 换行；关闭后按 Enter 换行，需 Ctrl/⌘+Enter 发送。"
+      />
+      <PrefToggleRow
+        prefKey="sendOnEnterMobile"
+        title="手机端按 Enter 发送消息"
+        desc="默认关闭：按 Enter 换行，点发送按钮发送，更符合手机输入习惯；开启后按 Enter 直接发送。"
       />
       <PrefToggleRow prefKey="autoScrollOnOpen" title="打开对话时自动滚动到最新" />
       <PrefToggleRow prefKey="showScrollToBottom" title="显示「滚动到底部」按钮" />

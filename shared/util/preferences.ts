@@ -16,7 +16,8 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   showScrollToBottom: true,
   showTimelineNav: true,
   showNewChatGradientGlow: true,
-  sendOnEnter: true,
+  sendOnEnterDesktop: true,
+  sendOnEnterMobile: false,
   defaultExpandReasoning: true,
   accentColor: 'default',
   messageFontSize: 'medium',
@@ -37,13 +38,22 @@ function isAccentColor(value: unknown): value is AccentColor {
 export function mergePreferences(
   partial: Partial<UserPreferences> | null | undefined,
 ): UserPreferences {
+  // 旧版本只有单一 sendOnEnter：迁移为桌面端设置，缺失新键时兜底继承其布尔值，
+  // 旧键不出现在返回对象里、下次落库即被自然清除。
+  const legacy = partial as { sendOnEnter?: unknown } | null | undefined
+  const legacySendOnEnterDesktop =
+    typeof legacy?.sendOnEnter === 'boolean' ? legacy.sendOnEnter : undefined
   return {
     autoScrollOnOpen: partial?.autoScrollOnOpen ?? DEFAULT_PREFERENCES.autoScrollOnOpen,
     showScrollToBottom: partial?.showScrollToBottom ?? DEFAULT_PREFERENCES.showScrollToBottom,
     showTimelineNav: partial?.showTimelineNav ?? DEFAULT_PREFERENCES.showTimelineNav,
     showNewChatGradientGlow:
       partial?.showNewChatGradientGlow ?? DEFAULT_PREFERENCES.showNewChatGradientGlow,
-    sendOnEnter: partial?.sendOnEnter ?? DEFAULT_PREFERENCES.sendOnEnter,
+    sendOnEnterDesktop:
+      partial?.sendOnEnterDesktop ??
+      legacySendOnEnterDesktop ??
+      DEFAULT_PREFERENCES.sendOnEnterDesktop,
+    sendOnEnterMobile: partial?.sendOnEnterMobile ?? DEFAULT_PREFERENCES.sendOnEnterMobile,
     defaultExpandReasoning:
       partial?.defaultExpandReasoning ?? DEFAULT_PREFERENCES.defaultExpandReasoning,
     accentColor: isAccentColor(partial?.accentColor)

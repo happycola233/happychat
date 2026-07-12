@@ -162,8 +162,10 @@ export interface UserPreferences {
   showTimelineNav: boolean
   /** 新聊天渐变光晕背景：桌面端空会话输入框后方的柔和渐变背景 */
   showNewChatGradientGlow: boolean
-  /** 按 Enter 发送（关闭则 Enter 换行、Ctrl/⌘+Enter 发送） */
-  sendOnEnter: boolean
+  /** 桌面端按 Enter 发送（关闭则 Enter 换行、Ctrl/⌘+Enter 发送） */
+  sendOnEnterDesktop: boolean
+  /** 手机端按 Enter 发送（关闭则 Enter 换行，点发送按钮发送） */
+  sendOnEnterMobile: boolean
   /** 默认展开推理摘要（关闭则推理摘要默认保持折叠，不随生成自动展开） */
   defaultExpandReasoning: boolean
   // —— 消息显示 ——

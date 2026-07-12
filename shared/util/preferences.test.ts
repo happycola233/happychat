@@ -8,7 +8,8 @@ describe('mergePreferences', () => {
       showScrollToBottom: true,
       showTimelineNav: true,
       showNewChatGradientGlow: true,
-      sendOnEnter: true,
+      sendOnEnterDesktop: true,
+      sendOnEnterMobile: false,
       defaultExpandReasoning: true,
       accentColor: 'default',
       messageFontSize: 'medium',
@@ -26,14 +27,27 @@ describe('mergePreferences', () => {
 
   it('overrides provided keys and keeps defaults for the rest', () => {
     const merged = mergePreferences({
-      sendOnEnter: false,
+      sendOnEnterMobile: true,
       accentColor: 'purple',
       messageFontSize: 'large',
     })
-    expect(merged.sendOnEnter).toBe(false)
+    expect(merged.sendOnEnterMobile).toBe(true)
     expect(merged.accentColor).toBe('purple')
     expect(merged.messageFontSize).toBe('large')
     expect(merged.showModelLabel).toBe(DEFAULT_PREFERENCES.showModelLabel)
+  })
+
+  it('migrates the legacy sendOnEnter flag into the desktop setting', () => {
+    const merged = mergePreferences({ sendOnEnter: false } as never)
+    expect(merged.sendOnEnterDesktop).toBe(false)
+    expect(merged.sendOnEnterMobile).toBe(DEFAULT_PREFERENCES.sendOnEnterMobile)
+    // 旧键不应残留在合并结果里。
+    expect('sendOnEnter' in merged).toBe(false)
+  })
+
+  it('prefers the explicit desktop setting over the legacy flag', () => {
+    const merged = mergePreferences({ sendOnEnter: false, sendOnEnterDesktop: true } as never)
+    expect(merged.sendOnEnterDesktop).toBe(true)
   })
 
   it('falls back to the default accent color for stale invalid values', () => {

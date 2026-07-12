@@ -5,6 +5,7 @@ import { Plus, Square, X } from 'lucide-react'
 import type { AttachmentDTO } from '@shared/types/api'
 import { attachmentUrl } from '../api/attachments'
 import { useSettings } from '../store/settings'
+import { useIsMobile } from '../store/sidebar'
 import { Spinner } from '../components/ui/Spinner'
 import type { ImageEditSource } from './imageSource'
 import { ArrowUpIcon, AttachmentIcon, UploadImageIcon } from './icons'
@@ -163,7 +164,11 @@ export function Composer({
   variant = 'docked',
   dockAnimated = false,
 }: Props) {
-  const sendOnEnter = useSettings((s) => s.preferences.sendOnEnter)
+  // 发送/换行键位按设备类别分流：桌面端与手机端各有独立偏好（默认桌面 Enter 发送、手机 Enter 换行）。
+  const isMobile = useIsMobile()
+  const sendOnEnter = useSettings((s) =>
+    isMobile ? s.preferences.sendOnEnterMobile : s.preferences.sendOnEnterDesktop,
+  )
   const [text, setText] = useState('')
   const [pending, setPending] = useState<AttachmentDTO[]>([])
   const [dragActive, setDragActive] = useState(false)
