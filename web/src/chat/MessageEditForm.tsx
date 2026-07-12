@@ -1,11 +1,9 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import type { ChangeEvent, ClipboardEvent, DragEvent } from 'react'
 import { clsx } from 'clsx'
-import { Spinner } from '../components/ui/Spinner'
-import type { AttachmentDTO } from '@shared/types/api'
 import { AttachmentDraftList } from './AttachmentDraftList'
 import {
-  attachmentDraftFromAttachment,
+  attachmentDraftsFromAttachments,
   canSubmitAttachmentDraft,
   removeAttachmentDraft,
   type AttachmentDraftItem,
@@ -16,6 +14,7 @@ import {
   USER_MESSAGE_EDIT_TEXT_CLASS,
   USER_MESSAGE_EDIT_MIN_HEIGHT,
 } from './messageStyles'
+import { completedUploadAttachments } from './uploadDraft'
 import { useAttachmentUpload } from './useAttachmentUpload'
 
 export interface MessageEditSubmit {
@@ -60,20 +59,19 @@ export function MessageEditForm({
     el.style.overflowY = el.scrollHeight > maxHeight ? 'auto' : 'hidden'
   }, [])
 
-  const addAttachment = useCallback((attachment: AttachmentDTO) => {
-    setAttachments((items) => [...items, attachmentDraftFromAttachment(attachment)])
-  }, [])
-  const { uploading, uploadFiles } = useAttachmentUpload({
-    canImage,
-    canFile,
-    onUploaded: addAttachment,
-  })
+  // 新上传的附件选中即上屏（uploads 三态），提交时把完成项并入既有草稿。
+  const { uploads, uploadFiles, removeUpload, retryUpload, uploading, hasFailed } =
+    useAttachmentUpload({ canImage, canFile })
+  const uploadedDrafts = attachmentDraftsFromAttachments(completedUploadAttachments(uploads))
 
-  const canSubmit = canSubmitAttachmentDraft(draft, attachments) && !uploading
+  const canSubmit =
+    canSubmitAttachmentDraft(draft, [...attachments, ...uploadedDrafts]) &&
+    !uploading &&
+    !hasFailed
 
   useLayoutEffect(() => {
     resizeTextarea()
-  }, [attachments.length, draft, resizeTextarea])
+  }, [attachments.length, uploads.length, draft, resizeTextarea])
 
   useLayoutEffect(() => {
     window.addEventListener('resize', resizeTextarea)
@@ -82,22 +80,22 @@ export function MessageEditForm({
 
   const submitEdit = () => {
     if (!canSubmit) return
-    const accepted = onSubmit({ text: draft.trim(), attachments })
+    const accepted = onSubmit({ text: draft.trim(), attachments: [...attachments, ...uploadedDrafts] })
     if (accepted !== false) onCancel()
   }
 
-  const onPick = async (event: ChangeEvent<HTMLInputElement>) => {
+  const onPick = (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? [])
     event.target.value = ''
     if (!files.length) return
-    await uploadFiles(files)
+    uploadFiles(files)
   }
 
   const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
     const files = Array.from(event.clipboardData.files)
     if (!files.length) return
     event.preventDefault()
-    void uploadFiles(files)
+    uploadFiles(files)
   }
 
   const hasFiles = (event: DragEvent<HTMLDivElement>) =>
@@ -133,7 +131,7 @@ export function MessageEditForm({
     const files = Array.from(event.dataTransfer.files)
     dragDepth.current = 0
     setDragActive(false)
-    void uploadFiles(files)
+    uploadFiles(files)
   }
 
   return (
@@ -155,9 +153,12 @@ export function MessageEditForm({
         )}
         <AttachmentDraftList
           items={attachments}
+          uploads={uploads}
           onRemove={(draftId) =>
             setAttachments((items) => removeAttachmentDraft(items, draftId))
           }
+          onRemoveUpload={removeUpload}
+          onRetryUpload={retryUpload}
           className="mb-2"
           testId="edit-attachment-chip"
         />
@@ -217,7 +218,6 @@ export function MessageEditForm({
                 </button>
               </>
             )}
-            {uploading && <Spinner className="h-4 w-4 text-neutral-400" />}
           </div>
           <div className="flex justify-end gap-2">
             <button

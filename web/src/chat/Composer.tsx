@@ -6,12 +6,11 @@ import type { AttachmentDTO } from '@shared/types/api'
 import { attachmentUrl } from '../api/attachments'
 import { useSettings } from '../store/settings'
 import { useIsMobile } from '../store/sidebar'
-import { Spinner } from '../components/ui/Spinner'
 import type { ImageEditSource } from './imageSource'
 import { ArrowUpIcon, AttachmentIcon, UploadImageIcon } from './icons'
 import { ImagePreviewTrigger } from './ImagePreview'
 import { AttachmentDraftList } from './AttachmentDraftList'
-import { attachmentDraftsFromAttachments } from './attachmentDraft'
+import { completedUploadAttachments } from './uploadDraft'
 import { useAttachmentUpload } from './useAttachmentUpload'
 
 /** 输入框正文最大高度（超出内部滚动）。 */
@@ -56,17 +55,15 @@ interface Props {
   dockAnimated?: boolean
 }
 
-/** 「+」聚合菜单：图片/文件上传入口收进一个按钮，上传中显示加载态。 */
+/** 「+」聚合菜单：图片/文件上传入口收进一个按钮（上传进度显示在附件卡片上，不占用此按钮）。 */
 function ComposerPlusMenu({
   canImage,
   canFile,
-  uploading,
   onPickImage,
   onPickFile,
 }: {
   canImage?: boolean
   canFile?: boolean
-  uploading: boolean
   onPickImage: () => void
   onPickFile: () => void
 }) {
@@ -107,11 +104,7 @@ function ComposerPlusMenu({
           open && 'bg-neutral-100 dark:bg-neutral-800',
         )}
       >
-        {uploading ? (
-          <Spinner className="h-4 w-4 text-neutral-400" />
-        ) : (
-          <Plus className={clsx('h-5 w-5 transition-transform duration-200', open && 'rotate-45')} />
-        )}
+        <Plus className={clsx('h-5 w-5 transition-transform duration-200', open && 'rotate-45')} />
       </button>
       {open && (
         <div className="absolute bottom-full left-0 z-40 mb-2 origin-bottom">
@@ -170,7 +163,6 @@ export function Composer({
     isMobile ? s.preferences.sendOnEnterMobile : s.preferences.sendOnEnterDesktop,
   )
   const [text, setText] = useState('')
-  const [pending, setPending] = useState<AttachmentDTO[]>([])
   const [dragActive, setDragActive] = useState(false)
   // 多行态：正文超过单行宽度或有附件预览时，输入区独占首行、控件退到次行。
   const [multiline, setMultiline] = useState(false)
@@ -186,17 +178,12 @@ export function Composer({
   const fileInput = useRef<HTMLInputElement>(null)
   const dragDepth = useRef(0)
 
-  const hasPreviews = imageSources.length > 0 || pending.length > 0
   const showPlusMenu = Boolean(canImage || canFile)
 
-  const addPendingAttachment = useCallback((attachment: AttachmentDTO) => {
-    setPending((items) => [...items, attachment])
-  }, [])
-  const { uploading, uploadFiles } = useAttachmentUpload({
-    canImage,
-    canFile,
-    onUploaded: addPendingAttachment,
-  })
+  // 附件选中即上屏（uploads 含上传中/失败/完成三态），发送时只取完成项。
+  const { uploads, uploadFiles, removeUpload, retryUpload, clearUploads, uploading, hasFailed } =
+    useAttachmentUpload({ canImage, canFile })
+  const hasPreviews = imageSources.length > 0 || uploads.length > 0
 
   /**
    * 用隐藏镜像在「单行可用宽度」下试排版来决定单行/多行，
@@ -310,20 +297,23 @@ export function Composer({
     }
   }, [])
 
-  const onPick = async (e: ChangeEvent<HTMLInputElement>) => {
+  const onPick = (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? [])
     e.target.value = ''
     if (!files.length) return
-    await uploadFiles(files)
+    uploadFiles(files)
   }
 
-  const canSubmit = (text.trim().length > 0 || pending.length > 0) && !disabled && !uploading
+  // 上传中或有失败项时不可发送：失败项须重试或移除，避免静默丢附件。
+  const readyAttachments: AttachmentDTO[] = completedUploadAttachments(uploads)
+  const canSubmit =
+    (text.trim().length > 0 || readyAttachments.length > 0) && !disabled && !uploading && !hasFailed
 
   const submit = () => {
     if (!canSubmit) return
-    onSend(text, pending, imageSources)
+    onSend(text, readyAttachments, imageSources)
     setText('')
-    setPending([])
+    clearUploads()
   }
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -345,7 +335,7 @@ export function Composer({
     const files = Array.from(event.clipboardData.files)
     if (!files.length) return
     event.preventDefault()
-    void uploadFiles(files)
+    uploadFiles(files)
   }
 
   useEffect(() => {
@@ -377,7 +367,7 @@ export function Composer({
       const files = Array.from(event.dataTransfer?.files ?? [])
       dragDepth.current = 0
       setDragActive(false)
-      void uploadFiles(files)
+      uploadFiles(files)
     }
 
     window.addEventListener('dragenter', onDragEnter)
@@ -484,10 +474,9 @@ export function Composer({
                 </div>
               )}
               <AttachmentDraftList
-                items={attachmentDraftsFromAttachments(pending)}
-                onRemove={(draftId) =>
-                  setPending((items) => items.filter((item) => item.id !== draftId))
-                }
+                uploads={uploads}
+                onRemoveUpload={removeUpload}
+                onRetryUpload={retryUpload}
                 testId="pending-attachment"
               />
             </div>
@@ -508,7 +497,6 @@ export function Composer({
                   <ComposerPlusMenu
                     canImage={canImage}
                     canFile={canFile}
-                    uploading={uploading}
                     onPickImage={() => imageInput.current?.click()}
                     onPickFile={() => fileInput.current?.click()}
                   />
