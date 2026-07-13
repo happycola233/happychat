@@ -12,7 +12,6 @@ import type {
   ModelKind,
   ModelParams,
   ModelPricing,
-  PromptCacheRetention,
   ReasoningEffort,
   ReasoningEffortOption,
   Role,
@@ -62,8 +61,6 @@ export interface ProviderDTO {
   id: string
   name: string
   baseUrl: string
-  /** null=不指定保留策略，交给该上游决定。 */
-  promptCacheRetention: PromptCacheRetention | null
   enabled: boolean
   hasApiKey: boolean
   apiKeyMask: string | null
@@ -98,8 +95,6 @@ export interface AdminModelDTO extends ModelDTO {
   providerId: string
   providerName: string
   enabled: boolean
-  /** 是否对该模型应用 Provider 的显式缓存保留策略。 */
-  promptCacheRetentionEnabled: boolean
   defaultSystemPrompt: string | null
   hardParams: ModelHardParams | null
   pricing: ModelPricing | null

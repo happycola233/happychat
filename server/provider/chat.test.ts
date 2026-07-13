@@ -14,7 +14,6 @@ function model(overrides: Partial<ModelRow> = {}): ModelRow {
     tags: null,
     kind: 'chat',
     enabled: true,
-    promptCacheRetentionEnabled: false,
     capabilities: {
       vision: false,
       file_input: false,
@@ -189,7 +188,7 @@ describe('buildChatBody', () => {
     expect(body.max_tokens).toBe(25_000)
   })
 
-  it('lets advanced hard params override generated cache parameters', () => {
+  it('lets advanced hard params override the generated key and pass arbitrary upstream fields', () => {
     const body = buildChatBody({
       model: model({
         hardParams: { prompt_cache_key: 'bad-key', prompt_cache_retention: 'in_memory' },
@@ -197,12 +196,23 @@ describe('buildChatBody', () => {
       messages: [],
       stream: true,
       promptCacheKey: 'happychat:conversation:one',
-      promptCacheRetention: '24h',
     })
 
     expect(body).toMatchObject({
       prompt_cache_key: 'bad-key',
       prompt_cache_retention: 'in_memory',
     })
+  })
+
+  it('does not generate prompt_cache_retention without an advanced hard param', () => {
+    const body = buildChatBody({
+      model: model(),
+      messages: [],
+      stream: true,
+      promptCacheKey: 'happychat:conversation:one',
+    })
+
+    expect(body.prompt_cache_key).toBe('happychat:conversation:one')
+    expect(body).not.toHaveProperty('prompt_cache_retention')
   })
 })

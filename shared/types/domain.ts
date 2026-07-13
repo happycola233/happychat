@@ -92,9 +92,6 @@ export interface ModelPricing {
 
 export type ModelKind = 'responses' | 'chat' | 'image'
 
-/** OpenAI 提示词缓存保留策略；null 由上游自行决定。 */
-export type PromptCacheRetention = '24h'
-
 /** web_search 引用注释（Responses API 扁平结构） */
 export interface UrlCitation {
   type: 'url_citation'

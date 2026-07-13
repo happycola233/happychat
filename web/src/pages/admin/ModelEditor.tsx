@@ -139,9 +139,6 @@ export function ModelEditor({
   const [description, setDescription] = useState(model?.description ?? '')
   const [tags, setTags] = useState<string[]>(model?.tags ?? [])
   const [enabled, setEnabled] = useState(model?.enabled ?? true)
-  const [promptCacheRetentionEnabled, setPromptCacheRetentionEnabled] = useState(
-    model?.promptCacheRetentionEnabled ?? false,
-  )
   const [kind, setKind] = useState(model?.kind ?? 'responses')
   const [caps, setCaps] = useState<ModelCapabilities>(model?.capabilities ?? BLANK_CAPS)
   const [systemPrompt, setSystemPrompt] = useState(model?.defaultSystemPrompt ?? '')
@@ -203,7 +200,6 @@ export function ModelEditor({
         description: description.trim() || null,
         tags,
         kind,
-        promptCacheRetentionEnabled: kind === 'image' ? false : promptCacheRetentionEnabled,
         capabilities,
         defaultSystemPrompt: systemPrompt.trim() ? systemPrompt : null,
         // 能力开关只控制运行时是否使用推理；暂时关闭时保留管理员配置，避免静默丢数据。
@@ -394,21 +390,6 @@ export function ModelEditor({
               onChange={setDefaultWebSearch}
             />
           )}
-        </FormSection>
-
-        {/* ============ 缓存策略 ============ */}
-        <FormSection title="缓存策略">
-          <ToggleRow
-            label="应用提供商的缓存保留策略"
-            description={
-              kind === 'image'
-                ? 'Images API 没有定义 prompt_cache_key 或 prompt_cache_retention。'
-                : '开启后发送所属提供商配置的 prompt_cache_retention；稳定 prompt_cache_key 不受此开关影响。'
-            }
-            checked={kind !== 'image' && promptCacheRetentionEnabled}
-            onChange={setPromptCacheRetentionEnabled}
-            disabled={kind === 'image'}
-          />
         </FormSection>
 
         {/* ============ 默认系统提示词 ============ */}

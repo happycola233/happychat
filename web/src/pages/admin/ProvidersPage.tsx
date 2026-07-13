@@ -118,7 +118,6 @@ export default function ProvidersPage() {
                     [
                       ['Base URL', p.baseUrl],
                       ['API Key', p.apiKeyMask ?? '未设置'],
-                      ['缓存保留', p.promptCacheRetention === '24h' ? '24 小时扩展缓存' : '上游默认'],
                     ] as const
                   ).map(([label, value]) => (
                     <div key={label} className="flex items-baseline gap-2">
@@ -370,9 +369,6 @@ function ProviderModal({
   const [name, setName] = useState(provider?.name ?? '')
   const [baseUrl, setBaseUrl] = useState(provider?.baseUrl ?? '')
   const [apiKey, setApiKey] = useState('')
-  const [promptCacheRetention, setPromptCacheRetention] = useState<'' | '24h'>(
-    provider?.promptCacheRetention ?? '',
-  )
   const [error, setError] = useState('')
   const providerDetail = useQuery({
     queryKey: ['admin', 'providers', provider?.id],
@@ -388,7 +384,6 @@ function ProviderModal({
     setName(providerDetail.data.name)
     setBaseUrl(providerDetail.data.baseUrl)
     setApiKey(providerDetail.data.apiKey)
-    setPromptCacheRetention(providerDetail.data.promptCacheRetention ?? '')
   }, [providerDetail.data])
 
   const save = useMutation({
@@ -398,14 +393,12 @@ function ProviderModal({
           name,
           baseUrl,
           ...(apiKey.length > 0 ? { apiKey } : {}),
-          promptCacheRetention: promptCacheRetention || null,
         })
       } else {
         await adminApi.createProvider({
           name,
           baseUrl,
           apiKey,
-          promptCacheRetention: promptCacheRetention || null,
         })
       }
     },
@@ -463,22 +456,6 @@ function ProviderModal({
           spellCheck={false}
           disabled={loadingProvider}
         />
-        <label className="block">
-          <span className="mb-1.5 block text-sm font-medium text-neutral-700 dark:text-neutral-300">
-            提示词缓存保留策略
-          </span>
-          <select
-            className="w-full rounded-xl border border-neutral-300 bg-white px-3.5 py-2.5 text-sm outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
-            value={promptCacheRetention}
-            onChange={(e) => setPromptCacheRetention(e.target.value as '' | '24h')}
-          >
-            <option value="">上游默认（兼容性最佳）</option>
-            <option value="24h">24 小时扩展缓存</option>
-          </select>
-          <span className="mt-1.5 block text-xs leading-5 text-neutral-400">
-            仅应用于已开启“应用提供商的缓存保留策略”的文本模型；请先确认该上游及模型支持 24h。
-          </span>
-        </label>
         {providerDetail.error && (
           <p className="text-sm text-red-500">
             {providerDetail.error instanceof Error

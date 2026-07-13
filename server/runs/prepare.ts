@@ -218,7 +218,6 @@ async function resolveImageUrls(parts: ContentPart[]): Promise<string[]> {
 async function createAssistantAndRun(opts: {
   conversation: ConvRow
   model: ModelRow
-  provider: ProviderRow
   parentMessageId: string
   userParams?: ModelParams
   clientLocale?: string
@@ -233,7 +232,6 @@ async function createAssistantAndRun(opts: {
   const {
     conversation: conv,
     model,
-    provider,
     parentMessageId,
     userParams,
     clientLocale,
@@ -327,11 +325,8 @@ async function createAssistantAndRun(opts: {
     instructions = appendRuntimeContextInstructions(instructions)
     // 持久化最终 instructions（启用 runs.instructions 列，便于审计）
     await db.update(runs).set({ instructions }).where(eq(runs.id, run.id))
-    // 文本会话始终使用稳定路由 key；模型开关只决定是否应用 Provider 的保留策略。
+    // 文本会话始终使用稳定路由 key；其他上游参数仅由通用 hardParams 显式提供。
     const promptCacheKey = promptCacheKeyForConversation(conv.id)
-    const promptCacheRetention = model.promptCacheRetentionEnabled
-      ? provider.promptCacheRetention
-      : undefined
     if (model.kind === 'chat') {
       const chatMessages = buildChatMessages(pathMessages, attMap, instructions)
       body = buildChatBody({
@@ -340,7 +335,6 @@ async function createAssistantAndRun(opts: {
         userParams,
         stream: true,
         promptCacheKey,
-        promptCacheRetention,
       })
     } else {
       body = buildResponseBody({
@@ -350,7 +344,6 @@ async function createAssistantAndRun(opts: {
         userParams,
         stream: true,
         promptCacheKey,
-        promptCacheRetention,
       })
     }
   }
@@ -594,7 +587,6 @@ export async function prepareRun(args: PrepareArgs): Promise<PrepareResult> {
     {
       conversation: conv,
       model,
-      provider,
       parentMessageId: userMessage.id,
       userParams: normalizedParams.params,
       clientLocale: args.clientLocale,
@@ -657,7 +649,6 @@ export async function prepareRegenerate(args: RegenerateArgs): Promise<PrepareRe
     {
       conversation: conv,
       model,
-      provider,
       parentMessageId: oldAssistant.parentId,
       userParams: normalizedParams.params,
       clientLocale: args.clientLocale,

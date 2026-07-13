@@ -13,7 +13,6 @@ import type {
   ModelKind,
   ModelParams,
   ModelPricing,
-  PromptCacheRetention,
   ReasoningEffort,
   StoredReasoningEffortOption,
   Role,
@@ -180,8 +179,6 @@ export const providers = sqliteTable('providers', {
   baseUrl: text('base_url').notNull(),
   // API Key 明文存库；管理员列表 DTO 固定脱敏，编辑详情接口按需返回完整值。
   apiKey: text('api_key').notNull(),
-  // null=沿用上游默认保留策略；24h=供已选择应用该策略的文本模型使用扩展缓存。
-  promptCacheRetention: text('prompt_cache_retention').$type<PromptCacheRetention>(),
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
@@ -204,10 +201,6 @@ export const models = sqliteTable(
     tags: text('tags', { mode: 'json' }).$type<string[]>(),
     kind: text('kind').$type<ModelKind>().notNull().default('responses'),
     enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
-    // 仅控制是否应用 Provider 的显式缓存保留策略；不控制稳定 key 或上游自动缓存。
-    promptCacheRetentionEnabled: integer('prompt_cache_enabled', { mode: 'boolean' })
-      .notNull()
-      .default(false),
     capabilities: text('capabilities', { mode: 'json' }).$type<ModelCapabilities>().notNull(),
     defaultSystemPrompt: text('default_system_prompt'),
     defaultParams: text('default_params', { mode: 'json' }).$type<ModelParams>(),

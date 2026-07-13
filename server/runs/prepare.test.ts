@@ -357,9 +357,8 @@ describe('prepareRun active leaf', () => {
     expect(path.map((m) => m.id)).toEqual([first.userMessage.id, regenerated.assistantMessage.id])
   })
 
-  it('freezes runtime context on the user message and emits stable cache routing fields', async () => {
+  it('freezes runtime context on the user message and emits a stable cache key', async () => {
     const { userId, modelId } = await createRunnableModel()
-    dbClient.sqlite.prepare('update models set prompt_cache_enabled = 1 where id = ?').run(modelId)
 
     const result = assertPrepared(
       await prepare.prepareRun({
@@ -438,16 +437,7 @@ describe('prepareRun active leaf', () => {
     })
   })
 
-  it('always sends a stable cache key while omitting provider retention when the model switch is off', async () => {
-    const { userId, modelId } = await createRunnableModel()
-
-    const result = assertPrepared(await prepare.prepareRun({ userId, modelId, text: 'hello' }))
-
-    expect(result.body.prompt_cache_key).toBe(`happychat:conversation:${result.conversation.id}`)
-    expect(result.body).not.toHaveProperty('prompt_cache_retention')
-  })
-
-  it('lets advanced hard params override generated cache fields', async () => {
+  it('lets advanced hard params override the key and pass prompt_cache_retention unchanged', async () => {
     const { userId, modelId } = await createRunnableModel()
     dbClient.sqlite
       .prepare('update models set hard_params = ? where id = ?')
@@ -459,28 +449,6 @@ describe('prepareRun active leaf', () => {
     const result = assertPrepared(await prepare.prepareRun({ userId, modelId, text: 'hello' }))
 
     expect(result.body.prompt_cache_key).toBe('manual-key')
-    expect(result.body.prompt_cache_retention).toBe('24h')
-  })
-
-  it('sends only a stable cache key when the provider uses its upstream default', async () => {
-    const { userId, modelId } = await createRunnableModel()
-    dbClient.sqlite.prepare('update models set prompt_cache_enabled = 1 where id = ?').run(modelId)
-
-    const result = assertPrepared(await prepare.prepareRun({ userId, modelId, text: 'hello' }))
-
-    expect(result.body.prompt_cache_key).toBe(`happychat:conversation:${result.conversation.id}`)
-    expect(result.body).not.toHaveProperty('prompt_cache_retention')
-  })
-
-  it('applies the provider 24h retention policy to opted-in text models', async () => {
-    const { userId, modelId, providerId } = await createRunnableModel()
-    dbClient.sqlite.prepare('update models set prompt_cache_enabled = 1 where id = ?').run(modelId)
-    dbClient.sqlite
-      .prepare('update providers set prompt_cache_retention = ? where id = ?')
-      .run('24h', providerId)
-
-    const result = assertPrepared(await prepare.prepareRun({ userId, modelId, text: 'hello' }))
-
     expect(result.body.prompt_cache_retention).toBe('24h')
   })
 })

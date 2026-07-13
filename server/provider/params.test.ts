@@ -14,7 +14,6 @@ function model(overrides: Partial<ModelForBuild> = {}): ModelForBuild {
     tags: null,
     kind: 'responses',
     enabled: true,
-    promptCacheRetentionEnabled: false,
     capabilities: {
       vision: false,
       file_input: false,
@@ -206,7 +205,7 @@ describe('buildResponseBody', () => {
     expect(body.tools).toEqual([])
   })
 
-  it('lets advanced hard params override generated cache parameters', () => {
+  it('lets advanced hard params override the generated key and pass arbitrary upstream fields', () => {
     const body = buildResponseBody({
       model: model({
         hardParams: { prompt_cache_key: 'bad-key', prompt_cache_retention: 'in_memory' },
@@ -215,7 +214,6 @@ describe('buildResponseBody', () => {
       instructions: null,
       stream: true,
       promptCacheKey: 'happychat:conversation:one',
-      promptCacheRetention: '24h',
     })
 
     expect(body).toMatchObject({
@@ -224,28 +222,26 @@ describe('buildResponseBody', () => {
     })
   })
 
-  it('lets advanced hard params provide retention when the provider uses its default', () => {
+  it('preserves prompt_cache_retention supplied through advanced hard params', () => {
     const body = buildResponseBody({
       model: model({ hardParams: { prompt_cache_retention: 'in_memory' } }),
       input: [],
       instructions: null,
       stream: true,
       promptCacheKey: 'happychat:conversation:one',
-      promptCacheRetention: null,
     })
 
     expect(body.prompt_cache_key).toBe('happychat:conversation:one')
     expect(body.prompt_cache_retention).toBe('in_memory')
   })
 
-  it('omits retention when neither the provider policy nor hard params specify it', () => {
+  it('does not generate prompt_cache_retention without an advanced hard param', () => {
     const body = buildResponseBody({
       model: model(),
       input: [],
       instructions: null,
       stream: true,
       promptCacheKey: 'happychat:conversation:one',
-      promptCacheRetention: null,
     })
 
     expect(body.prompt_cache_key).toBe('happychat:conversation:one')

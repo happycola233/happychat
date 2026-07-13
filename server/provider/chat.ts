@@ -1,10 +1,10 @@
 import { REASONING_MIN_OUTPUT_TOKENS } from '@shared/constants'
-import type { MessageUsage, ModelParams, PromptCacheRetention } from '@shared/types/domain'
+import type { MessageUsage, ModelParams } from '@shared/types/domain'
 import { effectiveReasoningEffort } from '@shared/util/reasoning'
 import type { models } from '../db/schema'
 import type { PathMessage, ResolvedAttachment } from './context'
 import { isPlainObject, mergeDeep } from './params'
-import { applyPromptCacheParameters } from './promptCache'
+import { applyPromptCacheKey } from './promptCache'
 
 type ModelRow = typeof models.$inferSelect
 
@@ -93,12 +93,11 @@ export interface BuildChatBodyOptions {
   userParams?: ModelParams | null
   stream: boolean
   promptCacheKey?: string
-  promptCacheRetention?: PromptCacheRetention | null
 }
 
 /** 构建 /chat/completions 请求体。参数优先级同 Responses：硬参数 > 用户 > 模型默认。 */
 export function buildChatBody(o: BuildChatBodyOptions): Record<string, unknown> {
-  const { model, messages, userParams, stream, promptCacheKey, promptCacheRetention } = o
+  const { model, messages, userParams, stream, promptCacheKey } = o
   const defaults = model.defaultParams ?? {}
   const body: Record<string, unknown> = { model: model.modelId, messages, stream }
 
@@ -117,8 +116,8 @@ export function buildChatBody(o: BuildChatBodyOptions): Record<string, unknown> 
   if (maxOut !== undefined && maxOut > 0) body.max_tokens = maxOut
 
   if (stream) body.stream_options = { include_usage: true }
-  applyPromptCacheParameters(body, promptCacheKey, promptCacheRetention)
-  // 与 Responses 一致：高级 JSON 最终优先，可覆盖应用生成的缓存参数。
+  applyPromptCacheKey(body, promptCacheKey)
+  // 与 Responses 一致：高级 JSON 最终优先，可覆盖 key 并透传任意上游参数。
   if (isPlainObject(model.hardParams)) mergeDeep(body, model.hardParams)
   return body
 }
