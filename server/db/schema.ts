@@ -327,7 +327,8 @@ export const attachments = sqliteTable(
     createdAt: createdAt(),
   },
   (t) => [
-    index('attachments_message_idx').on(t.messageId),
+    // 前缀仍覆盖按 messageId 查询，同时加速“未绑定且已过期”的后台 TTL 扫描。
+    index('attachments_message_created_idx').on(t.messageId, t.createdAt, t.id),
     index('attachments_user_idx').on(t.userId),
   ],
 )

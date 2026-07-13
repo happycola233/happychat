@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { eq } from 'drizzle-orm'
@@ -9,6 +9,7 @@ let dbClient: typeof import('../db/client')
 let schema: typeof import('../db/schema')
 let prepare: typeof import('./prepare')
 let conversationServices: typeof import('../services/conversations')
+let storage: typeof import('../storage/files')
 let fixtureSeq = 0
 
 type PrepareModule = typeof import('./prepare')
@@ -30,6 +31,7 @@ beforeAll(async () => {
   schema = await import('../db/schema')
   prepare = await import('./prepare')
   conversationServices = await import('../services/conversations')
+  storage = await import('../storage/files')
   migration.runMigrations()
 })
 
@@ -116,9 +118,8 @@ async function createImageAttachment(
 ) {
   const n = fixtureSeq++
   const attachmentId = `attachment-${n}`
-  const storagePath = join(tmpDir, `${attachmentId}-${filename}`)
   const bytes = Buffer.from('image-bytes')
-  writeFileSync(storagePath, bytes)
+  const storagePath = storage.saveUpload(userId, attachmentId, filename, mime, bytes)
 
   await dbClient.db.insert(schema.attachments).values({
     id: attachmentId,
@@ -158,8 +159,7 @@ async function createFileAttachment(
   const filename = options.filename ?? `diagnostic-${n}.log`
   const mime = options.mime ?? 'application/octet-stream'
   const bytes = Buffer.from('small fixture; byteSize is metadata for budget tests')
-  const storagePath = join(tmpDir, `${attachmentId}-${filename}`)
-  writeFileSync(storagePath, bytes)
+  const storagePath = storage.saveUpload(userId, attachmentId, filename, mime, bytes)
 
   await dbClient.db.insert(schema.attachments).values({
     id: attachmentId,
@@ -223,7 +223,9 @@ describe('prepareRun active leaf', () => {
   it('drops a pinned reasoning effort unsupported by the selected model', async () => {
     const { userId, modelId } = await createRunnableModel()
     dbClient.sqlite
-      .prepare('update models set capabilities = ?, allowed_efforts = ?, default_effort = ? where id = ?')
+      .prepare(
+        'update models set capabilities = ?, allowed_efforts = ?, default_effort = ? where id = ?',
+      )
       .run(
         JSON.stringify({
           vision: false,
@@ -297,16 +299,14 @@ describe('prepareRun active leaf', () => {
       'generated.png',
       first.assistantMessage.id,
     )
-    dbClient.sqlite
-      .prepare('update messages set status = ?, content = ? where id = ?')
-      .run(
-        'complete',
-        JSON.stringify([
-          { type: 'output_text', text: '已生成。' },
-          { type: 'image_result', attachment_id: generated.attachmentId },
-        ]),
-        first.assistantMessage.id,
-      )
+    dbClient.sqlite.prepare('update messages set status = ?, content = ? where id = ?').run(
+      'complete',
+      JSON.stringify([
+        { type: 'output_text', text: '已生成。' },
+        { type: 'image_result', attachment_id: generated.attachmentId },
+      ]),
+      first.assistantMessage.id,
+    )
 
     const second = assertPrepared(
       await prepare.prepareRun({
@@ -359,9 +359,7 @@ describe('prepareRun active leaf', () => {
 
   it('freezes runtime context on the user message and emits stable cache routing fields', async () => {
     const { userId, modelId } = await createRunnableModel()
-    dbClient.sqlite
-      .prepare('update models set prompt_cache_enabled = 1 where id = ?')
-      .run(modelId)
+    dbClient.sqlite.prepare('update models set prompt_cache_enabled = 1 where id = ?').run(modelId)
 
     const result = assertPrepared(
       await prepare.prepareRun({
@@ -453,7 +451,10 @@ describe('prepareRun active leaf', () => {
     const { userId, modelId } = await createRunnableModel()
     dbClient.sqlite
       .prepare('update models set hard_params = ? where id = ?')
-      .run(JSON.stringify({ prompt_cache_key: 'manual-key', prompt_cache_retention: '24h' }), modelId)
+      .run(
+        JSON.stringify({ prompt_cache_key: 'manual-key', prompt_cache_retention: '24h' }),
+        modelId,
+      )
 
     const result = assertPrepared(await prepare.prepareRun({ userId, modelId, text: 'hello' }))
 
@@ -463,9 +464,7 @@ describe('prepareRun active leaf', () => {
 
   it('sends only a stable cache key when the provider uses its upstream default', async () => {
     const { userId, modelId } = await createRunnableModel()
-    dbClient.sqlite
-      .prepare('update models set prompt_cache_enabled = 1 where id = ?')
-      .run(modelId)
+    dbClient.sqlite.prepare('update models set prompt_cache_enabled = 1 where id = ?').run(modelId)
 
     const result = assertPrepared(await prepare.prepareRun({ userId, modelId, text: 'hello' }))
 
@@ -475,9 +474,7 @@ describe('prepareRun active leaf', () => {
 
   it('applies the provider 24h retention policy to opted-in text models', async () => {
     const { userId, modelId, providerId } = await createRunnableModel()
-    dbClient.sqlite
-      .prepare('update models set prompt_cache_enabled = 1 where id = ?')
-      .run(modelId)
+    dbClient.sqlite.prepare('update models set prompt_cache_enabled = 1 where id = ?').run(modelId)
     dbClient.sqlite
       .prepare('update providers set prompt_cache_retention = ? where id = ?')
       .run('24h', providerId)
@@ -659,6 +656,28 @@ describe('prepareRun image inputs', () => {
     })
   })
 
+  it('rejects a missing attachment file before creating the conversation or user message', async () => {
+    const { userId, modelId } = await createRunnableImageModel()
+    const attachment = await createImageAttachment(userId)
+    const row = dbClient.sqlite
+      .prepare('select storage_path as storagePath from attachments where id = ?')
+      .get(attachment.attachmentId) as { storagePath: string }
+    storage.removeUploadStrict(row.storagePath)
+
+    const result = await prepare.prepareRun({
+      userId,
+      modelId,
+      text: 'Use the missing reference',
+      attachments: [{ ...attachment, kind: 'image' }],
+    })
+
+    expect(result).toMatchObject({ ok: false, status: 400, code: 'invalid_attachment' })
+    const conversationCount = dbClient.sqlite
+      .prepare('select count(*) as count from conversations where user_id = ?')
+      .get(userId) as { count: number }
+    expect(conversationCount.count).toBe(0)
+  })
+
   it('keeps plain image prompts on the generation endpoint', async () => {
     const { userId, modelId } = await createRunnableImageModel()
 
@@ -790,6 +809,25 @@ describe('prepareRun image inputs', () => {
       .prepare('select message_id as messageId from attachments where id = ?')
       .get(attachment.attachmentId) as { messageId: string | null } | undefined
     expect(row?.messageId).toBe('assistant-message-1')
+  })
+
+  it('binds an unbound explicit image source to the new user message', async () => {
+    const { userId, modelId } = await createRunnableImageModel()
+    const attachment = await createImageAttachment(userId)
+
+    const result = assertPrepared(
+      await prepare.prepareRun({
+        userId,
+        modelId,
+        text: 'Use this uploaded image as a reference',
+        imageSources: [{ attachmentId: attachment.attachmentId }],
+      }),
+    )
+
+    const row = dbClient.sqlite
+      .prepare('select message_id as messageId from attachments where id = ?')
+      .get(attachment.attachmentId) as { messageId: string | null } | undefined
+    expect(row?.messageId).toBe(result.userMessage.id)
   })
 
   it('rejects unsupported image edit input formats before calling upstream', async () => {

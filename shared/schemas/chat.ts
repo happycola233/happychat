@@ -31,7 +31,7 @@ export const sendMessageSchema = z
     parentId: z.string().nullable().optional(),
     /** 附件引用（图片/文件） */
     attachments: z.array(attachmentRefSchema).max(10).optional(),
-    /** 显式选择的已有图片编辑源（不重新归属 attachment.messageId） */
+    /** 显式选择的图片编辑源（不改写已绑定附件；未绑定上传会归属本轮消息） */
     imageSources: z.array(imageSourceSchema).max(16).optional(),
   })
   .refine(

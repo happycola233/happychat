@@ -5,6 +5,7 @@ import {
   mkdirSync,
   readFileSync,
   rmdirSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs'
@@ -209,13 +210,47 @@ export function mimeFromPath(storagePath: string): string {
   return EXT_MIME[extname(storagePath).toLowerCase()] ?? 'application/octet-stream'
 }
 
-/** 删除磁盘文件，文件不存在时静默忽略。 */
+/**
+ * 自动删除只能作用于 DATA_DIR/uploads 内的文件。即使 DB 路径被误写或污染，
+ * 后台维护任务也不能越界删除项目外文件。
+ */
+function resolveUploadFileForRemoval(storagePath: string): string {
+  const root = resolve(uploadsDir)
+  const target = resolve(storagePath)
+  const rel = relative(root, target)
+  if (!rel || rel.startsWith('..') || isAbsolute(rel)) {
+    throw new Error('拒绝删除上传目录之外的文件')
+  }
+  return target
+}
+
+/** 发送最终认领前确认文件仍在受管上传目录中且存在。 */
+export function uploadFileExists(storagePath: string): boolean {
+  try {
+    return statSync(resolveUploadFileForRemoval(storagePath)).isFile()
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 严格删除磁盘文件：文件本就不存在视为成功，其余 unlink 错误向上抛出。
+ * 后台垃圾回收需要据此保留失败的 DB 行，才能在下一轮继续重试。
+ */
+export function removeUploadStrict(storagePath: string): void {
+  const target = resolveUploadFileForRemoval(storagePath)
+  try {
+    unlinkSync(target)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+  removeEmptyUploadParent(target)
+}
+
+/** 删除磁盘文件，文件不存在或删除失败时静默忽略。 */
 export function removeUpload(storagePath: string): void {
   try {
-    if (existsSync(storagePath)) {
-      unlinkSync(storagePath)
-      removeEmptyUploadParent(storagePath)
-    }
+    removeUploadStrict(storagePath)
   } catch {
     // 删除失败不应阻断主流程（如清空对话 / 更换头像）
   }

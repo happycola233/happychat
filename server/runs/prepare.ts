@@ -1,4 +1,4 @@
-import { eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray, isNull } from 'drizzle-orm'
 import type { ContentPart, ModelParams } from '@shared/types/domain'
 import { shouldValidateGptImage2Size, validateGptImage2Size } from '@shared/util/imageSize'
 import { renderPromptTemplate } from '@shared/util/promptTemplate'
@@ -18,6 +18,7 @@ import {
   MAX_FILE_INPUT_REQUEST_BYTES,
   fileInputMime,
   toDataUrl,
+  uploadFileExists,
 } from '../storage/files'
 import type { ConvRow, ImageOperation, ModelRow, MsgRow, ProviderRow, RunRow } from './types'
 import { appendRuntimeContextInstructions, buildRuntimeContext } from './runtimeContext'
@@ -82,7 +83,10 @@ function normalizeImageParamsForModel(
   }
 }
 
-function normalizeReasoningParamsForModel(model: ModelRow, params?: ModelParams): ModelParams | undefined {
+function normalizeReasoningParamsForModel(
+  model: ModelRow,
+  params?: ModelParams,
+): ModelParams | undefined {
   if (!params?.reasoning_effort || isReasoningEffortAllowed(model, params.reasoning_effort)) {
     return params
   }
@@ -441,21 +445,6 @@ export async function prepareRun(args: PrepareArgs): Promise<PrepareResult> {
     if (fileBudgetError) return fileBudgetError
   }
 
-  if (!conv) {
-    conv = must(
-      await db
-        .insert(conversations)
-        .values({
-          userId: args.userId,
-          modelId: model.id,
-          // 标题留空，待首条助手回复完成后异步总结（见 services/title.ts）
-          title: null,
-        })
-        .returning()
-        .then((r) => r[0]),
-    )
-  }
-
   const userContent: ContentPart[] = []
   if (args.text.trim()) userContent.push({ type: 'input_text', text: args.text })
   for (const r of refs) {
@@ -484,32 +473,122 @@ export async function prepareRun(args: PrepareArgs): Promise<PrepareResult> {
   }
   if (userContent.length === 0) userContent.push({ type: 'input_text', text: args.text })
 
-  const userMessage = must(
-    await db
-      .insert(messages)
-      .values({
-        conversationId: conv.id,
-        parentId,
-        role: 'user',
-        status: 'complete',
-        content: userContent,
-        runtimeContext: buildRuntimeContext(new Date(), args.clientTimezone),
-      })
-      .returning()
-      .then((r) => r[0]),
-  )
+  type PersistedUserTurn = { ok: true; conversation: ConvRow; userMessage: MsgRow } | PrepareError
 
-  if (refs.length > 0) {
-    await db
-      .update(attachments)
-      .set({ messageId: userMessage.id })
-      .where(
-        inArray(
-          attachments.id,
-          refs.map((r) => r.attachmentId),
-        ),
+  const persistedTurn = db.transaction(
+    (tx): PersistedUserTurn => {
+      // 初次能力校验后，24 小时清理任务可能已经回收了过期草稿附件。
+      // 在同一个 IMMEDIATE 事务里做最终复核、写消息和绑定，彻底关闭 TOCTOU 窗口。
+      if (idsToValidate.length > 0) {
+        const currentAttachmentRows = tx
+          .select({ id: attachments.id, storagePath: attachments.storagePath })
+          .from(attachments)
+          .where(and(eq(attachments.userId, args.userId), inArray(attachments.id, idsToValidate)))
+          .all()
+        if (
+          currentAttachmentRows.length !== idsToValidate.length ||
+          currentAttachmentRows.some((attachment) => !uploadFileExists(attachment.storagePath))
+        ) {
+          return {
+            ok: false,
+            status: 400,
+            message: '附件已过期、无效或无权访问，请重新上传',
+            code: 'invalid_attachment',
+          }
+        }
+      }
+
+      let transactionConversation = conv
+      if (transactionConversation) {
+        transactionConversation =
+          tx
+            .select()
+            .from(conversations)
+            .where(
+              and(
+                eq(conversations.id, transactionConversation.id),
+                eq(conversations.userId, args.userId),
+              ),
+            )
+            .get() ?? null
+        if (!transactionConversation) {
+          return {
+            ok: false,
+            status: 404,
+            message: '会话不存在',
+            code: 'not_found',
+          }
+        }
+      } else {
+        transactionConversation = must(
+          tx
+            .insert(conversations)
+            .values({
+              userId: args.userId,
+              modelId: model.id,
+              // 标题留空，待首条助手回复完成后异步总结（见 services/title.ts）
+              title: null,
+            })
+            .returning()
+            .get(),
+        )
+      }
+
+      const userMessage = must(
+        tx
+          .insert(messages)
+          .values({
+            conversationId: transactionConversation.id,
+            parentId,
+            role: 'user',
+            status: 'complete',
+            content: userContent,
+            runtimeContext: buildRuntimeContext(new Date(), args.clientTimezone),
+          })
+          .returning()
+          .get(),
       )
-  }
+
+      const refIds = [...new Set(refs.map((ref) => ref.attachmentId))]
+      if (refIds.length > 0) {
+        // 编辑重发允许复用已绑定附件，沿用原行为把归属移动到新的用户消息。
+        tx.update(attachments)
+          .set({ messageId: userMessage.id })
+          .where(and(eq(attachments.userId, args.userId), inArray(attachments.id, refIds)))
+          .run()
+      }
+
+      const refIdSet = new Set(refIds)
+      const unboundImageSourceIds = [
+        ...new Set(
+          sourceRefs
+            .map((source) => source.attachmentId)
+            .filter((attachmentId) => !refIdSet.has(attachmentId)),
+        ),
+      ]
+      if (unboundImageSourceIds.length > 0) {
+        // 已有生成图继续保留原消息归属；仅认领尚未绑定、但本轮消息确实引用的图片源。
+        tx.update(attachments)
+          .set({ messageId: userMessage.id })
+          .where(
+            and(
+              eq(attachments.userId, args.userId),
+              inArray(attachments.id, unboundImageSourceIds),
+              isNull(attachments.messageId),
+            ),
+          )
+          .run()
+      }
+
+      return { ok: true, conversation: transactionConversation, userMessage }
+    },
+    // 与孤立附件清理使用相同锁级别：谁先取得写锁，谁的结果先成为事实。
+    { behavior: 'immediate' },
+  )
+  if (!persistedTurn.ok) return persistedTurn
+
+  conv = persistedTurn.conversation
+  const { userMessage } = persistedTurn
 
   const { conversation, assistantMessage, run, body, imageOperation } = await createAssistantAndRun(
     {

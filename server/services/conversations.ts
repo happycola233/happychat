@@ -138,32 +138,41 @@ function chunked<T>(items: T[], size = 500): T[][] {
  * 返回实际删除的会话数。
  */
 export async function deleteConversations(userId: string, ids: string[]): Promise<number> {
-  const owned = await db
-    .select({ id: conversations.id })
-    .from(conversations)
-    .where(and(eq(conversations.userId, userId), inArray(conversations.id, ids)))
-  if (owned.length === 0) return 0
-  const ownedIds = owned.map((c) => c.id)
+  const { ownedIds, attachmentRows } = db.transaction(
+    (tx) => {
+      const owned = tx
+        .select({ id: conversations.id })
+        .from(conversations)
+        .where(and(eq(conversations.userId, userId), inArray(conversations.id, ids)))
+        .all()
+      if (owned.length === 0) {
+        return { ownedIds: [], attachmentRows: [] as (typeof attachments.$inferSelect)[] }
+      }
+      const ownedIds = owned.map((conversation) => conversation.id)
 
-  // 先在删除前收集附件（messages 行删除后无法再回溯 messageId 归属）。
-  const msgRows = await db
-    .select({ id: messages.id })
-    .from(messages)
-    .where(inArray(messages.conversationId, ownedIds))
-  const attachmentRows: (typeof attachments.$inferSelect)[] = []
-  for (const chunk of chunked(msgRows.map((m) => m.id))) {
-    attachmentRows.push(
-      ...(await db.select().from(attachments).where(inArray(attachments.messageId, chunk))),
-    )
-  }
+      // 快照、会话删除和附件行删除必须原子，避免后台历史引用修复穿过删除窗口。
+      const msgRows = tx
+        .select({ id: messages.id })
+        .from(messages)
+        .where(inArray(messages.conversationId, ownedIds))
+        .all()
+      const attachmentRows: (typeof attachments.$inferSelect)[] = []
+      for (const chunk of chunked(msgRows.map((message) => message.id))) {
+        attachmentRows.push(
+          ...tx.select().from(attachments).where(inArray(attachments.messageId, chunk)).all(),
+        )
+      }
 
-  await db.delete(conversations).where(inArray(conversations.id, ownedIds))
-  if (attachmentRows.length > 0) {
-    for (const chunk of chunked(attachmentRows.map((a) => a.id))) {
-      await db.delete(attachments).where(inArray(attachments.id, chunk))
-    }
-    for (const a of attachmentRows) removeUpload(a.storagePath)
-  }
+      tx.delete(conversations).where(inArray(conversations.id, ownedIds)).run()
+      for (const chunk of chunked(attachmentRows.map((attachment) => attachment.id))) {
+        tx.delete(attachments).where(inArray(attachments.id, chunk)).run()
+      }
+      return { ownedIds, attachmentRows }
+    },
+    { behavior: 'immediate' },
+  )
+
+  for (const attachment of attachmentRows) removeUpload(attachment.storagePath)
   return ownedIds.length
 }
 

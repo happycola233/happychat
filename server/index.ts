@@ -18,11 +18,13 @@ import { shareRoutes } from './routes/shares'
 import { announcementRoutes } from './routes/announcements'
 import { recoverInterruptedRuns } from './runs/manager'
 import { UpstreamError } from './provider/errors'
+import { startOrphanAttachmentCleanupScheduler } from './services/attachment-cleanup'
 import type { AppEnv } from './http/types'
 
-// 启动时执行数据库迁移（migrate-on-boot）+ 恢复中断的生成任务
+// 启动时执行数据库迁移（migrate-on-boot）+ 恢复中断任务 + 启动后台维护。
 runMigrations()
 void recoverInterruptedRuns()
+const stopAttachmentCleanup = startOrphanAttachmentCleanupScheduler()
 
 const app = new Hono<AppEnv>()
 
@@ -83,6 +85,7 @@ app.onError((err, c) => {
   return c.json({ error: { message: '服务器内部错误', code: 'internal_error' } }, 500)
 })
 
-serve({ fetch: app.fetch, port: env.PORT }, (info) => {
+const server = serve({ fetch: app.fetch, port: env.PORT }, (info) => {
   console.log(`happychat 后端已启动： http://localhost:${info.port}`)
 })
+server.once('close', stopAttachmentCleanup)

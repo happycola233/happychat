@@ -9,6 +9,7 @@ import {
   MAX_IMAGE_BYTES,
   isImageMime,
   readUpload,
+  removeUploadStrict,
   saveUpload,
   sha256,
   uploadMime,
@@ -60,16 +61,27 @@ attachmentRoutes.post('/', async (c) => {
   const id = newId()
   const storagePath = saveUpload(user.id, id, filename, mime, buf)
 
-  await db.insert(attachments).values({
-    id,
-    userId: user.id,
-    kind,
-    mime,
-    filename,
-    byteSize: file.size,
-    storagePath,
-    sha256: sha256(buf),
-  })
+  try {
+    await db.insert(attachments).values({
+      id,
+      userId: user.id,
+      kind,
+      mime,
+      filename,
+      byteSize: file.size,
+      storagePath,
+      sha256: sha256(buf),
+    })
+  } catch (error) {
+    // 文件已先落盘；DB 写入失败时立即回滚，避免产生清理任务无法发现的裸磁盘文件。
+    try {
+      removeUploadStrict(storagePath)
+    } catch (rollbackError) {
+      // 保留原始 DB 错误，同时留下足够信息供运维定位极少见的二次回滚失败。
+      console.error(`附件上传回滚文件失败（attachmentId=${id}）：`, rollbackError)
+    }
+    throw error
+  }
 
   return c.json({ attachment: { id, kind, mime, filename, byteSize: file.size } })
 })
