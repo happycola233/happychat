@@ -238,15 +238,29 @@ authRoutes.delete('/account', requireUser, jsonValidator(deleteAccountSchema), a
       return c.json({ error: { message: '系统需保留至少一名管理员，无法删除', code: 'last_admin' } }, 400)
     }
   }
-  const attachmentRows = await db
-    .select({ storagePath: attachments.storagePath })
-    .from(attachments)
-    .where(eq(attachments.userId, user.id))
+  // 路径快照和用户级联删除保持在同一事务，避免并发分支复制在快照后落盘而成为孤儿。
+  const deletedResources = db.transaction(
+    (tx) => {
+      const currentUser = tx
+        .select({ avatarPath: users.avatarPath })
+        .from(users)
+        .where(eq(users.id, user.id))
+        .get()
+      const attachmentRows = tx
+        .select({ storagePath: attachments.storagePath })
+        .from(attachments)
+        .where(eq(attachments.userId, user.id))
+        .all()
 
-  // 删除用户会级联清理会话/消息/附件行/设置/会话表行；磁盘文件随后按预查路径清理。
-  await db.delete(users).where(eq(users.id, user.id))
+      // 删除用户会级联清理会话/消息/附件行/设置/会话表行。
+      tx.delete(users).where(eq(users.id, user.id)).run()
+      return { attachmentRows, avatarPath: currentUser?.avatarPath ?? null }
+    },
+    { behavior: 'immediate' },
+  )
+  const attachmentRows = deletedResources.attachmentRows
   for (const attachment of attachmentRows) removeUpload(attachment.storagePath)
-  if (user.avatarPath) removeUpload(user.avatarPath)
+  if (deletedResources.avatarPath) removeUpload(deletedResources.avatarPath)
   await destroySession(c)
   return c.json({ ok: true })
 })

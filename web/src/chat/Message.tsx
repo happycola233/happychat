@@ -24,7 +24,7 @@ import type { ImageEditSource } from './imageSource'
 import { ProgressiveImageStage } from './ProgressiveImageStage'
 import { attachmentDraftsFromContent } from './attachmentDraft'
 import { MessageEditForm, type MessageEditSubmit } from './MessageEditForm'
-import { EditIcon, RetryMessageIcon } from './icons'
+import { BranchConversationIcon, EditIcon, RetryMessageIcon } from './icons'
 
 export interface BranchInfo {
   index: number
@@ -41,6 +41,8 @@ interface Props {
   onEdit?: (input: MessageEditSubmit) => boolean | void
   editCapabilities?: { canImage?: boolean; canFile?: boolean }
   onRegenerate?: () => void
+  onCreateBranch?: () => void
+  creatingBranch?: boolean
   onUseImageSource?: (source: ImageEditSource) => void
 }
 
@@ -113,6 +115,8 @@ export function Message({
   onEdit,
   editCapabilities,
   onRegenerate,
+  onCreateBranch,
+  creatingBranch,
   onUseImageSource,
 }: Props) {
   const [editing, setEditing] = useState(false)
@@ -174,7 +178,8 @@ export function Message({
   }
 
   // assistant
-  const streaming = live?.status === 'streaming'
+  // 恢复 SSE 之前 live 可能尚未建立，持久化 streaming 状态同样不能暴露消息操作。
+  const streaming = live ? live.status === 'streaming' : message.status === 'streaming'
   const text = live ? live.text : textFromContent(message.content)
   const reasoning = live ? live.reasoning : message.reasoningSummary
   const hasReasoningText = Boolean(reasoning?.trim())
@@ -246,6 +251,17 @@ export function Message({
             {onRegenerate && (
               <MessageIconButton title="重新生成" disabled={busy} onClick={onRegenerate}>
                 <RetryMessageIcon className="h-[18px] w-[18px]" />
+              </MessageIconButton>
+            )}
+            {onCreateBranch && (
+              <MessageIconButton
+                title="创建新的分支对话"
+                disabled={busy || creatingBranch}
+                ariaBusy={creatingBranch}
+                testId="create-conversation-branch"
+                onClick={onCreateBranch}
+              >
+                <BranchConversationIcon className="h-[18px] w-[18px]" />
               </MessageIconButton>
             )}
             {showModelLabel && modelName && (

@@ -286,11 +286,60 @@ export async function getConversationMessageDTOs(conversationId: string): Promis
   )
 }
 
-/** 会话最近一次生成所用的模型与联网/思考参数（用于打开会话时恢复控件）。 */
-export async function getConversationLastRun(conversationId: string): Promise<{
+interface ConversationRunPreferenceRow {
+  modelId: string | null
+  requestParams: Record<string, unknown> | ModelParams | null
+  modelKind: typeof models.$inferSelect.kind | null
+  modelCapabilities: typeof models.$inferSelect.capabilities | null
+  modelAllowedEfforts: typeof models.$inferSelect.allowedEfforts | null
+  modelDefaultParams: typeof models.$inferSelect.defaultParams | null
+  modelDefaultEffort: typeof models.$inferSelect.defaultEffort | null
+  modelDefaultWebSearch: boolean | null
+}
+
+type ConversationRunPreferences = {
   modelId: string | null
   params: { web_search?: boolean; reasoning_effort?: ReasoningEffort } | null
-}> {
+}
+
+function toConversationRunPreferences(
+  row: ConversationRunPreferenceRow,
+): ConversationRunPreferences {
+  const rp = (row.requestParams ?? {}) as ModelParams
+  const params: { web_search?: boolean; reasoning_effort?: ReasoningEffort } = {}
+
+  if (row.modelCapabilities) {
+    const modelConfig = {
+      kind: row.modelKind ?? undefined,
+      capabilities: row.modelCapabilities,
+      allowedEfforts: row.modelAllowedEfforts,
+      defaultParams: row.modelDefaultParams,
+      defaultEffort: row.modelDefaultEffort,
+      defaultWebSearch: row.modelDefaultWebSearch ?? false,
+    }
+    if (row.modelCapabilities.web_search) {
+      params.web_search = effectiveWebSearchEnabled(modelConfig, rp)
+    }
+    const effort = effectiveReasoningEffort(modelConfig, rp)
+    if (effort) params.reasoning_effort = effort
+  } else {
+    if (rp.web_search !== undefined) params.web_search = rp.web_search
+    if (rp.reasoning_effort !== undefined) params.reasoning_effort = rp.reasoning_effort
+  }
+
+  return {
+    modelId: row.modelId,
+    params: Object.keys(params).length ? params : null,
+  }
+}
+
+/**
+ * 会话最近一次生成所用的模型与联网/思考参数（用于打开会话时恢复控件）。
+ * 独立分支不复制 run 审计记录，因此在没有 run 时回退到会话保存的目标时点设置。
+ */
+export async function getConversationLastRun(
+  conversationId: string,
+): Promise<ConversationRunPreferences> {
   const [r] = await db
     .select({
       modelId: runs.modelId,
@@ -307,32 +356,24 @@ export async function getConversationLastRun(conversationId: string): Promise<{
     .where(eq(runs.conversationId, conversationId))
     .orderBy(desc(runs.createdAt))
     .limit(1)
-  if (!r) return { modelId: null, params: null }
-  const rp = (r.requestParams ?? {}) as ModelParams
-  const params: { web_search?: boolean; reasoning_effort?: ReasoningEffort } = {}
+  if (r) return toConversationRunPreferences(r)
 
-  if (r.modelCapabilities) {
-    const modelConfig = {
-      kind: r.modelKind ?? undefined,
-      capabilities: r.modelCapabilities,
-      allowedEfforts: r.modelAllowedEfforts,
-      defaultParams: r.modelDefaultParams,
-      defaultEffort: r.modelDefaultEffort,
-      defaultWebSearch: r.modelDefaultWebSearch,
-    }
-    if (r.modelCapabilities.web_search)
-      params.web_search = effectiveWebSearchEnabled(modelConfig, rp)
-    const effort = effectiveReasoningEffort(modelConfig, rp)
-    if (effort) params.reasoning_effort = effort
-  } else {
-    if (rp.web_search !== undefined) params.web_search = rp.web_search
-    if (rp.reasoning_effort !== undefined) params.reasoning_effort = rp.reasoning_effort
-  }
-
-  return {
-    modelId: r.modelId,
-    params: Object.keys(params).length ? params : null,
-  }
+  const [fallback] = await db
+    .select({
+      modelId: conversations.modelId,
+      requestParams: conversations.paramsOverride,
+      modelKind: models.kind,
+      modelCapabilities: models.capabilities,
+      modelAllowedEfforts: models.allowedEfforts,
+      modelDefaultParams: models.defaultParams,
+      modelDefaultEffort: models.defaultEffort,
+      modelDefaultWebSearch: models.defaultWebSearch,
+    })
+    .from(conversations)
+    .leftJoin(models, eq(conversations.modelId, models.id))
+    .where(eq(conversations.id, conversationId))
+    .limit(1)
+  return fallback ? toConversationRunPreferences(fallback) : { modelId: null, params: null }
 }
 
 /**
@@ -341,21 +382,28 @@ export async function getConversationLastRun(conversationId: string): Promise<{
  * 返回被删除的会话数。
  */
 export async function clearAllConversations(userId: string): Promise<number> {
-  const convRows = await db
-    .select({ id: conversations.id })
-    .from(conversations)
-    .where(eq(conversations.userId, userId))
+  // 路径快照与 broad delete 必须是同一个 SQLite 事务：若分支复制先提交，快照会包含
+  // 新附件；若清空先提交，分支提交前的源会话复核会失败。两种顺序都不会遗留孤儿文件。
+  const { conversationCount, attachmentRows } = db.transaction(
+    (tx) => {
+      const convRows = tx
+        .select({ id: conversations.id })
+        .from(conversations)
+        .where(eq(conversations.userId, userId))
+        .all()
+      const rows = tx.select().from(attachments).where(eq(attachments.userId, userId)).all()
 
-  const attachmentRows = await db.select().from(attachments).where(eq(attachments.userId, userId))
+      tx.delete(conversations).where(eq(conversations.userId, userId)).run()
+      if (rows.length > 0) tx.delete(attachments).where(eq(attachments.userId, userId)).run()
 
-  await db.delete(conversations).where(eq(conversations.userId, userId))
+      return { conversationCount: convRows.length, attachmentRows: rows }
+    },
+    { behavior: 'immediate' },
+  )
 
-  if (attachmentRows.length > 0) {
-    await db.delete(attachments).where(eq(attachments.userId, userId))
-    for (const a of attachmentRows) removeUpload(a.storagePath)
-  }
+  for (const attachment of attachmentRows) removeUpload(attachment.storagePath)
 
-  return convRows.length
+  return conversationCount
 }
 
 function makeSnippet(text: string, query: string, maxLength = 112): string {

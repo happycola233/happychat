@@ -310,19 +310,27 @@ adminRoutes.delete('/users/:id', async (c) => {
   if (id === c.get('user').id) {
     return c.json({ error: { message: '不能删除自己', code: 'self' } }, 400)
   }
-  const [targetUser] = await db
-    .select({ avatarPath: users.avatarPath })
-    .from(users)
-    .where(eq(users.id, id))
-    .limit(1)
-  const attachmentRows = await db
-    .select({ storagePath: attachments.storagePath })
-    .from(attachments)
-    .where(eq(attachments.userId, id))
+  // 与用户自删一致：事务内同时快照文件路径并级联删行，防止并发附件/分支写入漏清理。
+  const deletedResources = db.transaction(
+    (tx) => {
+      const targetUser = tx
+        .select({ avatarPath: users.avatarPath })
+        .from(users)
+        .where(eq(users.id, id))
+        .get()
+      const attachmentRows = tx
+        .select({ storagePath: attachments.storagePath })
+        .from(attachments)
+        .where(eq(attachments.userId, id))
+        .all()
 
-  await db.delete(users).where(eq(users.id, id))
-  for (const attachment of attachmentRows) removeUpload(attachment.storagePath)
-  if (targetUser?.avatarPath) removeUpload(targetUser.avatarPath)
+      tx.delete(users).where(eq(users.id, id)).run()
+      return { attachmentRows, avatarPath: targetUser?.avatarPath ?? null }
+    },
+    { behavior: 'immediate' },
+  )
+  for (const attachment of deletedResources.attachmentRows) removeUpload(attachment.storagePath)
+  if (deletedResources.avatarPath) removeUpload(deletedResources.avatarPath)
   return c.json({ ok: true })
 })
 

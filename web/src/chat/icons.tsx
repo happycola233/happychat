@@ -120,6 +120,34 @@ export function RetryMessageIcon(props: IconProps) {
   )
 }
 
+/** ChatGPT sprite `#03583c` 原图：创建新的分支对话。 */
+export function BranchConversationIcon(props: IconProps) {
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 20 20"
+      stroke="currentColor"
+      fill="none"
+      aria-hidden="true"
+      {...props}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={1.33}
+        d="M12.5 4.5h3v3M12.5 15.5h3v-3"
+      />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={1.33}
+        d="M3.33 10h4.682c.733 0 1.1 0 1.446-.083a3 3 0 0 0 .867-.36c.303-.185.562-.444 1.08-.963L15.5 4.5M12 12l3.5 3.5"
+      />
+    </svg>
+  )
+}
+
 export function NewChatIcon(props: IconProps) {
   return (
     <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" {...props}>

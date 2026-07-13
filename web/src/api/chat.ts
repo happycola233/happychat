@@ -30,6 +30,10 @@ export const searchConversations = (q: string) =>
 export const switchBranch = (id: string, messageId: string) =>
   apiPost<{ activeLeafId: string }>(`/conversations/${id}/switch`, { messageId })
 
+/** 复制 root → 指定助手消息的可见路径，创建一份独立会话。 */
+export const createConversationBranch = (id: string, assistantMessageId: string) =>
+  apiPost<ConversationDetail>(`/conversations/${id}/branch`, { assistantMessageId })
+
 export const deleteConversation = (id: string) => apiDelete<{ ok: true }>(`/conversations/${id}`)
 
 /** 批量删除会话，返回实际删除数。 */

@@ -20,7 +20,7 @@ import type {
 } from '@shared/types/api'
 import type { ModelParams } from '@shared/types/domain'
 import { isReasoningEffortAllowed, isReasoningEnabled } from '@shared/util/reasoning'
-import { switchBranch } from '../api/chat'
+import { createConversationBranch, switchBranch } from '../api/chat'
 import { abortRun, getActiveRun, regenerateRun, startRun } from '../api/runs'
 import { useConversation } from '../hooks/useConversations'
 import { useModels } from '../hooks/useModels'
@@ -54,6 +54,8 @@ import {
 } from './scrollAnchor'
 import { resolveAutoFollowAfterScroll, type ScrollMetrics } from './scrollFollow'
 import { getConversationRunPrefs } from './runPrefs'
+import { ActiveRunRecoveryGate } from './activeRunRecovery'
+import { beginBranchCreationCooldown } from './branchCreationGuard'
 
 interface RunResult {
   runId: string
@@ -93,6 +95,12 @@ export default function ChatView() {
   const clearStream = useStreamStore((s) => s.clear)
   const [optimisticUser, setOptimisticUser] = useState<string | null>(null)
   const [imageSources, setImageSources] = useState<ImageEditSource[]>([])
+  const [branchingMessageId, setBranchingMessageId] = useState<string | null>(null)
+  // mutation.isPending 要等 React 提交后才更新；同步锁可堵住同一帧内的快速双击。
+  const branchRequestInFlightRef = useRef(false)
+  const currentConversationIdRef = useRef<string | undefined>(id)
+  const mountedRef = useRef(true)
+  const activeRunRecoveryGateRef = useRef(new ActiveRunRecoveryGate())
   const scrollRef = useRef<HTMLDivElement>(null)
   const shouldAutoFollowRef = useRef(true)
   const previousScrollMetricsRef = useRef<ScrollMetrics>({ scrollTop: 0, scrollHeight: 0 })
@@ -114,6 +122,21 @@ export default function ChatView() {
   // 刷新页面、切换会话、点新聊天都直接落位，不做平移。
   const [dockAnimated, setDockAnimated] = useState(false)
   const dockAnimationTimerRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
+
+  // 只在路由提交后更新；cleanup 同时覆盖参数切换和离开 ChatView，避免迟到响应劫持导航。
+  useLayoutEffect(() => {
+    currentConversationIdRef.current = id
+    return () => {
+      currentConversationIdRef.current = undefined
+    }
+  }, [id])
 
   const allMessages = detail?.messages ?? []
   const messages = detail ? buildPath(allMessages, detail.conversation.activeLeafId) : []
@@ -345,6 +368,7 @@ export default function ChatView() {
 
   const applyRunResult = (res: RunResult, requestParams?: ModelParams | null) => {
     const convId = res.conversation.id
+    activeRunRecoveryGateRef.current.reset()
     const runModel = models?.find((m) => m.id === res.assistantMessage.modelId)
     const lastParams = getConversationRunPrefs(runModel, requestParams)
     qc.setQueryData<ConversationDetail>(['conversation', convId], (old) => {
@@ -381,12 +405,26 @@ export default function ChatView() {
 
   // 刷新/进入会话时重连未完成的 run
   useEffect(() => {
+    activeRunRecoveryGateRef.current.reset()
+  }, [id])
+
+  useEffect(() => {
     if (!id) return
     const existing = useStreamStore.getState().byConversation[id]
     if (existing && existing.status === 'streaming') return
     let cancelled = false
     void getActiveRun(id).then((run) => {
-      if (cancelled || !run) return
+      if (cancelled) return
+      if (!run) {
+        const recoveryGate = activeRunRecoveryGateRef.current
+        recoveryGate.markNoActiveRun(id)
+        const cachedDetail = qc.getQueryData<ConversationDetail>(['conversation', id])
+        if (recoveryGate.consumeRefreshIfNeeded(id, cachedDetail)) {
+          void invalidateDetail(id)
+        }
+        return
+      }
+      activeRunRecoveryGateRef.current.reset()
       if (useStreamStore.getState().byConversation[id]?.status === 'streaming') return
       startStream({
         runId: run.runId,
@@ -404,7 +442,14 @@ export default function ChatView() {
     return () => {
       cancelled = true
     }
-  }, [id, handleRunTerminal, captureTerminalScroll])
+  }, [id, handleRunTerminal, captureTerminalScroll, invalidateDetail, qc])
+
+  // active 比详情先返回 null 时，等详情到达后再判断是否需要刷新旧 streaming 占位。
+  useEffect(() => {
+    if (id && activeRunRecoveryGateRef.current.consumeRefreshIfNeeded(id, detail)) {
+      void invalidateDetail(id)
+    }
+  }, [id, detail, invalidateDetail])
 
   // 终止后交接到持久化内容
   useEffect(() => {
@@ -485,6 +530,39 @@ export default function ChatView() {
       switchBranch(convId, messageId),
     onSuccess: (_r, vars) => invalidateDetail(vars.convId),
     onError: (e) => toast.error(e instanceof Error ? e.message : '切换分支失败'),
+  })
+
+  const branchMut = useMutation({
+    mutationFn: ({
+      conversationId,
+      assistantMessageId,
+    }: {
+      conversationId: string
+      assistantMessageId: string
+    }) => createConversationBranch(conversationId, assistantMessageId),
+    onSuccess: (branchDetail, variables) => {
+      const branchConversation = branchDetail.conversation
+      // 服务端返回的是新 ID 完整快照；先种缓存可让导航后的首帧直接显示全部历史。
+      qc.setQueryData<ConversationDetail>(['conversation', branchConversation.id], branchDetail)
+      qc.setQueryData<ConversationDTO[]>(['conversations'], (current) =>
+        current
+          ? [branchConversation, ...current.filter((item) => item.id !== branchConversation.id)]
+          : current,
+      )
+      void qc.invalidateQueries({ queryKey: ['conversations'] })
+      toast.success('已创建新的分支对话')
+      // 慢附件复制期间用户可能已主动切换会话；此时只更新缓存，不抢走用户当前页面。
+      if (mountedRef.current && currentConversationIdRef.current === variables.conversationId) {
+        navigate(`/c/${branchConversation.id}`)
+      }
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : '创建分支对话失败')
+    },
+    onSettled: () => {
+      branchRequestInFlightRef.current = false
+      if (mountedRef.current) setBranchingMessageId(null)
+    },
   })
 
   const params = (): ModelParams => {
@@ -598,6 +676,14 @@ export default function ChatView() {
     if (id) switchMut.mutate({ convId: id, messageId })
   }
 
+  const onCreateBranch = (assistantMessageId: string) => {
+    if (!id || branchRequestInFlightRef.current) return
+    if (!beginBranchCreationCooldown()) return
+    branchRequestInFlightRef.current = true
+    setBranchingMessageId(assistantMessageId)
+    branchMut.mutate({ conversationId: id, assistantMessageId })
+  }
+
   const onStop = () => {
     if (stream) void abortRun(stream.runId).catch(() => undefined)
   }
@@ -703,13 +789,17 @@ export default function ChatView() {
                         message={m}
                         live={stream && m.id === stream.assistantMessageId ? stream : undefined}
                         branch={branch}
-                        busy={streaming}
+                        busy={streaming || branchMut.isPending}
                         editCapabilities={{
                           canImage: model?.capabilities.vision,
                           canFile: model?.capabilities.file_input,
                         }}
                         onEdit={m.role === 'user' ? (input) => onEdit(m, input) : undefined}
                         onRegenerate={m.role === 'assistant' ? () => onRegenerate(m.id) : undefined}
+                        onCreateBranch={
+                          m.role === 'assistant' ? () => onCreateBranch(m.id) : undefined
+                        }
+                        creatingBranch={branchingMessageId === m.id}
                         onUseImageSource={
                           m.role === 'assistant' && messageModel?.kind === 'image'
                             ? onUseImageSource

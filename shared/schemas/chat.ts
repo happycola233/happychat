@@ -68,6 +68,11 @@ export const switchBranchSchema = z.object({
   messageId: z.string().min(1),
 })
 
+/** 以某条已完成的助手消息为终点，创建一份独立的会话分支副本。 */
+export const createConversationBranchSchema = z.object({
+  assistantMessageId: z.string().min(1),
+})
+
 /** 批量操作的会话 id 列表：上限防止误提交超大数组。 */
 const conversationIdsSchema = z
   .array(z.string().min(1))
@@ -86,6 +91,7 @@ export const moveConversationsSchema = z.object({
 
 export type RegenerateInput = z.infer<typeof regenerateSchema>
 export type SwitchBranchInput = z.infer<typeof switchBranchSchema>
+export type CreateConversationBranchInput = z.infer<typeof createConversationBranchSchema>
 export type PinConversationInput = z.infer<typeof pinConversationSchema>
 export type BatchDeleteConversationsInput = z.infer<typeof batchDeleteConversationsSchema>
 export type MoveConversationsInput = z.infer<typeof moveConversationsSchema>

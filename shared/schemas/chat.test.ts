@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { batchDeleteConversationsSchema, moveConversationsSchema, sendMessageSchema } from './chat'
+import {
+  batchDeleteConversationsSchema,
+  createConversationBranchSchema,
+  moveConversationsSchema,
+  sendMessageSchema,
+} from './chat'
 
 describe('sendMessageSchema', () => {
   it('accepts text beyond the removed application-level character limit', () => {
@@ -30,5 +35,14 @@ describe('batch conversation schemas', () => {
     expect(moveConversationsSchema.parse({ ids: ['c1'], folderId: 'f1' }).folderId).toBe('f1')
     expect(moveConversationsSchema.parse({ ids: ['c1'], folderId: null }).folderId).toBeNull()
     expect(moveConversationsSchema.safeParse({ ids: ['c1'] }).success).toBe(false)
+  })
+})
+
+describe('createConversationBranchSchema', () => {
+  it('requires a non-empty assistant message id', () => {
+    expect(createConversationBranchSchema.parse({ assistantMessageId: 'assistant-1' })).toEqual({
+      assistantMessageId: 'assistant-1',
+    })
+    expect(createConversationBranchSchema.safeParse({ assistantMessageId: '' }).success).toBe(false)
   })
 })

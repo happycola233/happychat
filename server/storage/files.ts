@@ -1,5 +1,13 @@
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs'
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmdirSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { env } from '../env'
 
@@ -264,6 +272,29 @@ export function saveUpload(
   const userUploadDir = ensureUserUploadDir(userId)
   const full = join(userUploadDir, `${id}${extFromName(originalName, mime)}`)
   writeFileSync(full, buf)
+  return toStoredPath(full)
+}
+
+/**
+ * 为同一用户复制一份独立附件文件。
+ * 会话分支不能复用原 storagePath，否则删除任一会话都会让另一会话的附件失效。
+ */
+export function copyUpload(
+  userId: string,
+  id: string,
+  originalName: string,
+  mime: string,
+  sourcePath: string,
+): string {
+  const userUploadDir = ensureUserUploadDir(userId)
+  const full = join(userUploadDir, `${id}${extFromName(originalName, mime)}`)
+  try {
+    copyFileSync(sourcePath, full)
+  } catch (error) {
+    // copyFile 不是跨文件系统事务；目的端故障时主动清掉可能留下的不完整文件。
+    removeUpload(full)
+    throw error
+  }
   return toStoredPath(full)
 }
 

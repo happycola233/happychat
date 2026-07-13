@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm'
 import { CONVERSATION_EVENT_TYPE } from '@shared/types/events'
 import {
   batchDeleteConversationsSchema,
+  createConversationBranchSchema,
   moveConversationsSchema,
   pinConversationSchema,
   renameConversationSchema,
@@ -36,6 +37,7 @@ import {
   listOwnerShares,
   revokeShare,
 } from '../services/shares'
+import { createConversationBranch } from '../services/conversation-branches'
 import { conversationEvents, type ConversationEvent } from '../services/conversation-events'
 import type { AppEnv } from '../http/types'
 
@@ -179,6 +181,35 @@ conversationRoutes.patch('/:id/pin', jsonValidator(pinConversationSchema), async
   )
   if (!updated) return c.json({ error: { message: '会话不存在', code: 'not_found' } }, 404)
   return c.json({ conversation: updated })
+})
+
+/** 以指定助手消息为终点，创建一份可独立续聊的会话分支副本。 */
+conversationRoutes.post('/:id/branch', jsonValidator(createConversationBranchSchema), async (c) => {
+  const userId = c.get('user').id
+  const result = await createConversationBranch(
+    userId,
+    c.req.param('id'),
+    c.req.valid('json').assistantMessageId,
+  )
+  if (!result.ok) {
+    return c.json({ error: { message: result.message, code: result.code } }, result.status)
+  }
+
+  const conversation = await getOwnedConversation(userId, result.conversationId)
+  if (!conversation) throw new Error('新分支会话创建后无法读取')
+  const [branchMessages, lastRun] = await Promise.all([
+    getConversationMessageDTOs(conversation.id),
+    getConversationLastRun(conversation.id),
+  ])
+  return c.json(
+    {
+      conversation: toConversationDTO(conversation),
+      messages: branchMessages,
+      lastModelId: lastRun.modelId,
+      lastParams: lastRun.params,
+    },
+    201,
+  )
 })
 
 /** 切换分支：把可见路径切到目标消息所在分支（取其最深叶子）。 */

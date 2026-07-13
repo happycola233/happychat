@@ -13,12 +13,16 @@ export function MessageIconButton({
   children,
   disabled,
   className,
+  testId,
+  ariaBusy,
 }: {
   title: string
   onClick: () => void
   children: ReactNode
   disabled?: boolean
   className?: string
+  testId?: string
+  ariaBusy?: boolean
 }) {
   return (
     <button
@@ -26,6 +30,8 @@ export function MessageIconButton({
       aria-label={title}
       onClick={onClick}
       disabled={disabled}
+      data-testid={testId}
+      aria-busy={ariaBusy || undefined}
       className={clsx(
         'rounded-md p-1.5 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-neutral-800 dark:hover:text-neutral-200',
         className,
