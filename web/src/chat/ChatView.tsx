@@ -44,6 +44,7 @@ import { TimelineNav } from './TimelineNav'
 import { shouldShowTimeline, timelineItemsFromMessages } from './timelineItems'
 import { shouldShowTopFade } from './topFade'
 import { AnnouncementBanner } from '../announcements/AnnouncementBanner'
+import { ConversationDocumentTitle } from './ConversationDocumentTitle'
 import { NotificationBell } from '../announcements/NotificationBell'
 import type { ImageEditSource } from './imageSource'
 import { getAttachmentDraftSupportIssue, toAttachmentRefs } from './attachmentDraft'
@@ -718,6 +719,7 @@ export default function ChatView() {
 
   return (
     <>
+      <ConversationDocumentTitle conversationId={id} persistedTitle={detail?.conversation.title} />
       <AnnouncementBanner />
 
       <div className="relative min-h-0 flex-1" style={chatViewportStyle}>

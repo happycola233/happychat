@@ -35,7 +35,6 @@ export function applyConversationTitleUpdate(
   options: { animate?: boolean } = {},
 ): void {
   const { conversationId, title, updatedAt } = data
-  const previousTitle = currentCachedConversationTitle(queryClient, conversationId)
 
   queryClient.setQueryData<ConversationDTO[]>(['conversations'], (old) =>
     old?.map((conversation) =>
@@ -55,7 +54,8 @@ export function applyConversationTitleUpdate(
       : old,
   )
 
-  if (options.animate !== false && previousTitle !== title) {
+  // 详情补刷可能先于事件拿到完整标题，因此始终交给动画层；同标题会在 store 内幂等去重。
+  if (options.animate !== false) {
     useTitleTypingStore.getState().start(conversationId, title)
   }
 }

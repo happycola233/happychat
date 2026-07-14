@@ -16,7 +16,9 @@ import {
   MessageUsageStats,
 } from '../chat/MessageMeta'
 import { Spinner } from '../components/ui/Spinner'
+import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { forceSystemTheme, refreshTheme } from '../lib/theme'
+import { resolveSharedDocumentTitle } from './sharedDocumentTitle'
 
 type SharedAttachmentPart = Extract<
   ContentPart,
@@ -264,6 +266,7 @@ export default function SharedChatPage() {
     enabled: !!token,
     retry: false,
   })
+  useDocumentTitle(resolveSharedDocumentTitle(share?.title, isError))
   const { pageRef, headerRef } = useShareHeaderHeight(Boolean(share))
 
   if (isLoading) {

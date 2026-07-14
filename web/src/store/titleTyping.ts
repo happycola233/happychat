@@ -14,6 +14,7 @@ interface TitleTypingStore {
 const TYPE_INTERVAL_MS = 48
 const HOLD_AFTER_DONE_MS = 900
 const timers = new Map<string, number>()
+const lastAnimatedTitles = new Map<string, string>()
 
 function clearTimer(conversationId: string): void {
   const timer = timers.get(conversationId)
@@ -23,12 +24,24 @@ function clearTimer(conversationId: string): void {
   }
 }
 
+/** 按用户眼中的字符切分，避免 emoji 在逐字过程中短暂显示成半个代理项。 */
+function splitTitleCharacters(title: string): string[] {
+  if (typeof Intl.Segmenter === 'function') {
+    const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+    return Array.from(segmenter.segment(title), ({ segment }) => segment)
+  }
+  return Array.from(title)
+}
+
 /** 只负责标题生成后的视觉打字效果；真实标题仍以 TanStack Query 缓存为准。 */
 export const useTitleTypingStore = create<TitleTypingStore>((set) => ({
   byConversation: {},
   start: (conversationId, title) => {
+    // SSE 与补偿轮询可能先后送达同一标题；动画层保证同一结果只播放一次。
+    if (title && lastAnimatedTitles.get(conversationId) === title) return
     clearTimer(conversationId)
     if (!title) {
+      lastAnimatedTitles.delete(conversationId)
       set((state) => {
         const next = { ...state.byConversation }
         delete next[conversationId]
@@ -37,21 +50,29 @@ export const useTitleTypingStore = create<TitleTypingStore>((set) => ({
       return
     }
 
-    let index = Math.min(1, title.length)
+    lastAnimatedTitles.set(conversationId, title)
+    const titleCharacters = splitTitleCharacters(title)
+    let visibleCharacterCount = Math.min(1, titleCharacters.length)
     set((state) => ({
       byConversation: {
         ...state.byConversation,
-        [conversationId]: { text: title.slice(0, index), active: true },
+        [conversationId]: {
+          text: titleCharacters.slice(0, visibleCharacterCount).join(''),
+          active: true,
+        },
       },
     }))
 
     const tick = () => {
-      index += 1
-      if (index <= title.length) {
+      visibleCharacterCount += 1
+      if (visibleCharacterCount <= titleCharacters.length) {
         set((state) => ({
           byConversation: {
             ...state.byConversation,
-            [conversationId]: { text: title.slice(0, index), active: true },
+            [conversationId]: {
+              text: titleCharacters.slice(0, visibleCharacterCount).join(''),
+              active: true,
+            },
           },
         }))
         timers.set(conversationId, window.setTimeout(tick, TYPE_INTERVAL_MS))
@@ -75,6 +96,7 @@ export const useTitleTypingStore = create<TitleTypingStore>((set) => ({
   },
   clear: (conversationId) => {
     clearTimer(conversationId)
+    lastAnimatedTitles.delete(conversationId)
     set((state) => {
       const next = { ...state.byConversation }
       delete next[conversationId]

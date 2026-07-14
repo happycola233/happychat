@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
+import type { ConversationDTO, ConversationDetail } from '@shared/types/api'
 import {
   batchDeleteConversations,
   deleteConversation,
@@ -8,6 +9,7 @@ import {
   renameConversation,
 } from '../api/chat'
 import { askConfirm } from '../store/confirm'
+import { useTitleTypingStore } from '../store/titleTyping'
 import { toast } from '../store/toast'
 
 /** 会话操作（删除/置顶/重命名/移动到文件夹/批量），侧栏行内菜单、顶栏菜单与批量工具栏共用。 */
@@ -19,6 +21,7 @@ export function useConversationActions() {
   const remove = useMutation({
     mutationFn: deleteConversation,
     onSuccess: (_r, deletedId) => {
+      useTitleTypingStore.getState().clear(deletedId)
       qc.invalidateQueries({ queryKey: ['conversations'] })
       if (deletedId === activeId) navigate('/')
     },
@@ -28,6 +31,7 @@ export function useConversationActions() {
   const batchRemove = useMutation({
     mutationFn: ({ ids }: { ids: string[]; onDone?: () => void }) => batchDeleteConversations(ids),
     onSuccess: (deletedCount, { ids, onDone }) => {
+      ids.forEach((conversationId) => useTitleTypingStore.getState().clear(conversationId))
       qc.invalidateQueries({ queryKey: ['conversations'] })
       toast.success(`已删除 ${deletedCount} 个聊天`)
       if (activeId && ids.includes(activeId)) navigate('/')
@@ -71,7 +75,24 @@ export function useConversationActions() {
   const rename = useMutation({
     mutationFn: ({ convId, title }: { convId: string; title: string }) =>
       renameConversation(convId, title),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['conversations'] }),
+    onSuccess: (_result, { convId, title }) => {
+      // 手动重命名应立即成为列表、当前会话和标签页的同一真值。
+      useTitleTypingStore.getState().clear(convId)
+      qc.setQueryData<ConversationDTO[]>(['conversations'], (current) =>
+        current?.map((conversation) =>
+          conversation.id === convId ? { ...conversation, title } : conversation,
+        ),
+      )
+      qc.setQueryData<ConversationDetail>(['conversation', convId], (current) =>
+        current
+          ? {
+              ...current,
+              conversation: { ...current.conversation, title },
+            }
+          : current,
+      )
+      void qc.invalidateQueries({ queryKey: ['conversations'] })
+    },
     onError: (e) => toast.error(e instanceof Error ? e.message : '重命名失败'),
   })
 
