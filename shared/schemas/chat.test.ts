@@ -15,6 +15,18 @@ describe('sendMessageSchema', () => {
     expect(parsed.text).toBe(text)
   })
 
+  it('accepts attachments beyond the removed application-level count limit', () => {
+    const attachments = Array.from({ length: 11 }, (_, index) => ({
+      attachmentId: `attachment-${index}`,
+      kind: 'file' as const,
+      filename: `document-${index}.txt`,
+    }))
+
+    const parsed = sendMessageSchema.parse({ modelId: 'test-model', text: '', attachments })
+
+    expect(parsed.attachments).toEqual(attachments)
+  })
+
   it('still rejects a message without text or attachments', () => {
     expect(sendMessageSchema.safeParse({ modelId: 'test-model', text: '   ' }).success).toBe(false)
   })

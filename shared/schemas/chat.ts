@@ -29,8 +29,8 @@ export const sendMessageSchema = z
     idempotencyKey: z.string().max(64).optional(),
     /** 编辑重发：被编辑用户消息的 parentId，使新消息成为兄弟分支 */
     parentId: z.string().nullable().optional(),
-    /** 附件引用（图片/文件） */
-    attachments: z.array(attachmentRefSchema).max(10).optional(),
+    /** 附件数量交由所选上游约束；文件字节预算在 prepareRun 中按当前分支统一校验。 */
+    attachments: z.array(attachmentRefSchema).optional(),
     /** 显式选择的图片编辑源（不改写已绑定附件；未绑定上传会归属本轮消息） */
     imageSources: z.array(imageSourceSchema).max(16).optional(),
   })
