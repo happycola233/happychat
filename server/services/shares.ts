@@ -1,7 +1,7 @@
-import { basename } from 'node:path'
 import { and, desc, eq } from 'drizzle-orm'
 import type { CreateShareInput, UpdateShareInput } from '@shared/schemas/share'
 import type { MessageDTO, PublicShareDTO, SharedChatDTO } from '@shared/types/api'
+import { getUserAvatarUrl } from '../auth/users'
 import { db } from '../db/client'
 import { attachments, conversations, sharedChats, users } from '../db/schema'
 import { newId } from '../lib/id'
@@ -183,10 +183,7 @@ export async function getPublicShare(token: string): Promise<PublicShareDTO | nu
     if (u) {
       owner = {
         name: row.showName ? (u.displayName || u.username) : null,
-        avatarUrl:
-          row.showAvatar && u.avatarPath
-            ? `/api/auth/avatar/${u.id}?v=${basename(u.avatarPath)}`
-            : null,
+        avatarUrl: row.showAvatar ? getUserAvatarUrl(u) : null,
       }
     }
   }

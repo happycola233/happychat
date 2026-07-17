@@ -34,8 +34,23 @@ function userInitial(user: AdminUserDTO): string {
   return [...(user.displayName || user.username).trim()][0]?.toLocaleUpperCase('zh-CN') ?? '?'
 }
 
-/** 角色配色的圆形头像；尺寸由调用方通过 className 指定。 */
+/** 优先展示用户上传的头像；缺失或加载失败时回退为角色配色的姓名首字母。 */
 function UserAvatar({ user, className }: { user: AdminUserDTO; className?: string }) {
+  const [imageLoadFailed, setImageLoadFailed] = useState(false)
+
+  if (user.avatarUrl && !imageLoadFailed) {
+    return (
+      <img
+        src={user.avatarUrl}
+        alt=""
+        aria-hidden
+        draggable={false}
+        onError={() => setImageLoadFailed(true)}
+        className={clsx('shrink-0 rounded-full object-cover', className)}
+      />
+    )
+  }
+
   return (
     <span
       aria-hidden

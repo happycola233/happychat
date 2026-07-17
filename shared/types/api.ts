@@ -234,6 +234,8 @@ export interface AdminUserDTO {
   username: string
   role: UserRole
   displayName: string | null
+  /** 已上传头像的公开读取地址；未上传时为 null。 */
+  avatarUrl: string | null
   disabled: boolean
   /** 是否允许分享：null=随全局，true/false=按用户覆盖 */
   canShare: boolean | null

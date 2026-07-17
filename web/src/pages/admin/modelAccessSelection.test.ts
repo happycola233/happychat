@@ -19,6 +19,7 @@ function user(
     username: `${id}-login`,
     role,
     displayName,
+    avatarUrl: null,
     disabled,
     canShare: null,
     createdAt: 0,

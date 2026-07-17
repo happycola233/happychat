@@ -1,5 +1,6 @@
 import { desc, eq, sql } from 'drizzle-orm'
 import type { AdminUserDTO, InviteCodeDTO, StatsDTO } from '@shared/types/api'
+import { getUserAvatarUrl } from '../auth/users'
 import { db } from '../db/client'
 import {
   conversations,
@@ -37,6 +38,7 @@ export async function listAdminUsers(): Promise<AdminUserDTO[]> {
     username: u.username,
     role: u.role,
     displayName: u.displayName,
+    avatarUrl: getUserAvatarUrl(u),
     disabled: u.disabled,
     canShare: u.canShare ?? null,
     createdAt: u.createdAt.getTime(),
