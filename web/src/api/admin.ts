@@ -1,5 +1,6 @@
 import type {
   AdminModelDTO,
+  ModelAccessDTO,
   AdminSessionDTO,
   AdminUserDTO,
   AnalyticsDTO,
@@ -19,6 +20,7 @@ import type {
 } from '@shared/types/api'
 import type {
   ModelCreateInput,
+  ModelAccessUpdateInput,
   ModelImportInput,
   ModelReorderInput,
   ModelUpdateInput,
@@ -26,7 +28,7 @@ import type {
   ProviderUpdateInput,
 } from '@shared/schemas/model-config'
 import type { InviteCreateInput, UserUpdateInput } from '@shared/schemas/admin'
-import { apiDelete, apiGet, apiPatch, apiPost } from './client'
+import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from './client'
 
 /** 统计/事件查询参数（与后端 statsFilterSchema 对应）。 */
 export interface StatsQuery {
@@ -80,6 +82,9 @@ export const updateModel = (id: string, input: ModelUpdateInput) =>
 export const reorderModels = (input: ModelReorderInput) =>
   apiPost<{ ok: true }>('/admin/models/reorder', input)
 export const deleteModel = (id: string) => apiDelete<{ ok: true }>(`/admin/models/${id}`)
+export const getModelAccess = (id: string) => apiGet<ModelAccessDTO>(`/admin/models/${id}/access`)
+export const updateModelAccess = (id: string, input: ModelAccessUpdateInput) =>
+  apiPut<{ ok: true }>(`/admin/models/${id}/access`, input)
 
 // 邀请码
 export const listInvites = () =>
@@ -98,9 +103,9 @@ export const deleteUser = (id: string) => apiDelete<{ ok: true }>(`/admin/users/
 
 // 会话（账号中心）
 export const getSessions = (userId?: string) =>
-  apiGet<{ sessions: AdminSessionDTO[] }>(`/admin/sessions${userId ? `?userId=${userId}` : ''}`).then(
-    (r) => r.sessions,
-  )
+  apiGet<{ sessions: AdminSessionDTO[] }>(
+    `/admin/sessions${userId ? `?userId=${userId}` : ''}`,
+  ).then((r) => r.sessions)
 export const revokeSession = (id: string) => apiDelete<{ ok: true }>(`/admin/sessions/${id}`)
 export const revokeUserSessions = (userId: string) =>
   apiPost<{ ok: true }>(`/admin/users/${userId}/revoke-sessions`)

@@ -14,6 +14,7 @@ function model(overrides: Partial<ModelForBuild> = {}): ModelForBuild {
     tags: null,
     kind: 'responses',
     enabled: true,
+    accessMode: 'all',
     capabilities: {
       vision: false,
       file_input: false,

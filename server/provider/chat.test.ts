@@ -14,6 +14,7 @@ function model(overrides: Partial<ModelRow> = {}): ModelRow {
     tags: null,
     kind: 'chat',
     enabled: true,
+    accessMode: 'all',
     capabilities: {
       vision: false,
       file_input: false,

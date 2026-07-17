@@ -8,6 +8,7 @@ import type {
   AnnouncementStatus,
   ContentPart,
   MessageStatus,
+  ModelAccessMode,
   ModelCapabilities,
   ModelHardParams,
   ModelKind,
@@ -201,6 +202,8 @@ export const models = sqliteTable(
     tags: text('tags', { mode: 'json' }).$type<string[]>(),
     kind: text('kind').$type<ModelKind>().notNull().default('responses'),
     enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+    // 用户端开放范围；与 enabled（全局总开关）正交。selected 即使名单为空也保持拒绝。
+    accessMode: text('access_mode').$type<ModelAccessMode>().notNull().default('all'),
     capabilities: text('capabilities', { mode: 'json' }).$type<ModelCapabilities>().notNull(),
     defaultSystemPrompt: text('default_system_prompt'),
     defaultParams: text('default_params', { mode: 'json' }).$type<ModelParams>(),
@@ -218,6 +221,27 @@ export const models = sqliteTable(
   },
   // 同 id 多实例：不再有 (provider_id, model_id) 唯一约束，仅保留供应商查询索引。
   (t) => [index('models_provider_idx').on(t.providerId)],
+)
+
+/**
+ * 模型的按用户白名单。开放语义由 models.access_mode 显式决定，绝不根据本表是否为空推断，
+ * 避免删除最后一位用户时意外把模型开放给所有人。
+ */
+export const modelUserAccess = sqliteTable(
+  'model_user_access',
+  {
+    modelId: text('model_id')
+      .notNull()
+      .references(() => models.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.modelId, t.userId] }),
+    // 用户模型列表按 user_id 过滤；反向索引避免为每个模型扫描整张白名单表。
+    index('model_user_access_user_idx').on(t.userId, t.modelId),
+  ],
 )
 
 // ========================= 会话 / 消息（合并节点+内容的单表分支树）=========================

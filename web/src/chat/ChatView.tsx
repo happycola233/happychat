@@ -282,7 +282,10 @@ export default function ChatView() {
       markProgrammaticScroll(PROGRAMMATIC_SCROLL_RESET_MS)
       const containerTop = container.getBoundingClientRect().top
       const targetTop =
-        anchor.getBoundingClientRect().top - containerTop + container.scrollTop - TIMELINE_JUMP_OFFSET_PX
+        anchor.getBoundingClientRect().top -
+        containerTop +
+        container.scrollTop -
+        TIMELINE_JUMP_OFFSET_PX
       container.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' })
     },
     [markProgrammaticScroll, pauseAutoFollow],
@@ -583,8 +586,12 @@ export default function ChatView() {
     attachments: AttachmentDTO[],
     selectedImageSources: ImageEditSource[],
   ) => {
-    if (!activeModelId) return toast.error('请先选择模型')
-    if (selectedImageSources.length > 0 && model?.kind !== 'image') {
+    if (!model) {
+      return toast.error(
+        models ? '当前账号暂无可用模型，请联系管理员' : '模型列表加载中，请稍后再试',
+      )
+    }
+    if (selectedImageSources.length > 0 && model.kind !== 'image') {
       return toast.error('请使用图片模型编辑图片')
     }
     // 从居中态发出首条消息：为接下来的「落底」变化临时开启平移动画。
@@ -602,7 +609,7 @@ export default function ChatView() {
     setOptimisticUser(text || null)
     sendMut.mutate({
       conversationId: id,
-      modelId: activeModelId,
+      modelId: model.id,
       text,
       params: params(),
       clientLocale: getBrowserLocale(),
@@ -627,32 +634,30 @@ export default function ChatView() {
   }
 
   const onEdit = (msg: MessageDTO, input: MessageEditSubmit): boolean => {
-    if (!activeModelId) {
-      toast.error('请先选择模型')
+    if (!model) {
+      toast.error(models ? '当前账号暂无可用模型，请联系管理员' : '模型列表加载中，请稍后再试')
       return false
     }
-    if (model?.kind === 'image' && !input.text.trim()) {
+    if (model.kind === 'image' && !input.text.trim()) {
       toast.error('请输入图片生成或编辑提示词')
       return false
     }
-    if (model) {
-      const supportIssue = getAttachmentDraftSupportIssue(input.attachments, {
-        canImage: model.capabilities.vision,
-        canFile: model.capabilities.file_input,
-      })
-      if (supportIssue === 'image') {
-        toast.error('当前模型不支持图片输入，请移除图片或切换模型')
-        return false
-      }
-      if (supportIssue === 'file') {
-        toast.error('当前模型不支持文件输入，请移除文件或切换模型')
-        return false
-      }
+    const supportIssue = getAttachmentDraftSupportIssue(input.attachments, {
+      canImage: model.capabilities.vision,
+      canFile: model.capabilities.file_input,
+    })
+    if (supportIssue === 'image') {
+      toast.error('当前模型不支持图片输入，请移除图片或切换模型')
+      return false
+    }
+    if (supportIssue === 'file') {
+      toast.error('当前模型不支持文件输入，请移除文件或切换模型')
+      return false
     }
     shouldAutoFollowRef.current = true
     sendMut.mutate({
       conversationId: id,
-      modelId: activeModelId,
+      modelId: model.id,
       text: input.text,
       params: params(),
       clientLocale: getBrowserLocale(),
@@ -664,10 +669,14 @@ export default function ChatView() {
   }
 
   const onRegenerate = (assistantMessageId: string) => {
+    if (!model) {
+      toast.error(models ? '当前账号暂无可用模型，请联系管理员' : '模型列表加载中，请稍后再试')
+      return
+    }
     shouldAutoFollowRef.current = true
     regenMut.mutate({
       assistantMessageId,
-      modelId: activeModelId ?? undefined,
+      modelId: model.id,
       params: params(),
       clientLocale: getBrowserLocale(),
     })
@@ -898,7 +907,7 @@ export default function ChatView() {
           </div>
           <Composer
             onSend={onSend}
-            disabled={sendMut.isPending || streaming}
+            disabled={sendMut.isPending || streaming || !model}
             streaming={streaming}
             onStop={onStop}
             modelControl={

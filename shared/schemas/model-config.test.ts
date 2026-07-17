@@ -1,10 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import { effortSchema, reasoningEffortOptionsSchema } from './model-config'
+import {
+  effortSchema,
+  MODEL_ACCESS_USER_LIMIT,
+  modelAccessUpdateSchema,
+  reasoningEffortOptionsSchema,
+} from './model-config'
 
 describe('reasoning effort schemas', () => {
-  it.each(['max', 'turbo-v2', 'provider.custom'])('accepts the custom upstream value %s', (value) => {
-    expect(effortSchema.parse(value)).toBe(value)
-  })
+  it.each(['max', 'turbo-v2', 'provider.custom'])(
+    'accepts the custom upstream value %s',
+    (value) => {
+      expect(effortSchema.parse(value)).toBe(value)
+    },
+  )
 
   it.each([
     '',
@@ -46,6 +54,38 @@ describe('reasoning effort schemas', () => {
     ).toBe(false)
     expect(
       reasoningEffortOptionsSchema.safeParse([{ value: 'high', description: ' ' }]).success,
+    ).toBe(false)
+  })
+})
+
+describe('model access schema', () => {
+  it('accepts explicit all and empty selected policies', () => {
+    expect(modelAccessUpdateSchema.parse({ accessMode: 'all', userIds: [] })).toEqual({
+      accessMode: 'all',
+      userIds: [],
+    })
+    expect(modelAccessUpdateSchema.parse({ accessMode: 'selected', userIds: [] })).toEqual({
+      accessMode: 'selected',
+      userIds: [],
+    })
+  })
+
+  it('normalizes user IDs and rejects empty or duplicate entries', () => {
+    expect(
+      modelAccessUpdateSchema.parse({ accessMode: 'selected', userIds: [' user-a '] }),
+    ).toEqual({ accessMode: 'selected', userIds: ['user-a'] })
+    expect(
+      modelAccessUpdateSchema.safeParse({ accessMode: 'selected', userIds: ['user-a', 'user-a'] })
+        .success,
+    ).toBe(false)
+    expect(
+      modelAccessUpdateSchema.safeParse({ accessMode: 'selected', userIds: [' '] }).success,
+    ).toBe(false)
+    expect(
+      modelAccessUpdateSchema.safeParse({
+        accessMode: 'selected',
+        userIds: Array.from({ length: MODEL_ACCESS_USER_LIMIT + 1 }, (_, index) => `user-${index}`),
+      }).success,
     ).toBe(false)
   })
 })

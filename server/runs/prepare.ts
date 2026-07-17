@@ -366,7 +366,7 @@ export interface PrepareArgs {
 }
 
 export async function prepareRun(args: PrepareArgs): Promise<PrepareResult> {
-  const runnable = await getRunnableModel(args.modelId)
+  const runnable = await getRunnableModel(args.modelId, args.userId)
   if (!runnable)
     return { ok: false, status: 400, message: '所选模型不可用', code: 'model_unavailable' }
   const { model, provider } = runnable
@@ -630,7 +630,7 @@ export async function prepareRegenerate(args: RegenerateArgs): Promise<PrepareRe
 
   const modelDbId = args.modelId ?? oldAssistant.modelId
   if (!modelDbId) return { ok: false, status: 400, message: '缺少模型', code: 'model_unavailable' }
-  const runnable = await getRunnableModel(modelDbId)
+  const runnable = await getRunnableModel(modelDbId, args.userId)
   if (!runnable)
     return { ok: false, status: 400, message: '所选模型不可用', code: 'model_unavailable' }
   const { model, provider } = runnable

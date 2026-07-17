@@ -63,20 +63,11 @@ export const reasoningEffortOptionsSchema = z
   })
 
 /** 用户可见的模型简介，选择器 ⓘ 展示。 */
-export const modelDescriptionSchema = z
-  .string()
-  .trim()
-  .max(500, '模型描述不能超过 500 个字符')
+export const modelDescriptionSchema = z.string().trim().max(500, '模型描述不能超过 500 个字符')
 
 /** 用户可见的模型标签，直接显示在模型列表里。 */
 export const modelTagsSchema = z
-  .array(
-    z
-      .string()
-      .trim()
-      .min(1, '标签不能为空')
-      .max(16, '单个标签不能超过 16 个字符'),
-  )
+  .array(z.string().trim().min(1, '标签不能为空').max(16, '单个标签不能超过 16 个字符'))
   .max(8, '单个模型最多 8 个标签')
   .refine((tags) => new Set(tags).size === tags.length, '标签不能重复')
 
@@ -167,9 +158,24 @@ export const modelReorderSchema = z.object({
     .refine((ids) => new Set(ids).size === ids.length, '模型顺序不能包含重复项'),
 })
 
+/**
+ * 原子替换单个模型的用户访问范围。userIds 始终传完整名单，服务端不会做增量合并；
+ * all 模式下名单会被清空。显式 accessMode 避免“空名单”被误解成“全部用户”。
+ */
+export const MODEL_ACCESS_USER_LIMIT = 10_000
+
+export const modelAccessUpdateSchema = z.object({
+  accessMode: z.enum(['all', 'selected']),
+  userIds: z
+    .array(z.string().trim().min(1, '用户 ID 不能为空'))
+    .max(MODEL_ACCESS_USER_LIMIT, '单个模型最多指定 10000 位用户')
+    .refine((ids) => new Set(ids).size === ids.length, '用户列表不能包含重复项'),
+})
+
 export type ProviderCreateInput = z.infer<typeof providerCreateSchema>
 export type ProviderUpdateInput = z.infer<typeof providerUpdateSchema>
 export type ModelUpdateInput = z.infer<typeof modelUpdateSchema>
 export type ModelCreateInput = z.infer<typeof modelCreateSchema>
 export type ModelImportInput = z.infer<typeof modelImportSchema>
 export type ModelReorderInput = z.infer<typeof modelReorderSchema>
+export type ModelAccessUpdateInput = z.infer<typeof modelAccessUpdateSchema>

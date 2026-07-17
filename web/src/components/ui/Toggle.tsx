@@ -4,14 +4,17 @@ interface Props {
   checked: boolean
   onChange: (v: boolean) => void
   disabled?: boolean
+  /** 开关没有相邻可关联标签时，用它提供无障碍名称。 */
+  ariaLabel?: string
 }
 
-export function Toggle({ checked, onChange, disabled }: Props) {
+export function Toggle({ checked, onChange, disabled, ariaLabel }: Props) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
+      aria-label={ariaLabel}
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className={clsx(

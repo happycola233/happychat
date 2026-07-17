@@ -19,7 +19,7 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { clsx } from 'clsx'
-import { Boxes, GripVertical, Plus, Search, SlidersHorizontal } from 'lucide-react'
+import { Boxes, GripVertical, Plus, Search, SlidersHorizontal, UsersRound } from 'lucide-react'
 import type { AdminModelDTO } from '@shared/types/api'
 import type { ModelCapabilities } from '@shared/types/domain'
 import * as adminApi from '../../api/admin'
@@ -35,6 +35,7 @@ import { Toggle } from '../../components/ui/Toggle'
 import { askConfirm } from '../../store/confirm'
 import { toast } from '../../store/toast'
 import { DeleteIcon } from '../../chat/icons'
+import { ModelAccessDialog } from './ModelAccessDialog'
 import { ModelEditor } from './ModelEditor'
 
 const CAP_BADGE: Partial<Record<keyof ModelCapabilities, string>> = {
@@ -54,22 +55,39 @@ function ModelRow({
   model,
   sortable,
   onEdit,
+  onAccess,
   onToggle,
+  togglePending,
   onDelete,
 }: {
   model: AdminModelDTO
   /** 筛选生效时禁用拖拽（无法对子集可靠排序）。 */
   sortable: boolean
   onEdit: () => void
+  onAccess: () => void
   onToggle: () => void
+  togglePending: boolean
   onDelete: () => void
 }) {
-  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
-    useSortable({ id: model.id, disabled: !sortable })
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: model.id, disabled: !sortable })
 
   const caps = (Object.keys(CAP_BADGE) as (keyof ModelCapabilities)[]).filter(
     (k) => model.capabilities[k],
   )
+  const accessLabel =
+    model.accessMode === 'all'
+      ? '全部用户'
+      : model.allowedUserCount > 0
+        ? `指定 ${model.allowedUserCount} 人`
+        : '未选择用户'
 
   return (
     <div
@@ -101,8 +119,31 @@ function ModelRow({
           </span>
           <ModelTagList tags={model.tags} />
         </div>
-        <div className="mt-0.5 truncate text-xs text-neutral-400" title={model.description ?? undefined}>
-          {model.modelId} · {model.providerName} · {kindLabel(model)}
+        {/* 可用范围与模型元信息同属“这个模型对谁可见”的描述，收进同一行，避免独占一行显得突兀。 */}
+        <div className="mt-0.5 flex min-w-0 items-center gap-1.5">
+          <span
+            className="min-w-0 truncate text-xs text-neutral-400"
+            title={model.description ?? undefined}
+          >
+            {model.modelId} · {model.providerName} · {kindLabel(model)}
+          </span>
+          <button
+            type="button"
+            onClick={onAccess}
+            aria-label={`配置 ${model.displayName} 的可用用户，当前${accessLabel}`}
+            title="配置可用用户"
+            className={clsx(
+              'inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-px text-[11px] leading-4 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/30',
+              model.accessMode === 'all'
+                ? 'bg-neutral-100 text-neutral-500 hover:bg-neutral-200/70 hover:text-neutral-700 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700'
+                : model.allowedUserCount > 0
+                  ? 'bg-sky-50 text-sky-700 hover:bg-sky-100 dark:bg-sky-950/40 dark:text-sky-300 dark:hover:bg-sky-950/65'
+                  : 'bg-amber-50 text-amber-700 hover:bg-amber-100 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-950/50',
+            )}
+          >
+            <UsersRound className="h-3 w-3 shrink-0" />
+            {accessLabel}
+          </button>
         </div>
       </div>
 
@@ -117,7 +158,12 @@ function ModelRow({
         ))}
       </div>
 
-      <Toggle checked={model.enabled} onChange={onToggle} />
+      <Toggle
+        checked={model.enabled}
+        onChange={onToggle}
+        disabled={togglePending}
+        ariaLabel={`${model.enabled ? '全局停用' : '全局启用'} ${model.displayName}`}
+      />
 
       <div className="flex shrink-0 items-center gap-1">
         <IconButton label={`配置 ${model.displayName}`} onClick={onEdit}>
@@ -139,6 +185,7 @@ export default function ModelsPage() {
   })
   const [editorOpen, setEditorOpen] = useState(false)
   const [editorModel, setEditorModel] = useState<AdminModelDTO | null>(null)
+  const [accessModel, setAccessModel] = useState<AdminModelDTO | null>(null)
   const [search, setSearch] = useState('')
   const [providerFilter, setProviderFilter] = useState('')
 
@@ -148,12 +195,18 @@ export default function ModelsPage() {
   )
 
   const openCreate = () => {
+    setAccessModel(null)
     setEditorModel(null)
     setEditorOpen(true)
   }
   const openEdit = (m: AdminModelDTO) => {
+    setAccessModel(null)
     setEditorModel(m)
     setEditorOpen(true)
+  }
+  const openAccess = (m: AdminModelDTO) => {
+    setEditorOpen(false)
+    setAccessModel(m)
   }
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['admin', 'models'] })
@@ -241,7 +294,7 @@ export default function ModelsPage() {
     <div className="mx-auto max-w-4xl space-y-5">
       <PageHeader
         title="模型"
-        description="拖动左侧手柄调整聊天端展示顺序；标签与描述会直接展示给用户。"
+        description="列表开关控制模型全局上下架；可用范围控制启用后哪些账号可以使用。"
         actions={
           <Button onClick={openCreate}>
             <Plus className="h-4 w-4" /> 添加模型
@@ -264,9 +317,7 @@ export default function ModelsPage() {
           value={providerFilter}
           onChange={(e) => setProviderFilter(e.target.value)}
         />
-        {filterActive && (
-          <span className="text-xs text-neutral-400">筛选中不可拖拽排序</span>
-        )}
+        {filterActive && <span className="text-xs text-neutral-400">筛选中不可拖拽排序</span>}
       </div>
 
       {isLoading ? (
@@ -293,14 +344,21 @@ export default function ModelsPage() {
           onDragEnd={onDragEnd}
         >
           <SortableContext items={filtered.map((m) => m.id)} strategy={verticalListSortingStrategy}>
-            <div className={clsx(cardSurface, 'divide-y divide-neutral-100 overflow-hidden dark:divide-neutral-800')}>
+            <div
+              className={clsx(
+                cardSurface,
+                'divide-y divide-neutral-100 overflow-hidden dark:divide-neutral-800',
+              )}
+            >
               {filtered.map((m) => (
                 <ModelRow
                   key={m.id}
                   model={m}
                   sortable={!filterActive}
                   onEdit={() => openEdit(m)}
+                  onAccess={() => openAccess(m)}
                   onToggle={() => toggleEnabled.mutate(m)}
+                  togglePending={toggleEnabled.isPending && toggleEnabled.variables?.id === m.id}
                   onDelete={() => {
                     void askConfirm({
                       title: '删除模型？',
@@ -319,6 +377,9 @@ export default function ModelsPage() {
       )}
 
       {editorOpen && <ModelEditor model={editorModel} onClose={() => setEditorOpen(false)} />}
+      {accessModel && (
+        <ModelAccessDialog model={accessModel} onClose={() => setAccessModel(null)} />
+      )}
     </div>
   )
 }

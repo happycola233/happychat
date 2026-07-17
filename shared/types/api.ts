@@ -8,6 +8,7 @@ import type {
   MessageStatus,
   MessageUsage,
   ModelCapabilities,
+  ModelAccessMode,
   ModelHardParams,
   ModelKind,
   ModelParams,
@@ -95,10 +96,21 @@ export interface AdminModelDTO extends ModelDTO {
   providerId: string
   providerName: string
   enabled: boolean
+  /** 用户端开放范围；与 enabled 全局总开关相互独立。 */
+  accessMode: ModelAccessMode
+  /** accessMode=selected 时当前名单人数；all 时固定为 0。 */
+  allowedUserCount: number
   defaultSystemPrompt: string | null
   hardParams: ModelHardParams | null
   pricing: ModelPricing | null
   sort: number
+}
+
+/** 管理员读取/替换单个模型的用户访问范围。 */
+export interface ModelAccessDTO {
+  accessMode: ModelAccessMode
+  /** selected 模式下的完整用户 ID 名单；all 模式下为空数组。 */
+  userIds: string[]
 }
 
 export interface SyncModelsResult {

@@ -92,6 +92,15 @@ export interface ModelPricing {
 
 export type ModelKind = 'responses' | 'chat' | 'image'
 
+/**
+ * 模型在用户端的开放范围。
+ * - all：对所有已登录用户开放；
+ * - selected：仅对 model_user_access 中明确授权的用户开放。
+ *
+ * 该范围与 models.enabled 相互独立：enabled 是全局总开关，accessMode 是用户范围。
+ */
+export type ModelAccessMode = 'all' | 'selected'
+
 /** web_search 引用注释（Responses API 扁平结构） */
 export interface UrlCitation {
   type: 'url_citation'

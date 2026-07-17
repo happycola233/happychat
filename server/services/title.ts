@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, ne } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 import { DEFAULT_TITLE_PROMPT } from '@shared/constants'
 import { textFromContent } from '@shared/util/contentText'
 import { titleLocaleFromBrowser } from '@shared/util/titleLocale'
@@ -9,6 +9,7 @@ import { parseResponse } from '../provider/normalize'
 import { buildPath, getConversationMessages } from './conversations'
 import { getAppConfig } from './appConfig'
 import { conversationEvents } from './conversation-events'
+import { getFirstRunnableTextModel, getRunnableModel } from './models'
 
 type ModelRow = typeof models.$inferSelect
 type ProviderRow = typeof providers.$inferSelect
@@ -24,27 +25,14 @@ export function cleanTitle(raw: string): string {
 
 async function resolveTitleModel(
   titleModelId: string | null,
+  userId: string,
 ): Promise<{ model: ModelRow; provider: ProviderRow } | null> {
   if (titleModelId) {
-    const [row] = await db
-      .select()
-      .from(models)
-      .innerJoin(providers, eq(models.providerId, providers.id))
-      .where(eq(models.id, titleModelId))
-      .limit(1)
-    if (row && row.models.enabled && row.providers.enabled && row.models.kind !== 'image') {
-      return { model: row.models, provider: row.providers }
-    }
+    const preferred = await getRunnableModel(titleModelId, userId)
+    if (preferred && preferred.model.kind !== 'image') return preferred
   }
-  // 回退：首个可用文本模型
-  const [row] = await db
-    .select()
-    .from(models)
-    .innerJoin(providers, eq(models.providerId, providers.id))
-    .where(and(eq(models.enabled, true), eq(providers.enabled, true), ne(models.kind, 'image')))
-    .orderBy(asc(models.sort))
-    .limit(1)
-  return row ? { model: row.models, provider: row.providers } : null
+  // 回退同样受当前会话所有者的模型范围约束；无可用模型时走本地标题，不做隐藏旁路调用。
+  return getFirstRunnableTextModel(userId)
 }
 
 async function callTitleModel(m: ModelRow, p: ProviderRow, prompt: string): Promise<string> {
@@ -115,7 +103,7 @@ export async function maybeGenerateTitle(conversationId: string, runId?: string)
       )
       .join('\n')
 
-    const resolved = await resolveTitleModel(cfg.titleModelId)
+    const resolved = await resolveTitleModel(cfg.titleModelId, conv.userId)
     if (!resolved) {
       const updatedAt = new Date()
       await db

@@ -10,10 +10,7 @@ import { Modal } from '../../components/ui/Modal'
 import { Toggle } from '../../components/ui/Toggle'
 import { toast } from '../../store/toast'
 import { ReasoningEffortEditor } from './ReasoningEffortEditor'
-import {
-  createReasoningEffortDraft,
-  validateReasoningEffortDrafts,
-} from './reasoningEffortDrafts'
+import { createReasoningEffortDraft, validateReasoningEffortDrafts } from './reasoningEffortDrafts'
 import { TagsInput } from './TagsInput'
 
 const fieldClass =
@@ -138,7 +135,6 @@ export function ModelEditor({
   const [displayName, setDisplayName] = useState(model?.displayName ?? '')
   const [description, setDescription] = useState(model?.description ?? '')
   const [tags, setTags] = useState<string[]>(model?.tags ?? [])
-  const [enabled, setEnabled] = useState(model?.enabled ?? true)
   const [kind, setKind] = useState(model?.kind ?? 'responses')
   const [caps, setCaps] = useState<ModelCapabilities>(model?.capabilities ?? BLANK_CAPS)
   const [systemPrompt, setSystemPrompt] = useState(model?.defaultSystemPrompt ?? '')
@@ -190,7 +186,9 @@ export function ModelEditor({
       const reasoningEffortError = validateReasoningEffortDrafts(reasoningEffortDrafts)
       if (reasoningEffortError) throw new Error(reasoningEffortError)
       const defaultEffort = defaultEffortDraftId
-        ? reasoningEffortDrafts.find((draft) => draft.draftId === defaultEffortDraftId)?.value.trim()
+        ? reasoningEffortDrafts
+            .find((draft) => draft.draftId === defaultEffortDraftId)
+            ?.value.trim()
         : null
       if (defaultEffortDraftId && !defaultEffort) throw new Error('请选择有效的默认思考等级')
 
@@ -222,12 +220,14 @@ export function ModelEditor({
         await adminApi.createModel({
           providerId,
           modelId: modelId.trim(),
-          enabled,
+          // 全局上下架只有模型列表一个入口；新建模型默认直接启用。
+          enabled: true,
           sort: 0,
           ...shared,
         })
       } else {
-        await adminApi.updateModel(model.id, { modelId: modelId.trim(), enabled, ...shared })
+        // 不回传 enabled，避免打开已久的配置表单覆盖列表中的最新开关状态。
+        await adminApi.updateModel(model.id, { modelId: modelId.trim(), ...shared })
       }
     },
     onSuccess: () => {
@@ -351,8 +351,6 @@ export function ModelEditor({
           <Field label="标签（可选）">
             <TagsInput tags={tags} onChange={setTags} />
           </Field>
-
-          <ToggleRow label="在用户端启用" checked={enabled} onChange={setEnabled} />
         </FormSection>
 
         {/* ============ 能力 ============ */}
@@ -511,9 +509,7 @@ export function ModelEditor({
                   step="any"
                   min="0"
                   value={pricing[key] ?? ''}
-                  onChange={(e) =>
-                    setPricing((p) => ({ ...p, [key]: numOrUndef(e.target.value) }))
-                  }
+                  onChange={(e) => setPricing((p) => ({ ...p, [key]: numOrUndef(e.target.value) }))}
                   placeholder="未设置"
                 />
               </SmallField>

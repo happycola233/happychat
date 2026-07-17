@@ -109,7 +109,13 @@ function UsersTab() {
     mutationFn: adminApi.deleteUser,
     onSuccess: () => {
       toast.success('已删除')
-      invalidate()
+      // 用户删除会级联移除模型授权；同步刷新名单缓存和模型页人数，
+      // 避免稍后打开权限面板时短暂看到已删除账号的旧数据。
+      void Promise.all([
+        invalidate(),
+        qc.invalidateQueries({ queryKey: ['admin', 'model-access-editor'] }),
+        qc.invalidateQueries({ queryKey: ['admin', 'models'] }),
+      ])
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : '删除失败'),
   })

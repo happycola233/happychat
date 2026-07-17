@@ -3,6 +3,7 @@ import type { Context } from 'hono'
 import { eq } from 'drizzle-orm'
 import {
   modelCreateSchema,
+  modelAccessUpdateSchema,
   modelImportSchema,
   modelReorderSchema,
   modelUpdateSchema,
@@ -12,10 +13,7 @@ import {
 import { inviteCreateSchema, statsFilterSchema, userUpdateSchema } from '@shared/schemas/admin'
 import { appConfigUpdateSchema } from '@shared/schemas/app-config'
 import { normalizeReasoningEffortOptions } from '@shared/util/reasoning'
-import {
-  announcementCreateSchema,
-  announcementUpdateSchema,
-} from '@shared/schemas/announcement'
+import { announcementCreateSchema, announcementUpdateSchema } from '@shared/schemas/announcement'
 import { db } from '../db/client'
 import { attachments, inviteCodes, models, providers, usageLogs, users } from '../db/schema'
 import { genInviteCode } from '../lib/id'
@@ -45,10 +43,12 @@ import {
 import { listAllShares, revokeShare } from '../services/shares'
 import {
   createModel,
+  getModelAccess,
   getProviderDetail,
   listAdminModels,
   listProviders,
   reorderModels,
+  updateModelAccess,
 } from '../services/models'
 import {
   getProviderModelCatalog,
@@ -82,10 +82,7 @@ adminRoutes.get('/providers/:id', async (c) => {
 
 adminRoutes.post('/providers', jsonValidator(providerCreateSchema), async (c) => {
   const { name, baseUrl, apiKey } = c.req.valid('json')
-  const rows = await db
-    .insert(providers)
-    .values({ name, baseUrl, apiKey })
-    .returning()
+  const rows = await db.insert(providers).values({ name, baseUrl, apiKey }).returning()
   const row = rows[0]
   if (!row) return c.json({ error: { message: '创建失败' } }, 500)
   return c.json({ id: row.id })
@@ -116,7 +113,11 @@ adminRoutes.delete('/providers/:id', async (c) => {
 
 /** 测试连接：拉取 /models，返回模型数量（失败由全局 UpstreamError 处理为友好中文）。 */
 adminRoutes.post('/providers/:id/test', async (c) => {
-  const [p] = await db.select().from(providers).where(eq(providers.id, c.req.param('id'))).limit(1)
+  const [p] = await db
+    .select()
+    .from(providers)
+    .where(eq(providers.id, c.req.param('id')))
+    .limit(1)
   if (!p) return c.json({ error: { message: '提供商不存在', code: 'not_found' } }, 404)
   const upstream = await providerClientFromRow(p).listModels()
   return c.json({ ok: true, modelCount: upstream.length })
@@ -124,21 +125,33 @@ adminRoutes.post('/providers/:id/test', async (c) => {
 
 /** 同步模型：拉取上游 /models，新模型按推断默认配置入库（已存在的不覆盖管理员配置）。 */
 adminRoutes.post('/providers/:id/sync', async (c) => {
-  const [p] = await db.select().from(providers).where(eq(providers.id, c.req.param('id'))).limit(1)
+  const [p] = await db
+    .select()
+    .from(providers)
+    .where(eq(providers.id, c.req.param('id')))
+    .limit(1)
   if (!p) return c.json({ error: { message: '提供商不存在', code: 'not_found' } }, 404)
   return c.json(await syncProviderModels(p))
 })
 
 /** 上游模型目录：带「已添加实例数」标注，供管理端挑选后按需添加。 */
 adminRoutes.get('/providers/:id/catalog', async (c) => {
-  const [p] = await db.select().from(providers).where(eq(providers.id, c.req.param('id'))).limit(1)
+  const [p] = await db
+    .select()
+    .from(providers)
+    .where(eq(providers.id, c.req.param('id')))
+    .limit(1)
   if (!p) return c.json({ error: { message: '提供商不存在', code: 'not_found' } }, 404)
   return c.json({ models: await getProviderModelCatalog(p) })
 })
 
 /** 手动挑选添加：每个 id 新建一个模型实例（同 id 可多实例）。 */
 adminRoutes.post('/providers/:id/import-models', jsonValidator(modelImportSchema), async (c) => {
-  const [p] = await db.select().from(providers).where(eq(providers.id, c.req.param('id'))).limit(1)
+  const [p] = await db
+    .select()
+    .from(providers)
+    .where(eq(providers.id, c.req.param('id')))
+    .limit(1)
   if (!p) return c.json({ error: { message: '提供商不存在', code: 'not_found' } }, 404)
   return c.json(await importProviderModels(p, c.req.valid('json').modelIds))
 })
@@ -157,6 +170,34 @@ function includesReasoningEffort(
 
 adminRoutes.get('/models', async (c) => {
   return c.json({ models: await listAdminModels() })
+})
+
+/** 单个模型的完整用户访问名单（管理员配置面板按需加载，避免塞进模型列表响应）。 */
+adminRoutes.get('/models/:id/access', async (c) => {
+  const access = await getModelAccess(c.req.param('id'))
+  if (!access) return c.json({ error: { message: '模型不存在', code: 'not_found' } }, 404)
+  return c.json(access)
+})
+
+/** 原子替换模型用户访问范围；未知用户会使整次修改失败。 */
+adminRoutes.put('/models/:id/access', jsonValidator(modelAccessUpdateSchema), async (c) => {
+  const result = await updateModelAccess(c.req.param('id'), c.req.valid('json'))
+  if (!result.ok) {
+    if (result.code === 'model_missing') {
+      return c.json({ error: { message: '模型不存在', code: 'not_found' } }, 404)
+    }
+    return c.json(
+      {
+        error: {
+          message: '部分用户已不存在，请刷新用户列表后重试',
+          code: result.code,
+          detail: { userIds: result.unknownUserIds },
+        },
+      },
+      400,
+    )
+  }
+  return c.json({ ok: true })
 })
 
 adminRoutes.post('/models', jsonValidator(modelCreateSchema), async (c) => {

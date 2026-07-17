@@ -453,6 +453,61 @@ describe('prepareRun active leaf', () => {
   })
 })
 
+describe('prepareRun model user access', () => {
+  it('rejects a forged restricted model id before creating conversation data', async () => {
+    const { userId, modelId } = await createRunnableModel()
+    const allowedUserId = `allowed-user-${fixtureSeq++}`
+    await dbClient.db.insert(schema.users).values({
+      id: allowedUserId,
+      username: allowedUserId,
+      passwordHash: 'hash',
+    })
+    await dbClient.db
+      .update(schema.models)
+      .set({ accessMode: 'selected' })
+      .where(eq(schema.models.id, modelId))
+    await dbClient.db.insert(schema.modelUserAccess).values({ modelId, userId: allowedUserId })
+
+    const result = await prepare.prepareRun({ userId, modelId, text: 'hello' })
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 400,
+      code: 'model_unavailable',
+    })
+    const conversations = await dbClient.db
+      .select()
+      .from(schema.conversations)
+      .where(eq(schema.conversations.userId, userId))
+    expect(conversations).toEqual([])
+  })
+
+  it('rechecks access when regenerating with a previously allowed model', async () => {
+    const { userId, modelId } = await createRunnableModel()
+    const first = assertPrepared(await prepare.prepareRun({ userId, modelId, text: 'hello' }))
+    const beforeMessages = await dbClient.db
+      .select()
+      .from(schema.messages)
+      .where(eq(schema.messages.conversationId, first.conversation.id))
+
+    await dbClient.db
+      .update(schema.models)
+      .set({ accessMode: 'selected' })
+      .where(eq(schema.models.id, modelId))
+    const regenerated = await prepare.prepareRegenerate({
+      userId,
+      assistantMessageId: first.assistantMessage.id,
+    })
+
+    expect(regenerated).toMatchObject({ ok: false, status: 400, code: 'model_unavailable' })
+    const afterMessages = await dbClient.db
+      .select()
+      .from(schema.messages)
+      .where(eq(schema.messages.conversationId, first.conversation.id))
+    expect(afterMessages).toHaveLength(beforeMessages.length)
+  })
+})
+
 describe('prepareRun file inputs', () => {
   it('repairs a historic application/octet-stream MIME using the .log extension', async () => {
     const { userId, modelId } = await createRunnableFileModel()
