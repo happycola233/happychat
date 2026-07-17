@@ -103,6 +103,7 @@ export async function runChatEngine(ctx: EngineContext): Promise<void> {
     errorCode,
     httpStatus,
     upstreamResponseId: null,
+    startedAt,
     persistEmit,
   })
 }

@@ -11,6 +11,10 @@ import { requireUser } from '../auth/middleware'
 import { jsonValidator } from '../http/validator'
 import { must } from '../lib/assert'
 import { getOwnedConversation, toConversationDTO, toMessageDTO } from '../services/conversations'
+import {
+  REASONING_END_EVENT_TYPES,
+  REASONING_START_EVENT_TYPES,
+} from '../services/reasoning-timing'
 import { prepareRegenerate, prepareRun } from '../runs/prepare'
 import { runManager } from '../runs/manager'
 import { runEmitter, type RunEvent } from '../runs/emitter'
@@ -23,18 +27,6 @@ runRoutes.use('*', requireUser)
 
 const TERMINAL_STATES = ['completed', 'incomplete', 'failed', 'canceled', 'interrupted']
 const isTerminalState = (s: string) => TERMINAL_STATES.includes(s)
-const REASONING_START_TYPES = [
-  'response.created',
-  'response.in_progress',
-  'response.reasoning_summary_text.delta',
-]
-const REASONING_END_TYPES = [
-  'response.output_text.delta',
-  RUN_EVENT_TYPE.done,
-  RUN_EVENT_TYPE.error,
-  RUN_EVENT_TYPE.canceled,
-  RUN_EVENT_TYPE.interrupted,
-]
 const IMAGE_PROGRESS_TYPES = [
   'image.generation.in_progress',
   'image.generation.partial',
@@ -155,7 +147,9 @@ runRoutes.get('/active', async (c) => {
       createdAt: runEvents.createdAt,
     })
     .from(runEvents)
-    .where(and(eq(runEvents.runId, r.id), inArray(runEvents.type, REASONING_START_TYPES)))
+    .where(
+      and(eq(runEvents.runId, r.id), inArray(runEvents.type, [...REASONING_START_EVENT_TYPES])),
+    )
     .orderBy(asc(runEvents.sequenceNumber))
     .limit(1)
   const [reasoningEnd] = reasoningStart
@@ -170,7 +164,7 @@ runRoutes.get('/active', async (c) => {
           and(
             eq(runEvents.runId, r.id),
             gt(runEvents.sequenceNumber, reasoningStart.sequenceNumber),
-            inArray(runEvents.type, REASONING_END_TYPES),
+            inArray(runEvents.type, [...REASONING_END_EVENT_TYPES]),
           ),
         )
         .orderBy(asc(runEvents.sequenceNumber))

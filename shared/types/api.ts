@@ -149,9 +149,9 @@ export interface MessageDTO {
   modelLabel?: string | null
   runId: string | null
   reasoningSummary: string | null
-  /** 从上游开始响应到第一段正文输出的耗时；无可靠事件时为 null。 */
+  /** 从上游开始响应到第一段正文输出的耗时；无可靠事件或快照时为 null。 */
   reasoningDurationMs: number | null
-  /** 整次生成的墙钟耗时（run.startedAt→finishedAt）；用于 TPS/耗时展示，无 run 时为 null。 */
+  /** 整次生成的墙钟耗时；优先由 run 起止时间计算，无 run 时可使用消息快照。 */
   generationDurationMs: number | null
   annotations: UrlCitation[] | null
   usage: MessageUsage | null

@@ -1,6 +1,10 @@
 import { eq, inArray } from 'drizzle-orm'
+import type { ModelParams } from '@shared/types/domain'
+import { isReasoningEnabled } from '@shared/util/reasoning'
 import { db } from '../db/client'
-import { messages, runs } from '../db/schema'
+import { messages, models, runs } from '../db/schema'
+import { computeGenerationDurationMs } from '../services/run-timing'
+import { getReasoningDurationSnapshot } from '../services/run-timing-snapshot'
 import { runChatEngine } from './chat-engine'
 import { runEngine } from './engine'
 import { runImageEngine } from './image-run'
@@ -42,11 +46,23 @@ export const runManager = new RunManager()
 export async function recoverInterruptedRuns(): Promise<void> {
   const stuck = await db.select().from(runs).where(inArray(runs.state, ['queued', 'running']))
   for (const r of stuck) {
-    await db.update(runs).set({ state: 'interrupted', finishedAt: new Date() }).where(eq(runs.id, r.id))
+    const finishedAt = new Date()
+    const [model] = r.modelId
+      ? await db.select().from(models).where(eq(models.id, r.modelId)).limit(1)
+      : []
+    const reasoningDurationMs = isReasoningEnabled(model, r.requestParams as ModelParams | null)
+      ? await getReasoningDurationSnapshot(r.id, finishedAt)
+      : null
+    await db.update(runs).set({ state: 'interrupted', finishedAt }).where(eq(runs.id, r.id))
     if (r.assistantMessageId) {
       await db
         .update(messages)
-        .set({ status: 'interrupted', errorMessage: '生成被中断（服务已重启）' })
+        .set({
+          status: 'interrupted',
+          errorMessage: '生成被中断（服务已重启）',
+          reasoningDurationMs,
+          generationDurationMs: computeGenerationDurationMs(r.startedAt, finishedAt),
+        })
         .where(eq(messages.id, r.assistantMessageId))
     }
   }

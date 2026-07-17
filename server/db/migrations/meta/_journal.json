@@ -120,6 +120,13 @@
       "when": 1784264725070,
       "tag": "0016_brief_korvac",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1784297865924,
+      "tag": "0017_message_timing_snapshots",
+      "breakpoints": true
     }
   ]
 }

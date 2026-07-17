@@ -1,9 +1,12 @@
 import { and, eq, inArray } from 'drizzle-orm'
-import type { ContentPart, MessageUsage, UrlCitation } from '@shared/types/domain'
+import type { ContentPart, MessageUsage, ModelParams, UrlCitation } from '@shared/types/domain'
 import { RUN_EVENT_TYPE } from '@shared/types/events'
+import { isReasoningEnabled } from '@shared/util/reasoning'
 import { db } from '../db/client'
 import { conversations, errorLogs, messages, runs, usageLogs } from '../db/schema'
 import { buildAssistantContent } from '../provider/normalize'
+import { computeGenerationDurationMs } from '../services/run-timing'
+import { getReasoningDurationSnapshot } from '../services/run-timing-snapshot'
 import { maybeGenerateTitle } from '../services/title'
 import type { ConvRow, ModelRow, MsgRow, ProviderRow, RunRow } from './types'
 
@@ -26,14 +29,27 @@ export interface FinalizeArgs {
   errorCode?: string | null
   httpStatus?: number | null
   upstreamResponseId: string | null
+  startedAt: Date
   content?: ContentPart[]
   persistEmit: (type: string, data: Record<string, unknown>) => number
+}
+
+/**
+ * 终止事件会在数据库最终态落稳后才发出，因此计算时同时传入 finishedAt，覆盖无正文输出。
+ */
+async function finalReasoningDurationMs(a: FinalizeArgs, finishedAt: Date): Promise<number | null> {
+  if (!isReasoningEnabled(a.model, a.run.requestParams as ModelParams | null)) return null
+
+  return getReasoningDurationSnapshot(a.run.id, finishedAt)
 }
 
 /** 终态处理（一次性 CAS）：落最终消息内容、usage_logs、run 状态，并发终止事件。 */
 export async function finalizeRun(a: FinalizeArgs): Promise<void> {
   const msgStatus =
     a.state === 'completed' ? 'complete' : a.state === 'failed' ? 'error' : 'interrupted'
+  const finishedAt = new Date()
+  const generationDurationMs = computeGenerationDurationMs(a.startedAt, finishedAt)
+  const reasoningDurationMs = await finalReasoningDurationMs(a, finishedAt)
 
   await db
     .update(messages)
@@ -43,6 +59,8 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
       reasoningSummary: a.reasoningSummary,
       annotations: a.annotations.length ? a.annotations : null,
       runId: a.run.id,
+      reasoningDurationMs,
+      generationDurationMs,
       inputTokens: a.usage.inputTokens,
       cacheWriteTokens: a.usage.cacheWriteTokens,
       cachedTokens: a.usage.cachedTokens,
@@ -64,7 +82,7 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
     .update(runs)
     .set({
       state: a.state,
-      finishedAt: new Date(),
+      finishedAt,
       upstreamResponseId: a.upstreamResponseId,
       incompleteReason: a.incompleteReason,
       errorMessage: a.errorMessage,

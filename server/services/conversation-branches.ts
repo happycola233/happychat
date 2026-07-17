@@ -5,7 +5,12 @@ import { db } from '../db/client'
 import { attachments, conversations, messages, runs } from '../db/schema'
 import { newId } from '../lib/id'
 import { copyUpload, removeUpload } from '../storage/files'
-import { buildPath, getConversationMessages, getOwnedConversation } from './conversations'
+import {
+  buildPath,
+  getConversationMessages,
+  getMessageTimingByMessageId,
+  getOwnedConversation,
+} from './conversations'
 
 const BRANCH_TITLE_PREFIX = '分支 • '
 const DEFAULT_CONVERSATION_TITLE = '新聊天'
@@ -147,6 +152,9 @@ export async function createConversationBranch(
     }
   }
 
+  // 旧消息可能尚无计时快照；在原 run 仍存在时先现算，确保新分支拥有独立展示数据。
+  const sourceTimingByMessageId = await getMessageTimingByMessageId(sourcePath)
+
   const newConversationId = newId()
   const messageIdMap = new Map(sourcePath.map((message) => [message.id, newId()]))
   const targetMessageCopyId = messageIdMap.get(targetMessage.id)!
@@ -223,28 +231,33 @@ export async function createConversationBranch(
     }
   }
 
-  const copiedMessages: (typeof messages.$inferInsert)[] = sourcePath.map((sourceMessage) => ({
-    id: messageIdMap.get(sourceMessage.id)!,
-    conversationId: newConversationId,
-    parentId: sourceMessage.parentId ? (messageIdMap.get(sourceMessage.parentId) ?? null) : null,
-    role: sourceMessage.role,
-    status: sourceMessage.status,
-    content: remapContent(sourceMessage.content, attachmentIdMap),
-    runtimeContext: sourceMessage.runtimeContext,
-    modelId: sourceMessage.modelId,
-    // run/事件/用量日志属于原始上游调用；消息内容与 token 快照已在消息行中完整保留。
-    runId: null,
-    reasoningSummary: sourceMessage.reasoningSummary,
-    annotations: sourceMessage.annotations,
-    inputTokens: sourceMessage.inputTokens,
-    cacheWriteTokens: sourceMessage.cacheWriteTokens,
-    cachedTokens: sourceMessage.cachedTokens,
-    outputTokens: sourceMessage.outputTokens,
-    reasoningTokens: sourceMessage.reasoningTokens,
-    totalTokens: sourceMessage.totalTokens,
-    errorMessage: sourceMessage.errorMessage,
-    createdAt: sourceMessage.createdAt,
-  }))
+  const copiedMessages: (typeof messages.$inferInsert)[] = sourcePath.map((sourceMessage) => {
+    const timing = sourceTimingByMessageId.get(sourceMessage.id)
+    return {
+      id: messageIdMap.get(sourceMessage.id)!,
+      conversationId: newConversationId,
+      parentId: sourceMessage.parentId ? (messageIdMap.get(sourceMessage.parentId) ?? null) : null,
+      role: sourceMessage.role,
+      status: sourceMessage.status,
+      content: remapContent(sourceMessage.content, attachmentIdMap),
+      runtimeContext: sourceMessage.runtimeContext,
+      modelId: sourceMessage.modelId,
+      // run/事件/用量日志属于原始上游调用；消息自身的展示快照则必须完整保留。
+      runId: null,
+      reasoningSummary: sourceMessage.reasoningSummary,
+      reasoningDurationMs: timing?.reasoningDurationMs ?? null,
+      generationDurationMs: timing?.generationDurationMs ?? null,
+      annotations: sourceMessage.annotations,
+      inputTokens: sourceMessage.inputTokens,
+      cacheWriteTokens: sourceMessage.cacheWriteTokens,
+      cachedTokens: sourceMessage.cachedTokens,
+      outputTokens: sourceMessage.outputTokens,
+      reasoningTokens: sourceMessage.reasoningTokens,
+      totalTokens: sourceMessage.totalTokens,
+      errorMessage: sourceMessage.errorMessage,
+      createdAt: sourceMessage.createdAt,
+    }
+  })
 
   const now = new Date()
   const targetParams = persistedModelParams(

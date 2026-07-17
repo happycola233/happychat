@@ -311,6 +311,9 @@ export const messages = sqliteTable(
     // 关联生成任务（无 DB 级 FK，避免与 runs 循环引用）
     runId: text('run_id'),
     reasoningSummary: text('reasoning_summary'),
+    // 展示用计时快照。独立分支不复制 run 审计记录，仍需保留原消息的耗时明细。
+    reasoningDurationMs: integer('reasoning_duration_ms'),
+    generationDurationMs: integer('generation_duration_ms'),
     annotations: text('annotations', { mode: 'json' }).$type<UrlCitation[]>(),
     inputTokens: integer('input_tokens'),
     cacheWriteTokens: integer('cache_write_tokens'),

@@ -457,6 +457,7 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
     errorCode,
     httpStatus,
     upstreamResponseId,
+    startedAt,
     content: finalContentParts.length ? finalContentParts : undefined,
     persistEmit,
   })

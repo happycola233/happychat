@@ -41,4 +41,17 @@ describe('reasoning timing helpers', () => {
       computeReasoningDurationMs([ev('response.created', 1, 1000), ev('run.done', 2, 2400)]),
     ).toBe(1400)
   })
+
+  it('uses run finishedAt before the persisted terminal event is available', () => {
+    expect(computeReasoningDurationMs([ev('response.created', 1, 1000)], new Date(2400))).toBe(1400)
+  })
+
+  it('keeps persisted terminal timing aligned with the earlier run finishedAt', () => {
+    expect(
+      computeReasoningDurationMs(
+        [ev('response.created', 1, 1000), ev('run.done', 2, 2500)],
+        new Date(2400),
+      ),
+    ).toBe(1400)
+  })
 })

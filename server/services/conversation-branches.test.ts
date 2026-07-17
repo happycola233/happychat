@@ -111,7 +111,7 @@ function userUploadFiles(userId: string): string[] {
 }
 
 describe('createConversationBranch', () => {
-  it('copies only root-to-target, preserves continuation settings, and owns independent attachments', async () => {
+  it('copies the target path, timing snapshots, continuation settings, and independent attachments', async () => {
     const user = await createUser()
     const model = await createModel()
     const [folder] = await dbClient.db
@@ -204,6 +204,8 @@ describe('createConversationBranch', () => {
       storagePath: generatedImagePath,
       sha256: storage.sha256(Buffer.from('branch-image')),
     })
+    const runStartedAt = new Date(Date.UTC(2026, 6, 17, 8, 0, 0))
+    const runFinishedAt = new Date(runStartedAt.getTime() + 20_000)
     const [targetRun] = await dbClient.db
       .insert(schema.runs)
       .values({
@@ -217,15 +219,41 @@ describe('createConversationBranch', () => {
           reasoning_effort: 'high',
           clientLocale: 'zh-CN',
         },
-        startedAt: new Date(Date.now() - 1_000),
-        finishedAt: new Date(),
+        startedAt: runStartedAt,
+        finishedAt: runFinishedAt,
       })
       .returning()
     if (!targetRun) throw new Error('Failed to create target run')
+    await dbClient.db.insert(schema.runEvents).values([
+      {
+        runId: targetRun.id,
+        sequenceNumber: 0,
+        type: 'response.created',
+        data: {},
+        createdAt: new Date(runStartedAt.getTime() + 1_000),
+      },
+      {
+        runId: targetRun.id,
+        sequenceNumber: 1,
+        type: 'response.output_text.delta',
+        data: { delta: '目标' },
+        createdAt: new Date(runStartedAt.getTime() + 6_000),
+      },
+      {
+        runId: targetRun.id,
+        sequenceNumber: 2,
+        type: 'run.done',
+        data: { state: 'completed' },
+        createdAt: new Date(runFinishedAt.getTime() + 5),
+      },
+    ])
     await dbClient.db
       .update(schema.messages)
       .set({
         runId: targetRun.id,
+        // run 现算值必须优先于可能过时的消息快照。
+        reasoningDurationMs: 321,
+        generationDurationMs: 654,
         inputTokens: 120,
         cachedTokens: 80,
         outputTokens: 30,
@@ -294,6 +322,8 @@ describe('createConversationBranch', () => {
     expect(copiedPath[0]?.runtimeContext).toBe('runtime-context-snapshot')
     expect(copiedPath.at(-1)).toMatchObject({
       reasoningSummary: '**已思考**',
+      reasoningDurationMs: 5_000,
+      generationDurationMs: 20_000,
       inputTokens: 120,
       cachedTokens: 80,
       outputTokens: 30,
@@ -334,6 +364,15 @@ describe('createConversationBranch', () => {
         .from(schema.runs)
         .where(eq(schema.runs.conversationId, result.conversationId)),
     ).toHaveLength(0)
+    expect(
+      (await conversationServices.getConversationMessageDTOs(result.conversationId)).find(
+        (message) => message.id === copiedPath.at(-1)?.id,
+      ),
+    ).toMatchObject({
+      runId: null,
+      reasoningDurationMs: 5_000,
+      generationDurationMs: 20_000,
+    })
     expect(await conversationServices.getConversationLastRun(result.conversationId)).toEqual({
       modelId: model.id,
       params: { web_search: true, reasoning_effort: 'high' },
@@ -346,10 +385,51 @@ describe('createConversationBranch', () => {
       true,
     )
 
+    // 删除原会话及其 run/events 后，分支仍由消息快照展示耗时，也能继续创建独立分支。
+    expect(
+      (await conversationServices.getConversationMessageDTOs(result.conversationId)).find(
+        (message) => message.id === copiedPath.at(-1)?.id,
+      ),
+    ).toMatchObject({
+      reasoningDurationMs: 5_000,
+      generationDurationMs: 20_000,
+    })
+    const nestedResult = await branches.createConversationBranch(
+      user.id,
+      result.conversationId,
+      copiedPath.at(-1)!.id,
+    )
+    expect(nestedResult.ok).toBe(true)
+    if (!nestedResult.ok) throw new Error(nestedResult.message)
+    const nestedMessages = await conversationServices.getConversationMessages(
+      nestedResult.conversationId,
+    )
+    const nestedConversation = await conversationServices.getOwnedConversation(
+      user.id,
+      nestedResult.conversationId,
+    )
+    const nestedTarget = conversationServices
+      .buildPath(nestedMessages, nestedConversation?.activeLeafId ?? null)
+      .at(-1)
+    expect(nestedTarget).toMatchObject({
+      runId: null,
+      reasoningDurationMs: 5_000,
+      generationDurationMs: 20_000,
+    })
+
     await conversationServices.deleteConversations(user.id, [result.conversationId])
     expect(copiedAttachmentRows.every((attachment) => !existsSync(attachment.storagePath))).toBe(
       true,
     )
+    expect(
+      (await conversationServices.getConversationMessageDTOs(nestedResult.conversationId)).find(
+        (message) => message.id === nestedTarget?.id,
+      ),
+    ).toMatchObject({
+      reasoningDurationMs: 5_000,
+      generationDurationMs: 20_000,
+    })
+    await conversationServices.deleteConversations(user.id, [nestedResult.conversationId])
   })
 
   it('rejects invalid ownership, user-message targets, and incomplete message paths', async () => {

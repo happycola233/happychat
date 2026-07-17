@@ -7,13 +7,17 @@ import { effectiveWebSearchEnabled } from '@shared/util/webSearch'
 import { db } from '../db/client'
 import { attachments, conversations, messages, models, runEvents, runs } from '../db/schema'
 import { removeUpload } from '../storage/files'
-import { computeReasoningDurationMs, type ReasoningTimingEvent } from './reasoning-timing'
+import {
+  computeReasoningDurationMs,
+  REASONING_TIMING_EVENT_TYPES,
+  type ReasoningTimingEvent,
+} from './reasoning-timing'
 import { computeGenerationDurationMs } from './run-timing'
 
 export type ConvRow = typeof conversations.$inferSelect
 export type MsgRow = typeof messages.$inferSelect
 
-/** 消息的读取期计时（不入库，按 run 数据现算）。 */
+/** 消息展示计时：优先使用仍存在的 run 数据，独立分支等场景回退到消息快照。 */
 export interface MessageTiming {
   reasoningDurationMs: number | null
   generationDurationMs: number | null
@@ -48,8 +52,8 @@ export function toMessageDTO(
     modelLabel,
     runId: m.runId,
     reasoningSummary: m.reasoningSummary,
-    reasoningDurationMs: timing?.reasoningDurationMs ?? null,
-    generationDurationMs: timing?.generationDurationMs ?? null,
+    reasoningDurationMs: timing?.reasoningDurationMs ?? m.reasoningDurationMs ?? null,
+    generationDurationMs: timing?.generationDurationMs ?? m.generationDurationMs ?? null,
     annotations: m.annotations,
     usage:
       m.totalTokens != null
@@ -184,9 +188,20 @@ export async function getConversationMessages(conversationId: string): Promise<M
     .orderBy(asc(messages.createdAt))
 }
 
-async function getMessageTimingByMessageId(rows: MsgRow[]): Promise<Map<string, MessageTiming>> {
+export async function getMessageTimingByMessageId(
+  rows: MsgRow[],
+): Promise<Map<string, MessageTiming>> {
+  const timings = new Map<string, MessageTiming>()
+  for (const message of rows) {
+    if (message.reasoningDurationMs === null && message.generationDurationMs === null) continue
+    timings.set(message.id, {
+      reasoningDurationMs: message.reasoningDurationMs,
+      generationDurationMs: message.generationDurationMs,
+    })
+  }
+
   const runIds = rows.map((m) => m.runId).filter((runId): runId is string => Boolean(runId))
-  if (runIds.length === 0) return new Map()
+  if (runIds.length === 0) return timings
   const uniqueRunIds = [...new Set(runIds)]
 
   const runRows = await db
@@ -233,6 +248,7 @@ async function getMessageTimingByMessageId(rows: MsgRow[]): Promise<Map<string, 
   )
 
   const reasoningByRun = new Map<string, number>()
+  const finishedAtByRun = new Map(runRows.map((row) => [row.runId, row.finishedAt]))
   if (reasoningRunIds.size > 0) {
     const eventRows = await db
       .select({
@@ -242,7 +258,12 @@ async function getMessageTimingByMessageId(rows: MsgRow[]): Promise<Map<string, 
         createdAt: runEvents.createdAt,
       })
       .from(runEvents)
-      .where(inArray(runEvents.runId, [...reasoningRunIds]))
+      .where(
+        and(
+          inArray(runEvents.runId, [...reasoningRunIds]),
+          inArray(runEvents.type, [...REASONING_TIMING_EVENT_TYPES]),
+        ),
+      )
       .orderBy(asc(runEvents.runId), asc(runEvents.sequenceNumber))
 
     const byRun = new Map<string, ReasoningTimingEvent[]>()
@@ -252,17 +273,20 @@ async function getMessageTimingByMessageId(rows: MsgRow[]): Promise<Map<string, 
       byRun.set(ev.runId, items)
     }
     for (const runId of reasoningRunIds) {
-      const duration = computeReasoningDurationMs(byRun.get(runId) ?? [])
+      const duration = computeReasoningDurationMs(
+        byRun.get(runId) ?? [],
+        finishedAtByRun.get(runId) ?? null,
+      )
       if (duration !== null) reasoningByRun.set(runId, duration)
     }
   }
 
-  const timings = new Map<string, MessageTiming>()
   for (const m of rows) {
     if (!m.runId) continue
+    const snapshot = timings.get(m.id)
     timings.set(m.id, {
-      reasoningDurationMs: reasoningByRun.get(m.runId) ?? null,
-      generationDurationMs: generationByRun.get(m.runId) ?? null,
+      reasoningDurationMs: reasoningByRun.get(m.runId) ?? snapshot?.reasoningDurationMs ?? null,
+      generationDurationMs: generationByRun.get(m.runId) ?? snapshot?.generationDurationMs ?? null,
     })
   }
   return timings

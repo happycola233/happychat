@@ -12,6 +12,7 @@ import {
 } from '../db/schema'
 import { providerClientFromRow } from '../provider/client'
 import { UpstreamError } from '../provider/errors'
+import { computeGenerationDurationMs } from '../services/run-timing'
 import { runEmitter } from './emitter'
 import { storeGeneratedImageAttachment } from './generated-images'
 import type { EngineContext } from './types'
@@ -118,12 +119,16 @@ export async function runImageEngine(ctx: EngineContext): Promise<void> {
     : []
   const msgStatus =
     state === 'completed' ? 'complete' : state === 'failed' ? 'error' : 'interrupted'
+  const finishedAt = new Date()
+  const generationDurationMs = computeGenerationDurationMs(startedAt, finishedAt)
 
   db.update(messages)
     .set({
       content,
       status: msgStatus,
       runId: ctx.run.id,
+      reasoningDurationMs: null,
+      generationDurationMs,
       inputTokens,
       cacheWriteTokens: 0,
       outputTokens,
@@ -134,7 +139,7 @@ export async function runImageEngine(ctx: EngineContext): Promise<void> {
     .run()
 
   db.update(runs)
-    .set({ state, finishedAt: new Date(), errorMessage })
+    .set({ state, finishedAt, errorMessage })
     .where(and(eq(runs.id, ctx.run.id), inArray(runs.state, ['queued', 'running'])))
     .run()
 
