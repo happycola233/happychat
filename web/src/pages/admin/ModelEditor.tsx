@@ -10,7 +10,11 @@ import { Modal } from '../../components/ui/Modal'
 import { Toggle } from '../../components/ui/Toggle'
 import { toast } from '../../store/toast'
 import { ReasoningEffortEditor } from './ReasoningEffortEditor'
-import { createReasoningEffortDraft, validateReasoningEffortDrafts } from './reasoningEffortDrafts'
+import {
+  createManualModelReasoningEffortDrafts,
+  createReasoningEffortDraft,
+  validateReasoningEffortDrafts,
+} from './reasoningEffortDrafts'
 import { TagsInput } from './TagsInput'
 
 const fieldClass =
@@ -139,7 +143,9 @@ export function ModelEditor({
   const [caps, setCaps] = useState<ModelCapabilities>(model?.capabilities ?? BLANK_CAPS)
   const [systemPrompt, setSystemPrompt] = useState(model?.defaultSystemPrompt ?? '')
   const [reasoningEffortDrafts, setReasoningEffortDrafts] = useState(() =>
-    (model?.allowedEfforts ?? []).map((option) => createReasoningEffortDraft(option)),
+    model
+      ? model.allowedEfforts.map((option) => createReasoningEffortDraft(option))
+      : createManualModelReasoningEffortDrafts(),
   )
   // 绑定稳定的表单行 id，编辑上游 value 的过程中默认项不会意外丢失或指向别行。
   const [defaultEffortDraftId, setDefaultEffortDraftId] = useState<string | null>(() => {
@@ -365,20 +371,13 @@ export function ModelEditor({
             ))}
           </div>
 
-          {(caps.reasoning || reasoningEffortDrafts.length > 0) && (
-            <div className="space-y-2">
-              {!caps.reasoning && (
-                <p className="text-xs leading-5 text-amber-600 dark:text-amber-400">
-                  思考能力当前关闭；以下配置会保留，但不会在聊天中使用。
-                </p>
-              )}
-              <ReasoningEffortEditor
-                drafts={reasoningEffortDrafts}
-                defaultDraftId={defaultEffortDraftId}
-                onDraftsChange={setReasoningEffortDrafts}
-                onDefaultDraftIdChange={setDefaultEffortDraftId}
-              />
-            </div>
+          {caps.reasoning && (
+            <ReasoningEffortEditor
+              drafts={reasoningEffortDrafts}
+              defaultDraftId={defaultEffortDraftId}
+              onDraftsChange={setReasoningEffortDrafts}
+              onDefaultDraftIdChange={setDefaultEffortDraftId}
+            />
           )}
 
           {caps.web_search && (

@@ -1,3 +1,4 @@
+import { DEFAULT_REASONING_EFFORT_OPTIONS } from '@shared/constants'
 import type { ReasoningEffortOption } from '@shared/types/domain'
 import { isSafeReasoningEffortValue } from '@shared/util/reasoning'
 
@@ -20,6 +21,13 @@ export function createReasoningEffortDraft(
 ): ReasoningEffortDraft {
   nextDraftId += 1
   return { ...option, draftId: `reasoning-effort-${nextDraftId}` }
+}
+
+/** 手动新建模型的通用预设；max 仅在已确认支持的模型上由供应商推断路径添加。 */
+export function createManualModelReasoningEffortDrafts(): ReasoningEffortDraft[] {
+  return DEFAULT_REASONING_EFFORT_OPTIONS.filter((option) => option.value !== 'max').map((option) =>
+    createReasoningEffortDraft(option),
+  )
 }
 
 /**

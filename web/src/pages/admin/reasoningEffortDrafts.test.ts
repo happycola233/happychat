@@ -1,11 +1,25 @@
 import { describe, expect, it } from 'vitest'
 import {
+  createManualModelReasoningEffortDrafts,
   createReasoningEffortDraft,
   getReasoningEffortDraftErrors,
   validateReasoningEffortDrafts,
 } from './reasoningEffortDrafts'
 
 describe('reasoning effort draft validation', () => {
+  it('prefills manual models with the five common reasoning efforts', () => {
+    const drafts = createManualModelReasoningEffortDrafts()
+
+    expect(drafts.map(({ value, description }) => ({ value, description }))).toEqual([
+      { value: 'none', description: '关闭' },
+      { value: 'low', description: '低' },
+      { value: 'medium', description: '中' },
+      { value: 'high', description: '高' },
+      { value: 'xhigh', description: '超高' },
+    ])
+    expect(new Set(drafts.map((draft) => draft.draftId)).size).toBe(drafts.length)
+  })
+
   it('accepts a custom visible value and description', () => {
     const draft = createReasoningEffortDraft({ value: 'vendor-ultra', description: '供应商极高' })
 
