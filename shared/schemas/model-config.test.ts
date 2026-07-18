@@ -3,6 +3,8 @@ import {
   effortSchema,
   MODEL_ACCESS_USER_LIMIT,
   modelAccessUpdateSchema,
+  modelCreateSchema,
+  modelUpdateSchema,
   reasoningEffortOptionsSchema,
 } from './model-config'
 
@@ -87,5 +89,25 @@ describe('model access schema', () => {
         userIds: Array.from({ length: MODEL_ACCESS_USER_LIMIT + 1 }, (_, index) => `user-${index}`),
       }).success,
     ).toBe(false)
+  })
+})
+
+describe('reasoning replay model config', () => {
+  const createInput = {
+    providerId: 'provider-1',
+    modelId: 'gpt-test',
+    displayName: 'GPT Test',
+  }
+
+  it('defaults new models to not replay encrypted reasoning context', () => {
+    expect(modelCreateSchema.parse(createInput).replayReasoning).toBe(false)
+  })
+
+  it('accepts explicit create and partial update values', () => {
+    expect(modelCreateSchema.parse({ ...createInput, replayReasoning: true }).replayReasoning).toBe(
+      true,
+    )
+    expect(modelUpdateSchema.parse({ replayReasoning: true })).toEqual({ replayReasoning: true })
+    expect(modelUpdateSchema.parse({})).toEqual({})
   })
 })

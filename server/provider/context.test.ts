@@ -62,6 +62,45 @@ describe('buildInput', () => {
     ])
   })
 
+  it('replays reasoning items verbatim before their assistant message', () => {
+    const reasoningItems = [
+      {
+        id: 'reasoning-1',
+        type: 'reasoning',
+        content: [],
+        encrypted_content: 'opaque-ciphertext',
+        summary: [{ type: 'summary_text', text: '摘要' }],
+      },
+      {
+        id: 'reasoning-2',
+        type: 'reasoning',
+        content: null,
+        encrypted_content: 'opaque-ciphertext-2',
+        summary: [],
+      },
+    ]
+
+    const input = buildInput([
+      {
+        role: 'assistant',
+        content: [{ type: 'output_text', text: '最终回答' }],
+        reasoningItems,
+      },
+    ])
+
+    expect(input).toEqual([
+      ...reasoningItems,
+      {
+        type: 'message',
+        role: 'assistant',
+        status: 'completed',
+        content: [{ type: 'output_text', text: '最终回答', annotations: [] }],
+      },
+    ])
+    expect(input[0]).toBe(reasoningItems[0])
+    expect(input[1]).toBe(reasoningItems[1])
+  })
+
   it('adds assistant generated images back into the visible branch context', () => {
     const input = buildInput(
       [
@@ -111,6 +150,41 @@ describe('buildInput', () => {
         content: [{ type: 'input_text', text: '把刚才那张图改成红色' }],
       },
     ])
+  })
+
+  it('keeps generated-image context after replayed reasoning and assistant output', () => {
+    const input = buildInput(
+      [
+        {
+          role: 'assistant',
+          reasoningItems: [
+            { type: 'reasoning', id: 'reasoning-image', encrypted_content: 'cipher' },
+          ],
+          content: [
+            { type: 'output_text', text: '已生成。' },
+            { type: 'image_result', attachment_id: 'generated-replay' },
+          ],
+        },
+      ],
+      new Map([
+        [
+          'generated-replay',
+          {
+            dataUrl: 'data:image/png;base64,replay',
+            mime: 'image/png',
+            filename: 'generated.png',
+            kind: 'image',
+          },
+        ],
+      ]),
+    )
+
+    expect(input.map((item) => (item as { type?: string }).type)).toEqual([
+      'reasoning',
+      'message',
+      'message',
+    ])
+    expect(input[2]).toMatchObject({ type: 'message', role: 'user' })
   })
 
   it('keeps only the most recent generated images when building image context', () => {

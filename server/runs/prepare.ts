@@ -11,6 +11,7 @@ import { buildChatBody, buildChatMessages } from '../provider/chat'
 import { buildInput, type ResolvedAttachment } from '../provider/context'
 import { buildImageBody, buildImageEditBody, buildResponseBody } from '../provider/params'
 import { promptCacheKeyForConversation } from '../provider/promptCache'
+import type { ReasoningReplayContextV1 } from '../provider/reasoning-replay'
 import { buildPath, getConversationMessages, getOwnedConversation } from '../services/conversations'
 import { getRunnableModel } from '../services/models'
 import {
@@ -93,6 +94,35 @@ function normalizeReasoningParamsForModel(
   // 固定思考等级是跨模型偏好；落到某次请求前必须按当前模型能力裁剪。
   const { reasoning_effort: _unsupportedEffort, ...rest } = params
   return rest
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/**
+ * 读取服务端私有信封时执行严格来源门控。历史未知版本、损坏数据或来源变化都只会
+ * 静默跳过，不能让一条无法重放的 opaque 密文打断正常对话。
+ */
+export function selectReasoningReplayItems(args: {
+  enabled: boolean
+  context: ReasoningReplayContextV1 | Record<string, unknown> | null
+  providerId: string
+  providerBaseUrl: string
+  upstreamModelId: string
+}): unknown[] | undefined {
+  if (!args.enabled || !isRecord(args.context) || args.context.version !== 1) return undefined
+  if (!isRecord(args.context.source) || !Array.isArray(args.context.items)) return undefined
+
+  const source = args.context.source
+  if (
+    source.providerId !== args.providerId ||
+    source.providerBaseUrl !== args.providerBaseUrl ||
+    source.upstreamModelId !== args.upstreamModelId
+  ) {
+    return undefined
+  }
+  return args.context.items
 }
 
 /** 读取路径中引用的附件为内联 data URL（请求构建用）。 */
@@ -218,6 +248,7 @@ async function resolveImageUrls(parts: ContentPart[]): Promise<string[]> {
 async function createAssistantAndRun(opts: {
   conversation: ConvRow
   model: ModelRow
+  provider: ProviderRow
   parentMessageId: string
   userParams?: ModelParams
   clientLocale?: string
@@ -232,6 +263,7 @@ async function createAssistantAndRun(opts: {
   const {
     conversation: conv,
     model,
+    provider,
     parentMessageId,
     userParams,
     clientLocale,
@@ -301,11 +333,24 @@ async function createAssistantAndRun(opts: {
     }
   } else {
     const attMap = await resolveAttachments(path)
-    const pathMessages = path.map((m) => ({
-      role: m.role,
-      content: m.content,
-      runtimeContext: m.runtimeContext,
-    }))
+    const pathMessages = path.map((m) => {
+      const reasoningItems =
+        model.kind === 'responses' && m.role === 'assistant'
+          ? selectReasoningReplayItems({
+              enabled: model.replayReasoning,
+              context: m.reasoningReplayContext,
+              providerId: provider.id,
+              providerBaseUrl: provider.baseUrl,
+              upstreamModelId: model.modelId,
+            })
+          : undefined
+      return {
+        role: m.role,
+        content: m.content,
+        runtimeContext: m.runtimeContext,
+        ...(reasoningItems ? { reasoningItems } : {}),
+      }
+    })
     const input = buildInput(pathMessages, attMap)
     // 始终读取模型当前提示词：管理员更新后，旧会话的下一次请求立即生效。
     // runs.instructions 仅保存本次最终值，不参与后续请求选择。
@@ -587,6 +632,7 @@ export async function prepareRun(args: PrepareArgs): Promise<PrepareResult> {
     {
       conversation: conv,
       model,
+      provider,
       parentMessageId: userMessage.id,
       userParams: normalizedParams.params,
       clientLocale: args.clientLocale,
@@ -649,6 +695,7 @@ export async function prepareRegenerate(args: RegenerateArgs): Promise<PrepareRe
     {
       conversation: conv,
       model,
+      provider,
       parentMessageId: oldAssistant.parentId,
       userParams: normalizedParams.params,
       clientLocale: args.clientLocale,

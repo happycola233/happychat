@@ -245,6 +245,8 @@ export async function createConversationBranch(
       // run/事件/用量日志属于原始上游调用；消息自身的展示快照则必须完整保留。
       runId: null,
       reasoningSummary: sourceMessage.reasoningSummary,
+      // opaque 推理上下文与消息/附件 id 无关；独立分支保留它以维持后续多轮推理连续性。
+      reasoningReplayContext: sourceMessage.reasoningReplayContext,
       reasoningDurationMs: timing?.reasoningDurationMs ?? null,
       generationDurationMs: timing?.generationDurationMs ?? null,
       annotations: sourceMessage.annotations,

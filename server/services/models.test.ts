@@ -77,6 +77,57 @@ async function createFixture(options: { sort?: number; kind?: 'responses' | 'ima
 }
 
 describe('model user access', () => {
+  it('keeps replay configuration private to the administrator model DTO', async () => {
+    const fixture = await createFixture()
+    await dbClient.db
+      .update(schema.models)
+      .set({ replayReasoning: true })
+      .where(eq(schema.models.id, fixture.modelId))
+
+    const publicModel = (await modelServices.listEnabledModels(fixture.userId)).find(
+      (model) => model.id === fixture.modelId,
+    )
+    const adminModel = (await modelServices.listAdminModels()).find(
+      (model) => model.id === fixture.modelId,
+    )
+
+    expect(publicModel).toBeDefined()
+    expect(publicModel).not.toHaveProperty('replayReasoning')
+    expect(adminModel?.replayReasoning).toBe(true)
+  })
+
+  it('persists the explicit replay setting when an administrator creates a model', async () => {
+    const fixture = await createFixture()
+    const result = await modelServices.createModel({
+      providerId: fixture.providerId,
+      modelId: `created-upstream-${fixtureSeq}`,
+      displayName: 'Created replay model',
+      tags: [],
+      kind: 'responses',
+      enabled: true,
+      capabilities: {
+        vision: false,
+        file_input: false,
+        web_search: false,
+        image_generation: false,
+        reasoning: true,
+      },
+      allowedEfforts: [{ value: 'medium', description: '中等' }],
+      replayReasoning: true,
+      defaultWebSearch: false,
+      sort: 0,
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.model.replayReasoning).toBe(true)
+    const [stored] = await dbClient.db
+      .select({ replayReasoning: schema.models.replayReasoning })
+      .from(schema.models)
+      .where(eq(schema.models.id, result.model.id))
+    expect(stored?.replayReasoning).toBe(true)
+  })
+
   it('keeps existing and newly inserted models available to all users by default', async () => {
     const fixture = await createFixture()
 

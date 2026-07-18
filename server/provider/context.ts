@@ -5,6 +5,8 @@ export interface PathMessage {
   content: ContentPart[]
   /** 用户消息创建时冻结的运行环境；数据库内部字段，不进入普通消息 DTO。 */
   runtimeContext?: string | null
+  /** 服务端提存的 Responses reasoning items；仅在来源门控通过后传入本纯构建函数。 */
+  reasoningItems?: unknown[]
 }
 
 export interface ResolvedAttachment {
@@ -19,7 +21,10 @@ const MAX_GENERATED_IMAGE_CONTEXT_ITEMS = 12
 function generatedImageContextIds(messages: PathMessage[]): Set<string> {
   const ids = messages.flatMap((message) =>
     message.content
-      .filter((part): part is Extract<ContentPart, { type: 'image_result' }> => part.type === 'image_result')
+      .filter(
+        (part): part is Extract<ContentPart, { type: 'image_result' }> =>
+          part.type === 'image_result',
+      )
       .map((part) => part.attachment_id),
   )
   return new Set(ids.slice(-MAX_GENERATED_IMAGE_CONTEXT_ITEMS))
@@ -49,6 +54,9 @@ export function buildInput(
     }
 
     if (m.role === 'assistant') {
+      // reasoning item 必须保持上游原样，并位于同轮合成 assistant message 之前。
+      // 是否允许重放由 prepare.ts 负责；本函数只保持 input[] 的稳定顺序。
+      if (m.reasoningItems) items.push(...m.reasoningItems)
       const text = m.content.map((p) => (p.type === 'output_text' ? p.text : '')).join('')
       items.push({
         type: 'message',
@@ -68,7 +76,8 @@ export function buildInput(
       ]
       for (const part of generatedImages) {
         const a = atts.get(part.attachment_id)
-        if (a) generatedImageContent.push({ type: 'input_image', detail: 'auto', image_url: a.dataUrl })
+        if (a)
+          generatedImageContent.push({ type: 'input_image', detail: 'auto', image_url: a.dataUrl })
       }
       if (generatedImageContent.length > 1) {
         items.push({ type: 'message', role: 'user', content: generatedImageContent })
@@ -82,7 +91,8 @@ export function buildInput(
         content.push({ type: 'input_text', text: part.text })
       } else if (part.type === 'input_image') {
         const a = atts.get(part.attachment_id)
-        if (a) content.push({ type: 'input_image', detail: part.detail ?? 'auto', image_url: a.dataUrl })
+        if (a)
+          content.push({ type: 'input_image', detail: part.detail ?? 'auto', image_url: a.dataUrl })
       } else if (part.type === 'input_file') {
         const a = atts.get(part.attachment_id)
         if (a) content.push({ type: 'input_file', filename: a.filename, file_data: a.dataUrl })

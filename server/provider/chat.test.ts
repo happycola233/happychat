@@ -28,6 +28,7 @@ function model(overrides: Partial<ModelRow> = {}): ModelRow {
     pricing: null,
     allowedEfforts: null,
     defaultEffort: null,
+    replayReasoning: false,
     defaultWebSearch: false,
     sort: 0,
     createdAt: new Date(0),

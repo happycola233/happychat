@@ -281,6 +281,7 @@ adminRoutes.patch('/models/:id', jsonValidator(modelUpdateSchema), async (c) => 
     patch.allowedEfforts = nextReasoningConfig.allowedEfforts
     patch.defaultEffort = nextReasoningConfig.defaultEffort
   }
+  if (input.replayReasoning !== undefined) patch.replayReasoning = input.replayReasoning
   if (input.defaultWebSearch !== undefined) patch.defaultWebSearch = input.defaultWebSearch
   if (input.sort !== undefined) patch.sort = input.sort
   await db.update(models).set(patch).where(eq(models.id, id))

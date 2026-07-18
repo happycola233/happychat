@@ -44,7 +44,10 @@ export const runManager = new RunManager()
 
 /** 启动恢复：进程重启时把未完成的 run 标记为 interrupted（无 worker/Redis 的已知限制）。 */
 export async function recoverInterruptedRuns(): Promise<void> {
-  const stuck = await db.select().from(runs).where(inArray(runs.state, ['queued', 'running']))
+  const stuck = await db
+    .select()
+    .from(runs)
+    .where(inArray(runs.state, ['queued', 'running']))
   for (const r of stuck) {
     const finishedAt = new Date()
     const [model] = r.modelId
@@ -60,6 +63,8 @@ export async function recoverInterruptedRuns(): Promise<void> {
         .set({
           status: 'interrupted',
           errorMessage: '生成被中断（服务已重启）',
+          // 进程中断没有可信终态 Response，不能保留可能在终结写入中途留下的重放信封。
+          reasoningReplayContext: null,
           reasoningDurationMs,
           generationDurationMs: computeGenerationDurationMs(r.startedAt, finishedAt),
         })

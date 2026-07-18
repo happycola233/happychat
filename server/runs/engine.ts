@@ -7,19 +7,23 @@ import { db } from '../db/client'
 import { runEvents, runs } from '../db/schema'
 import { providerClientFromRow } from '../provider/client'
 import { UpstreamError } from '../provider/errors'
+import type { ReasoningReplayContextV1 } from '../provider/reasoning-replay'
 import type { UpstreamOutputItem, UpstreamResponse } from '../provider/upstream-types'
 import { runEmitter } from './emitter'
+import {
+  collectEncryptedContentStrings,
+  redactEncryptedContent,
+  sanitizeEventData,
+} from './event-sanitize'
 import { reconcileFinalResponse } from './final-response'
 import { finalizeRun } from './finalize'
-import {
-  removeGeneratedImageAttachments,
-  storeGeneratedImageAttachment,
-} from './generated-images'
+import { removeGeneratedImageAttachments, storeGeneratedImageAttachment } from './generated-images'
+import { buildReasoningReplayContext } from './reasoning-replay-capture'
+import { streamResponseWithFallback } from './response-stream-fallback'
 import type { EngineContext } from './types'
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '')
-const num = (v: unknown): number | null =>
-  typeof v === 'number' && Number.isFinite(v) ? v : null
+const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -47,30 +51,6 @@ function isImageGenerationItem(item: unknown): item is Record<string, unknown> {
   return isRecord(item) && item.type === 'image_generation_call'
 }
 
-function sanitizeImageGenerationItem(item: unknown): unknown {
-  if (!isImageGenerationItem(item)) return item
-  if (typeof item.result !== 'string') return item
-  return { ...item, result: null, result_omitted: true }
-}
-
-function sanitizeResponse(response: unknown): unknown {
-  if (!isRecord(response)) return response
-  const output = Array.isArray(response.output)
-    ? response.output.map((item) => sanitizeImageGenerationItem(item))
-    : response.output
-  return { ...response, output }
-}
-
-function sanitizeEventData(type: string, data: Record<string, unknown>): Record<string, unknown> {
-  if (type === 'response.output_item.done') {
-    return { ...data, item: sanitizeImageGenerationItem(data.item) }
-  }
-  if (type === 'response.completed' || type === 'response.incomplete' || type === 'response.failed') {
-    return { ...data, response: sanitizeResponse(data.response) }
-  }
-  return data
-}
-
 function responseImageItems(response: UpstreamResponse | undefined): UpstreamOutputItem[] {
   return (response?.output ?? []).filter((item) => item.type === 'image_generation_call')
 }
@@ -84,12 +64,20 @@ interface ImageGenerationSlot {
 
 /** 驱动单个 run：流式调用上游 → 逐事件持久化到 run_events + 发射 → 终结。 */
 export async function runEngine(ctx: EngineContext): Promise<void> {
+  // 既包含历史请求密文，也持续吸收本轮 added/done/terminal 中出现的新版本，
+  // 以防兼容上游稍后的错误消息回显任一 opaque 值。
+  const sensitiveEncryptedContent = new Set(collectEncryptedContentStrings(ctx.body))
   let seq = 0
   const persistEmit = (type: string, data: Record<string, unknown>): number => {
+    collectEncryptedContentStrings(data).forEach((value) => sensitiveEncryptedContent.add(value))
+    // 所有落库/浏览器事件共用唯一净化入口；原始上游对象仍留给终态校准和私有提取。
+    const sanitizedData = sanitizeEventData(type, data, [...sensitiveEncryptedContent])
     const sequenceNumber = seq++
-    db.insert(runEvents).values({ runId: ctx.run.id, sequenceNumber, type, data }).run()
+    db.insert(runEvents)
+      .values({ runId: ctx.run.id, sequenceNumber, type, data: sanitizedData })
+      .run()
     db.update(runs).set({ lastSequenceNumber: sequenceNumber }).where(eq(runs.id, ctx.run.id)).run()
-    runEmitter.emit({ runId: ctx.run.id, sequenceNumber, type, data })
+    runEmitter.emit({ runId: ctx.run.id, sequenceNumber, type, data: sanitizedData })
     return sequenceNumber
   }
 
@@ -122,6 +110,8 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
   let errorCode: string | null = null
   let httpStatus: number | null = null
   let upstreamResponseId: string | null = null
+  let reasoningReplayContext: ReasoningReplayContextV1 | null = null
+  let receivedTerminalEvent = false
   const finalContentParts: ContentPart[] = []
   const finalImages = new Map<
     string,
@@ -143,8 +133,7 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
   }): ImageGenerationSlot => {
     const normalizedCallId = callId || null
     const normalizedOutputIndex = outputIndex ?? null
-    const outputKey =
-      normalizedOutputIndex === null ? null : `output-${normalizedOutputIndex}`
+    const outputKey = normalizedOutputIndex === null ? null : `output-${normalizedOutputIndex}`
     const fallbackKey = fallback || null
     const existing =
       (normalizedCallId ? imageSlots.get(normalizedCallId) : undefined) ??
@@ -332,15 +321,37 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
     })
   }
 
+  const captureReasoningReplayContext = (
+    terminalState: 'completed' | 'incomplete',
+    response: UpstreamResponse | undefined,
+  ): void => {
+    reasoningReplayContext = buildReasoningReplayContext({
+      runId: ctx.run.id,
+      terminalState,
+      model: ctx.model,
+      provider: ctx.provider,
+      requestParams: ctx.run.requestParams as ModelParams | null,
+      response,
+      warn: (message) => console.warn(message),
+    })
+  }
+
   try {
     const client = providerClientFromRow(ctx.provider)
-    for await (const ev of client.createResponseStream(ctx.body, ctx.abortController.signal)) {
+    const stream = streamResponseWithFallback({
+      body: ctx.body,
+      openStream: (body) => client.createResponseStream(body, ctx.abortController.signal),
+      onFallback: (fallback) => {
+        console.warn(`run ${ctx.run.id} 在首个上游事件前执行降级重试: ${fallback}`)
+      },
+    })
+    for await (const ev of stream) {
       if (ev.type === 'response.image_generation_call.partial_image') {
         savePartialImage(ev.data)
         continue
       }
 
-      persistEmit(ev.type, sanitizeEventData(ev.type, ev.data))
+      persistEmit(ev.type, ev.data)
       switch (ev.type) {
         case 'response.output_item.added': {
           const item = ev.data.item
@@ -368,7 +379,11 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
         case 'response.output_item.done': {
           const item = ev.data.item
           if (isImageGenerationItem(item)) {
-            emitCompletedImage(item, str(ev.data.output_index) || 'image', num(ev.data.output_index))
+            emitCompletedImage(
+              item,
+              str(ev.data.output_index) || 'image',
+              num(ev.data.output_index),
+            )
           }
           break
         }
@@ -388,32 +403,53 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
           pushCitation(annotations, ev.data.annotation)
           break
         case 'response.completed': {
+          receivedTerminalEvent = true
           const resp = ev.data.response as UpstreamResponse | undefined
           applyFinalResponse(resp)
           saveResponseImages(resp)
           state = 'completed'
+          captureReasoningReplayContext(state, resp)
           break
         }
         case 'response.incomplete': {
+          receivedTerminalEvent = true
           const resp = ev.data.response as UpstreamResponse | undefined
           applyFinalResponse(resp)
           saveResponseImages(resp)
           state = 'incomplete'
           incompleteReason = resp?.incomplete_details?.reason ?? 'max_output_tokens'
+          captureReasoningReplayContext(state, resp)
           break
         }
         case 'response.failed': {
+          receivedTerminalEvent = true
           const resp = ev.data.response as UpstreamResponse | undefined
           state = 'failed'
-          errorMessage = resp?.error?.message ?? '生成失败'
+          errorMessage = redactEncryptedContent(resp?.error?.message ?? '生成失败', [
+            ...sensitiveEncryptedContent,
+            ...collectEncryptedContentStrings(resp),
+          ])
           break
         }
         case 'error':
+          receivedTerminalEvent = true
           state = 'failed'
-          errorMessage = str(ev.data.message) || '生成失败'
+          errorMessage = redactEncryptedContent(str(ev.data.message) || '生成失败', [
+            ...sensitiveEncryptedContent,
+            ...collectEncryptedContentStrings(ev.data),
+          ])
           break
         default:
           break
+      }
+    }
+    if (!receivedTerminalEvent) {
+      if (ctx.abortController.signal.aborted) {
+        state = 'canceled'
+      } else {
+        state = 'failed'
+        errorType = 'incomplete_stream'
+        errorMessage = '上游响应在终态事件前结束'
       }
     }
   } catch (e) {
@@ -422,9 +458,12 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
     } else {
       const ue = e instanceof UpstreamError ? e : null
       state = 'failed'
-      errorMessage = ue?.message ?? (e instanceof Error ? e.message : '生成失败')
-      errorType = ue?.type ?? null
-      errorCode = ue?.code ?? null
+      errorMessage = redactEncryptedContent(
+        ue?.message ?? (e instanceof Error ? e.message : '生成失败'),
+        [...sensitiveEncryptedContent],
+      )
+      errorType = ue?.type ? redactEncryptedContent(ue.type, [...sensitiveEncryptedContent]) : null
+      errorCode = ue?.code ? redactEncryptedContent(ue.code, [...sensitiveEncryptedContent]) : null
       httpStatus = ue?.status ?? null
     }
   }
@@ -457,6 +496,7 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
     errorCode,
     httpStatus,
     upstreamResponseId,
+    reasoningReplayContext,
     startedAt,
     content: finalContentParts.length ? finalContentParts : undefined,
     persistEmit,

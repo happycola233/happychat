@@ -45,6 +45,8 @@ async function createRunnableModel() {
   const userId = `user-${n}`
   const providerId = `provider-${n}`
   const modelId = `model-${n}`
+  const providerBaseUrl = 'https://example.test/v1'
+  const upstreamModelId = `test-model-${n}`
 
   await dbClient.db.insert(schema.users).values({
     id: userId,
@@ -54,13 +56,13 @@ async function createRunnableModel() {
   await dbClient.db.insert(schema.providers).values({
     id: providerId,
     name: `Provider ${n}`,
-    baseUrl: 'https://example.test/v1',
+    baseUrl: providerBaseUrl,
     apiKey: 'test-key',
   })
   await dbClient.db.insert(schema.models).values({
     id: modelId,
     providerId,
-    modelId: `test-model-${n}`,
+    modelId: upstreamModelId,
     displayName: `Test Model ${n}`,
     kind: 'responses',
     capabilities: {
@@ -72,7 +74,7 @@ async function createRunnableModel() {
     },
   })
 
-  return { userId, modelId, providerId }
+  return { userId, modelId, providerId, providerBaseUrl, upstreamModelId }
 }
 
 async function createRunnableImageModel() {
@@ -182,6 +184,68 @@ function assertPrepared(
   return result as PreparedRunWithUser
 }
 
+describe('selectReasoningReplayItems', () => {
+  const items = [
+    {
+      id: 'reasoning-source',
+      type: 'reasoning',
+      content: [],
+      encrypted_content: 'opaque-ciphertext',
+      summary: [],
+    },
+  ]
+  const source = {
+    providerId: 'provider-source',
+    providerBaseUrl: 'https://source.test/v1',
+    upstreamModelId: 'model-source',
+  }
+  const context = {
+    version: 1 as const,
+    source,
+    reasoningContext: 'all_turns',
+    items,
+  }
+
+  it('returns the original item array only when the full source tuple matches', () => {
+    expect(prepare.selectReasoningReplayItems({ enabled: true, context, ...source })).toBe(items)
+    expect(
+      prepare.selectReasoningReplayItems({ enabled: false, context, ...source }),
+    ).toBeUndefined()
+  })
+
+  it.each([
+    { providerId: 'other-provider' },
+    { providerBaseUrl: 'https://other.test/v1' },
+    { upstreamModelId: 'other-model' },
+  ])('silently skips a source mismatch: %o', (mismatch) => {
+    expect(
+      prepare.selectReasoningReplayItems({
+        enabled: true,
+        context,
+        ...source,
+        ...mismatch,
+      }),
+    ).toBeUndefined()
+  })
+
+  it('silently skips unknown versions and malformed envelopes', () => {
+    expect(
+      prepare.selectReasoningReplayItems({
+        enabled: true,
+        context: { ...context, version: 2 },
+        ...source,
+      }),
+    ).toBeUndefined()
+    expect(
+      prepare.selectReasoningReplayItems({
+        enabled: true,
+        context: { ...context, items: 'not-an-array' },
+        ...source,
+      }),
+    ).toBeUndefined()
+  })
+})
+
 describe('prepareRun active leaf', () => {
   it('returns a new conversation with activeLeafId set to the assistant placeholder', async () => {
     const { userId, modelId } = await createRunnableModel()
@@ -278,6 +342,68 @@ describe('prepareRun active leaf', () => {
       second.userMessage.id,
       second.assistantMessage.id,
     ])
+  })
+
+  it('injects a matching private reasoning context before its historical assistant message', async () => {
+    const { userId, modelId, providerId, providerBaseUrl, upstreamModelId } =
+      await createRunnableModel()
+    await dbClient.db
+      .update(schema.models)
+      .set({
+        replayReasoning: true,
+        capabilities: {
+          vision: false,
+          file_input: false,
+          web_search: false,
+          image_generation: false,
+          reasoning: true,
+        },
+        allowedEfforts: [{ value: 'medium', description: '中等思考' }],
+        defaultEffort: 'medium',
+      })
+      .where(eq(schema.models.id, modelId))
+
+    const first = assertPrepared(await prepare.prepareRun({ userId, modelId, text: '第一问' }))
+    const reasoningItem = {
+      id: 'reasoning-history',
+      type: 'reasoning',
+      content: [],
+      encrypted_content: 'opaque-history-ciphertext',
+      summary: [{ type: 'summary_text', text: '历史摘要' }],
+    }
+    await dbClient.db
+      .update(schema.messages)
+      .set({
+        status: 'complete',
+        content: [{ type: 'output_text', text: '第一答', annotations: [] }],
+        reasoningReplayContext: {
+          version: 1,
+          source: { providerId, providerBaseUrl, upstreamModelId },
+          reasoningContext: 'all_turns',
+          items: [reasoningItem],
+        },
+      })
+      .where(eq(schema.messages.id, first.assistantMessage.id))
+
+    const second = assertPrepared(
+      await prepare.prepareRun({
+        userId,
+        modelId,
+        conversationId: first.conversation.id,
+        text: '第二问',
+      }),
+    )
+    const input = second.body.input as Array<Record<string, unknown>>
+    const reasoningIndex = input.findIndex((item) => item.id === reasoningItem.id)
+    const assistantIndex = input.findIndex(
+      (item) => item.type === 'message' && item.role === 'assistant',
+    )
+
+    expect(input[reasoningIndex]).toEqual(reasoningItem)
+    expect(reasoningIndex).toBeGreaterThan(-1)
+    expect(assistantIndex).toBe(reasoningIndex + 1)
+    expect(input[assistantIndex + 1]).toMatchObject({ type: 'message', role: 'system' })
+    expect(input[assistantIndex + 2]).toMatchObject({ type: 'message', role: 'user' })
   })
 
   it('replays assistant generated images as visual context for the next Responses run', async () => {

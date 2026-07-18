@@ -23,6 +23,7 @@ import type {
   UserRole,
 } from '../../shared/types/domain'
 import type { MessageDTO } from '../../shared/types/api'
+import type { ReasoningReplayContextV1 } from '../provider/reasoning-replay'
 
 // ---- 通用列工厂（每次返回新的 builder 实例）----
 const pk = () => text('id').primaryKey().$defaultFn(newId)
@@ -214,6 +215,8 @@ export const models = sqliteTable(
       StoredReasoningEffortOption[]
     >(),
     defaultEffort: text('default_effort').$type<ReasoningEffort>(),
+    // 服务端历史推理上下文管理开关；默认关闭，且不通过用户端 ModelDTO 暴露。
+    replayReasoning: integer('replay_reasoning', { mode: 'boolean' }).notNull().default(false),
     defaultWebSearch: integer('default_web_search', { mode: 'boolean' }).notNull().default(false),
     sort: integer('sort').notNull().default(0),
     createdAt: createdAt(),
@@ -311,6 +314,10 @@ export const messages = sqliteTable(
     // 关联生成任务（无 DB 级 FK，避免与 runs 循环引用）
     runId: text('run_id'),
     reasoningSummary: text('reasoning_summary'),
+    // 上游 opaque 推理密文的服务端私有信封，仅用于下一轮历史重放。
+    reasoningReplayContext: text('reasoning_replay_context', {
+      mode: 'json',
+    }).$type<ReasoningReplayContextV1>(),
     // 展示用计时快照。独立分支不复制 run 审计记录，仍需保留原消息的耗时明细。
     reasoningDurationMs: integer('reasoning_duration_ms'),
     generationDurationMs: integer('generation_duration_ms'),

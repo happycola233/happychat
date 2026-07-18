@@ -17,7 +17,8 @@ function responseToolMergeKey(tool: unknown): string | null {
   if (!isPlainObject(tool) || typeof tool.type !== 'string') return null
   if (WEB_SEARCH_TOOL_TYPES.has(tool.type)) return 'web_search'
   if (tool.type === 'function' && typeof tool.name === 'string') return `function:${tool.name}`
-  if (tool.type === 'mcp' && typeof tool.server_label === 'string') return `mcp:${tool.server_label}`
+  if (tool.type === 'mcp' && typeof tool.server_label === 'string')
+    return `mcp:${tool.server_label}`
   if (tool.type === 'namespace' && typeof tool.name === 'string') return `namespace:${tool.name}`
 
   // 内置工具通常是单例配置；高级 JSON 中同一工具仍应覆盖应用生成的默认配置。
@@ -59,11 +60,18 @@ function mergeResponseTools(existing: unknown[], overrides: unknown[]): unknown[
   return merged
 }
 
+/** Responses include 是字符串集合；高级参数只能补充，不能覆盖应用要求的回传字段。 */
+function mergeResponseIncludes(existing: unknown[], overrides: unknown[]): unknown[] {
+  return [...new Set([...existing, ...overrides])]
+}
+
 export function mergeDeep(target: Record<string, unknown>, src: Record<string, unknown>): void {
   for (const [k, v] of Object.entries(src)) {
     const existing = target[k]
     if (k === 'tools' && Array.isArray(existing) && Array.isArray(v) && v.length > 0) {
       target[k] = mergeResponseTools(existing, v)
+    } else if (k === 'include' && Array.isArray(existing) && Array.isArray(v)) {
+      target[k] = mergeResponseIncludes(existing, v)
     } else if (isPlainObject(v) && isPlainObject(existing)) mergeDeep(existing, v)
     else target[k] = v
   }
@@ -102,6 +110,9 @@ export function buildResponseBody(o: BuildBodyOptions): Record<string, unknown> 
   const effort = effectiveReasoningEffort(model, userParams)
   if (effort) {
     body.reasoning = { effort }
+  }
+  if (model.replayReasoning && effort && effort !== 'none') {
+    body.include = ['reasoning.encrypted_content']
   }
 
   // 联网搜索：仅当模型支持且开关开启

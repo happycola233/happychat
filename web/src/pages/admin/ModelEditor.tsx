@@ -155,6 +155,7 @@ export function ModelEditor({
     )
   })
   const [defaultWebSearch, setDefaultWebSearch] = useState(model?.defaultWebSearch ?? false)
+  const [replayReasoning, setReplayReasoning] = useState(model?.replayReasoning ?? false)
   const [params, setParams] = useState<ModelParams>(model?.defaultParams ?? {})
   const [pricing, setPricing] = useState<ModelPricing>(model?.pricing ?? {})
   const [hardParamsText, setHardParamsText] = useState(
@@ -212,6 +213,7 @@ export function ModelEditor({
           description: draft.description.trim(),
         })),
         defaultEffort: defaultEffort || null,
+        replayReasoning,
         defaultWebSearch: caps.web_search ? defaultWebSearch : false,
         defaultParams: {
           temperature: params.temperature,
@@ -372,12 +374,24 @@ export function ModelEditor({
           </div>
 
           {caps.reasoning && (
-            <ReasoningEffortEditor
-              drafts={reasoningEffortDrafts}
-              defaultDraftId={defaultEffortDraftId}
-              onDraftsChange={setReasoningEffortDrafts}
-              onDefaultDraftIdChange={setDefaultEffortDraftId}
-            />
+            <div>
+              <ReasoningEffortEditor
+                drafts={reasoningEffortDrafts}
+                defaultDraftId={defaultEffortDraftId}
+                onDraftsChange={setReasoningEffortDrafts}
+                onDefaultDraftIdChange={setDefaultEffortDraftId}
+              />
+              {kind === 'responses' && (
+                <div className="mt-3 border-t border-neutral-100 pt-3 dark:border-neutral-800">
+                  <ToggleRow
+                    label="保留历史推理上下文"
+                    description="开启后,思考模型的加密推理上下文(encrypted_content)将随对话历史回传上游,可提升多轮推理连贯性与缓存命中;会增大请求体与输入 token。仅 OpenAI Responses 协议上游支持。"
+                    checked={replayReasoning}
+                    onChange={setReplayReasoning}
+                  />
+                </div>
+              )}
+            </div>
           )}
 
           {caps.web_search && (

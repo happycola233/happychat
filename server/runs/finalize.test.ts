@@ -29,8 +29,8 @@ afterAll(() => {
   if (tmpDir) rmSync(tmpDir, { recursive: true, force: true })
 })
 
-describe('finalizeRun timing snapshots', () => {
-  it('stores generation and reasoning durations with the final message', async () => {
+describe('finalizeRun terminal snapshots', () => {
+  it('stores timing and private replay context without exposing it through run.done', async () => {
     const [user] = await dbClient.db
       .insert(schema.users)
       .values({ username: 'finalize-user', passwordHash: 'hash' })
@@ -112,7 +112,17 @@ describe('finalizeRun timing snapshots', () => {
       },
     ])
 
-    const emittedTypes: string[] = []
+    const reasoningReplayContext = {
+      version: 1 as const,
+      source: {
+        providerId: provider.id,
+        providerBaseUrl: provider.baseUrl,
+        upstreamModelId: model.modelId,
+      },
+      reasoningContext: 'all_turns',
+      items: [{ type: 'reasoning', encrypted_content: 'opaque-finalize-ciphertext' }],
+    }
+    const emittedEvents: Array<{ type: string; data: Record<string, unknown> }> = []
     await finalize.finalizeRun({
       run,
       assistantMessage,
@@ -134,10 +144,11 @@ describe('finalizeRun timing snapshots', () => {
       incompleteReason: null,
       errorMessage: null,
       upstreamResponseId: null,
+      reasoningReplayContext,
       startedAt,
-      persistEmit: (type) => {
-        emittedTypes.push(type)
-        return emittedTypes.length - 1
+      persistEmit: (type, data) => {
+        emittedEvents.push({ type, data })
+        return emittedEvents.length - 1
       },
     })
 
@@ -150,9 +161,68 @@ describe('finalizeRun timing snapshots', () => {
     expect(persistedRun?.finishedAt).toBeInstanceOf(Date)
     expect(persistedMessage).toMatchObject({
       status: 'complete',
+      reasoningReplayContext,
       reasoningDurationMs: 3_500,
       generationDurationMs: persistedRun!.finishedAt!.getTime() - startedAt.getTime(),
     })
-    expect(emittedTypes).toEqual(['run.done'])
+    expect(emittedEvents.map((event) => event.type)).toEqual(['run.done'])
+    expect(emittedEvents[0]?.data).not.toHaveProperty('reasoningReplayContext')
+    expect(JSON.stringify(emittedEvents)).not.toContain('opaque-finalize-ciphertext')
+
+    const [failedMessage] = await dbClient.db
+      .insert(schema.messages)
+      .values({
+        conversationId: conversation.id,
+        role: 'assistant',
+        status: 'streaming',
+        modelId: model.id,
+        content: [],
+      })
+      .returning()
+    if (!failedMessage) throw new Error('Failed to create failed assistant fixture')
+    const [failedRun] = await dbClient.db
+      .insert(schema.runs)
+      .values({
+        conversationId: conversation.id,
+        userId: user.id,
+        assistantMessageId: failedMessage.id,
+        modelId: model.id,
+        state: 'running',
+        requestParams: { reasoning_effort: 'high' },
+        startedAt,
+      })
+      .returning()
+    if (!failedRun) throw new Error('Failed to create failed run fixture')
+
+    await finalize.finalizeRun({
+      run: failedRun,
+      assistantMessage: failedMessage,
+      conversation,
+      model,
+      provider,
+      state: 'failed',
+      text: '',
+      reasoningSummary: null,
+      annotations: [],
+      usage: {
+        inputTokens: 0,
+        cacheWriteTokens: 0,
+        cachedTokens: 0,
+        outputTokens: 0,
+        reasoningTokens: 0,
+        totalTokens: 0,
+      },
+      incompleteReason: null,
+      errorMessage: 'upstream failed',
+      upstreamResponseId: null,
+      reasoningReplayContext,
+      startedAt,
+      persistEmit: () => 0,
+    })
+
+    const persistedFailedMessage = await dbClient.db.query.messages.findFirst({
+      where: eq(schema.messages.id, failedMessage.id),
+    })
+    expect(persistedFailedMessage?.reasoningReplayContext).toBeNull()
   })
 })

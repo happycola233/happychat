@@ -17,12 +17,17 @@ import { attachmentRoutes } from './routes/attachments'
 import { shareRoutes } from './routes/shares'
 import { announcementRoutes } from './routes/announcements'
 import { recoverInterruptedRuns } from './runs/manager'
+import { sanitizePersistedRunEvents } from './runs/run-event-cleanup'
 import { UpstreamError } from './provider/errors'
 import { startOrphanAttachmentCleanupScheduler } from './services/attachment-cleanup'
 import type { AppEnv } from './http/types'
 
 // 启动时执行数据库迁移（migrate-on-boot）+ 恢复中断任务 + 启动后台维护。
 runMigrations()
+const sanitizedRunEventCount = sanitizePersistedRunEvents()
+if (sanitizedRunEventCount > 0) {
+  console.log(`已净化 ${sanitizedRunEventCount} 条历史 run_events 推理密文`)
+}
 void recoverInterruptedRuns()
 const stopAttachmentCleanup = startOrphanAttachmentCleanupScheduler()
 

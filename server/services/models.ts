@@ -48,6 +48,7 @@ export function toAdminModelDTO(
     // all 模式下关联行不参与语义；即使遇到历史脏数据，也不向前端报告误导性人数。
     allowedUserCount: m.accessMode === 'selected' ? allowedUserCount : 0,
     defaultSystemPrompt: m.defaultSystemPrompt,
+    replayReasoning: m.replayReasoning,
     hardParams: m.hardParams ?? null,
     pricing: m.pricing ?? null,
     sort: m.sort,
@@ -288,6 +289,7 @@ export async function createModel(input: ModelCreateInput): Promise<CreateModelR
         pricing: input.pricing ?? null,
         allowedEfforts: input.allowedEfforts,
         defaultEffort: input.defaultEffort ?? null,
+        replayReasoning: input.replayReasoning,
         defaultWebSearch: input.defaultWebSearch,
         sort: input.sort,
       })

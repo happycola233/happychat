@@ -4,12 +4,14 @@ import { join } from 'node:path'
 import { and, eq, inArray } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { ContentPart, MessageStatus } from '@shared/types/domain'
+import type { ReasoningReplayContextV1 } from '../provider/reasoning-replay'
 
 let tmpDir: string
 let dbClient: typeof import('../db/client')
 let schema: typeof import('../db/schema')
 let branches: typeof import('./conversation-branches')
 let conversationServices: typeof import('./conversations')
+let shareServices: typeof import('./shares')
 let storage: typeof import('../storage/files')
 let seq = 0
 
@@ -27,6 +29,7 @@ beforeAll(async () => {
   storage = await import('../storage/files')
   branches = await import('./conversation-branches')
   conversationServices = await import('./conversations')
+  shareServices = await import('./shares')
   migration.runMigrations()
 })
 
@@ -87,6 +90,7 @@ async function addMessage(input: {
   modelId?: string | null
   runtimeContext?: string | null
   reasoningSummary?: string | null
+  reasoningReplayContext?: ReasoningReplayContextV1 | null
 }) {
   const [message] = await dbClient.db
     .insert(schema.messages)
@@ -99,6 +103,7 @@ async function addMessage(input: {
       modelId: input.modelId ?? null,
       runtimeContext: input.runtimeContext ?? null,
       reasoningSummary: input.reasoningSummary ?? null,
+      reasoningReplayContext: input.reasoningReplayContext ?? null,
     })
     .returning()
   if (!message) throw new Error('Failed to create message')
@@ -175,12 +180,31 @@ describe('createConversationBranch', () => {
     })
 
     const generatedImageId = `source-image-${seq++}`
+    const reasoningReplayContext = {
+      version: 1 as const,
+      source: {
+        providerId: model.providerId,
+        providerBaseUrl: 'https://example.test/v1',
+        upstreamModelId: model.modelId,
+      },
+      reasoningContext: 'all_turns',
+      items: [
+        {
+          id: 'branch-reasoning-item',
+          type: 'reasoning',
+          content: [],
+          encrypted_content: 'opaque-branch-ciphertext',
+          summary: [],
+        },
+      ],
+    }
     const targetAssistant = await addMessage({
       conversationId: sourceConversation.id,
       parentId: secondUser.id,
       role: 'assistant',
       modelId: model.id,
       reasoningSummary: '**已思考**',
+      reasoningReplayContext,
       content: [
         { type: 'output_text', text: '目标回答', annotations: [] },
         { type: 'image_result', attachment_id: generatedImageId, revised_prompt: '测试图片' },
@@ -322,6 +346,7 @@ describe('createConversationBranch', () => {
     expect(copiedPath[0]?.runtimeContext).toBe('runtime-context-snapshot')
     expect(copiedPath.at(-1)).toMatchObject({
       reasoningSummary: '**已思考**',
+      reasoningReplayContext,
       reasoningDurationMs: 5_000,
       generationDurationMs: 20_000,
       inputTokens: 120,
@@ -364,15 +389,30 @@ describe('createConversationBranch', () => {
         .from(schema.runs)
         .where(eq(schema.runs.conversationId, result.conversationId)),
     ).toHaveLength(0)
-    expect(
-      (await conversationServices.getConversationMessageDTOs(result.conversationId)).find(
-        (message) => message.id === copiedPath.at(-1)?.id,
-      ),
-    ).toMatchObject({
+    const copiedMessageDto = (
+      await conversationServices.getConversationMessageDTOs(result.conversationId)
+    ).find((message) => message.id === copiedPath.at(-1)?.id)
+    expect(copiedMessageDto).toMatchObject({
       runId: null,
       reasoningDurationMs: 5_000,
       generationDurationMs: 20_000,
     })
+    expect(copiedMessageDto).not.toHaveProperty('reasoningReplayContext')
+    expect(JSON.stringify(copiedMessageDto)).not.toContain('opaque-branch-ciphertext')
+
+    const shareResult = await shareServices.createShare(user.id, result.conversationId, {
+      showAvatar: false,
+      showName: false,
+      expiresInDays: null,
+    })
+    expect(shareResult.ok).toBe(true)
+    const [shareRow] = await dbClient.db
+      .select({ snapshot: schema.sharedChats.snapshot })
+      .from(schema.sharedChats)
+      .where(eq(schema.sharedChats.conversationId, result.conversationId))
+      .limit(1)
+    expect(JSON.stringify(shareRow?.snapshot)).not.toContain('reasoningReplayContext')
+    expect(JSON.stringify(shareRow?.snapshot)).not.toContain('opaque-branch-ciphertext')
     expect(await conversationServices.getConversationLastRun(result.conversationId)).toEqual({
       modelId: model.id,
       params: { web_search: true, reasoning_effort: 'high' },
@@ -413,6 +453,7 @@ describe('createConversationBranch', () => {
       .at(-1)
     expect(nestedTarget).toMatchObject({
       runId: null,
+      reasoningReplayContext,
       reasoningDurationMs: 5_000,
       generationDurationMs: 20_000,
     })

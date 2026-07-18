@@ -110,6 +110,7 @@ export const modelUpdateSchema = z.object({
   pricing: pricingSchema.nullable().optional(),
   allowedEfforts: reasoningEffortOptionsSchema.optional(),
   defaultEffort: effortSchema.nullable().optional(),
+  replayReasoning: z.boolean().optional(),
   defaultWebSearch: z.boolean().optional(),
   sort: z.number().int().optional(),
 })
@@ -138,6 +139,7 @@ export const modelCreateSchema = z.object({
   pricing: pricingSchema.nullable().optional(),
   allowedEfforts: reasoningEffortOptionsSchema.default([]),
   defaultEffort: effortSchema.nullable().optional(),
+  replayReasoning: z.boolean().default(false),
   defaultWebSearch: z.boolean().default(false),
   sort: z.number().int().default(0),
 })

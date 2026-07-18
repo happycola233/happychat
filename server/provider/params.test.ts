@@ -28,6 +28,7 @@ function model(overrides: Partial<ModelForBuild> = {}): ModelForBuild {
     pricing: null,
     allowedEfforts: null,
     defaultEffort: null,
+    replayReasoning: false,
     defaultWebSearch: true,
     sort: 0,
     createdAt: new Date(0),
@@ -145,6 +146,77 @@ describe('buildResponseBody', () => {
     })
 
     expect(body.reasoning).toEqual({ effort: 'low' })
+  })
+
+  it('requests encrypted reasoning content only when replay is enabled with an active effort', () => {
+    const reasoningModel = model({
+      capabilities: {
+        vision: false,
+        file_input: false,
+        web_search: false,
+        image_generation: false,
+        reasoning: true,
+      },
+      allowedEfforts: ['none', 'medium'],
+      defaultEffort: 'medium',
+      replayReasoning: true,
+    })
+
+    const enabled = buildResponseBody({
+      model: reasoningModel,
+      input: [],
+      instructions: null,
+      stream: true,
+    })
+    const disabledForTurn = buildResponseBody({
+      model: reasoningModel,
+      input: [],
+      instructions: null,
+      userParams: { reasoning_effort: 'none' },
+      stream: true,
+    })
+
+    expect(enabled.include).toEqual(['reasoning.encrypted_content'])
+    expect(disabledForTurn.include).toBeUndefined()
+  })
+
+  it('unions generated and advanced include arrays without duplicates', () => {
+    const body = buildResponseBody({
+      model: model({
+        capabilities: {
+          vision: false,
+          file_input: false,
+          web_search: false,
+          image_generation: false,
+          reasoning: true,
+        },
+        allowedEfforts: ['medium'],
+        defaultEffort: 'medium',
+        replayReasoning: true,
+        hardParams: {
+          include: ['reasoning.encrypted_content', 'web_search_call.action.sources'],
+        },
+      }),
+      input: [],
+      instructions: null,
+      stream: true,
+    })
+
+    expect(body.include).toEqual(['reasoning.encrypted_content', 'web_search_call.action.sources'])
+  })
+
+  it('preserves an administrator include when replay storage is disabled', () => {
+    const body = buildResponseBody({
+      model: model({
+        replayReasoning: false,
+        hardParams: { include: ['reasoning.encrypted_content'] },
+      }),
+      input: [],
+      instructions: null,
+      stream: true,
+    })
+
+    expect(body.include).toEqual(['reasoning.encrypted_content'])
   })
 
   it.each(['max', 'vendor-ultra'])(

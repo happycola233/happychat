@@ -38,6 +38,8 @@ export interface UpstreamOutputItem {
   role?: string
   content?: UpstreamContentPart[]
   summary?: UpstreamSummaryPart[]
+  /** reasoning item 的不透明加密上下文；仅服务端持久化与下一轮重放使用。 */
+  encrypted_content?: string | null
   /** image_generation_call 结果（base64） */
   result?: string | null
   revised_prompt?: string | null
@@ -48,6 +50,8 @@ export interface UpstreamResponse {
   id?: string
   status?: string
   output?: UpstreamOutputItem[]
+  /** 上游实际采用的推理上下文模式，仅记录回显值，不主动发送。 */
+  reasoning?: { context?: string } | null
   usage?: UpstreamUsage
   incomplete_details?: { reason?: string } | null
   error?: { message?: string; code?: string } | null
