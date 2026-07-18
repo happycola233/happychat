@@ -384,8 +384,8 @@ export function ModelEditor({
               {kind === 'responses' && (
                 <div className="mt-3 border-t border-neutral-100 pt-3 dark:border-neutral-800">
                   <ToggleRow
-                    label="保留历史推理上下文"
-                    description="开启后,思考模型的加密推理上下文(encrypted_content)将随对话历史回传上游,可提升多轮推理连贯性与缓存命中;会增大请求体与输入 token。仅 OpenAI Responses 协议上游支持。"
+                    label="回传历史推理上下文"
+                    description="开启后，思考模型的加密推理上下文（encrypted_content）将随对话历史回传上游，可提升多轮推理连贯性与缓存命中，但会增大请求体与输入 token。"
                     checked={replayReasoning}
                     onChange={setReplayReasoning}
                   />
