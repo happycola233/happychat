@@ -1,5 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { adminRevokeShare, listAllShares } from '../../api/shares'
+import {
+  adminRevokeShare,
+  invalidateShareQueries,
+  isShareExpired,
+  listAllShares,
+} from '../../api/shares'
 import { ExternalLinkIcon, ShareIcon } from '../../chat/icons'
 import { Badge } from '../../components/ui/Badge'
 import { EmptyState } from '../../components/ui/EmptyState'
@@ -28,7 +33,8 @@ export default function SharesPage() {
     mutationFn: adminRevokeShare,
     onSuccess: () => {
       toast.success('已撤销分享')
-      qc.invalidateQueries({ queryKey: ['admin', 'shares'] })
+      // 管理员可能撤销自己的分享：一并失效「我的分享」与分享弹窗缓存。
+      invalidateShareQueries(qc)
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : '操作失败'),
   })
@@ -82,6 +88,8 @@ export default function SharesPage() {
                     <td className={td}>
                       {s.revoked ? (
                         <Badge tone="danger">已撤销</Badge>
+                      ) : isShareExpired(s) ? (
+                        <Badge tone="warning">已过期</Badge>
                       ) : (
                         <Badge tone="success">有效</Badge>
                       )}

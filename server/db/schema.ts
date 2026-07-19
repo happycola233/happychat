@@ -376,10 +376,12 @@ export const sharedChats = sqliteTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     title: text('title'),
-    // 分享时定格的可见消息路径（MessageDTO[]）
+    // 分享时定格的可见消息路径（MessageDTO[]；可为手动选择的分支子集）
     snapshot: text('snapshot', { mode: 'json' }).$type<MessageDTO[]>().notNull(),
     showAvatar: integer('show_avatar', { mode: 'boolean' }).notNull().default(true),
     showName: integer('show_name', { mode: 'boolean' }).notNull().default(true),
+    // 是否包含用户上传的图片/文件；false 时快照内的引用已剥离，分享页以文字占位显示
+    includeAttachments: integer('include_attachments', { mode: 'boolean' }).notNull().default(true),
     expiresAt: ts('expires_at'),
     revoked: integer('revoked', { mode: 'boolean' }).notNull().default(false),
     createdAt: createdAt(),

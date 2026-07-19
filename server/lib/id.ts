@@ -14,3 +14,11 @@ export function genInviteCode(len = 8): string {
   for (let i = 0; i < len; i++) s += CODE_ALPHABET[b[i]! % CODE_ALPHABET.length]
   return s
 }
+
+/**
+ * 生成公开分享链接 token：128 位全随机、URL 安全。
+ * 不复用 UUIDv7——其时间戳前缀可预测，作为无鉴权访问凭证熵不足。
+ */
+export function genShareToken(): string {
+  return randomBytes(16).toString('base64url')
+}

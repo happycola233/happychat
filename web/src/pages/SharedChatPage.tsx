@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { clsx } from 'clsx'
-import { AlertCircle, FileText } from 'lucide-react'
+import { AlertCircle, FileText, ImageOff } from 'lucide-react'
 import { textFromContent } from '@shared/util/contentText'
 import type { ContentPart, UrlCitation } from '@shared/types/domain'
 import type { MessageDTO } from '@shared/types/api'
@@ -19,6 +19,7 @@ import {
   MessageUsageStats,
 } from '../chat/MessageMeta'
 import { Spinner } from '../components/ui/Spinner'
+import { formatShortDate } from '../lib/format'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { forceSystemTheme, refreshTheme } from '../lib/theme'
 import { resolveSharedDocumentTitle } from './sharedDocumentTitle'
@@ -83,6 +84,28 @@ function attachmentParts(content: ContentPart[]): SharedAttachmentPart[] {
   )
 }
 
+/** 属主选择不分享附件时的文字占位卡（快照中 attachment_id 已被剥离为空串）。 */
+function ExcludedAttachmentPlaceholder({ part }: { part: SharedAttachmentPart }) {
+  const isFile = part.type === 'input_file'
+  return (
+    <div className="flex items-center gap-2 rounded-xl border border-dashed border-neutral-300 bg-neutral-50/60 px-3 py-2 text-sm text-neutral-400 dark:border-neutral-700 dark:bg-neutral-900/40 dark:text-neutral-500">
+      {isFile ? (
+        <FileText className="h-4 w-4 shrink-0" />
+      ) : (
+        <ImageOff className="h-4 w-4 shrink-0" />
+      )}
+      {isFile ? (
+        <span className="max-w-[14rem] truncate">{part.filename}</span>
+      ) : (
+        <span>图片</span>
+      )}
+      <span className="shrink-0 text-xs text-neutral-400/80 dark:text-neutral-600">
+        未包含在分享中
+      </span>
+    </div>
+  )
+}
+
 /** 分享页不能用私有附件接口，所有附件链接都走带 token 的公开路由。 */
 function SharedAttachmentParts({
   content,
@@ -99,6 +122,9 @@ function SharedAttachmentParts({
   return (
     <div className={clsx('flex max-w-[85%] flex-wrap gap-2', align === 'end' && 'justify-end')}>
       {parts.map((p, i) => {
+        if (!p.attachment_id) {
+          return <ExcludedAttachmentPlaceholder key={`excluded-${p.type}-${i}`} part={p} />
+        }
         const url = shareAttachmentUrl(token, p.attachment_id)
         if (p.type === 'input_file') {
           return (
@@ -313,13 +339,14 @@ export default function SharedChatPage() {
             <div className="truncate text-[15px] font-semibold text-neutral-900 dark:text-neutral-100">
               {share.title ?? '分享的对话'}
             </div>
-            {share.owner.name && (
-              <div className="truncate text-xs text-neutral-400">来自 {share.owner.name}</div>
-            )}
+            <div className="truncate text-xs text-neutral-400">
+              {share.owner.name ? `来自 ${share.owner.name} · ` : ''}
+              分享于 {formatShortDate(share.updatedAt)} · {share.messages.length} 条消息
+            </div>
           </div>
           <Link
             to="/"
-            className="shrink-0 rounded-lg bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-neutral-800 dark:bg-white dark:text-neutral-900"
+            className="shrink-0 rounded-lg bg-sky-500 px-3 py-1.5 text-xs font-medium text-white shadow-xs transition hover:bg-sky-400 dark:bg-sky-500 dark:hover:bg-sky-400"
           >
             HappyChat
           </Link>

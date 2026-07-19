@@ -243,7 +243,20 @@ conversationRoutes.post('/:id/share', jsonValidator(createShareSchema), async (c
     return c.json({ error: { message: '分享功能已被管理员关闭', code: 'sharing_disabled' } }, 403)
   }
   const result = await createShare(user.id, c.req.param('id'), c.req.valid('json'))
-  if (!result.ok) return c.json({ error: { message: '会话不存在', code: 'not_found' } }, 404)
+  if (!result.ok) {
+    if (result.code === 'invalid_selection') {
+      return c.json(
+        {
+          error: {
+            message: '所选消息无效：必须选择同一条分支路径上的消息',
+            code: 'invalid_selection',
+          },
+        },
+        400,
+      )
+    }
+    return c.json({ error: { message: '会话不存在', code: 'not_found' } }, 404)
+  }
   return c.json({ share: result.share })
 })
 

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react'
 import { clsx } from 'clsx'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { listMyShares, revokeConversationShare } from '../api/shares'
+import { isShareExpired, listMyShares } from '../api/shares'
 import {
   Camera,
   Check,
@@ -38,7 +38,9 @@ import { useSettings } from '../store/settings'
 import { useSettingsDialog, type SettingsTab } from '../store/settingsDialog'
 import { toast } from '../store/toast'
 import { copyToClipboard } from '../lib/clipboard'
-import { formatDateTime } from '../lib/format'
+import { formatShortDate } from '../lib/format'
+import { Spinner } from '../components/ui/Spinner'
+import { ShareDialog } from './ShareDialog'
 import { AvatarCropDialog } from './AvatarCropDialog'
 import { CopyIcon, DeleteIcon, ExternalLinkIcon } from './icons'
 
@@ -350,19 +352,18 @@ function SectionCard({
   )
 }
 
-/** 「我的分享」独立页：链接可复制/打开，可随时停止分享。 */
+/**
+ * 「我的分享」独立页。
+ * 每行：点击标题区跳回原对话；右侧提供 复制链接 / 打开分享页 / 分享设置 三个轻量操作，
+ * 更新内容、改有效期、停止分享统一收进「分享设置」弹窗（与会话菜单里的分享是同一个），不在行内堆按钮。
+ */
 function SharesPanel() {
-  const qc = useQueryClient()
+  const navigate = useNavigate()
+  const { closeDialog } = useSettingsDialog()
   const { data: shares, isLoading } = useQuery({ queryKey: ['my-shares'], queryFn: listMyShares })
   const [copiedId, setCopiedId] = useState<string | null>(null)
-  const revoke = useMutation({
-    mutationFn: (conversationId: string) => revokeConversationShare(conversationId),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['my-shares'] })
-      toast.success('已停止分享')
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : '操作失败'),
-  })
+  /** 正在通过分享设置弹窗管理的会话 id */
+  const [managedId, setManagedId] = useState<string | null>(null)
 
   const copyLink = (id: string, token: string) => {
     void copyToClipboard(`${window.location.origin}/s/${token}`).then((ok) => {
@@ -375,15 +376,26 @@ function SharesPanel() {
     })
   }
 
+  const openConversation = (conversationId: string) => {
+    closeDialog()
+    navigate(`/c/${conversationId}`)
+  }
+
   const active = (shares ?? []).filter((s) => !s.revoked)
+  const iconButtonClass =
+    'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-neutral-400 transition hover:bg-neutral-200/60 hover:text-neutral-700 dark:hover:bg-neutral-700/60 dark:hover:text-neutral-200'
 
   return (
     <div className="py-4">
       <p className="text-[12px] leading-5 text-neutral-400 dark:text-neutral-500">
-        分享链接是创建时的快照，对方无需登录即可查看；停止分享后链接立即失效。
+        分享链接是创建时定格的快照，对方无需登录即可查看；在「分享设置」中可更新内容、调整有效期或停止分享。
       </p>
-      {isLoading ? null : active.length === 0 ? (
-        <div className="mt-6 flex flex-col items-center gap-2 py-10 text-center">
+      {isLoading ? (
+        <div className="flex justify-center py-14">
+          <Spinner className="h-5 w-5 text-neutral-400" />
+        </div>
+      ) : active.length === 0 ? (
+        <div className="mt-4 flex flex-col items-center gap-2 rounded-2xl border border-dashed border-neutral-200 py-12 text-center dark:border-neutral-800">
           <Share2 className="h-7 w-7 text-neutral-300 dark:text-neutral-600" />
           <p className="text-sm text-neutral-400">还没有分享的聊天</p>
           <p className="text-[12px] text-neutral-400 dark:text-neutral-500">
@@ -391,54 +403,109 @@ function SharesPanel() {
           </p>
         </div>
       ) : (
-        <div className="mt-3 overflow-hidden rounded-2xl border border-neutral-200 dark:border-neutral-800">
-          <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
-            {active.map((s) => (
-              <div key={s.id} className="flex items-center gap-2 px-3.5 py-2.5">
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm text-neutral-800 dark:text-neutral-100">
-                    {s.title ?? '（无标题）'}
+        <>
+          <div className="mt-3 overflow-hidden rounded-2xl border border-neutral-200 dark:border-neutral-800">
+            <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
+              {active.map((s) => {
+                const expired = isShareExpired(s)
+                return (
+                  <div
+                    key={s.id}
+                    className="flex items-center gap-2 px-4 py-3 transition hover:bg-neutral-50/80 dark:hover:bg-neutral-800/40"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => openConversation(s.conversationId)}
+                      title="在聊天中打开原对话"
+                      className="group/title min-w-0 flex-1 text-left"
+                    >
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <span
+                          className={clsx(
+                            'truncate text-sm font-medium group-hover/title:underline',
+                            expired
+                              ? 'text-neutral-400 dark:text-neutral-500'
+                              : 'text-neutral-800 dark:text-neutral-100',
+                          )}
+                        >
+                          {s.title ?? '（无标题）'}
+                        </span>
+                        {expired ? (
+                          <span className="shrink-0 rounded-md bg-amber-500/10 px-1.5 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                            已过期
+                          </span>
+                        ) : (
+                          !s.expiresAt && (
+                            <span className="shrink-0 rounded-md bg-neutral-100 px-1.5 py-0.5 text-[11px] text-neutral-400 dark:bg-neutral-800 dark:text-neutral-500">
+                              永久
+                            </span>
+                          )
+                        )}
+                      </div>
+                      <div className="mt-0.5 truncate text-[12px] text-neutral-400">
+                        分享于 {formatShortDate(s.updatedAt)} · {s.messageCount} 条消息
+                        {!s.includeAttachments && ' · 不含附件'}
+                        {s.expiresAt &&
+                          ` · ${expired ? `已于 ${formatShortDate(s.expiresAt)} 过期` : `${formatShortDate(s.expiresAt)} 到期`}`}
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => copyLink(s.id, s.token)}
+                      disabled={expired}
+                      aria-label="复制链接"
+                      title={expired ? '链接已过期' : '复制链接'}
+                      className={clsx(iconButtonClass, expired && 'cursor-not-allowed opacity-40')}
+                    >
+                      {copiedId === s.id ? (
+                        <Check className="h-4 w-4 text-emerald-500" />
+                      ) : (
+                        <CopyIcon className="h-4 w-4" />
+                      )}
+                    </button>
+                    {expired ? (
+                      <span
+                        aria-hidden="true"
+                        className={clsx(
+                          iconButtonClass,
+                          'cursor-not-allowed opacity-40 hover:bg-transparent',
+                        )}
+                      >
+                        <ExternalLinkIcon className="h-4 w-4" />
+                      </span>
+                    ) : (
+                      <a
+                        href={`/s/${s.token}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        aria-label="打开分享页"
+                        title="打开分享页"
+                        className={iconButtonClass}
+                      >
+                        <ExternalLinkIcon className="h-4 w-4" />
+                      </a>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setManagedId(s.conversationId)}
+                      aria-label="分享设置"
+                      title="分享设置（更新内容 / 有效期 / 停止分享）"
+                      className={iconButtonClass}
+                      data-testid="my-share-manage"
+                    >
+                      <SlidersHorizontal className="h-4 w-4" />
+                    </button>
                   </div>
-                  <div className="mt-0.5 text-[12px] text-neutral-400">
-                    {formatDateTime(s.createdAt)} ·{' '}
-                    {s.expiresAt ? `${formatDateTime(s.expiresAt)} 过期` : '永久有效'}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => copyLink(s.id, s.token)}
-                  aria-label="复制链接"
-                  title="复制链接"
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
-                >
-                  {copiedId === s.id ? (
-                    <Check className="h-4 w-4 text-emerald-500" />
-                  ) : (
-                    <CopyIcon className="h-4 w-4" />
-                  )}
-                </button>
-                <a
-                  href={`/s/${s.token}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  aria-label="打开分享页"
-                  title="打开分享页"
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
-                >
-                  <ExternalLinkIcon className="h-4 w-4" />
-                </a>
-                <button
-                  type="button"
-                  onClick={() => revoke.mutate(s.conversationId)}
-                  className="shrink-0 rounded-lg px-2 py-1.5 text-xs text-red-500 transition hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30"
-                >
-                  停止分享
-                </button>
-              </div>
-            ))}
+                )
+              })}
+            </div>
           </div>
-        </div>
+          <p className="mt-2 px-1 text-right text-[12px] text-neutral-400 dark:text-neutral-500">
+            共 {active.length} 个分享
+          </p>
+        </>
       )}
+      {managedId && <ShareDialog conversationId={managedId} onClose={() => setManagedId(null)} />}
     </div>
   )
 }
@@ -803,7 +870,10 @@ export function SettingsDialog() {
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closeDialog()
+      if (e.key !== 'Escape') return
+      // 设置页上层可能叠加分享设置弹窗/确认框等模态，让最上层模态自行处理 Escape。
+      if (document.querySelector('[aria-modal="true"]')) return
+      closeDialog()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)

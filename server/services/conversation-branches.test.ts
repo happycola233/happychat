@@ -403,6 +403,7 @@ describe('createConversationBranch', () => {
     const shareResult = await shareServices.createShare(user.id, result.conversationId, {
       showAvatar: false,
       showName: false,
+      includeAttachments: true,
       expiresInDays: null,
     })
     expect(shareResult.ok).toBe(true)

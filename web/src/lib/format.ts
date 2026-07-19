@@ -41,6 +41,17 @@ export function formatDateTime(ts: number): string {
   return new Date(ts).toLocaleString('zh-CN', { hour12: false })
 }
 
+/** 短日期（同年省略年份），用于分享有效期等紧凑场景。 */
+export function formatShortDate(ts: number): string {
+  const d = new Date(ts)
+  const sameYear = d.getFullYear() === new Date().getFullYear()
+  return d.toLocaleDateString('zh-CN', {
+    ...(sameYear ? {} : { year: 'numeric' as const }),
+    month: 'long',
+    day: 'numeric',
+  })
+}
+
 /** 时间轴刻度：按天显示 MM-DD，按时显示 HH:mm。 */
 export function formatBucketTick(ts: number, bucket: 'hour' | 'day'): string {
   const d = new Date(ts)

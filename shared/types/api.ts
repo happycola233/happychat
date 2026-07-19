@@ -446,9 +446,17 @@ export interface SharedChatDTO {
   title: string | null
   showAvatar: boolean
   showName: boolean
+  /** 是否包含用户上传的图片/文件 */
+  includeAttachments: boolean
+  /** 快照内消息条数 */
+  messageCount: number
   expiresAt: number | null
   revoked: boolean
   createdAt: number
+  /** 快照最近一次刷新时间 */
+  updatedAt: number
+  /** 快照内的消息 id（会话属主查询单条分享时返回，用于分享弹窗回显选择） */
+  sharedMessageIds?: string[]
   /** 管理端列表附带的拥有者用户名 */
   ownerUsername?: string
 }
@@ -458,5 +466,9 @@ export interface PublicShareDTO {
   title: string | null
   messages: MessageDTO[]
   createdAt: number
+  /** 快照最近一次刷新时间 */
+  updatedAt: number
+  /** false 时用户上传的图片/文件已被属主排除，页面以文字占位显示 */
+  attachmentsIncluded: boolean
   owner: { name: string | null; avatarUrl: string | null }
 }

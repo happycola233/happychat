@@ -1,0 +1,1 @@
+ALTER TABLE `shared_chats` ADD `include_attachments` integer DEFAULT true NOT NULL;

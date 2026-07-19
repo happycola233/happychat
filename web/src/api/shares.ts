@@ -1,7 +1,25 @@
+import type { QueryClient } from '@tanstack/react-query'
 import type { AppConfigDTO, PublicShareDTO, SharedChatDTO } from '@shared/types/api'
 import type { CreateShareInput } from '@shared/schemas/share'
 import type { AppConfigUpdateInput } from '@shared/schemas/app-config'
 import { apiDelete, apiGet, apiPatch, apiPost } from './client'
+
+/**
+ * 分享状态分散在弹窗（conversation-share）、设置页（my-shares）、管理后台（admin shares）
+ * 三个缓存视图里；任何创建/更新/撤销后统一从这里失效，避免视图间状态漂移。
+ */
+export function invalidateShareQueries(qc: QueryClient, conversationId?: string) {
+  void qc.invalidateQueries({ queryKey: ['my-shares'] })
+  void qc.invalidateQueries({
+    queryKey: conversationId ? ['conversation-share', conversationId] : ['conversation-share'],
+  })
+  void qc.invalidateQueries({ queryKey: ['admin', 'shares'] })
+}
+
+/** 未撤销但已过到期时间：链接当前不可访问。 */
+export function isShareExpired(share: Pick<SharedChatDTO, 'expiresAt'>): boolean {
+  return share.expiresAt !== null && share.expiresAt < Date.now()
+}
 
 // ---- 公开分享 ----
 export const getPublicShare = (token: string) =>

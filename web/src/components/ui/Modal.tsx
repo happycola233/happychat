@@ -45,8 +45,8 @@ export function Modal({ open, onClose, title, children, footer, size = 'default'
     const onKey = (e: KeyboardEvent) => {
       const dialog = dialogRef.current
       if (!dialog) return
-      // 页面偶尔会叠加确认框；只有 DOM 中最上层的模态框接管 Escape 与焦点循环。
-      const openDialogs = document.querySelectorAll('[role="dialog"][aria-modal="true"]')
+      // 页面偶尔会叠加确认框（role=alertdialog）；只有 DOM 中最上层的模态层接管 Escape 与焦点循环。
+      const openDialogs = document.querySelectorAll('[aria-modal="true"]')
       if (openDialogs.item(openDialogs.length - 1) !== dialog) return
 
       if (e.key === 'Escape') {
