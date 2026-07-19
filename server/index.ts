@@ -16,6 +16,7 @@ import { runRoutes } from './routes/runs'
 import { attachmentRoutes } from './routes/attachments'
 import { shareRoutes } from './routes/shares'
 import { announcementRoutes } from './routes/announcements'
+import { isVersionedAssetPath, productionWebCacheMiddleware } from './http/web-cache'
 import { recoverInterruptedRuns } from './runs/manager'
 import { sanitizePersistedRunEvents } from './runs/run-event-cleanup'
 import { UpstreamError } from './provider/errors'
@@ -51,12 +52,17 @@ app.route('/api/announcements', announcementRoutes)
 // 生产环境：由后端静态托管构建后的前端（单体部署）
 const isProd = env.NODE_ENV === 'production'
 if (isProd) {
+  app.use('/*', productionWebCacheMiddleware)
   app.use('/*', serveStatic({ root: './dist/web' }))
 }
 
 app.notFound((c) => {
   if (c.req.path.startsWith('/api')) {
     return c.json({ error: { message: '接口不存在', code: 'not_found' } }, 404)
+  }
+  // 缺失的旧哈希文件必须返回 404；返回 SPA HTML 会触发模块 MIME 错误。
+  if (isVersionedAssetPath(c.req.path)) {
+    return c.body(null, 404)
   }
   // SPA 回退：非 /api 路由返回 index.html，交给前端路由
   if (isProd) {
