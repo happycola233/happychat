@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { useEffect, useId, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { clsx } from 'clsx'
 
@@ -87,7 +88,10 @@ export function Modal({ open, onClose, title, children, footer, size = 'default'
   }, [open])
 
   if (!open) return null
-  return (
+
+  // 模态层必须脱离入口所在的布局树，避免被聊天主区的 overflow/stacking context 裁剪，
+  // 确保从侧边栏、顶栏或设置页打开时都覆盖完整视口。
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div
         className="absolute inset-0 bg-black/40 backdrop-blur-sm"
@@ -126,6 +130,7 @@ export function Modal({ open, onClose, title, children, footer, size = 'default'
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
