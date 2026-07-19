@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { clsx } from 'clsx'
 import { ChevronDown } from 'lucide-react'
 import { Markdown } from './Markdown'
 import { elapsedSeconds } from './elapsed'
+import { splitVisibleUnits } from './markdownStreamFade'
 import { normalizeReasoningMarkdown } from './reasoningMarkdown'
 import { splitReasoningSections, type ReasoningSection } from './reasoningSections'
 
@@ -75,24 +76,59 @@ function CompletedIcon() {
   )
 }
 
-function ReasoningSections({ sections }: { sections: ReasoningSection[] }) {
+/** 小标题错峰步长与上限：一屏内扫过（约 15 个单元封顶），长标题不拖沓。 */
+const TITLE_STAGGER_MS = 24
+const TITLE_STAGGER_MAX_MS = 360
+
+/**
+ * 思考中新到达的小标题按可见单元错峰渐入（CJK 逐字、ASCII 整词）。
+ * 标题在闭合 `**` 时整行一次性出现，靠逐单元 delay 做从左到右的扫入，
+ * 复用正文的 .hc-stream-seg 淡入并呼应搜索词 chips 的错峰节奏；
+ * 单元按位置 key 保持身份，正文继续流入引发的重渲染不会重播动画。
+ */
+function AnimatedSectionTitle({ text }: { text: string }) {
+  let visibleIndex = 0
+  return (
+    <>
+      {splitVisibleUnits(text).map((unit, index) => {
+        if (unit.isSpace) return <Fragment key={index}>{unit.chunk}</Fragment>
+        const delay = Math.min(visibleIndex * TITLE_STAGGER_MS, TITLE_STAGGER_MAX_MS)
+        visibleIndex += 1
+        return (
+          <span key={index} className="hc-stream-seg" style={{ animationDelay: `${delay}ms` }}>
+            {unit.chunk}
+          </span>
+        )
+      })}
+    </>
+  )
+}
+
+function ReasoningSections({ sections, animate }: { sections: ReasoningSection[]; animate: boolean }) {
   return (
     <div className="space-y-2.5">
       {sections.map((section, index) => {
         const hasBody = section.body.trim().length > 0
         return (
           <section
-            className="hc-reasoning-section grid grid-cols-[14px_minmax(0,1fr)] gap-x-2"
+            className={clsx(
+              'hc-reasoning-section grid grid-cols-[14px_minmax(0,1fr)] gap-x-2',
+              // 流式期间新小节（圆点+标题+竖线）低位淡入，与联网搜索卡动作行同一运动语言
+              animate && 'hc-reasoning-step-in',
+            )}
             key={`${section.title ?? 'section'}-${index}`}
           >
             {section.title && (
               <>
                 <span
                   aria-hidden
-                  className="mt-[0.55rem] h-1.5 w-1.5 justify-self-center rounded-full bg-neutral-500 dark:bg-neutral-400"
+                  className={clsx(
+                    'mt-[0.55rem] h-1.5 w-1.5 justify-self-center rounded-full bg-neutral-500 dark:bg-neutral-400',
+                    animate && 'hc-reasoning-dot-in',
+                  )}
                 />
                 <div className="text-sm leading-6 font-medium text-neutral-950 dark:text-neutral-100">
-                  {section.title}
+                  {animate ? <AnimatedSectionTitle text={section.title} /> : section.title}
                 </div>
               </>
             )}
@@ -111,6 +147,7 @@ function ReasoningSections({ sections }: { sections: ReasoningSection[] }) {
                       text={section.body}
                       variant="reasoning"
                       className="hc-reasoning-detail"
+                      animate={animate}
                     />
                   )}
                 </div>
@@ -180,8 +217,9 @@ interface SummaryFooterProps {
 
 function SummaryFooter({ label }: SummaryFooterProps) {
   return (
+    // 思考结束时页脚以同一入场动效浮现；持久化消息在折叠态挂载时播放（不可见），展开时不会重播
     <div
-      className="grid grid-cols-[14px_minmax(0,1fr)] gap-x-2 text-left transition-colors"
+      className="grid grid-cols-[14px_minmax(0,1fr)] gap-x-2 text-left transition-colors hc-reasoning-step-in"
       data-testid="reasoning-summary-footer"
     >
       <span
@@ -325,7 +363,7 @@ export function ReasoningCard({
         >
           <div className="min-h-0 overflow-hidden">
             <div className="pt-2 pr-2 pb-1">
-              <ReasoningSections sections={sections} />
+              <ReasoningSections sections={sections} animate={status === 'thinking'} />
               {status === 'completed' && (
                 <div className="mt-3">
                   <SummaryFooter label={label} />

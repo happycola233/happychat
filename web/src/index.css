@@ -836,6 +836,38 @@ html.hc-ios .hc-chat-scroll {
   }
 }
 
+/* 思考卡与联网搜索卡共用的行级入场（低位淡入）：时长/曲线一致，保证两卡运动语言统一。 */
+@keyframes hc-step-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+/* 思考摘要流式期间：新小节（圆点+标题+竖线）与完成页脚入场；
+   小节体文字经 Markdown animate 复用正文的 .hc-stream-seg 逐段渐入，
+   小标题按可见单元错峰扫入（AnimatedSectionTitle 注入逐单元 delay）。 */
+.hc-reasoning-step-in {
+  animation: hc-step-in 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+/* 新小标题的圆点轻弹落位，与标题文字的扫入同步开始 */
+@keyframes hc-reasoning-dot-in {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.hc-reasoning-dot-in {
+  animation: hc-reasoning-dot-in 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 /* 联网搜索活动卡：状态行 + 动作时间线（搜索词 chips / 阅读页面 / 页内查找）。
    状态色与流光高亮沿用思考卡的变量名，保证两张卡在浅/深色下观感一致。 */
 .hc-websearch {
@@ -858,19 +890,9 @@ html.hc-ios .hc-chat-scroll {
 .hc-websearch-chip:hover {
   background: rgb(0 0 0 / 0.075);
 }
-/* 步骤/内容渐入：动作到达（占位 → 内容）与新行出现共用同一入场 */
-@keyframes hc-websearch-step-in {
-  from {
-    opacity: 0;
-    transform: translateY(3px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
+/* 步骤/内容渐入：动作到达（占位 → 内容）与新行出现共用同一入场（关键帧与思考卡共享）。 */
 .hc-websearch-step-in {
-  animation: hc-websearch-step-in 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: hc-step-in 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 /* 查询词逐个错峰浮现 */
 @keyframes hc-websearch-chip-in {
@@ -1433,6 +1455,8 @@ html.hc-ios .hc-chat-scroll {
   .hc-sidebar-rail-in,
   .hc-timeline-panel-in,
   .hc-stream-seg,
+  .hc-reasoning-step-in,
+  .hc-reasoning-dot-in,
   .hc-websearch-step-in,
   .hc-websearch-chip-in,
   .hc-websearch-skeleton,

@@ -23,23 +23,31 @@ function shouldSkip(node: Element): boolean {
 // 逐段包裹后，仅新到达的 <span> 会在挂载时播放淡入，已存在的文本不会重播动画。
 const UNIT_RE = /(\s+)|([A-Za-z0-9]+(?:[-'’][A-Za-z0-9]+)*)|(.)/gsu
 
-export function segmentText(value: string): ElementContent[] {
-  const nodes: ElementContent[] = []
+export interface VisibleUnit {
+  chunk: string
+  /** 连续空白：保持纯文本不包裹，与原文完全一致的换行/折行行为。 */
+  isSpace: boolean
+}
+
+/** 可见单元切分（CJK 逐字、ASCII 整词）；思考卡小标题的错峰渐入也复用同一口径。 */
+export function splitVisibleUnits(value: string): VisibleUnit[] {
+  const units: VisibleUnit[] = []
   for (const match of value.matchAll(UNIT_RE)) {
-    const chunk = match[0]
-    if (match[1]) {
-      // 空白不包裹，保持与原文完全一致的换行/折行行为。
-      nodes.push({ type: 'text', value: chunk })
-      continue
-    }
-    nodes.push({
+    units.push({ chunk: match[0], isSpace: Boolean(match[1]) })
+  }
+  return units
+}
+
+export function segmentText(value: string): ElementContent[] {
+  return splitVisibleUnits(value).map((unit): ElementContent => {
+    if (unit.isSpace) return { type: 'text', value: unit.chunk }
+    return {
       type: 'element',
       tagName: 'span',
       properties: { className: [SEGMENT_CLASS] },
-      children: [{ type: 'text', value: chunk }],
-    })
-  }
-  return nodes
+      children: [{ type: 'text', value: unit.chunk }],
+    }
+  })
 }
 
 function segmentChildren(children: ElementContent[]): ElementContent[] {

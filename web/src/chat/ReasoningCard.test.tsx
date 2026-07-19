@@ -26,9 +26,59 @@ describe('ReasoningCard', () => {
     )
 
     expect(html).toContain('Heading')
-    expect(html).toContain('<li>item</li>')
+    // 思考中摘要体走流式逐段渐入：可见单元被包成 hc-stream-seg，代码子树保持原样
+    expect(html).toMatch(/<li><span class="hc-stream-seg">item<\/span><\/li>/)
     expect(html).toContain('<code>code</code>')
     expect(html).not.toContain('Intro.**Heading**')
+  })
+
+  it('staggers new section titles per visible unit while thinking', () => {
+    const html = renderToStaticMarkup(
+      <ReasoningCard text={'**分析 edge cases**'} status="thinking" startedAt={1000} />,
+    )
+
+    // CJK 逐字、ASCII 整词，逐单元递增 delay 做从左到右扫入；圆点同步弹现
+    expect(html).toMatch(/<span class="hc-stream-seg" style="animation-delay:0ms">分<\/span>/)
+    expect(html).toMatch(/<span class="hc-stream-seg" style="animation-delay:24ms">析<\/span>/)
+    expect(html).toMatch(/<span class="hc-stream-seg" style="animation-delay:48ms">edge<\/span>/)
+    expect(html).toMatch(/<span class="hc-stream-seg" style="animation-delay:72ms">cases<\/span>/)
+    expect(html).toContain('hc-reasoning-dot-in')
+
+    const completed = renderToStaticMarkup(
+      <ReasoningCard
+        text={'**分析 edge cases**'}
+        status="completed"
+        startedAt={null}
+        durationMs={3500}
+        defaultExpanded
+      />,
+    )
+    // 完成/持久化态标题为纯文本，不重播扫入
+    expect(completed).toContain('分析 edge cases')
+    expect(completed).not.toContain('hc-stream-seg')
+    expect(completed).not.toContain('hc-reasoning-dot-in')
+  })
+
+  it('animates section entrance and body segments only while thinking', () => {
+    const thinking = renderToStaticMarkup(
+      <ReasoningCard text={'**Heading**\n\nbody'} status="thinking" startedAt={1000} />,
+    )
+    expect(thinking).toContain('hc-reasoning-step-in')
+    expect(thinking).toContain('hc-stream-seg')
+
+    const completed = renderToStaticMarkup(
+      <ReasoningCard
+        text={'**Heading**\n\nbody'}
+        status="completed"
+        startedAt={null}
+        durationMs={3500}
+        defaultExpanded
+      />,
+    )
+    // 完成后小节静态渲染（不重播入场、不再包渐入 span），仅完成页脚保留入场动效
+    expect(completed).not.toContain('hc-stream-seg')
+    expect(completed.match(/hc-reasoning-step-in/g)).toHaveLength(1)
+    expect(completed).toMatch(/hc-reasoning-step-in[^>]*data-testid="reasoning-summary-footer"/)
   })
 
   it('renders every adjacent OpenAI summary heading as a separate section', () => {
