@@ -65,3 +65,25 @@ describe('assistant message branch action', () => {
     expect(renderMessage(message)).not.toContain('aria-label="创建新的分支对话"')
   })
 })
+
+describe('assistant citation source chips', () => {
+  it('keeps the entire source-chip block hidden while the code-level display switch is off', () => {
+    const message: MessageDTO = {
+      ...assistantMessage(),
+      annotations: [
+        {
+          type: 'url_citation',
+          url: 'https://example.com/source',
+          title: '示例来源',
+          start_index: 0,
+          end_index: 2,
+        },
+      ],
+    }
+
+    const html = renderMessage(message)
+
+    expect(html).not.toContain('https://example.com/source')
+    expect(html).not.toContain('示例来源')
+  })
+})

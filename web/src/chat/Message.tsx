@@ -27,6 +27,7 @@ import { ProgressiveImageStage } from './ProgressiveImageStage'
 import { attachmentDraftsFromContent } from './attachmentDraft'
 import { MessageEditForm, type MessageEditSubmit } from './MessageEditForm'
 import { BranchConversationIcon, EditIcon, RetryMessageIcon } from './icons'
+import { SHOW_CITATION_SOURCE_CHIPS } from './citationDisplay'
 
 export interface BranchInfo {
   index: number
@@ -253,7 +254,9 @@ export function Message({
       {message.content.some((p) => p.type === 'image_result') && (
         <AttachmentParts content={message.content} onUseImageSource={onUseImageSource} />
       )}
-      {annotations.length > 0 && <Citations items={annotations} />}
+      {SHOW_CITATION_SOURCE_CHIPS && annotations.length > 0 && (
+        <Citations items={annotations} />
+      )}
       {!streaming && !error && (
         <div className="space-y-1.5">
           <div className="flex items-center gap-1.5 text-neutral-400">

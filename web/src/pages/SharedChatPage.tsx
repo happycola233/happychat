@@ -11,6 +11,7 @@ import { ImagePreviewTrigger } from '../chat/ImagePreview'
 import { Markdown } from '../chat/Markdown'
 import { ReasoningCard, type ReasoningCardStatus } from '../chat/ReasoningCard'
 import { WebSearchActivity } from '../chat/WebSearchActivity'
+import { SHOW_CITATION_SOURCE_CHIPS } from '../chat/citationDisplay'
 import { persistedWebSearchCalls } from '../sse/eventReducer'
 import {
   CopyMessageButton,
@@ -251,7 +252,7 @@ function SharedMessage({ m, token }: { m: MessageDTO; token: string }) {
       )}
       {text && <Markdown text={text} />}
       <SharedAttachmentParts content={m.content} token={token} />
-      <Citations items={m.annotations} />
+      {SHOW_CITATION_SOURCE_CHIPS && <Citations items={m.annotations} />}
       <SharedMessageMeta m={m} text={text} align="start" />
     </div>
   )
