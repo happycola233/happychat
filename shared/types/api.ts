@@ -20,6 +20,7 @@ import type {
   UrlCitation,
   UserPreferences,
   UserRole,
+  WebSearchAction,
 } from './domain'
 
 /** 返回前端的用户信息（绝不含 passwordHash） */
@@ -156,6 +157,8 @@ export interface MessageDTO {
   /** 整次生成的墙钟耗时；优先由 run 起止时间计算，无 run 时可使用消息快照。 */
   generationDurationMs: number | null
   annotations: UrlCitation[] | null
+  /** web_search 工具本轮执行的动作序列；旧消息/旧分享快照可能没有该字段。 */
+  webSearchActions?: WebSearchAction[] | null
   usage: MessageUsage | null
   errorMessage: string | null
   createdAt: number

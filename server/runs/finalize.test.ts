@@ -122,6 +122,10 @@ describe('finalizeRun terminal snapshots', () => {
       reasoningContext: 'all_turns',
       items: [{ type: 'reasoning', encrypted_content: 'opaque-finalize-ciphertext' }],
     }
+    const webSearchActions = [
+      { type: 'search' as const, queries: ['react 19 发布时间'] },
+      { type: 'open_page' as const, url: 'https://react.dev/blog' },
+    ]
     const emittedEvents: Array<{ type: string; data: Record<string, unknown> }> = []
     await finalize.finalizeRun({
       run,
@@ -133,6 +137,7 @@ describe('finalizeRun terminal snapshots', () => {
       text: '回答',
       reasoningSummary: '思考摘要',
       annotations: [],
+      webSearchActions,
       usage: {
         inputTokens: 10,
         cacheWriteTokens: 0,
@@ -162,10 +167,12 @@ describe('finalizeRun terminal snapshots', () => {
     expect(persistedMessage).toMatchObject({
       status: 'complete',
       reasoningReplayContext,
+      webSearchActions,
       reasoningDurationMs: 3_500,
       generationDurationMs: persistedRun!.finishedAt!.getTime() - startedAt.getTime(),
     })
     expect(emittedEvents.map((event) => event.type)).toEqual(['run.done'])
+    expect(emittedEvents[0]?.data).toMatchObject({ webSearchActions })
     expect(emittedEvents[0]?.data).not.toHaveProperty('reasoningReplayContext')
     expect(JSON.stringify(emittedEvents)).not.toContain('opaque-finalize-ciphertext')
 
@@ -204,6 +211,7 @@ describe('finalizeRun terminal snapshots', () => {
       text: '',
       reasoningSummary: null,
       annotations: [],
+      webSearchActions: [],
       usage: {
         inputTokens: 0,
         cacheWriteTokens: 0,
@@ -224,5 +232,7 @@ describe('finalizeRun terminal snapshots', () => {
       where: eq(schema.messages.id, failedMessage.id),
     })
     expect(persistedFailedMessage?.reasoningReplayContext).toBeNull()
+    // 空数组表示本轮没有任何搜索动作，列保持 null 而不是存 []。
+    expect(persistedFailedMessage?.webSearchActions).toBeNull()
   })
 })

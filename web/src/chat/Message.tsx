@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   AlertCircle,
   ChevronLeft,
@@ -12,7 +12,9 @@ import { useSettings } from '../store/settings'
 import { CollapsibleUserMessageText } from './MessageContent'
 import { textFromContent } from './contentText'
 import { Markdown } from './Markdown'
+import { persistedWebSearchCalls } from '../sse/eventReducer'
 import { ReasoningCard, type ReasoningCardStatus } from './ReasoningCard'
+import { WebSearchActivity } from './WebSearchActivity'
 import { AttachmentParts } from './Attachments'
 import {
   CopyMessageButton,
@@ -127,6 +129,11 @@ export function Message({
   const defaultExpandReasoning = useSettings((s) => s.preferences.defaultExpandReasoning)
   const models = useModels().data
   const modelName = message.modelLabel ?? models?.find((m) => m.id === message.modelId)?.displayName ?? null
+  // 流式期间跟随 live 调用状态；终态/刷新后回读持久化的动作序列（两者内容同口径）。
+  const webSearchCalls = useMemo(
+    () => (live ? live.webSearchCalls : persistedWebSearchCalls(message.webSearchActions)),
+    [live, message.webSearchActions],
+  )
 
   if (message.role === 'user') {
     const text = textFromContent(message.content)
@@ -207,7 +214,8 @@ export function Message({
   const showReasoningCard =
     hasReasoningText || liveThinking || liveStoppedThinking || persistedStoppedThinking || hasCompletedReasoning
   const hasLiveImage = Boolean(live?.imageStatus || live?.imageGenerations.length)
-  const showPendingDots = streaming && !text && !reasoning && !showReasoningCard && !hasLiveImage
+  const showPendingDots =
+    streaming && !text && !reasoning && !showReasoningCard && !hasLiveImage && !webSearchCalls.length
 
   return (
     <div className="group space-y-2" data-testid="assistant-message">
@@ -219,6 +227,9 @@ export function Message({
           durationMs={live ? live.reasoningDurationMs : message.reasoningDurationMs}
           defaultExpanded={defaultExpandReasoning}
         />
+      )}
+      {webSearchCalls.length > 0 && (
+        <WebSearchActivity calls={webSearchCalls} answerStarted={Boolean(text) || !streaming} />
       )}
       {error ? (
         <div className="flex items-start gap-2 rounded-xl bg-red-50 px-3 py-2.5 text-sm text-red-600 dark:bg-red-950/30 dark:text-red-400">

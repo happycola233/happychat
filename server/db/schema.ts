@@ -21,6 +21,7 @@ import type {
   UrlCitation,
   UserPreferences,
   UserRole,
+  WebSearchAction,
 } from '../../shared/types/domain'
 import type { MessageDTO } from '../../shared/types/api'
 import type { ReasoningReplayContextV1 } from '../provider/reasoning-replay'
@@ -322,6 +323,8 @@ export const messages = sqliteTable(
     reasoningDurationMs: integer('reasoning_duration_ms'),
     generationDurationMs: integer('generation_duration_ms'),
     annotations: text('annotations', { mode: 'json' }).$type<UrlCitation[]>(),
+    // web_search 工具本轮实际执行的动作序列（搜索词/打开页面/页内查找），供 UI 复现搜索过程。
+    webSearchActions: text('web_search_actions', { mode: 'json' }).$type<WebSearchAction[]>(),
     inputTokens: integer('input_tokens'),
     cacheWriteTokens: integer('cache_write_tokens'),
     cachedTokens: integer('cached_tokens'),

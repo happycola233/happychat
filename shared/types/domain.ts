@@ -101,6 +101,21 @@ export type ModelKind = 'responses' | 'chat' | 'image'
  */
 export type ModelAccessMode = 'all' | 'selected'
 
+/**
+ * web_search 工具的一步已完成动作（存于 messages.web_search_actions，按发生顺序）。
+ * 上游把「搜索、打开页面、页内查找」都记为一次 web_search_call，具体动作在
+ * 调用完成后的 output item 里给出；查询词在协议上是可选信息。
+ */
+export interface WebSearchAction {
+  type: 'search' | 'open_page' | 'find_in_page'
+  /** search：本步实际执行的搜索词（一次调用可含多条）。 */
+  queries?: string[]
+  /** open_page / find_in_page：目标页面 URL。 */
+  url?: string
+  /** find_in_page：页内查找的文本模式。 */
+  pattern?: string
+}
+
 /** web_search 引用注释（Responses API 扁平结构） */
 export interface UrlCitation {
   type: 'url_citation'

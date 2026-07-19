@@ -1,0 +1,1 @@
+ALTER TABLE `messages` ADD `web_search_actions` text;

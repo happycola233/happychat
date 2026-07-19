@@ -55,6 +55,7 @@ export function toMessageDTO(
     reasoningDurationMs: timing?.reasoningDurationMs ?? m.reasoningDurationMs ?? null,
     generationDurationMs: timing?.generationDurationMs ?? m.generationDurationMs ?? null,
     annotations: m.annotations,
+    webSearchActions: m.webSearchActions,
     usage:
       m.totalTokens != null
         ? {

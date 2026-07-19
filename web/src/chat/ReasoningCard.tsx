@@ -296,7 +296,9 @@ export function ReasoningCard({
         : `正在思考 ${seconds}s`
 
   return (
-    <div ref={cardRef} className="hc-reasoning space-y-1" data-testid="reasoning-card">
+    // 间距放进可折叠容器内部（pt-2）而不是 space-y：折叠后 0 高度容器不再留下死空间，
+    // 「已思考」与下方内容（如搜索状态行）在折叠/展开两种状态下间距一致。
+    <div ref={cardRef} className="hc-reasoning" data-testid="reasoning-card">
       <div
         ref={stickyRef}
         className={clsx(
@@ -322,7 +324,7 @@ export function ReasoningCard({
           aria-hidden={!open}
         >
           <div className="min-h-0 overflow-hidden">
-            <div className="pt-1 pr-2 pb-1">
+            <div className="pt-2 pr-2 pb-1">
               <ReasoningSections sections={sections} />
               {status === 'completed' && (
                 <div className="mt-3">

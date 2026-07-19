@@ -1,9 +1,14 @@
-import type { UrlCitation } from '@shared/types/domain'
+import type { UrlCitation, WebSearchAction } from '@shared/types/domain'
 import type { WireEvent } from '@shared/types/events'
 import {
   appendReasoningSummaryDelta,
   responseDeltaIdentityKey,
 } from '@shared/util/reasoningSummary'
+import {
+  isWebSearchCallItem,
+  webSearchActionFromItem,
+  webSearchCallIdFromEvent,
+} from '@shared/util/webSearchActivity'
 
 export type LiveStatus =
   | 'streaming'
@@ -28,6 +33,33 @@ export interface LiveImageGeneration {
   completedAt: number | null
 }
 
+export type LiveWebSearchCallStatus = 'in_progress' | 'searching' | 'completed'
+
+/**
+ * 一次 web_search 工具调用的流式状态。搜索不是贯穿思考的持续状态，而是 0~N 个
+ * 离散调用；查询词等动作细节要等调用完成（output_item.done）才出现。
+ */
+export interface LiveWebSearchCall {
+  id: string
+  status: LiveWebSearchCallStatus
+  /** 调用完成后解析出的动作；进行中恒为 null。 */
+  action: WebSearchAction | null
+}
+
+export const hasActiveWebSearch = (calls: readonly LiveWebSearchCall[]): boolean =>
+  calls.some((call) => call.status !== 'completed')
+
+/** 持久化消息（含分享快照）没有流式调用，把动作序列适配成已完成调用供同一 UI 渲染。 */
+export function persistedWebSearchCalls(
+  actions: WebSearchAction[] | null | undefined,
+): LiveWebSearchCall[] {
+  return (actions ?? []).map((action, index) => ({
+    id: `saved-web-search-${index}`,
+    status: 'completed' as const,
+    action,
+  }))
+}
+
 export interface LiveMessage {
   text: string
   reasoning: string
@@ -39,8 +71,7 @@ export interface LiveMessage {
   annotations: UrlCitation[]
   status: LiveStatus
   error?: string
-  webSearching: boolean
-  webSearchCallIds: string[]
+  webSearchCalls: LiveWebSearchCall[]
   imageStatus?: 'generating' | 'done'
   imageGenerations: LiveImageGeneration[]
   /** 兼容旧 UI 读取；新 UI 使用 imageGenerations。 */
@@ -64,8 +95,7 @@ export const initialLive = (
   reasoningEnabled,
   annotations: [],
   status: 'streaming',
-  webSearching: false,
-  webSearchCallIds: [],
+  webSearchCalls: [],
   imageGenerations: [],
   imagePreviewIndex: null,
   imagePreviewUpdatedAt: null,
@@ -145,16 +175,86 @@ function finalAnnotations(value: unknown, fallback: UrlCitation[]): UrlCitation[
   return unchanged ? fallback : next
 }
 
-function addWebSearchCall(s: LiveMessage, id: string): LiveMessage {
-  if (!id) return { ...s, webSearching: true }
-  if (s.webSearchCallIds.includes(id)) return { ...s, webSearching: true }
-  return { ...s, webSearching: true, webSearchCallIds: [...s.webSearchCallIds, id] }
+interface WebSearchCallPatch {
+  status?: LiveWebSearchCallStatus
+  action?: WebSearchAction | null
 }
 
-function finishWebSearchCall(s: LiveMessage, id: string): LiveMessage {
-  if (!id) return { ...s, webSearching: false, webSearchCallIds: [] }
-  const webSearchCallIds = s.webSearchCallIds.filter((item) => item !== id)
-  return { ...s, webSearchCallIds, webSearching: webSearchCallIds.length > 0 }
+function upsertWebSearchCall(s: LiveMessage, id: string, patch: WebSearchCallPatch): LiveMessage {
+  // 无标识的事件回落到最近一个未完成调用（同图片生成的口径），避免重复建行。
+  const index = id
+    ? s.webSearchCalls.findIndex((call) => call.id === id)
+    : s.webSearchCalls.findLastIndex((call) => call.status !== 'completed')
+  if (index < 0) {
+    const call: LiveWebSearchCall = {
+      id: id || `web-search-${s.webSearchCalls.length}`,
+      status: patch.status ?? 'in_progress',
+      action: patch.action ?? null,
+    }
+    return { ...s, webSearchCalls: [...s.webSearchCalls, call] }
+  }
+  const existing = s.webSearchCalls[index]!
+  const next: LiveWebSearchCall = {
+    ...existing,
+    // completed 不允许回退（防御事件乱序与续传重放）。
+    status:
+      existing.status === 'completed' ? 'completed' : (patch.status ?? existing.status),
+    action: patch.action ?? existing.action,
+  }
+  if (next.status === existing.status && next.action === existing.action) return s
+  const webSearchCalls = s.webSearchCalls.slice()
+  webSearchCalls[index] = next
+  return { ...s, webSearchCalls }
+}
+
+function reduceWebSearchItemEvent(s: LiveMessage, ev: WireEvent): LiveMessage {
+  const item = ev.data.item
+  if (!isWebSearchCallItem(item)) return s
+  const completed = ev.type === 'response.output_item.done' || item.status === 'completed'
+  return upsertWebSearchCall(s, webSearchCallIdFromEvent(ev.data), {
+    ...(completed ? { status: 'completed' as const } : {}),
+    action: webSearchActionFromItem(item),
+  })
+}
+
+/**
+ * 终态收口：结束所有仍在进行的调用，并丢弃始终没解析出动作的占位调用，
+ * 与刷新后读到的持久化 webSearchActions 保持同一份内容。
+ */
+function settleWebSearchCalls(calls: LiveWebSearchCall[]): LiveWebSearchCall[] {
+  const settled = calls
+    .filter((call) => call.action !== null)
+    .map((call) => (call.status === 'completed' ? call : { ...call, status: 'completed' as const }))
+  return settled.length === calls.length && settled.every((call, i) => call === calls[i])
+    ? calls
+    : settled
+}
+
+function isWebSearchActionShape(value: unknown): value is WebSearchAction {
+  if (typeof value !== 'object' || value === null) return false
+  const type = (value as { type?: unknown }).type
+  return type === 'search' || type === 'open_page' || type === 'find_in_page'
+}
+
+/** run.done 携带的终态动作序列是权威值；与流式解析一致时保留原行身份，避免 UI 重播入场动画。 */
+function finalWebSearchCalls(
+  calls: LiveWebSearchCall[],
+  finalActions: unknown,
+): LiveWebSearchCall[] {
+  const settled = settleWebSearchCalls(calls)
+  if (!Array.isArray(finalActions)) return settled
+  const actions = finalActions.filter(isWebSearchActionShape)
+  const unchanged =
+    actions.length === settled.length &&
+    actions.every(
+      (action, index) => JSON.stringify(action) === JSON.stringify(settled[index]?.action),
+    )
+  if (unchanged) return settled
+  return actions.map((action, index) => ({
+    id: `final-web-search-${index}`,
+    status: 'completed' as const,
+    action,
+  }))
 }
 
 function markUpstreamStarted(s: LiveMessage): LiveMessage {
@@ -283,11 +383,17 @@ export function reduceEvent(s: LiveMessage, ev: WireEvent): LiveMessage {
       if (a && a.type === 'url_citation') return { ...s, annotations: [...s.annotations, a] }
       return s
     }
+    // web_search_call 的动作细节（搜索词/URL）只在 output_item 事件里出现；
+    // xAI 旧实现的 item 首次出现即 completed，也在这里一并收口。
+    case 'response.output_item.added':
+    case 'response.output_item.done':
+      return reduceWebSearchItemEvent(s, ev)
     case 'response.web_search_call.in_progress':
+      return upsertWebSearchCall(s, webSearchCallIdFromEvent(ev.data), { status: 'in_progress' })
     case 'response.web_search_call.searching':
-      return addWebSearchCall(s, str(ev.data.item_id))
+      return upsertWebSearchCall(s, webSearchCallIdFromEvent(ev.data), { status: 'searching' })
     case 'response.web_search_call.completed':
-      return finishWebSearchCall(s, str(ev.data.item_id))
+      return upsertWebSearchCall(s, webSearchCallIdFromEvent(ev.data), { status: 'completed' })
     case 'image.generation.in_progress':
       return upsertImageGeneration(s, ev.data, { status: 'generating' })
     case 'image.generation.partial': {
@@ -331,7 +437,7 @@ export function reduceEvent(s: LiveMessage, ev: WireEvent): LiveMessage {
         reasoningPartKey: hasFinalReasoning ? null : completed.reasoningPartKey,
         annotations: finalAnnotations(ev.data.annotations, completed.annotations),
         status: (str(ev.data.state) as LiveStatus) || 'completed',
-        webSearching: false,
+        webSearchCalls: finalWebSearchCalls(completed.webSearchCalls, ev.data.webSearchActions),
       }
     }
     case 'run.error':
@@ -339,12 +445,20 @@ export function reduceEvent(s: LiveMessage, ev: WireEvent): LiveMessage {
         ...finishReasoning(s),
         status: 'failed',
         error: str(ev.data.message) || '生成失败',
-        webSearching: false,
+        webSearchCalls: settleWebSearchCalls(s.webSearchCalls),
       }
     case 'run.canceled':
-      return { ...finishReasoning(s), status: 'canceled', webSearching: false }
+      return {
+        ...finishReasoning(s),
+        status: 'canceled',
+        webSearchCalls: settleWebSearchCalls(s.webSearchCalls),
+      }
     case 'run.interrupted':
-      return { ...finishReasoning(s), status: 'interrupted', webSearching: false }
+      return {
+        ...finishReasoning(s),
+        status: 'interrupted',
+        webSearchCalls: settleWebSearchCalls(s.webSearchCalls),
+      }
     default:
       return s
   }

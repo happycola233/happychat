@@ -1,5 +1,11 @@
 import { and, eq, inArray } from 'drizzle-orm'
-import type { ContentPart, MessageUsage, ModelParams, UrlCitation } from '@shared/types/domain'
+import type {
+  ContentPart,
+  MessageUsage,
+  ModelParams,
+  UrlCitation,
+  WebSearchAction,
+} from '@shared/types/domain'
 import { RUN_EVENT_TYPE } from '@shared/types/events'
 import { isReasoningEnabled } from '@shared/util/reasoning'
 import { db } from '../db/client'
@@ -24,6 +30,8 @@ export interface FinalizeArgs {
   reasoningSummary: string | null
   annotations: UrlCitation[]
   usage: MessageUsage
+  /** web_search 工具实际执行的动作序列；仅 Responses 文本引擎传入。 */
+  webSearchActions?: WebSearchAction[] | null
   incompleteReason: string | null
   errorMessage: string | null
   errorType?: string | null
@@ -60,6 +68,8 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
       status: msgStatus,
       reasoningSummary: a.reasoningSummary,
       annotations: a.annotations.length ? a.annotations : null,
+      // 搜索确实发生过就保留（含失败/取消），供 UI 复现搜索过程。
+      webSearchActions: a.webSearchActions?.length ? a.webSearchActions : null,
       runId: a.run.id,
       reasoningDurationMs,
       generationDurationMs,
@@ -143,6 +153,8 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
       text: a.text,
       reasoningSummary: a.reasoningSummary,
       annotations: a.annotations,
+      // 数组本身就是终态权威值：空数组会清掉前端未解析出动作的占位调用。
+      ...(a.webSearchActions ? { webSearchActions: a.webSearchActions } : {}),
       usage: a.usage,
       incompleteReason: a.incompleteReason,
     })

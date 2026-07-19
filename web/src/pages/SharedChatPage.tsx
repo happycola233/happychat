@@ -10,6 +10,8 @@ import { getPublicShare, shareAttachmentUrl } from '../api/shares'
 import { ImagePreviewTrigger } from '../chat/ImagePreview'
 import { Markdown } from '../chat/Markdown'
 import { ReasoningCard, type ReasoningCardStatus } from '../chat/ReasoningCard'
+import { WebSearchActivity } from '../chat/WebSearchActivity'
+import { persistedWebSearchCalls } from '../sse/eventReducer'
 import {
   CopyMessageButton,
   MessageTimeLabel,
@@ -237,6 +239,9 @@ function SharedMessage({ m, token }: { m: MessageDTO; token: string }) {
           defaultExpanded={hasReasoningText}
           stickyTopClassName={SHARE_REASONING_STICKY_TOP_CLASS}
         />
+      )}
+      {Boolean(m.webSearchActions?.length) && (
+        <WebSearchActivity calls={persistedWebSearchCalls(m.webSearchActions)} answerStarted />
       )}
       {m.status === 'error' && m.errorMessage && (
         <div className="flex items-start gap-2 rounded-xl bg-red-50 px-3 py-2.5 text-sm text-red-600 dark:bg-red-950/30 dark:text-red-400">
