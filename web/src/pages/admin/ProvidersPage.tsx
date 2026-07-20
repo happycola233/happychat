@@ -443,7 +443,7 @@ function ProviderModal({
           label="Base URL"
           value={baseUrl}
           onChange={(e) => setBaseUrl(e.target.value)}
-          placeholder="https://api.example.com/llm/v1"
+          placeholder="https://api.example.com/v1"
           hint="通常以 /v1 结尾"
         />
         <TextField
