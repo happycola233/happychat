@@ -6,7 +6,7 @@ import { summarizeWebSearchActions } from '@shared/util/webSearchActivity'
 import { hasActiveWebSearch, type LiveWebSearchCall } from '../sse/eventReducer'
 
 /**
- * 联网搜索活动卡：状态行（进行中流光）+ 可折叠的动作时间线。
+ * 联网搜索活动卡：状态行（进行中文字流光）+ 可折叠的动作时间线。
  *
  * 口径（见上游实测）：web_search 不是贯穿思考的持续状态，而是 0~N 个离散调用，
  * 两次调用之间模型仍在推理；查询词/URL 只在调用完成后出现，进行中一律以骨架
@@ -42,7 +42,8 @@ function statusLabel(active: boolean, actions: WebSearchAction[]): string {
 
 function StepIcon({ action }: { action: WebSearchAction | null }) {
   const className = 'h-3.5 w-3.5'
-  if (!action) return <Globe className={clsx(className, 'hc-websearch-pulse')} />
+  // 图标保持静止，避免它与旁边已足够醒目的加载骨架同时闪烁。
+  if (!action) return <Globe className={className} />
   if (action.type === 'search') return <Search className={className} />
   if (action.type === 'find_in_page') return <TextSearch className={className} />
   return <Globe className={className} />
@@ -174,7 +175,8 @@ export function WebSearchActivity({ calls, answerStarted }: Props) {
         aria-label={open ? '折叠搜索过程' : '展开搜索过程'}
         className="hc-websearch-toggle inline-flex items-center gap-2 py-0.5 text-[13px] leading-6 transition-colors"
       >
-        <Globe className={clsx('h-3.5 w-3.5 shrink-0', active && 'hc-websearch-pulse')} aria-hidden />
+        {/* 进行中状态由文字流光表达，地球图标始终保持静止。 */}
+        <Globe className="h-3.5 w-3.5 shrink-0" aria-hidden />
         <span className={clsx(active && 'hc-reasoning-shimmer')} data-testid="web-search-label">
           {label}
         </span>

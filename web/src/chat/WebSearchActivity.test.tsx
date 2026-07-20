@@ -11,6 +11,8 @@ describe('WebSearchActivity', () => {
     expect(html).toContain('正在搜索网页')
     expect(html).toContain('hc-reasoning-shimmer')
     expect(html).toContain('hc-websearch-skeleton')
+    // 标题和待解析步骤的地球图标保持静止，其余加载反馈继续显示。
+    expect(html).not.toContain('hc-websearch-pulse')
     // 进行中自动展开明细
     expect(html).toContain('aria-expanded="true"')
   })

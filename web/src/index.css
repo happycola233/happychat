@@ -929,19 +929,6 @@ html.hc-ios .hc-chat-scroll {
     background-position: -70% 0;
   }
 }
-/* 状态行地球：搜索进行中轻微呼吸 */
-@keyframes hc-websearch-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.45;
-  }
-}
-.hc-websearch-pulse {
-  animation: hc-websearch-pulse 1.7s ease-in-out infinite;
-}
 .hc-code-block pre code.hljs,
 .hc-code-block code.hljs {
   display: block;
@@ -1459,8 +1446,7 @@ html.hc-ios .hc-chat-scroll {
   .hc-reasoning-dot-in,
   .hc-websearch-step-in,
   .hc-websearch-chip-in,
-  .hc-websearch-skeleton,
-  .hc-websearch-pulse {
+  .hc-websearch-skeleton {
     animation: none;
   }
   /* 行扩展直接落位；没有过渡就不会触发 transitionend，动画标记会残留，须保持不裁切。 */
