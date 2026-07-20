@@ -3,6 +3,43 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      主题必须在主脚本下载前恢复，否则 iOS 主屏幕应用会先绘制默认白底，
+      再由 React 切换到深色，形成明显的黑 → 白 → 黑闪烁。
+    -->
+    <style>
+      html,
+      body {
+        background-color: #ffffff;
+      }
+
+      html.dark,
+      html.dark body {
+        background-color: #000000;
+      }
+    </style>
+    <script data-hc-theme-bootstrap>
+      ;(() => {
+        const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+        let theme = 'system'
+
+        try {
+          const cachedSettings = window.localStorage.getItem('happychat-settings')
+          if (cachedSettings) {
+            const parsedSettings = JSON.parse(cachedSettings)
+            const cachedTheme = parsedSettings && parsedSettings.state && parsedSettings.state.theme
+            if (cachedTheme === 'light' || cachedTheme === 'dark' || cachedTheme === 'system') {
+              theme = cachedTheme
+            }
+          }
+        } catch {
+          // localStorage 被禁用或缓存损坏时，安全回退到系统主题。
+        }
+
+        const useDarkTheme = theme === 'dark' || (theme === 'system' && systemPrefersDark)
+        document.documentElement.classList.toggle('dark', useDarkTheme)
+      })()
+    </script>
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="HappyChat" />
     <link
