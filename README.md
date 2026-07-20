@@ -191,7 +191,7 @@ NODE_ENV=production npm run start
 
 ```bash
 # 需 Node 20+（推荐 22/24）
-git clone <repo> && cd happychat
+git clone https://github.com/happycola233/happychat && cd happychat
 npm ci
 npm run build
 
