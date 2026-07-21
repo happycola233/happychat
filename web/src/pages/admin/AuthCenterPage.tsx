@@ -256,7 +256,16 @@ function InvitesTab() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-neutral-500">注册需要有效邀请码（首位用户除外）</p>
+        <p className="text-sm text-neutral-500 dark:text-neutral-400">
+          可在
+          <Link
+            to="/admin/settings"
+            className="mx-1 font-medium text-neutral-700 underline decoration-neutral-300 underline-offset-4 transition hover:text-neutral-950 dark:text-neutral-300 dark:decoration-neutral-600 dark:hover:text-white"
+          >
+            系统设置
+          </Link>
+          配置新用户注册是否需要邀请码。
+        </p>
         <Button onClick={() => setCreating(true)}>
           <Plus className="h-4 w-4" /> 生成邀请码
         </Button>

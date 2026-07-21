@@ -1,8 +1,7 @@
 import type { QueryClient } from '@tanstack/react-query'
-import type { AppConfigDTO, PublicShareDTO, SharedChatDTO } from '@shared/types/api'
+import type { PublicShareDTO, SharedChatDTO } from '@shared/types/api'
 import type { CreateShareInput } from '@shared/schemas/share'
-import type { AppConfigUpdateInput } from '@shared/schemas/app-config'
-import { apiDelete, apiGet, apiPatch, apiPost } from './client'
+import { apiDelete, apiGet, apiPost } from './client'
 
 /**
  * 分享状态分散在弹窗（conversation-share）、设置页（my-shares）、管理后台（admin shares）
@@ -45,15 +44,7 @@ export const revokeConversationShare = (conversationId: string) =>
 export const listMyShares = () =>
   apiGet<{ shares: SharedChatDTO[] }>('/conversations/shared').then((r) => r.shares)
 
-// ---- 管理端 ----
-export const getAppConfig = () =>
-  apiGet<{ config: AppConfigDTO }>('/admin/app-config').then((r) => r.config)
-
-export const updateAppConfig = (input: AppConfigUpdateInput) =>
-  apiPatch<{ config: AppConfigDTO }>('/admin/app-config', input).then((r) => r.config)
-
 export const listAllShares = () =>
   apiGet<{ shares: SharedChatDTO[] }>('/admin/shares').then((r) => r.shares)
 
-export const adminRevokeShare = (id: string) =>
-  apiPost<{ ok: true }>(`/admin/shares/${id}/revoke`)
+export const adminRevokeShare = (id: string) => apiPost<{ ok: true }>(`/admin/shares/${id}/revoke`)

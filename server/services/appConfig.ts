@@ -16,6 +16,7 @@ async function ensureRow(): Promise<AppSettingsRow> {
 
 function toDTO(row: AppSettingsRow): AppConfigDTO {
   return {
+    registrationRequiresInviteCode: row.registrationRequiresInviteCode,
     sharingEnabled: row.sharingEnabled,
     titleEnabled: row.titleEnabled,
     titleModelId: row.titleModelId,
@@ -30,6 +31,9 @@ export async function getAppConfig(): Promise<AppConfigDTO> {
 export async function updateAppConfig(patch: AppConfigUpdateInput): Promise<AppConfigDTO> {
   const row = await ensureRow()
   const set: Partial<typeof appSettings.$inferInsert> = { updatedAt: new Date() }
+  if (patch.registrationRequiresInviteCode !== undefined) {
+    set.registrationRequiresInviteCode = patch.registrationRequiresInviteCode
+  }
   if (patch.sharingEnabled !== undefined) set.sharingEnabled = patch.sharingEnabled
   if (patch.titleEnabled !== undefined) set.titleEnabled = patch.titleEnabled
   if (patch.titleModelId !== undefined) set.titleModelId = patch.titleModelId

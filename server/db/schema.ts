@@ -103,6 +103,12 @@ export const userSettings = sqliteTable('user_settings', {
 /** 全局应用设置（单例：始终只维护一行）。 */
 export const appSettings = sqliteTable('app_settings', {
   id: pk(),
+  // 是否要求新用户注册时填写邀请码；首位管理员始终例外
+  registrationRequiresInviteCode: integer('registration_requires_invite_code', {
+    mode: 'boolean',
+  })
+    .notNull()
+    .default(true),
   // 是否允许用户分享聊天（全局开关）
   sharingEnabled: integer('sharing_enabled', { mode: 'boolean' }).notNull().default(true),
   // 标题自动总结

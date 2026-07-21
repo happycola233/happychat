@@ -8,7 +8,7 @@ import {
   updateSettingsSchema,
 } from '@shared/schemas/settings'
 import { db } from '../db/client'
-import { attachments, inviteCodes, userSettings, users } from '../db/schema'
+import { appSettings, attachments, inviteCodes, userSettings, users } from '../db/schema'
 import { hashPassword, verifyPassword } from '../auth/password'
 import { createSession, destroyAllUserSessions, destroySession } from '../auth/session'
 import { toPublicUser } from '../auth/users'
@@ -28,10 +28,20 @@ import type { AppEnv } from '../http/types'
 
 export const authRoutes = new Hono<AppEnv>()
 
-/** 是否需要初始化（无任何用户时，首位注册者免邀请码并成为管理员） */
+/** 公开注册状态；匿名响应禁止缓存，避免管理员切换策略后注册页继续使用旧值。 */
 authRoutes.get('/bootstrap', (c) => {
   const total = db.select({ c: sql<number>`count(*)` }).from(users).get()?.c ?? 0
-  return c.json({ needsBootstrap: total === 0 })
+  const registrationPolicy = db
+    .select({ requiresInviteCode: appSettings.registrationRequiresInviteCode })
+    .from(appSettings)
+    .limit(1)
+    .get()
+  c.header('Cache-Control', 'no-store')
+  return c.json({
+    needsBootstrap: total === 0,
+    // 老库尚未创建设置单例行时保持既有的“需要邀请码”行为。
+    registrationRequiresInviteCode: registrationPolicy?.requiresInviteCode ?? true,
+  })
 })
 
 authRoutes.post('/register', jsonValidator(registerSchema), async (c) => {
@@ -45,8 +55,14 @@ authRoutes.post('/register', jsonValidator(registerSchema), async (c) => {
 
     const total = tx.select({ c: sql<number>`count(*)` }).from(users).get()?.c ?? 0
     const isFirst = total === 0
+    const registrationPolicy = tx
+      .select({ requiresInviteCode: appSettings.registrationRequiresInviteCode })
+      .from(appSettings)
+      .limit(1)
+      .get()
+    const requiresInviteCode = !isFirst && (registrationPolicy?.requiresInviteCode ?? true)
 
-    if (!isFirst) {
+    if (requiresInviteCode) {
       if (!inviteCode) return { error: '注册需要邀请码' } as const
       const code = tx.select().from(inviteCodes).where(eq(inviteCodes.code, inviteCode)).get()
       if (!code) return { error: '邀请码无效' } as const

@@ -12,8 +12,14 @@ import { TextField } from '../components/ui/TextField'
 export default function RegisterPage() {
   const navigate = useNavigate()
   const register = useRegister()
-  const { data: bootstrap } = useQuery({ queryKey: ['bootstrap'], queryFn: getBootstrap })
+  const { data: bootstrap, refetch: refetchBootstrap } = useQuery({
+    queryKey: ['bootstrap'],
+    queryFn: getBootstrap,
+  })
   const needsBootstrap = bootstrap?.needsBootstrap ?? false
+  // 公开配置尚未返回时按“需要邀请码”处理，避免加载窗口短暂开放无邀请码注册。
+  const registrationRequiresInviteCode = bootstrap?.registrationRequiresInviteCode ?? true
+  const requiresInviteCode = !needsBootstrap && registrationRequiresInviteCode
 
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -24,13 +30,17 @@ export default function RegisterPage() {
     e.preventDefault()
     setError('')
     try {
+      const normalizedInviteCode = inviteCode.trim()
       await register.mutateAsync({
         username,
         password,
-        inviteCode: needsBootstrap ? undefined : inviteCode,
+        // 隐藏字段绝不提交；空白也归一为缺省，由服务端返回准确的领域错误。
+        inviteCode: requiresInviteCode && normalizedInviteCode ? normalizedInviteCode : undefined,
       })
       navigate('/', { replace: true })
     } catch (err) {
+      // 管理员可能在用户填写期间切换了注册策略；失败后刷新即可让表单显现最新字段。
+      void refetchBootstrap()
       setError(err instanceof ApiRequestError ? err.message : '注册失败，请稍后重试')
     }
   }
@@ -50,7 +60,8 @@ export default function RegisterPage() {
     >
       {needsBootstrap && (
         <div className="mb-4 rounded-xl bg-amber-50 px-3.5 py-2.5 text-xs text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-          系统尚未初始化，当前注册的将是<strong className="font-semibold">首位管理员</strong>，无需邀请码。
+          系统尚未初始化，当前注册的将是<strong className="font-semibold">首位管理员</strong>
+          ，无需邀请码。
         </div>
       )}
       <form onSubmit={onSubmit} className="space-y-4">
@@ -70,7 +81,7 @@ export default function RegisterPage() {
           onChange={(e) => setPassword(e.target.value)}
           placeholder="至少 6 位"
         />
-        {!needsBootstrap && (
+        {requiresInviteCode && (
           <TextField
             label="邀请码"
             value={inviteCode}

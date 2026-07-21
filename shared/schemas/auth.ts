@@ -17,7 +17,13 @@ export const loginSchema = z.object({
 export const registerSchema = z.object({
   username: usernameSchema,
   password: passwordSchema,
-  inviteCode: z.string().trim().min(1).max(64).optional(),
+  // 是否必填由服务端的全局注册策略决定；空白统一归一为未提供。
+  inviteCode: z
+    .string()
+    .trim()
+    .max(64)
+    .optional()
+    .transform((value) => value || undefined),
 })
 
 export type LoginInput = z.infer<typeof loginSchema>

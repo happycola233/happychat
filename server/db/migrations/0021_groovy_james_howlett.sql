@@ -1,0 +1,1 @@
+ALTER TABLE `app_settings` ADD `registration_requires_invite_code` integer DEFAULT true NOT NULL;

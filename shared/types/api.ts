@@ -46,6 +46,8 @@ export interface UserSettingsDTO {
 export interface BootstrapStatus {
   /** 系统中尚无任何用户：首位注册者免邀请码并成为管理员 */
   needsBootstrap: boolean
+  /** 全局注册策略；首位注册者不受此设置限制 */
+  registrationRequiresInviteCode: boolean
 }
 
 /** 统一错误响应结构 */
@@ -379,6 +381,7 @@ export interface AdminSessionDTO {
 
 /** 全局应用设置（管理员可改）。 */
 export interface AppConfigDTO {
+  registrationRequiresInviteCode: boolean
   sharingEnabled: boolean
   titleEnabled: boolean
   titleModelId: string | null

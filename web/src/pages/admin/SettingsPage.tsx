@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { RotateCcw } from 'lucide-react'
 import { DEFAULT_TITLE_PROMPT } from '@shared/constants'
 import { getStats, listAdminModels } from '../../api/admin'
-import { getAppConfig, updateAppConfig } from '../../api/shares'
+import { getAppConfig, updateAppConfig } from '../../api/appConfig'
 import { Button } from '../../components/ui/Button'
 import { Card } from '../../components/ui/Card'
 import { PageHeader } from '../../components/ui/PageHeader'
@@ -47,6 +47,14 @@ export default function SettingsPage() {
 
   const invalidateConfig = () => qc.invalidateQueries({ queryKey: ['admin', 'app-config'] })
 
+  // 注册策略是单个全局开关，切换即保存；默认值保持为需要邀请码。
+  const toggleRegistrationRequirement = useMutation({
+    mutationFn: (registrationRequiresInviteCode: boolean) =>
+      updateAppConfig({ registrationRequiresInviteCode }),
+    onSuccess: invalidateConfig,
+    onError: (e) => toast.error(e instanceof Error ? e.message : '操作失败'),
+  })
+
   // 分享是单个开关，切换即保存（与其他管理页的开关交互一致）。
   const toggleSharing = useMutation({
     mutationFn: (sharingEnabled: boolean) => updateAppConfig({ sharingEnabled }),
@@ -77,6 +85,28 @@ export default function SettingsPage() {
   return (
     <div className="mx-auto max-w-2xl space-y-5">
       <PageHeader title="系统设置" description="全局功能开关与标题总结配置。" />
+
+      <Card title="注册">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="text-sm text-neutral-800 dark:text-neutral-100">注册需要邀请码</div>
+            <div className="mt-0.5 text-xs leading-5 text-neutral-400 dark:text-neutral-500">
+              首位管理员始终无需邀请码。关闭后，任何访客都能直接创建账号。
+            </div>
+            {config?.registrationRequiresInviteCode === false && (
+              <div className="mt-1 text-xs leading-5 text-amber-600 dark:text-amber-400">
+                当前为开放注册；公开部署时可能遭遇批量注册或资源滥用，请谨慎使用。
+              </div>
+            )}
+          </div>
+          <Toggle
+            checked={config?.registrationRequiresInviteCode ?? true}
+            disabled={isLoading || toggleRegistrationRequirement.isPending}
+            ariaLabel="注册需要邀请码"
+            onChange={(v) => toggleRegistrationRequirement.mutate(v)}
+          />
+        </div>
+      </Card>
 
       <Card title="分享">
         <div className="flex items-center justify-between gap-4">
