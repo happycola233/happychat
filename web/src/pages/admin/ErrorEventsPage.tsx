@@ -38,6 +38,48 @@ function scopeTone(scope: string): BadgeTone {
   return 'neutral'
 }
 
+/**
+ * 展开后的错误详情（桌面表格与移动卡片共用）。
+ * 首要展示完整「信息」正文——折叠态无论表格截断还是卡片按行夹取都读不全，
+ * 这里必须换行完整呈现；其后才是 code/httpStatus/runId 与原始 detail。
+ */
+function ErrorLogDetail({ row }: { row: ErrorLogDTO }) {
+  return (
+    <div className="space-y-3 text-xs">
+      <div>
+        <div className="mb-1 text-neutral-400">信息</div>
+        <div className="break-words whitespace-pre-wrap text-neutral-700 dark:text-neutral-200">
+          {row.message}
+        </div>
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div>
+          <div className="text-neutral-400">code</div>
+          <div className="break-all text-neutral-700 dark:text-neutral-200">{row.code ?? '—'}</div>
+        </div>
+        <div>
+          <div className="text-neutral-400">httpStatus</div>
+          <div className="tabular-nums text-neutral-700 dark:text-neutral-200">
+            {row.httpStatus ?? '—'}
+          </div>
+        </div>
+        <div>
+          <div className="text-neutral-400">runId</div>
+          <div className="break-all text-neutral-700 dark:text-neutral-200">{row.runId ?? '—'}</div>
+        </div>
+      </div>
+      {row.detail != null && (
+        <div>
+          <div className="mb-1 text-neutral-400">detail</div>
+          <pre className="overflow-x-auto rounded-lg bg-neutral-100 p-3 text-xs text-neutral-700 dark:bg-neutral-900 dark:text-neutral-300">
+            {JSON.stringify(row.detail, null, 2)}
+          </pre>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function ErrorEventsPage() {
   const [rangeKey, setRangeKey] = useState<RangeKey>('7d')
   const [scopeSel, setScopeSel] = useState('')
@@ -121,7 +163,7 @@ export default function ErrorEventsPage() {
               setPage(1)
             }}
           />
-          <div className={tableScroll}>
+          <div className={`${tableScroll} hidden md:block`}>
             <div className={`${tableShell} min-w-[720px]`}>
               <table className={tableEl}>
                 <thead className={tableHead}>
@@ -159,42 +201,17 @@ export default function ErrorEventsPage() {
                             {row.username ?? '—'}
                           </td>
                           <td className={td}>
-                            <span className="block max-w-[420px] truncate text-neutral-700 dark:text-neutral-200">
+                            {/* 折叠态按可用宽度截断，完整正文在展开面板里呈现；
+                                随断点放宽上限，宽屏尽量多显示。 */}
+                            <span className="block max-w-[220px] truncate text-neutral-700 lg:max-w-[380px] xl:max-w-[560px] dark:text-neutral-200">
                               {row.message}
                             </span>
                           </td>
                         </tr>
                         {isOpen && (
                           <tr className="bg-neutral-50 dark:bg-neutral-800/40">
-                            <td className={`${td} text-xs`} colSpan={6}>
-                              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                                <div>
-                                  <div className="text-neutral-400">code</div>
-                                  <div className="break-all text-neutral-700 dark:text-neutral-200">
-                                    {row.code ?? '—'}
-                                  </div>
-                                </div>
-                                <div>
-                                  <div className="text-neutral-400">httpStatus</div>
-                                  <div className="tabular-nums text-neutral-700 dark:text-neutral-200">
-                                    {row.httpStatus ?? '—'}
-                                  </div>
-                                </div>
-                                <div>
-                                  <div className="text-neutral-400">runId</div>
-                                  <div className="break-all text-neutral-700 dark:text-neutral-200">
-                                    {row.runId ?? '—'}
-                                  </div>
-                                </div>
-                              </div>
-                              {row.detail != null && (
-                                <div className="mt-3">
-                                  <div className="mb-1 text-neutral-400">detail</div>
-                                  <pre className="overflow-x-auto rounded-lg bg-neutral-100 p-3 text-xs text-neutral-700 dark:bg-neutral-900 dark:text-neutral-300">
-                                    {JSON.stringify(row.detail, null, 2)}
-                                  </pre>
-                                </div>
-                              )}
+                            <td className={`${td}`} colSpan={6}>
+                              <ErrorLogDetail row={row} />
                             </td>
                           </tr>
                         )}
@@ -205,6 +222,54 @@ export default function ErrorEventsPage() {
               </table>
             </div>
           </div>
+
+          {/* 移动端：卡片列表，杜绝横向滚动的宽表 */}
+          <ul className="space-y-2 md:hidden">
+            {items.map((row) => {
+              const isOpen = expanded.has(row.id)
+              const typeText = row.errorType ?? row.code
+              return (
+                <li key={row.id} className={`${tableShell} p-3`}>
+                  <button
+                    type="button"
+                    className="block w-full text-left"
+                    onClick={() => toggleExpanded(row.id)}
+                    aria-expanded={isOpen}
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge tone={scopeTone(row.scope)}>{row.scope}</Badge>
+                      {typeText && (
+                        <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                          {typeText}
+                        </span>
+                      )}
+                      {row.httpStatus != null && (
+                        <span className="text-xs tabular-nums text-neutral-500 dark:text-neutral-400">
+                          HTTP {row.httpStatus}
+                        </span>
+                      )}
+                    </div>
+                    <p
+                      className={`mt-2 text-sm break-words text-neutral-700 dark:text-neutral-200 ${
+                        isOpen ? '' : 'line-clamp-2'
+                      }`}
+                    >
+                      {row.message}
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-x-2 gap-y-0.5 text-xs text-neutral-400">
+                      <span className="tabular-nums">{formatDateTime(row.createdAt)}</span>
+                      {row.username && <span>· {row.username}</span>}
+                    </div>
+                  </button>
+                  {isOpen && (
+                    <div className="mt-3 border-t border-neutral-100 pt-3 dark:border-neutral-800">
+                      <ErrorLogDetail row={row} />
+                    </div>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
 
           <Pagination
             page={data?.page ?? page}
