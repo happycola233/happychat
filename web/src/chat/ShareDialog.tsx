@@ -481,7 +481,7 @@ export function ShareDialog({
                       包含我上传的图片与文件
                     </div>
                     <div className="mt-0.5 text-[12px] leading-5 text-neutral-400">
-                      关闭后附件不会被公开，分享页以文字占位显示；AI 生成的图片不受影响。
+                      关闭后附件不会被公开，以文字占位显示；AI 生成的图片不受影响。
                     </div>
                   </div>
                   <Toggle
