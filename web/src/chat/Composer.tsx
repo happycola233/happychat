@@ -249,6 +249,11 @@ export function Composer({
       updateScrollFade()
     })
     observer.observe(grid)
+    // 控件列（含模型选择器）宽度会随触发器胶囊平滑改变而变化，但网格自身宽度不变、
+    // 不会触发上面对 grid 的观察；需单独观察控件列，及时重判单行/多行——
+    // 否则选择器变宽挤窄输入区后，换行判定会停留在陈旧状态（布局不一致）。
+    const trailing = trailingRef.current
+    if (trailing) observer.observe(trailing)
     return () => observer.disconnect()
   }, [measureMultiline, updateScrollFade])
 

@@ -17,6 +17,7 @@ import {
 } from '@shared/util/imageSize'
 import { ModelTagList } from '../components/ModelTags'
 import { useHeightTransition } from '../hooks/useHeightTransition'
+import { useTriggerLabelWidth } from '../hooks/useTriggerLabelWidth'
 import { useModels } from '../hooks/useModels'
 import { useChatPrefs } from '../store/chat'
 import { useIsMobile } from '../store/sidebar'
@@ -582,12 +583,40 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
   const triggerRef = useRef<HTMLButtonElement>(null)
   const desktopPanelRef = useRef<HTMLDivElement>(null)
   const mobileDialogRef = useRef<HTMLDivElement>(null)
+  // 触发器标签的宽度过渡：labelWrap（overflow-hidden）随内容平滑展开/收拢，
+  // labelContent（max-content）恒以最终排版渲染。
+  const labelWrapRef = useRef<HTMLSpanElement>(null)
+  const labelContentRef = useRef<HTMLSpanElement>(null)
   const menuId = useId()
 
   const model = models?.find((m) => m.id === activeModelId)
   // 切换模型后分区增减（思考/联网/图片参数）会改变面板尺寸：让高度平滑过渡而非跳变。
   useHeightTransition(desktopPanelRef, model?.id)
   useHeightTransition(mobileDialogRef, model?.id)
+
+  // —— 触发器上直接反映本次请求会用到的思考深度与联网状态（下方渲染与宽度过渡共用）——
+  const isImage = model?.kind === 'image'
+  const showReasoning = Boolean(
+    model && !isImage && model.capabilities.reasoning && model.allowedEfforts.length > 0,
+  )
+  const showWebSearch = Boolean(model && !isImage && model.capabilities.web_search)
+  const activeSupportedEffort = isReasoningEffortAllowed(model, activeEffort) ? activeEffort : null
+  const effectiveEffort = model ? (activeSupportedEffort ?? effectiveReasoningEffort(model)) : null
+  const webEnabled = model ? (activeWebSearch ?? effectiveWebSearchEnabled(model)) : false
+  const effectiveEffortOption = model
+    ? findReasoningEffortOption(model.allowedEfforts, effectiveEffort)
+    : null
+  const effortLabel = showReasoning ? (effectiveEffortOption?.description ?? '自动') : null
+  const triggerGlobe = showWebSearch && webEnabled
+
+  // 标签内容变化（模型名 / 思考档位 / 联网地球增减）时，让触发器胶囊宽度平滑过渡而非跳变。
+  const labelSignature = `${model?.id ?? ''}␟${effortLabel ?? ''}␟${triggerGlobe ? '1' : '0'}`
+  useTriggerLabelWidth({
+    wrapRef: labelWrapRef,
+    contentRef: labelContentRef,
+    signature: labelSignature,
+    enabled: Boolean(model),
+  })
 
   useLayoutEffect(() => {
     if (!open || !isMobile) return
@@ -685,21 +714,6 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
     return <span className="px-2 text-sm text-neutral-400">暂无可用模型</span>
   }
 
-  const isImage = model?.kind === 'image'
-  const showReasoning = Boolean(
-    model && !isImage && model.capabilities.reasoning && model.allowedEfforts.length > 0,
-  )
-  const showWebSearch = Boolean(model && !isImage && model.capabilities.web_search)
-
-  // 触发器上直接反映本次请求会用到的思考深度与联网状态。
-  const activeSupportedEffort = isReasoningEffortAllowed(model, activeEffort) ? activeEffort : null
-  const effectiveEffort = model ? (activeSupportedEffort ?? effectiveReasoningEffort(model)) : null
-  const webEnabled = model ? (activeWebSearch ?? effectiveWebSearchEnabled(model)) : false
-  const effectiveEffortOption = model
-    ? findReasoningEffortOption(model.allowedEfforts, effectiveEffort)
-    : null
-  const effortLabel = showReasoning ? (effectiveEffortOption?.description ?? '自动') : null
-
   const close = () => {
     setOpen(false)
     requestAnimationFrame(() => triggerRef.current?.focus())
@@ -742,16 +756,29 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
           open && 'bg-neutral-100 dark:bg-neutral-800',
         )}
       >
-        <span className="truncate">{model?.displayName ?? '选择模型'}</span>
-        {effortLabel && (
-          <span className="inline-flex min-w-0 shrink items-center gap-1 text-neutral-400 dark:text-neutral-400">
-            <span aria-hidden>·</span>
-            <span className="truncate">{effortLabel}</span>
+        {/* 宽度过渡层：外层随内容平滑展开/收拢；内层始终以最终排版渲染（切换中绝不出现省略号）。
+            下拉箭头在过渡层之外，扩宽时绝不被裁（见 useTriggerLabelWidth）。 */}
+        <span ref={labelWrapRef} className="flex min-w-0 items-center overflow-hidden">
+          <span
+            ref={labelContentRef}
+            data-testid="model-trigger-label"
+            className="flex w-max max-w-[13.5rem] items-center gap-1.5"
+          >
+            <span className="min-w-0 truncate">{model?.displayName ?? '选择模型'}</span>
+            {effortLabel && (
+              <span className="inline-flex min-w-0 shrink items-center gap-1 text-neutral-400 dark:text-neutral-400">
+                <span aria-hidden>·</span>
+                <span className="truncate">{effortLabel}</span>
+              </span>
+            )}
+            {triggerGlobe && (
+              <Globe
+                className="h-3.5 w-3.5 shrink-0 text-neutral-400 dark:text-neutral-500"
+                aria-label="联网已开启"
+              />
+            )}
           </span>
-        )}
-        {showWebSearch && webEnabled && (
-          <Globe className="h-3.5 w-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" aria-label="联网已开启" />
-        )}
+        </span>
         <ChevronDown
           className={clsx(
             'h-3.5 w-3.5 shrink-0 text-neutral-400 transition-transform',
