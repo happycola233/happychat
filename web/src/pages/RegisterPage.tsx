@@ -7,12 +7,17 @@ import { getBootstrap } from '../api/auth'
 import { useRegister } from '../hooks/useAuth'
 import { AuthLayout } from '../components/AuthLayout'
 import { Button } from '../components/ui/Button'
+import { Spinner } from '../components/ui/Spinner'
 import { TextField } from '../components/ui/TextField'
 
 export default function RegisterPage() {
   const navigate = useNavigate()
   const register = useRegister()
-  const { data: bootstrap, refetch: refetchBootstrap } = useQuery({
+  const {
+    data: bootstrap,
+    isError: bootstrapFailed,
+    refetch: refetchBootstrap,
+  } = useQuery({
     queryKey: ['bootstrap'],
     queryFn: getBootstrap,
   })
@@ -20,6 +25,10 @@ export default function RegisterPage() {
   // 公开配置尚未返回时按“需要邀请码”处理，避免加载窗口短暂开放无邀请码注册。
   const registrationRequiresInviteCode = bootstrap?.registrationRequiresInviteCode ?? true
   const requiresInviteCode = !needsBootstrap && registrationRequiresInviteCode
+  // 邀请码字段与首位管理员提示都由公开配置决定显隐，因此等配置到位后再整体渲染表单，
+  // 否则开放注册的站点会先闪出一个邀请码输入框再消失。请求失败时按上面的保守默认继续渲染，
+  // 保证注册流程不会被卡在加载态。
+  const registrationPolicyReady = bootstrap !== undefined || bootstrapFailed
 
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -58,42 +67,50 @@ export default function RegisterPage() {
         </span>
       }
     >
-      {needsBootstrap && (
-        <div className="mb-4 rounded-xl bg-amber-50 px-3.5 py-2.5 text-xs text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-          系统尚未初始化，当前注册的将是<strong className="font-semibold">首位管理员</strong>
-          ，无需邀请码。
+      {!registrationPolicyReady ? (
+        <div className="py-10 text-center">
+          <Spinner className="h-6 w-6 text-neutral-400" />
         </div>
+      ) : (
+        <>
+          {needsBootstrap && (
+            <div className="mb-4 rounded-xl bg-amber-50 px-3.5 py-2.5 text-xs text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+              系统尚未初始化，当前注册的将是<strong className="font-semibold">首位管理员</strong>
+              ，无需邀请码。
+            </div>
+          )}
+          <form onSubmit={onSubmit} className="space-y-4">
+            <TextField
+              label="用户名"
+              autoComplete="username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="1-32 位，字母数字下划线"
+              autoFocus
+            />
+            <TextField
+              label="密码"
+              type="password"
+              autoComplete="new-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="至少 6 位"
+            />
+            {requiresInviteCode && (
+              <TextField
+                label="邀请码"
+                value={inviteCode}
+                onChange={(e) => setInviteCode(e.target.value)}
+                placeholder="请输入邀请码"
+              />
+            )}
+            {error && <p className="text-sm text-red-500">{error}</p>}
+            <Button type="submit" loading={register.isPending} className="w-full">
+              注册
+            </Button>
+          </form>
+        </>
       )}
-      <form onSubmit={onSubmit} className="space-y-4">
-        <TextField
-          label="用户名"
-          autoComplete="username"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          placeholder="1-32 位，字母数字下划线"
-          autoFocus
-        />
-        <TextField
-          label="密码"
-          type="password"
-          autoComplete="new-password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="至少 6 位"
-        />
-        {requiresInviteCode && (
-          <TextField
-            label="邀请码"
-            value={inviteCode}
-            onChange={(e) => setInviteCode(e.target.value)}
-            placeholder="请输入邀请码"
-          />
-        )}
-        {error && <p className="text-sm text-red-500">{error}</p>}
-        <Button type="submit" loading={register.isPending} className="w-full">
-          注册
-        </Button>
-      </form>
     </AuthLayout>
   )
 }

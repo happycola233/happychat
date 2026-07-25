@@ -15,8 +15,6 @@ import { toast } from './toast'
 interface SettingsStore {
   theme: ThemePreference
   preferences: UserPreferences
-  /** 是否已用服务端真值 hydrate（用于避免登录后短暂显示缓存值） */
-  hydrated: boolean
   hydrate: (dto: UserSettingsDTO) => void
   setTheme: (theme: ThemePreference) => void
   setPreference: <K extends keyof UserPreferences>(key: K, value: UserPreferences[K]) => void
@@ -35,9 +33,8 @@ export const useSettings = create<SettingsStore>()(
     (set, get) => ({
       theme: 'system',
       preferences: DEFAULT_PREFERENCES,
-      hydrated: false,
       hydrate: (dto) => {
-        set({ theme: dto.theme, preferences: dto.preferences, hydrated: true })
+        set({ theme: dto.theme, preferences: dto.preferences })
         applyTheme(dto.theme)
         applyFontSize(dto.preferences.messageFontSize)
         applyAccentColor(dto.preferences.accentColor)
