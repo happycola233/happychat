@@ -1,14 +1,20 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { LockKeyhole, Ticket, UserRound } from 'lucide-react'
 import { ApiRequestError } from '../api/client'
 import { getBootstrap } from '../api/auth'
 import { useRegister } from '../hooks/useAuth'
-import { AuthLayout } from '../components/AuthLayout'
-import { Button } from '../components/ui/Button'
-import { Spinner } from '../components/ui/Spinner'
-import { TextField } from '../components/ui/TextField'
+import { AuthLayout, AuthLink } from '../components/auth/AuthLayout'
+import { AuthField, AuthPasswordField } from '../components/auth/AuthField'
+import { AuthNotice } from '../components/auth/AuthNotice'
+import { AuthSubmitButton } from '../components/auth/AuthSubmitButton'
+import { validatePassword, validateUsername } from '../components/auth/authValidation'
+import { PasswordStrengthMeter } from '../components/auth/PasswordStrengthMeter'
+
+/** 邀请码只可能是大写字母数字（服务端 `genInviteCode` 的字符集），顺手纠正小写与空格。 */
+const normalizeInviteCode = (raw: string) => raw.toUpperCase().replace(/\s+/g, '')
 
 export default function RegisterPage() {
   const navigate = useNavigate()
@@ -25,26 +31,55 @@ export default function RegisterPage() {
   // 公开配置尚未返回时按“需要邀请码”处理，避免加载窗口短暂开放无邀请码注册。
   const registrationRequiresInviteCode = bootstrap?.registrationRequiresInviteCode ?? true
   const requiresInviteCode = !needsBootstrap && registrationRequiresInviteCode
-  // 邀请码字段与首位管理员提示都由公开配置决定显隐，因此等配置到位后再整体渲染表单，
-  // 否则开放注册的站点会先闪出一个邀请码输入框再消失。请求失败时按上面的保守默认继续渲染，
-  // 保证注册流程不会被卡在加载态。
+  // 邀请码字段与首位管理员提示都由公开配置决定显隐，所以等配置到位后才渲染这两块，
+  // 否则开放注册的站点会先闪出一个邀请码输入框再消失。用户名 / 密码与提交按钮不受影响、
+  // 一开始就可填，页面不会先摆一个空转的加载态。请求失败时按上面的保守默认继续渲染。
   const registrationPolicyReady = bootstrap !== undefined || bootstrapFailed
+  const inviteCodeVisible = registrationPolicyReady && requiresInviteCode
 
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [inviteCode, setInviteCode] = useState('')
+  const [fieldErrors, setFieldErrors] = useState<{
+    username?: string
+    password?: string
+    inviteCode?: string
+  }>({})
   const [error, setError] = useState('')
+  const usernameRef = useRef<HTMLInputElement>(null)
+  const passwordRef = useRef<HTMLInputElement>(null)
+  const inviteCodeRef = useRef<HTMLInputElement>(null)
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault()
+    if (register.isPending) return
     setError('')
+
+    const nextFieldErrors = {
+      username: validateUsername(username),
+      password: validatePassword(password),
+      inviteCode: inviteCodeVisible && !inviteCode ? '请输入邀请码' : undefined,
+    }
+    setFieldErrors(nextFieldErrors)
+    // 校验失败时把光标送到第一个出错的字段，用户不必自己在几行红字里找位置。
+    const firstInvalidRef = nextFieldErrors.username
+      ? usernameRef
+      : nextFieldErrors.password
+        ? passwordRef
+        : nextFieldErrors.inviteCode
+          ? inviteCodeRef
+          : null
+    if (firstInvalidRef) {
+      firstInvalidRef.current?.focus()
+      return
+    }
+
     try {
-      const normalizedInviteCode = inviteCode.trim()
       await register.mutateAsync({
-        username,
+        username: username.trim(),
         password,
         // 隐藏字段绝不提交；空白也归一为缺省，由服务端返回准确的领域错误。
-        inviteCode: requiresInviteCode && normalizedInviteCode ? normalizedInviteCode : undefined,
+        inviteCode: inviteCodeVisible && inviteCode ? inviteCode : undefined,
       })
       navigate('/', { replace: true })
     } catch (err) {
@@ -56,61 +91,87 @@ export default function RegisterPage() {
 
   return (
     <AuthLayout
-      title="注册"
-      subtitle="私有 AI 聊天站"
+      title="创建账号"
+      subtitle="注册 HappyChat，开始你的第一次对话"
+      notice={
+        needsBootstrap ? (
+          <AuthNotice tone="highlight">
+            本站尚未初始化。你是首位用户，注册后将
+            <strong className="font-semibold">自动成为管理员</strong>，无需邀请码。
+          </AuthNotice>
+        ) : undefined
+      }
       footer={
-        <span>
-          已有账号？
-          <Link to="/login" className="ml-1 font-medium text-neutral-900 dark:text-neutral-100">
-            登录
-          </Link>
-        </span>
+        <>
+          已有账号？<AuthLink to="/login">登录</AuthLink>
+        </>
       }
     >
-      {!registrationPolicyReady ? (
-        <div className="py-10 text-center">
-          <Spinner className="h-6 w-6 text-neutral-400" />
-        </div>
-      ) : (
-        <>
-          {needsBootstrap && (
-            <div className="mb-4 rounded-xl bg-amber-50 px-3.5 py-2.5 text-xs text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-              系统尚未初始化，当前注册的将是<strong className="font-semibold">首位管理员</strong>
-              ，无需邀请码。
-            </div>
-          )}
-          <form onSubmit={onSubmit} className="space-y-4">
-            <TextField
-              label="用户名"
-              autoComplete="username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="1-32 位，字母数字下划线"
-              autoFocus
+      <form onSubmit={onSubmit} className="space-y-4" noValidate>
+        <AuthField
+          label="用户名"
+          icon={UserRound}
+          inputRef={usernameRef}
+          autoComplete="username"
+          autoCapitalize="off"
+          spellCheck={false}
+          enterKeyHint="next"
+          value={username}
+          error={fieldErrors.username}
+          hint="1–32 位，可用字母、数字、下划线、点和短横线"
+          onChange={(e) => {
+            setUsername(e.target.value)
+            setFieldErrors((prev) => ({ ...prev, username: undefined }))
+            setError('')
+          }}
+          placeholder="请输入用户名"
+          autoFocus
+        />
+        <AuthPasswordField
+          label="密码"
+          icon={LockKeyhole}
+          inputRef={passwordRef}
+          autoComplete="new-password"
+          enterKeyHint={inviteCodeVisible ? 'next' : 'go'}
+          value={password}
+          error={fieldErrors.password}
+          labelAside={<PasswordStrengthMeter password={password} />}
+          onChange={(e) => {
+            setPassword(e.target.value)
+            setFieldErrors((prev) => ({ ...prev, password: undefined }))
+            setError('')
+          }}
+          placeholder="至少 6 位"
+        />
+        {inviteCodeVisible && (
+          <div className="hc-anim-in">
+            <AuthField
+              label="邀请码"
+              icon={Ticket}
+              inputRef={inviteCodeRef}
+              autoComplete="off"
+              autoCapitalize="characters"
+              spellCheck={false}
+              enterKeyHint="go"
+              maxLength={64}
+              value={inviteCode}
+              error={fieldErrors.inviteCode}
+              hint="没有邀请码？请联系站点管理员。"
+              inputClassName="hc-auth-field-code"
+              onChange={(e) => {
+                setInviteCode(normalizeInviteCode(e.target.value))
+                setFieldErrors((prev) => ({ ...prev, inviteCode: undefined }))
+                setError('')
+              }}
+              placeholder="请输入邀请码"
             />
-            <TextField
-              label="密码"
-              type="password"
-              autoComplete="new-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="至少 6 位"
-            />
-            {requiresInviteCode && (
-              <TextField
-                label="邀请码"
-                value={inviteCode}
-                onChange={(e) => setInviteCode(e.target.value)}
-                placeholder="请输入邀请码"
-              />
-            )}
-            {error && <p className="text-sm text-red-500">{error}</p>}
-            <Button type="submit" loading={register.isPending} className="w-full">
-              注册
-            </Button>
-          </form>
-        </>
-      )}
+          </div>
+        )}
+        {error && <AuthNotice tone="error">{error}</AuthNotice>}
+        <AuthSubmitButton loading={register.isPending} loadingLabel="注册中…">
+          注册
+        </AuthSubmitButton>
+      </form>
     </AuthLayout>
   )
 }

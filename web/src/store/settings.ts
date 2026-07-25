@@ -3,7 +3,9 @@ import { persist } from 'zustand/middleware'
 import type { UserSettingsDTO } from '@shared/types/api'
 import type { ThemePreference, UserPreferences } from '@shared/types/domain'
 import { DEFAULT_PREFERENCES, mergePreferences } from '@shared/util/preferences'
+import { ApiRequestError } from '../api/client'
 import { updateSettings } from '../api/settings'
+import { queryClient } from '../lib/queryClient'
 import { applyAccentColor, applyFontSize, applyTheme } from '../lib/theme'
 import { toast } from './toast'
 
@@ -21,9 +23,14 @@ interface SettingsStore {
 }
 
 async function persistRemote(patch: Parameters<typeof updateSettings>[0]) {
+  // 登录 / 注册页也能切主题，但那时没有账号可写：偏好只留在 localStorage，
+  // 明知会 401 的请求就不发了（登录后由服务端真值覆盖本地缓存）。
+  if (queryClient.getQueryData(['me']) == null) return
   try {
     await updateSettings(patch)
-  } catch {
+  } catch (error) {
+    // 会话在页面停留期间过期时同样按“仅本地保存”处理，不用一个同步失败的红条打扰用户。
+    if (error instanceof ApiRequestError && error.status === 401) return
     toast.error('设置同步失败，请稍后重试')
   }
 }

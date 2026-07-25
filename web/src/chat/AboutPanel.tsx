@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { Button } from '../components/ui/Button'
 import { SectionCard } from '../components/ui/SectionCard'
+import { APP_ICON_SRC } from '../lib/appIcon'
 import { APP_VERSION, BUILD_TIME } from '../lib/buildInfo'
 import { copyToClipboard } from '../lib/clipboard'
 import { describeClientEnv } from '../lib/clientEnv'
@@ -21,12 +22,6 @@ import { toast } from '../store/toast'
 import { ExternalLinkIcon, GithubIcon, ReasoningEffortIcon } from './icons'
 
 const REPO_URL = 'https://github.com/happycola233/happychat'
-
-/**
- * 应用图标：查询串与 `web/index.html`、`web/public/manifest.webmanifest` 保持一致，
- * 否则换图后浏览器仍会命中旧图标的缓存。换图时三处需同步更新。
- */
-const APP_ICON_SRC = '/app-icon-192x192.png?v=5abed49c'
 
 /** 「思考深度可调」沿用输入框里「思考深度」最高档的图标，与聊天界面保持同一套视觉语言。 */
 function ReasoningIcon({ className }: { className?: string }) {

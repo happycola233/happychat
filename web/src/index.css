@@ -53,7 +53,10 @@ html.hc-font-large {
   --hc-msg-font: 17px;
 }
 
-/* 重点色变量：设置只切换 hc-accent-* 类，聊天核心 UI 统一读取这些 token。 */
+/* 重点色变量：设置只切换 hc-accent-* 类，聊天核心 UI 统一读取这些 token。
+   --hc-accent-swatch 是重点色原色（色板/取色用）；--hc-accent-strong / -fg 是它的
+   「实心表面」变体（发送按钮、登录注册主按钮与输入焦点色共用）——默认灰重点色在这里
+   刻意退化为黑/白，因为灰底按钮既没有召唤力也不好看。 */
 :root,
 html.hc-accent-default {
   --hc-accent-swatch: #b4b4b4;
@@ -62,55 +65,56 @@ html.hc-accent-default {
   --hc-user-bubble-text: #0d0d0d;
   --hc-message-edit-bg: #ececec;
   --hc-message-edit-text: #000000;
-  --hc-send-button-bg: #000000;
-  --hc-send-button-fg: #ffffff;
+  --hc-accent-strong: #000000;
+  --hc-accent-strong-fg: #ffffff;
 }
-/* 默认（灰）重点色的 hero 光晕沿用蓝色重点色的色调（灰色光晕观感偏脏）；
-   仅 .hc-hero-glow 读取该变量，其余重点色不定义、回退到自身 swatch，不影响其他 UI。 */
+/* 默认（灰）重点色的光晕沿用蓝色重点色的色调（灰色光晕观感偏脏）；
+   仅光晕（.hc-hero-glow / .hc-auth-glow）读取该变量，其余重点色不定义、
+   回退到自身 swatch，不影响其他 UI。 */
 html.hc-accent-default {
-  --hc-hero-glow-tint: #3a83f7;
+  --hc-accent-glow-tint: #3a83f7;
 }
 html.hc-accent-blue {
   --hc-accent-swatch: #3a83f7;
   --hc-user-bubble-bg: #e8f3fe;
   --hc-user-bubble-bg-transparent: rgb(232 243 254 / 0);
   --hc-user-bubble-text: #0c274a;
-  --hc-send-button-bg: #3a83f7;
+  --hc-accent-strong: #3a83f7;
 }
 html.hc-accent-green {
   --hc-accent-swatch: #53b559;
   --hc-user-bubble-bg: #def3e5;
   --hc-user-bubble-bg-transparent: rgb(222 243 229 / 0);
   --hc-user-bubble-text: #14361a;
-  --hc-send-button-bg: #53b559;
+  --hc-accent-strong: #53b559;
 }
 html.hc-accent-yellow {
   --hc-accent-swatch: #f6c543;
   --hc-user-bubble-bg: #fdf6dc;
   --hc-user-bubble-bg-transparent: rgb(253 246 220 / 0);
   --hc-user-bubble-text: #51300c;
-  --hc-send-button-bg: #f6c543;
+  --hc-accent-strong: #f6c543;
 }
 html.hc-accent-pink {
   --hc-accent-swatch: #e0766d;
   --hc-user-bubble-bg: #fcf1ef;
   --hc-user-bubble-bg-transparent: rgb(252 241 239 / 0);
   --hc-user-bubble-text: #462320;
-  --hc-send-button-bg: #e0766d;
+  --hc-accent-strong: #e0766d;
 }
 html.hc-accent-orange {
   --hc-accent-swatch: #ee7c37;
   --hc-user-bubble-bg: #fbe8db;
   --hc-user-bubble-bg-transparent: rgb(251 232 219 / 0);
   --hc-user-bubble-text: #45240d;
-  --hc-send-button-bg: #ee7c37;
+  --hc-accent-strong: #ee7c37;
 }
 html.hc-accent-purple {
   --hc-accent-swatch: #8952ee;
   --hc-user-bubble-bg: #ede5fc;
   --hc-user-bubble-bg-transparent: rgb(237 229 252 / 0);
   --hc-user-bubble-text: #291947;
-  --hc-send-button-bg: #8952ee;
+  --hc-accent-strong: #8952ee;
 }
 .dark,
 html.dark.hc-accent-default {
@@ -120,61 +124,61 @@ html.dark.hc-accent-default {
   --hc-user-bubble-text: #ffffff;
   --hc-message-edit-bg: #2f2f2f;
   --hc-message-edit-text: #ffffff;
-  --hc-send-button-bg: #ffffff;
-  /* 默认重点色在深色模式使用白色发送按钮，需要黑色箭头保持对比。 */
-  --hc-send-button-fg: #000000;
+  --hc-accent-strong: #ffffff;
+  /* 默认重点色在深色模式使用白色实心按钮，需要黑色前景（发送箭头 / 按钮文字）保持对比。 */
+  --hc-accent-strong-fg: #000000;
 }
 html.dark.hc-accent-default {
   /* 深色同理：光晕借用深色蓝重点色的色值。 */
-  --hc-hero-glow-tint: #2c67c5;
+  --hc-accent-glow-tint: #2c67c5;
 }
 html.dark.hc-accent-blue {
   --hc-accent-swatch: #2c67c5;
   --hc-user-bubble-bg: #173e76;
   --hc-user-bubble-bg-transparent: rgb(23 62 118 / 0);
   --hc-user-bubble-text: #f6fafe;
-  --hc-send-button-bg: #2c67c5;
-  --hc-send-button-fg: #ffffff;
+  --hc-accent-strong: #2c67c5;
+  --hc-accent-strong-fg: #ffffff;
 }
 html.dark.hc-accent-green {
   --hc-accent-swatch: #48a04c;
   --hc-user-bubble-bg: #2c6732;
   --hc-user-bubble-bg-transparent: rgb(44 103 50 / 0);
   --hc-user-bubble-text: #effaf3;
-  --hc-send-button-bg: #48a04c;
-  --hc-send-button-fg: #ffffff;
+  --hc-accent-strong: #48a04c;
+  --hc-accent-strong-fg: #ffffff;
 }
 html.dark.hc-accent-yellow {
   --hc-accent-swatch: #d9a337;
   --hc-user-bubble-bg: #95611f;
   --hc-user-bubble-bg-transparent: rgb(149 97 31 / 0);
   --hc-user-bubble-text: #fefbee;
-  --hc-send-button-bg: #d9a337;
-  --hc-send-button-fg: #ffffff;
+  --hc-accent-strong: #d9a337;
+  --hc-accent-strong-fg: #ffffff;
 }
 html.dark.hc-accent-pink {
   --hc-accent-swatch: #c96257;
   --hc-user-bubble-bg: #8b3f36;
   --hc-user-bubble-bg-transparent: rgb(139 63 54 / 0);
   --hc-user-bubble-text: #fef7f6;
-  --hc-send-button-bg: #c96257;
-  --hc-send-button-fg: #ffffff;
+  --hc-accent-strong: #c96257;
+  --hc-accent-strong-fg: #ffffff;
 }
 html.dark.hc-accent-orange {
   --hc-accent-swatch: #d25e28;
   --hc-user-bubble-bg: #87401d;
   --hc-user-bubble-bg-transparent: rgb(135 64 29 / 0);
   --hc-user-bubble-text: #fdf5f1;
-  --hc-send-button-bg: #d25e28;
-  --hc-send-button-fg: #ffffff;
+  --hc-accent-strong: #d25e28;
+  --hc-accent-strong-fg: #ffffff;
 }
 html.dark.hc-accent-purple {
   --hc-accent-swatch: #7849d1;
   --hc-user-bubble-bg: #4e2f88;
   --hc-user-bubble-bg-transparent: rgb(78 47 136 / 0);
   --hc-user-bubble-text: #f8f5fd;
-  --hc-send-button-bg: #7849d1;
-  --hc-send-button-fg: #ffffff;
+  --hc-accent-strong: #7849d1;
+  --hc-accent-strong-fg: #ffffff;
 }
 .hc-user-bubble {
   background: var(--hc-user-bubble-bg);
@@ -198,8 +202,8 @@ html.dark.hc-accent-purple {
   );
 }
 .hc-send-button:not(:disabled) {
-  background: var(--hc-send-button-bg);
-  color: var(--hc-send-button-fg);
+  background: var(--hc-accent-strong);
+  color: var(--hc-accent-strong-fg);
 }
 .hc-send-button:not(:disabled):hover {
   filter: brightness(0.94);
@@ -306,12 +310,27 @@ html.hc-ios .hc-chat-scroll {
   height: min(56rem, 120vh);
   transform: translate(-50%, 50%);
   pointer-events: none;
-  /* 色调优先读 --hc-hero-glow-tint（默认重点色借用蓝色），未定义时回退到当前重点色。 */
+  /* 色调优先读 --hc-accent-glow-tint（默认重点色借用蓝色），未定义时回退到当前重点色。 */
   background: radial-gradient(
     closest-side,
-    color-mix(in srgb, var(--hc-hero-glow-tint, var(--hc-accent-swatch)) 22%, rgb(240 246 253 / 0.9)) 0%,
-    color-mix(in srgb, var(--hc-hero-glow-tint, var(--hc-accent-swatch)) 13%, rgb(243 248 254 / 0.62)) 34%,
-    color-mix(in srgb, var(--hc-hero-glow-tint, var(--hc-accent-swatch)) 6%, rgb(247 250 254 / 0.3)) 62%,
+    color-mix(
+        in srgb,
+        var(--hc-accent-glow-tint, var(--hc-accent-swatch)) 22%,
+        rgb(240 246 253 / 0.9)
+      )
+      0%,
+    color-mix(
+        in srgb,
+        var(--hc-accent-glow-tint, var(--hc-accent-swatch)) 13%,
+        rgb(243 248 254 / 0.62)
+      )
+      34%,
+    color-mix(
+        in srgb,
+        var(--hc-accent-glow-tint, var(--hc-accent-swatch)) 6%,
+        rgb(247 250 254 / 0.3)
+      )
+      62%,
     rgb(255 255 255 / 0) 100%
   );
 }
@@ -319,9 +338,16 @@ html.hc-ios .hc-chat-scroll {
   /* 深色用更沉的藏蓝底，重点色只做轻微染色，避免发灰发亮。 */
   background: radial-gradient(
     closest-side,
-    color-mix(in srgb, var(--hc-hero-glow-tint, var(--hc-accent-swatch)) 12%, rgb(13 19 42 / 0.95)) 0%,
-    color-mix(in srgb, var(--hc-hero-glow-tint, var(--hc-accent-swatch)) 6%, rgb(10 15 34 / 0.6)) 36%,
-    color-mix(in srgb, var(--hc-hero-glow-tint, var(--hc-accent-swatch)) 3%, rgb(8 12 28 / 0.3)) 64%,
+    color-mix(
+        in srgb,
+        var(--hc-accent-glow-tint, var(--hc-accent-swatch)) 12%,
+        rgb(13 19 42 / 0.95)
+      )
+      0%,
+    color-mix(in srgb, var(--hc-accent-glow-tint, var(--hc-accent-swatch)) 6%, rgb(10 15 34 / 0.6))
+      36%,
+    color-mix(in srgb, var(--hc-accent-glow-tint, var(--hc-accent-swatch)) 3%, rgb(8 12 28 / 0.3))
+      64%,
     rgb(0 0 0 / 0) 100%
   );
 }
@@ -1435,6 +1461,8 @@ html.hc-ios .hc-chat-scroll {
     -webkit-text-fill-color: currentColor;
   }
   .hc-anim-in,
+  .hc-auth-glow-in,
+  .hc-auth-in,
   .hc-pop-in,
   .hc-sheet-in,
   .hc-sheet-backdrop,
@@ -1488,6 +1516,261 @@ html.hc-ios .hc-chat-scroll {
 .dark .hc-folder-glyph {
   background: color-mix(in srgb, var(--hc-folder-color) 24%, transparent);
   color: color-mix(in srgb, var(--hc-folder-color) 78%, white);
+}
+
+/* ===================== 登录 / 注册 ===================== */
+
+/* 氛围光晕：与新对话 hero 光晕同一套视觉语言（重点色染色 + 多段渐变近似高斯衰减、
+   边缘收敛到全透明），但以整块内容的中心为锚点。刻意铺得很大且中段衰减很平——
+   光晕一旦收小，卡片高度内就能看出明显的明暗落差，观感像上半截打光、下半截纯黑。
+   深色沿用 hero 的沉稳藏蓝底，避免发灰发亮。 */
+.hc-auth-glow {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(88rem, 190vw);
+  height: min(60rem, 150vh);
+  transform: translate(-50%, -50%);
+  background: radial-gradient(
+    closest-side,
+    color-mix(
+        in srgb,
+        var(--hc-accent-glow-tint, var(--hc-accent-swatch)) 19%,
+        rgb(240 246 253 / 0.9)
+      )
+      0%,
+    color-mix(
+        in srgb,
+        var(--hc-accent-glow-tint, var(--hc-accent-swatch)) 16%,
+        rgb(241 247 253 / 0.72)
+      )
+      30%,
+    color-mix(
+        in srgb,
+        var(--hc-accent-glow-tint, var(--hc-accent-swatch)) 10%,
+        rgb(243 248 254 / 0.44)
+      )
+      55%,
+    color-mix(
+        in srgb,
+        var(--hc-accent-glow-tint, var(--hc-accent-swatch)) 5%,
+        rgb(247 250 254 / 0.2)
+      )
+      78%,
+    rgb(255 255 255 / 0) 100%
+  );
+}
+.dark .hc-auth-glow {
+  background: radial-gradient(
+    closest-side,
+    color-mix(
+        in srgb,
+        var(--hc-accent-glow-tint, var(--hc-accent-swatch)) 13%,
+        rgb(13 19 42 / 0.92)
+      )
+      0%,
+    color-mix(
+        in srgb,
+        var(--hc-accent-glow-tint, var(--hc-accent-swatch)) 10%,
+        rgb(12 17 38 / 0.74)
+      )
+      30%,
+    color-mix(in srgb, var(--hc-accent-glow-tint, var(--hc-accent-swatch)) 6%, rgb(10 15 34 / 0.44))
+      55%,
+    color-mix(in srgb, var(--hc-accent-glow-tint, var(--hc-accent-swatch)) 3%, rgb(8 12 28 / 0.18))
+      78%,
+    rgb(0 0 0 / 0) 100%
+  );
+}
+
+/* 表单卡片＝磨砂玻璃面板：半透底色 + backdrop blur + 细颗粒 + hairline 描边 +
+   柔和弥散阴影（沿用输入框视觉盒的语言，与光晕融合）。
+   ⚠ 透明度是有下限的：卡片太透时，身后光晕的明暗过渡会整条从卡片内部穿过去，
+   读起来像上半截被打光、下半截是纯黑。所以这里的做法是「光晕铺得极大且中段很平
+   + 卡片保留 ~0.7 自有底色」，两头一起收，既是磨砂又不出现分层。 */
+.hc-auth-card {
+  position: relative;
+  isolation: isolate;
+  border: 1px solid rgb(0 0 0 / 0.07);
+  border-radius: 1.5rem;
+  background: rgb(255 255 255 / 0.72);
+  -webkit-backdrop-filter: blur(28px) saturate(1.35);
+  backdrop-filter: blur(28px) saturate(1.35);
+  box-shadow:
+    0 1px 2px rgb(16 24 40 / 0.05),
+    0 24px 56px -24px rgb(16 24 40 / 0.26);
+}
+.dark .hc-auth-card {
+  border-color: rgb(255 255 255 / 0.1);
+  background: rgb(20 23 32 / 0.7);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.045),
+    0 26px 60px -26px rgb(0 0 0 / 0.8);
+}
+/* 磨砂的「砂」：一层极细的静态颗粒。纯 CSS 的 backdrop-filter 在平滑渐变背景上
+   其实看不出模糊（模糊平滑色块等于没模糊），真正让面板读作磨砂玻璃的是这层颗粒。
+   内联 SVG feTurbulence，不请求任何外部资源；overlay 混合让颗粒同时有微亮与微暗，
+   浅色深色共用一套。opacity 压得很低，覆在文字上也不会影响可读性。 */
+.hc-auth-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0.55;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.15'/%3E%3C/svg%3E");
+}
+.dark .hc-auth-card::after {
+  opacity: 0.4;
+}
+/* 卡片上缘的一道渐隐高光，模拟环境光掠过磨砂边缘；浅色下白对白看不见，只在深色绘制。
+   刻意压得很淡——再亮一点就会读成「顶部反光」，与下方均匀的面板打架。 */
+.dark .hc-auth-card::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  right: 18%;
+  left: 18%;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.16), transparent);
+}
+
+/* 输入框：图标与右侧动作都绝对定位在 input 之上，让 input 自身铺满整个视觉盒——
+   这样浏览器自动填充（-webkit-autofill）的背景会覆盖整块，不会在图标处留下接缝。
+   因此底色必须是不透明实色（而非半透明），否则自动填充色与卡片底色对不上。 */
+.hc-auth-field {
+  position: relative;
+  --hc-auth-field-bg: #ffffff;
+  --hc-auth-field-border: rgb(0 0 0 / 0.11);
+  --hc-auth-field-border-hover: rgb(0 0 0 / 0.2);
+  --hc-auth-field-icon: rgb(115 115 115 / 0.8);
+}
+.dark .hc-auth-field {
+  /* 比卡片表面再暗一档、并带同样的冷调，读起来是「面板上凹进去的输入槽」；
+     若比卡片更亮就会像浮起来的另一块面，与整页的暗色层级冲突。 */
+  --hc-auth-field-bg: #101218;
+  --hc-auth-field-border: rgb(255 255 255 / 0.11);
+  --hc-auth-field-border-hover: rgb(255 255 255 / 0.22);
+  --hc-auth-field-icon: rgb(163 163 163 / 0.85);
+}
+.hc-auth-field-input {
+  width: 100%;
+  height: 2.75rem;
+  border: 1px solid var(--hc-auth-field-border);
+  border-radius: 0.875rem;
+  background: var(--hc-auth-field-bg);
+  padding: 0 0.875rem 0 2.5rem;
+  color: inherit;
+  font-size: 14px;
+  outline: none;
+  transition:
+    border-color 0.16s ease-out,
+    box-shadow 0.16s ease-out;
+}
+/* 有右侧动作（显示密码）时给出让位，避免文字钻到按钮下面。 */
+.hc-auth-field[data-trailing] .hc-auth-field-input {
+  padding-right: 2.75rem;
+}
+.hc-auth-field-input:hover:not(:focus) {
+  border-color: var(--hc-auth-field-border-hover);
+}
+/* 焦点色与主按钮同源（--hc-accent-strong）：默认重点色下是克制的黑/白描边，
+   选了彩色重点色则整页焦点与按钮同色，不会出现「蓝焦点 + 紫按钮」的割裂。
+   描边与光环都按比例调淡——首个字段自动聚焦，满强度的纯黑/纯白会让页面一打开就发黑/发白。 */
+.hc-auth-field-input:focus {
+  border-color: color-mix(in srgb, var(--hc-accent-strong) 58%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--hc-accent-strong) 10%, transparent);
+}
+.hc-auth-field[data-invalid] .hc-auth-field-input {
+  border-color: #f43f5e;
+}
+.hc-auth-field[data-invalid] .hc-auth-field-input:focus {
+  box-shadow: 0 0 0 3px rgb(244 63 94 / 0.16);
+}
+.hc-auth-field-input::placeholder {
+  color: rgb(163 163 163);
+}
+.dark .hc-auth-field-input::placeholder {
+  color: rgb(115 115 115);
+}
+/* 自动填充：接管 Chrome 的黄底（浅色）与蓝底（深色），改回字段自身配色。 */
+.hc-auth-field-input:-webkit-autofill,
+.hc-auth-field-input:-webkit-autofill:hover,
+.hc-auth-field-input:-webkit-autofill:focus {
+  -webkit-text-fill-color: currentColor;
+  box-shadow: inset 0 0 0 100px var(--hc-auth-field-bg);
+  caret-color: currentColor;
+  /* 背景色过渡拉到极长，等价于让浏览器永远不画自己的填充底色。 */
+  transition: background-color 9999s ease-out 0s;
+}
+.hc-auth-field-input:-webkit-autofill:focus {
+  box-shadow:
+    inset 0 0 0 100px var(--hc-auth-field-bg),
+    0 0 0 3px color-mix(in srgb, var(--hc-accent-strong) 10%, transparent);
+}
+/* 邀请码：等宽 + 拉开字距便于逐字核对，输入即转大写（服务端码表本就是大写）。
+   占位中文不跟着变形，否则「请输入邀请码」会被拉成一排散字。 */
+.hc-auth-field-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.hc-auth-field-code::placeholder {
+  font-family: var(--font-sans);
+  letter-spacing: normal;
+  text-transform: none;
+}
+.hc-auth-field-icon {
+  position: absolute;
+  top: 50%;
+  left: 0.875rem;
+  translate: 0 -50%;
+  pointer-events: none;
+  color: var(--hc-auth-field-icon);
+}
+
+/* 主按钮：读同一套重点色实心 token；浅色下带一层同色弥散投影增加「可按」的重量感，
+   深色下按钮本身已是亮色，再加投影会发光，故不画。 */
+.hc-auth-submit {
+  background: var(--hc-accent-strong);
+  color: var(--hc-accent-strong-fg);
+  box-shadow: 0 10px 24px -12px color-mix(in srgb, var(--hc-accent-strong) 55%, transparent);
+  transition:
+    filter 0.15s ease-out,
+    transform 0.12s ease-out;
+}
+.dark .hc-auth-submit {
+  box-shadow: none;
+}
+.hc-auth-submit:hover:not(:disabled) {
+  filter: brightness(0.94);
+}
+.hc-auth-submit:active:not(:disabled) {
+  transform: scale(0.995);
+}
+/* 提交中保持重点色（只在按钮内换成 spinner），不走灰化禁用态——灰掉像“不可用”。 */
+.hc-auth-submit:disabled {
+  cursor: progress;
+}
+
+/* 分层入场：光晕慢淡入，品牌区 → 卡片 → 底部链接依次上浮。
+   both 填充是必需的——否则带 animation-delay 的元素会先按终态画一帧再跳回起点。 */
+.hc-auth-glow-in {
+  animation: hc-fade-in 0.8s ease-out both;
+}
+.hc-auth-in {
+  animation: hc-fade-in-up 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes hc-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 /* react-colorful（文件夹自定义取色）：尺寸铺满面板、圆角对齐弹窗风格。 */
