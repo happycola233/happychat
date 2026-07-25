@@ -23,6 +23,7 @@ import type {
 } from '@shared/types/domain'
 import { useIsDark } from '../lib/useIsDark'
 import { Button } from '../components/ui/Button'
+import { SectionCard } from '../components/ui/SectionCard'
 import { TextField } from '../components/ui/TextField'
 import { Toggle } from '../components/ui/Toggle'
 import { useMe } from '../hooks/useAuth'
@@ -42,9 +43,9 @@ import { formatShortDate } from '../lib/format'
 import { Spinner } from '../components/ui/Spinner'
 import { ShareDialog } from './ShareDialog'
 import { AvatarCropDialog } from './AvatarCropDialog'
+import { AboutPanel } from './AboutPanel'
 import { CopyIcon, DeleteIcon, ExternalLinkIcon } from './icons'
 
-const APP_VERSION = '0.1.0'
 const USERNAME_PATTERN = /^[a-zA-Z0-9_.-]+$/
 
 const ACCENT_OPTIONS = [
@@ -317,38 +318,6 @@ function MessagesPanel() {
         desc="关闭后推理摘要将默认保持折叠。"
       />
     </div>
-  )
-}
-
-/** 设置面板内的分区卡片：标题 + 说明 + 内容，账户/分享页共用。 */
-function SectionCard({
-  title,
-  description,
-  danger,
-  children,
-}: {
-  title: string
-  description?: ReactNode
-  danger?: boolean
-  children: ReactNode
-}) {
-  return (
-    <section
-      className={clsx(
-        'rounded-2xl border p-4',
-        danger
-          ? 'border-red-200 dark:border-red-900/40'
-          : 'border-neutral-200 dark:border-neutral-800',
-      )}
-    >
-      <h4 className="text-[13px] font-semibold text-neutral-800 dark:text-neutral-100">{title}</h4>
-      {description && (
-        <p className="mt-0.5 text-[12px] leading-5 text-neutral-400 dark:text-neutral-500">
-          {description}
-        </p>
-      )}
-      <div className="mt-3.5">{children}</div>
-    </section>
   )
 }
 
@@ -833,33 +802,6 @@ function AccountPanel() {
         </div>
         </div>
       </SectionCard>
-    </div>
-  )
-}
-
-function AboutPanel() {
-  return (
-    <div className="py-2">
-      <div className="flex items-center gap-3">
-        <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-neutral-900 text-lg font-semibold text-white dark:bg-white dark:text-neutral-900">
-          H
-        </span>
-        <div>
-          <div className="text-[16px] font-semibold text-neutral-900 dark:text-neutral-100">HappyChat</div>
-          <div className="text-[12px] text-neutral-400">版本 {APP_VERSION}</div>
-        </div>
-      </div>
-      <p className="mt-4 text-[13px] leading-6 text-neutral-600 dark:text-neutral-300">
-        一个开源、可自托管的 AI 聊天站。
-      </p>
-      <a
-        href="https://github.com/happycola233/happychat"
-        target="_blank"
-        rel="noreferrer"
-        className="mt-3 inline-block text-[13px] text-sky-600 hover:underline dark:text-sky-400"
-      >
-        GitHub 仓库
-      </a>
     </div>
   )
 }

@@ -1,12 +1,23 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+
+// 版本号唯一来源是 package.json，避免前端再硬编码一份导致发版后忘记同步。
+const { version: appVersion } = JSON.parse(
+  readFileSync(fileURLToPath(new URL('./package.json', import.meta.url)), 'utf8'),
+) as { version: string }
 
 // 单仓库（非 monorepo）：前端根目录为 web/，通过 alias 引用根级 shared/。
 export default defineConfig({
   root: 'web',
   plugins: [react(), tailwindcss()],
+  // 构建期常量（类型声明见 web/src/env.d.ts）：开发模式下 __BUILD_TIME__ 即 dev server 启动时间。
+  define: {
+    __APP_VERSION__: JSON.stringify(appVersion),
+    __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+  },
   resolve: {
     alias: {
       '@shared': fileURLToPath(new URL('./shared', import.meta.url)),

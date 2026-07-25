@@ -11,6 +11,7 @@ import { PageHeader } from '../../components/ui/PageHeader'
 import { Select } from '../../components/ui/Select'
 import { Spinner } from '../../components/ui/Spinner'
 import { Toggle } from '../../components/ui/Toggle'
+import { APP_VERSION } from '../../lib/buildInfo'
 import { toast } from '../../store/toast'
 
 /** 只读信息行（「关于」卡片用）。 */
@@ -214,7 +215,7 @@ export default function SettingsPage() {
 
       <Card title="关于">
         <div className="-my-1">
-          <InfoRow label="版本" value="0.1.0" />
+          <InfoRow label="版本" value={`v${APP_VERSION}`} />
           <InfoRow label="用户数" value={String(stats?.totals.users ?? '—')} />
           <InfoRow label="会话数" value={String(stats?.totals.conversations ?? '—')} />
         </div>
