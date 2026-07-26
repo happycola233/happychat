@@ -1,6 +1,9 @@
 <div align="center">
 
-<img src="docs/assets/logo.png" alt="HappyChat Logo" width="200">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.png">
+  <img src="docs/assets/logo-light.png" alt="HappyChat Logo" width="200">
+</picture>
 
 **开源、可自托管的全功能 AI 聊天站**
 
@@ -45,7 +48,7 @@
 
 - **实时流式输出**：文字逐段渐入，生成中可随时停止，失败一键重试
 - **断线续传**：刷新页面 / 网络中断后自动重连，从上次位置继续接收未完成的生成
-- **对话分支**：编辑用户消息后重发即形成会话内分支，随时在 `‹ 1/2 ›` 间切换；助手消息可重新生成；还能一键把「根消息 → 当前助手消息」整条链路复制为独立新对话
+- **对话分支**：编辑消息不会覆盖原内容，而是在该位置创建子分支，可随时在 `‹ 1/2 ›` 间切换；还能一键把「根消息 → 当前助手消息」整条链路复制为独立新对话
 - **现代输入体验**：桌面端新对话输入框居中 + 重点色光晕，发出首条消息后平滑落底；单行 ⇄ 多行自适应、行扩展动画保证输入文字全程可见；图片 / 文件上传聚合进「＋」菜单；顶栏为模糊交叉渐变悬浮层
 - **消息时间轴导航**（桌面端）：聊天右缘小横条随滚动高亮当前位置，悬停展开你发过的消息列表，点击快速跳转；可在设置中关闭
 - **聊天文件夹与批量管理**：一键新建文件夹归类聊天；文件夹支持自定义颜色（预设色板 + 自定义取色）与 Emoji 图标（支持中文搜索的表情选择器，数据自托管、不依赖公网 CDN）、可置顶、展开状态记忆；批量模式下多选删除 / 移动；删除文件夹不删聊天
@@ -54,7 +57,7 @@
 ### 🧠 模型能力
 
 - **双上游协议**：每个模型可配置走 Responses API 或 chat/completions —— 后者会被服务端翻译为统一事件流，前端零差异
-- **思考模型完整支持**（GPT-5.6 等）：思考深度调节（none / low / medium / high / xhigh / max）+ 官方思考摘要实时展示；管理员可按模型自由增删、排序思考等级并自定义上游值与中文描述，不受前端枚举限制
+- **思考模型完整支持**（GPT-5.6 等）：精致的交互界面一键调节思考深度（none / low / medium / high / xhigh / max）+ 实时展示推理摘要；管理员可按模型自由增删、排序思考等级并自定义上游值与中文描述，不受前端枚举限制
 - **加密推理上下文回传**（可选）：Responses 思考模型可开启「回传历史推理上下文」，`encrypted_content` 由服务端私有持久化并按来源严格门控重放 —— 密文绝不进入浏览器事件、消息 DTO 或分享快照
 - **联网搜索**：一键开关 + 引用来源展示；思考 / 联网均为「临时一次 vs 固定默认」解耦设计，切换会话自动恢复各自上次使用的模型与参数
 - **提示词缓存优化**：文本会话始终使用稳定 `prompt_cache_key`；每轮发送时间以隐藏的 runtime context 消息冻结重放，避免动态时间破坏历史前缀命中；缓存写入 / 读取 Token 分开计量、分别定价、独立展示
@@ -68,7 +71,7 @@
 - **账号自助管理**：头像上传（**支持裁切**）、改密码、清空对话、删除账号
 - **聊天标题自动总结**：标题模型与提示词管理员可配，浏览器标签页标题随会话标题逐字动态同步
 - **提示词模板变量**：`{{current_date}}` / `{{current_user}}` 等，涉及时间的变量会智能提示其对缓存命中的影响
-- **全简体中文界面**：浅色 / 深色 / 跟随系统三主题，手机端侧栏抽屉 + 触摸优化，全面可用
+- **全简体中文界面**：浅色 / 深色 / 跟随系统三主题，登录 / 注册页未登录时也能切换（偏好仅存本地）；手机端侧栏抽屉 + 触摸优化，全面可用
 
 ### 🔗 分享与公告
 
@@ -93,30 +96,54 @@
 
 ## 📸 界面预览
 
+> 以下截图均会**跟随你的 GitHub 主题自动切换浅色 / 深色版本**。
+
 <table>
   <tr>
     <td width="50%">
-      <img src="docs/assets/chat-reasoning-search.png" alt="思考模型 + 联网搜索">
-      <p align="center"><b>思考摘要 + 联网搜索</b><br><sub>实时展开模型的思考过程与逐条检索动作</sub></p>
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/assets/login-dark.png">
+        <img src="docs/assets/login-light.png" alt="登录页">
+      </picture>
+      <p align="center"><b>登录页</b><br><sub>精心打磨的第一印象：渐变光晕背景 + 圆角卡片，浅深主题独立调校</sub></p>
     </td>
     <td width="50%">
-      <img src="docs/assets/home-dark.png" alt="深色模式主界面">
-      <p align="center"><b>深色模式</b><br><sub>文件夹归类 + Emoji 图标 + 置顶会话</sub></p>
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/assets/chat-reasoning-search-dark.png">
+        <img src="docs/assets/chat-reasoning-search-light.png" alt="思考模型 + 联网搜索">
+      </picture>
+      <p align="center"><b>思考摘要 + 联网搜索</b><br><sub>完整解析上游推理与检索事件，思考摘要 / 搜索状态优雅实时呈现</sub></p>
     </td>
   </tr>
   <tr>
     <td width="50%">
-      <img src="docs/assets/admin-overview.png" alt="管理后台概览">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/assets/model-picker-dark.png">
+        <img src="docs/assets/model-picker-light.png" alt="聚合模型选择器">
+      </picture>
+      <p align="center"><b>聚合模型选择器</b><br><sub>简洁易用的面板，一键调节模型、思考深度与联网开关</sub></p>
+    </td>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/assets/admin-overview-dark.png">
+        <img src="docs/assets/admin-overview-light.png" alt="管理后台概览">
+      </picture>
       <p align="center"><b>后台概览</b><br><sub>请求健康、Token、成本估算、RPM/TPM 一屏总览</sub></p>
     </td>
-    <td width="50%">
-      <img src="docs/assets/admin-analytics.png" alt="管理后台分析">
-      <p align="center"><b>用量分析</b><br><sub>Token 五维趋势 / 请求数 / 成本曲线，可按供应商·模型·用户筛选</sub></p>
-    </td>
   </tr>
   <tr>
-    <td colspan="2">
-      <img src="docs/assets/admin-models.png" alt="模型管理">
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/assets/admin-analytics-dark.png">
+        <img src="docs/assets/admin-analytics-light.png" alt="管理后台分析">
+      </picture>
+      <p align="center"><b>用量分析</b><br><sub>Token 五维趋势 / 请求数 / 成本曲线，可按供应商·模型·用户筛选</sub></p>
+    </td>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/assets/admin-models-dark.png">
+        <img src="docs/assets/admin-models-light.png" alt="模型管理">
+      </picture>
       <p align="center"><b>模型管理</b><br><sub>拖拽排序 · 能力标记 · 自定义标签 · 上下架开关 · 按用户授权</sub></p>
     </td>
   </tr>
