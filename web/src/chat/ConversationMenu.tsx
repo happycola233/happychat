@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { clsx } from 'clsx'
-import { ChevronLeft, FolderInput, MoreHorizontal } from 'lucide-react'
+import { ChevronLeft, Download, FolderInput, MoreHorizontal } from 'lucide-react'
 import { useConversations } from '../hooks/useConversations'
 import { useConversationActions } from '../hooks/useConversationActions'
 import { useFolders } from '../hooks/useFolders'
 import { useFolderEditor } from '../store/folderEditor'
 import { RowMenuItem } from './RowMenuItem'
 import { ShareDialog } from './ShareDialog'
+import { ExportDialog } from './ExportDialog'
 import { FolderMenuList } from './FolderMenuList'
 import { DeleteIcon, EditIcon, PinnedIcon, ShareIcon, UnpinIcon } from './icons'
 
@@ -88,6 +89,7 @@ export function ConversationMenu({ conversationId }: Props) {
   const [open, setOpen] = useState(false)
   const [menuView, setMenuView] = useState<'root' | 'move'>('root')
   const [sharing, setSharing] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
 
@@ -148,6 +150,16 @@ export function ConversationMenu({ conversationId }: Props) {
                 }}
               >
                 分享
+              </RowMenuItem>
+              <RowMenuItem
+                // lucide 描边图标压细笔画、缩小一号对齐自绘 fill 图标的视觉重量
+                icon={<Download className="!h-[15px] !w-[15px]" strokeWidth={1.6} />}
+                onClick={() => {
+                  setOpen(false)
+                  setExporting(true)
+                }}
+              >
+                导出
               </RowMenuItem>
               <RowMenuItem
                 icon={<EditIcon className="h-4 w-4" />}
@@ -230,6 +242,9 @@ export function ConversationMenu({ conversationId }: Props) {
 
       {sharing && (
         <ShareDialog conversationId={conversation.id} onClose={() => setSharing(false)} />
+      )}
+      {exporting && (
+        <ExportDialog conversationIds={[conversation.id]} onClose={() => setExporting(false)} />
       )}
       {renaming && (
         <RenameDialog

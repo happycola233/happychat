@@ -223,6 +223,22 @@ export interface AttachmentDTO {
   byteSize: number
 }
 
+/** 导出预览（导出弹窗实时展示产物结构与主文件文本片段）。 */
+export interface ExportPreviewDTO {
+  /** 最终下载文件名（含扩展名；打包时为 .zip） */
+  filename: string
+  /** file=单文件；zip=ZIP 包（主文件 + assets/ 附件） */
+  kind: 'file' | 'zip'
+  mime: string
+  /** 主文本文件内容（超长时截断） */
+  preview: string
+  truncated: boolean
+  /** kind=zip 时的条目名与字节数 */
+  entries: { name: string; size: number }[] | null
+  /** 参与导出的消息条数 */
+  messageCount: number
+}
+
 // ===================== 管理后台 =====================
 
 export interface InviteCodeDTO {

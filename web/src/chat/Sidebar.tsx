@@ -5,6 +5,7 @@ import {
   Check,
   ChevronDown,
   ChevronLeft,
+  Download,
   FolderInput,
   FolderPlus,
   LayoutDashboard,
@@ -18,6 +19,7 @@ import {
 } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ShareDialog } from './ShareDialog'
+import { ExportDialog } from './ExportDialog'
 import { RowMenuItem } from './RowMenuItem'
 import { FolderRow } from './FolderRow'
 import { FolderMenuList } from './FolderMenuList'
@@ -58,6 +60,7 @@ interface ConversationRowHandlers {
   onTogglePin: (id: string, pinned: boolean) => void
   onRename: (id: string, title: string) => void
   onShare: (id: string) => void
+  onExport: (id: string) => void
   onMove: (id: string, folderId: string | null, folderName?: string) => void
   onMoveToNewFolder: (id: string) => void
 }
@@ -230,6 +233,7 @@ function ConversationRow({
   onTogglePin,
   onRename,
   onShare,
+  onExport,
   onMove,
   onMoveToNewFolder,
 }: {
@@ -245,6 +249,7 @@ function ConversationRow({
   onTogglePin?: (id: string, pinned: boolean) => void
   onRename?: (id: string, title: string) => void
   onShare?: (id: string) => void
+  onExport?: (id: string) => void
   onMove?: (id: string, folderId: string | null, folderName?: string) => void
   onMoveToNewFolder?: (id: string) => void
 }) {
@@ -380,6 +385,16 @@ function ConversationRow({
                   }}
                 >
                   分享
+                </RowMenuItem>
+                <RowMenuItem
+                  // lucide 描边图标压细笔画、缩小一号对齐自绘 fill 图标的视觉重量
+                  icon={<Download className="!h-[15px] !w-[15px]" strokeWidth={1.6} />}
+                  onClick={() => {
+                    setMenuOpen(false)
+                    onExport?.(conversation.id)
+                  }}
+                >
+                  导出
                 </RowMenuItem>
                 <RowMenuItem icon={<EditIcon className="h-4 w-4" />} onClick={startRename}>
                   重命名
@@ -636,9 +651,11 @@ export function Sidebar() {
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
   const accountMenuRef = useRef<HTMLDivElement>(null)
   const [shareTarget, setShareTarget] = useState<string | null>(null)
+  const [exportTarget, setExportTarget] = useState<string | null>(null)
 
   // 批量管理：选中集合仅存在于本次进入期间，退出即清空。
   const [batchMode, setBatchMode] = useState(false)
+  const [batchExportOpen, setBatchExportOpen] = useState(false)
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set())
   const [movePickerOpen, setMovePickerOpen] = useState(false)
   const movePickerRef = useRef<HTMLDivElement>(null)
@@ -789,6 +806,7 @@ export function Sidebar() {
     onTogglePin: togglePin,
     onRename: renameTo,
     onShare: setShareTarget,
+    onExport: setExportTarget,
     onMove: (conversationId, folderId, folderName) =>
       moveToFolder([conversationId], folderId, folderName),
     onMoveToNewFolder: (conversationId) =>
@@ -1099,6 +1117,15 @@ export function Sidebar() {
                   <button
                     type="button"
                     disabled={selectedIds.size === 0}
+                    data-testid="batch-export"
+                    onClick={() => setBatchExportOpen(true)}
+                    className="flex-1 rounded-lg bg-neutral-200/70 px-2 py-1.5 text-[13px] font-medium text-neutral-800 transition hover:bg-neutral-200 disabled:opacity-40 dark:bg-neutral-800 dark:text-neutral-100 dark:hover:bg-neutral-700"
+                  >
+                    导出
+                  </button>
+                  <button
+                    type="button"
+                    disabled={selectedIds.size === 0}
                     data-testid="batch-delete"
                     onClick={() => batchDeleteWithConfirm(selectedList, exitBatchMode)}
                     className="flex-1 rounded-lg bg-red-50 px-2 py-1.5 text-[13px] font-medium text-red-600 transition hover:bg-red-100 disabled:opacity-40 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-950/60"
@@ -1177,6 +1204,16 @@ export function Sidebar() {
         onOpenConversation={openConversation}
       />
 
+      {exportTarget && (
+        <ExportDialog conversationIds={[exportTarget]} onClose={() => setExportTarget(null)} />
+      )}
+      {batchExportOpen && selectedList.length > 0 && (
+        <ExportDialog
+          conversationIds={selectedList}
+          onClose={() => setBatchExportOpen(false)}
+          onExported={exitBatchMode}
+        />
+      )}
       {shareTarget && (
         <ShareDialog conversationId={shareTarget} onClose={() => setShareTarget(null)} />
       )}
