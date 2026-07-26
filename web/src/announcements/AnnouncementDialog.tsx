@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
+import { clsx } from 'clsx'
+import { Pin } from 'lucide-react'
 import { Modal } from '../components/ui/Modal'
-import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { Markdown } from '../chat/Markdown'
 import {
@@ -67,15 +68,12 @@ export function AnnouncementDialog() {
 
   if (!current) return null
   const meta = LEVEL_META[current.level]
+  const LevelIcon = meta.icon
 
-  // 主按钮：确认（强弹窗→标记已读；详情→关闭）
+  // 强弹窗主按钮「我知道了」：标记已读并收起（手动查看没有底部按钮，走 dismiss 关闭）
   const acknowledge = () => {
-    if (isAuto) {
-      markRead.mutate(current.id)
-      setActiveAutoId(null)
-    } else {
-      closeView()
-    }
+    markRead.mutate(current.id)
+    setActiveAutoId(null)
   }
   // Esc / 点背景：强弹窗仅本会话关闭（不确认，之后仍可能再弹到次数上限）
   const dismiss = () => {
@@ -91,17 +89,36 @@ export function AnnouncementDialog() {
     <Modal
       open
       onClose={dismiss}
-      title={current.title}
+      height="fixed"
+      // 富标题：标题 + 「级别 · 时间 · 置顶」元信息行（全部 phrasing 元素，见 Modal 注释）。
+      // 级别只用小图标 + 彩色文字点到为止，不用彩底圆片——弹窗头部承受不了那个视觉重量。
+      title={
+        <span className="block min-w-0">
+          <span className="block text-base leading-snug font-semibold text-neutral-900 dark:text-neutral-100">
+            {current.title}
+          </span>
+          <span className="mt-1 flex items-center gap-1.5 text-xs font-normal text-neutral-400 dark:text-neutral-500">
+            <span className={clsx('flex items-center gap-1 font-medium', meta.accentClass)}>
+              <LevelIcon className="h-3.5 w-3.5" />
+              {meta.label}
+            </span>
+            <span aria-hidden="true">·</span>
+            <span>{formatAnnouncementTime(current.createdAt)}</span>
+            {current.pinned && (
+              <Pin className="h-3 w-3 rotate-45 text-neutral-300 dark:text-neutral-600" />
+            )}
+          </span>
+        </span>
+      }
+      // 手动查看不需要底部按钮（右上角 X / Esc / 点背景均可关闭）；强弹窗保留「我知道了」确认
       footer={
-        <Button variant={isAuto ? 'primary' : 'secondary'} onClick={acknowledge}>
-          {isAuto ? '我知道了' : '关闭'}
-        </Button>
+        isAuto ? (
+          <Button variant="primary" onClick={acknowledge}>
+            我知道了
+          </Button>
+        ) : undefined
       }
     >
-      <div className="mb-3 flex items-center gap-2 text-xs text-neutral-400">
-        <Badge tone={meta.tone}>{meta.label}</Badge>
-        <span>{formatAnnouncementTime(current.createdAt)}</span>
-      </div>
       <Markdown text={current.body} />
     </Modal>
   )

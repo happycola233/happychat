@@ -7,16 +7,24 @@ import { clsx } from 'clsx'
 interface Props {
   open: boolean
   onClose: () => void
-  title: string
+  /** 纯文本标题；也可传富标题节点（须为 phrasing 内容，因为会渲染进 h3）。 */
+  title: ReactNode
   children: ReactNode
   footer?: ReactNode
   size?: 'default' | 'form' | 'wide'
+  /** 面板高度：auto=随内容收缩（默认）；fixed=固定高度，内容很短时也保持体面的窗体比例。 */
+  height?: 'auto' | 'fixed'
 }
 
 const SIZE_CLASS: Record<NonNullable<Props['size']>, string> = {
   default: 'max-w-lg',
   form: 'max-w-2xl',
   wide: 'max-w-[min(80vw,calc(100vw-2rem))]',
+}
+
+const HEIGHT_CLASS: Record<NonNullable<Props['height']>, string> = {
+  auto: 'max-h-[90vh]',
+  fixed: 'h-[min(85vh,36rem)]',
 }
 
 const FOCUSABLE_SELECTOR = [
@@ -28,7 +36,15 @@ const FOCUSABLE_SELECTOR = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(',')
 
-export function Modal({ open, onClose, title, children, footer, size = 'default' }: Props) {
+export function Modal({
+  open,
+  onClose,
+  title,
+  children,
+  footer,
+  size = 'default',
+  height = 'auto',
+}: Props) {
   const titleId = useId()
   const dialogRef = useRef<HTMLDivElement>(null)
   const onCloseRef = useRef(onClose)
@@ -106,12 +122,16 @@ export function Modal({ open, onClose, title, children, footer, size = 'default'
         aria-labelledby={titleId}
         tabIndex={-1}
         className={clsx(
-          'hc-pop-in relative z-10 flex max-h-[90vh] w-full flex-col overflow-hidden rounded-2xl bg-white shadow-xl dark:bg-neutral-900',
+          'hc-pop-in relative z-10 flex w-full flex-col overflow-hidden rounded-2xl bg-white shadow-xl dark:bg-neutral-900',
           SIZE_CLASS[size],
+          HEIGHT_CLASS[height],
         )}
       >
         <div className="flex shrink-0 items-center justify-between gap-4 border-b border-neutral-200 px-4 py-3.5 sm:px-6 dark:border-neutral-800">
-          <h3 id={titleId} className="text-lg font-medium text-neutral-900 dark:text-neutral-100">
+          <h3
+            id={titleId}
+            className="min-w-0 text-lg font-medium text-neutral-900 dark:text-neutral-100"
+          >
             {title}
           </h3>
           <button
