@@ -380,6 +380,12 @@ html.hc-ios .hc-chat-scroll {
     'leading . trailing';
   row-gap: 0.375rem;
 }
+/* 多行布局的正文内边距加宽（对齐 ChatGPT）：单行时正文夹在「+」与控件之间，
+   紧凑内边距刚好；独占整行后文字直接贴着 26px 大圆角的盒边，同一套内边距会
+   显得局促——加宽到 盒边距 8px + 此处 12px ≈ 20px 的横向留白，顶部同理。 */
+.hc-composer-grid.hc-composer-multiline .hc-composer-primary {
+  padding: 0.5rem 0.75rem 0.375rem;
+}
 .hc-composer-leading {
   grid-area: leading;
 }
