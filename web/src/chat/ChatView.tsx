@@ -29,6 +29,7 @@ import { useSettings } from '../store/settings'
 import { useStreamStore } from '../store/stream'
 import { useIsMobile, useSidebarStore } from '../store/sidebar'
 import { getBrowserLocale, getBrowserTimezone } from '../lib/browserLocale'
+import { useDevicePixelRatio } from '../lib/useDevicePixelRatio'
 import { pollConversationTitleAfterRun } from '../sse/conversationEvents'
 import { startStream } from '../sse/streamManager'
 import { toast } from '../store/toast'
@@ -89,6 +90,7 @@ export default function ChatView() {
   const showNewChatGradientGlow = useSettings((s) => s.preferences.showNewChatGradientGlow)
   const openMobileSidebar = useSidebarStore((s) => s.setMobileOpen)
   const isMobile = useIsMobile()
+  const devicePixelRatio = useDevicePixelRatio()
   const { data: models } = useModels()
   const model = models?.find((m) => m.id === activeModelId)
   const { data: detail } = useConversation(id)
@@ -117,6 +119,8 @@ export default function ChatView() {
     height: 0,
     boxCenterFromBottom: 0,
   })
+  // 输入框是否有草稿（正文/附件/图生图来源任一非空）：hero 态预热合成层的触发条件。
+  const [composerHasDraft, setComposerHasDraft] = useState(false)
   const [viewportHeight, setViewportHeight] = useState(0)
   const [viewportWidth, setViewportWidth] = useState(0)
   // 输入框「居中→落底」平移动画只在新聊天里发出首条消息时启用；
@@ -707,13 +711,20 @@ export default function ChatView() {
   // 把落底窗口并入判定，这一帧就稳定为落底态；dockAnimated 只由定时器摘除，不会打断整段动画。
   const heroComposer = !id && isEmpty && !isMobile && !dockAnimated
   // 抬升量让「输入框视觉盒的几何中心」落在视口正中；盒子随行数长高时中心保持不动。
+  // 取整对齐物理像素而非 CSS 像素：Windows 125%/150% 缩放下整数 CSS 像素可能落在
+  // 半个物理像素上，升层后整层位图被半像素重采样，问候语与输入框文字随机发虚。
   const composerLift = heroComposer
-    ? Math.max(0, Math.round(viewportHeight / 2 - composerMetrics.boxCenterFromBottom))
+    ? Math.max(
+        0,
+        Math.round((viewportHeight / 2 - composerMetrics.boxCenterFromBottom) * devicePixelRatio) /
+          devicePixelRatio,
+      )
     : 0
-  // 居中/落底期间把悬浮层与光晕提前提升为独立合成层：升层与光晕大渐变的光栅化
-  // 挪到用户读问候语/打字的空闲期完成，发送瞬间不再有「首次升层」掉帧；且落底 transform
-  // 在合成线程跑，不被首条消息挂载的主线程重排阻塞。落位后撤下标记，避免常驻 GPU 层与文字发虚。
-  const composerLayerWarm = heroComposer || dockAnimated
+  // 升层（will-change）时机：合成层上的文字只有灰度抗锯齿、又易受半像素重采样影响而发虚，
+  // 所以居中静止阅读问候语时不升层，走正常渲染路径保证清晰；用户一动笔（有草稿）才预热——
+  // 升层与光晕大渐变的光栅化在打字期完成，发送必先有草稿，发送瞬间依旧没有「首次升层」掉帧，
+  // 且落底 transform 在合成线程跑，不被首条消息挂载的主线程重排阻塞。落位后撤下标记。
+  const composerLayerWarm = (heroComposer && composerHasDraft) || dockAnimated
   const timelineItems = timelineItemsFromMessages(messages)
   const timelineVisible = !isMobile && showTimelineNav && shouldShowTimeline(timelineItems.length)
   const topFadeVisible = shouldShowTopFade({
@@ -925,6 +936,7 @@ export default function ChatView() {
             imageSources={imageSources}
             scrollbarGutterWidth={scrollbarGutterWidth}
             onMetricsChange={setComposerMetrics}
+            onDraftPresenceChange={setComposerHasDraft}
             variant={heroComposer ? 'hero' : 'docked'}
             dockAnimated={dockAnimated}
             onRemoveImageSource={(attachmentId) =>

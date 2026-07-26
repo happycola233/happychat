@@ -44,6 +44,8 @@ interface Props {
   imageSources?: ImageEditSource[]
   scrollbarGutterWidth?: number
   onMetricsChange?: (metrics: ComposerMetrics) => void
+  /** 「是否有草稿」变化回调（正文/附件/图生图来源任一非空即为有）：hero 态预热合成层用。 */
+  onDraftPresenceChange?: (hasDraft: boolean) => void
   onRemoveImageSource?: (attachmentId: string) => void
   /** hero＝桌面端新对话居中态：隐藏免责声明与底部遮罩。 */
   variant?: 'docked' | 'hero'
@@ -153,6 +155,7 @@ export function Composer({
   imageSources = [],
   scrollbarGutterWidth = 0,
   onMetricsChange,
+  onDraftPresenceChange,
   onRemoveImageSource,
   variant = 'docked',
   dockAnimated = false,
@@ -184,6 +187,13 @@ export function Composer({
   const { uploads, uploadFiles, removeUpload, retryUpload, clearUploads, uploading, hasFailed } =
     useAttachmentUpload({ canImage, canFile })
   const hasPreviews = imageSources.length > 0 || uploads.length > 0
+
+  // 有无草稿上报给父层：ChatView 在桌面端新对话据此决定何时把输入框悬浮层预热为合成层
+  //（详见 composerLayerWarm）——用户一动笔就预热，静止阅读问候语时不占 GPU 层。
+  const hasDraft = Boolean(text) || hasPreviews
+  useEffect(() => {
+    onDraftPresenceChange?.(hasDraft)
+  }, [hasDraft, onDraftPresenceChange])
 
   /**
    * 用隐藏镜像在「单行可用宽度」下试排版来决定单行/多行，
