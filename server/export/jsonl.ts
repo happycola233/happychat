@@ -7,9 +7,10 @@ import type { ExportSource } from './types'
  * `{"messages":[{"role":"user","content":"…"},…]}`，适合程序处理与微调数据集。
  *
  * 只保留文本内容；附件按选项以「[图片：名称]」占位或完全省略；
- * 没有任何文本的消息（如纯图片生成回复）会被跳过。
+ * 没有任何文本的消息（如纯图片生成回复）会被跳过。所有消息都被跳过时
+ * 返回 null——空 messages 的行不是有效样本，调用方按「无内容」处理。
  */
-export function buildJsonlLine(source: ExportSource, options: ExportOptions): string {
+export function buildJsonlLine(source: ExportSource, options: ExportOptions): string | null {
   const messages: { role: string; content: string }[] = []
   for (const m of source.messages) {
     const segments: string[] = []
@@ -25,5 +26,6 @@ export function buildJsonlLine(source: ExportSource, options: ExportOptions): st
     if (segments.length === 0) continue
     messages.push({ role: m.role, content: segments.join('\n') })
   }
+  if (messages.length === 0) return null
   return JSON.stringify({ title: source.conversation.title, messages })
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { clsx } from 'clsx'
 import type {
@@ -7,7 +7,7 @@ import type {
   ExportOptions,
   ExportTimePrecision,
 } from '@shared/schemas/export'
-import { EXPORT_FORMATS } from '@shared/schemas/export'
+import { EXPORT_BATCH_MAX, EXPORT_FORMATS } from '@shared/schemas/export'
 import { EXPORT_FORMAT_CAPS } from '@shared/util/exportOptions'
 import { getConversation } from '../api/chat'
 import {
@@ -133,6 +133,11 @@ export function ExportDialog({
   )
 
   const [format, setFormat] = useState<ExportFormat>('markdown')
+  /** 打开弹窗时刻的纪元值：进入预览查询键，重开弹窗时不复用旧缓存（消息可能已更新） */
+  const [previewEpoch] = useState(() => Date.now())
+  /** 进行中的下载请求；弹窗关闭（卸载）时中止，避免「取消后仍自动下载」 */
+  const downloadAbortRef = useRef<AbortController | null>(null)
+  useEffect(() => () => downloadAbortRef.current?.abort(), [])
   const [scope, setScope] = useState<'active' | 'full'>('active')
   /** null = 全部消息（默认）；一旦手动改动则物化为集合 */
   const [selected, setSelected] = useState<ReadonlySet<string> | null>(null)
@@ -193,7 +198,7 @@ export function ExportDialog({
     return Array.isArray(o.messageIds) && o.messageIds.length === 0
   }, [debouncedOptions])
   const previewQuery = useQuery({
-    queryKey: ['export-preview', single, debouncedOptions],
+    queryKey: ['export-preview', single, previewEpoch, debouncedOptions],
     queryFn: () =>
       previewConversationExport(single!, JSON.parse(debouncedOptions) as ExportOptions),
     enabled: Boolean(single) && !selectionEmpty && !debouncedSelectionEmpty,
@@ -206,8 +211,10 @@ export function ExportDialog({
 
   const download = useMutation({
     mutationFn: async () => {
-      if (single) return downloadConversationExport(single, options)
-      return downloadBatchExport(conversationIds, options)
+      const controller = new AbortController()
+      downloadAbortRef.current = controller
+      if (single) return downloadConversationExport(single, options, controller.signal)
+      return downloadBatchExport(conversationIds, options, controller.signal)
     },
     onSuccess: ({ blob, filename, exportedCount }) => {
       saveBlobToFile(blob, filename ?? `聊天导出.${caps.ext}`)
@@ -225,8 +232,15 @@ export function ExportDialog({
       onExported?.()
       onClose()
     },
-    onError: (e) => toast.error(e instanceof Error ? e.message : '导出失败'),
+    onError: (e) => {
+      // 关闭弹窗中止请求属于用户主动取消，不提示错误
+      if (e instanceof DOMException && e.name === 'AbortError') return
+      toast.error(e instanceof Error ? e.message : '导出失败')
+    },
   })
+
+  // 服务端 schema 限制单次批量数量，前端提前禁用并提示分批，避免提交后才 400
+  const batchOverLimit = conversationIds.length > EXPORT_BATCH_MAX
 
   const toggleOne = (id: string) => {
     setSelected((prev) => {
@@ -251,7 +265,7 @@ export function ExportDialog({
           </Button>
           <Button
             loading={download.isPending}
-            disabled={selectionEmpty}
+            disabled={selectionEmpty || batchOverLimit}
             onClick={() => download.mutate()}
             data-testid="export-submit"
           >
@@ -264,7 +278,7 @@ export function ExportDialog({
         {/* ---------------- 格式 ---------------- */}
         <section className="space-y-2">
           <SectionTitle>导出格式</SectionTitle>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" role="group" aria-label="导出格式">
             {EXPORT_FORMATS.map((f) => {
               const c = EXPORT_FORMAT_CAPS[f]
               const active = format === f
@@ -273,6 +287,7 @@ export function ExportDialog({
                   key={f}
                   type="button"
                   onClick={() => setFormat(f)}
+                  aria-pressed={active}
                   data-testid={`export-format-${f}`}
                   data-selected={active}
                   className={clsx(
@@ -321,9 +336,10 @@ export function ExportDialog({
         <section className="space-y-1">
           <SectionTitle>导出选项</SectionTitle>
           <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
-            {caps.scopeFull && single && (
+            {caps.scopeFull && (
               <SelectRow label="消息范围">
                 <Select
+                  aria-label="消息范围"
                   value={effectiveScope}
                   onChange={(e) => setScope(e.target.value as 'active' | 'full')}
                   options={[
@@ -336,6 +352,7 @@ export function ExportDialog({
             {caps.time && (
               <SelectRow label="时间显示">
                 <Select
+                  aria-label="时间显示精度"
                   value={timePrecision}
                   onChange={(e) => setTimePrecision(e.target.value as ExportTimePrecision)}
                   options={TIME_OPTIONS}
@@ -344,6 +361,7 @@ export function ExportDialog({
             )}
             <SelectRow label="附件">
               <Select
+                aria-label="附件处理方式"
                 value={caps.attachmentModes.includes(attachmentMode) ? attachmentMode : caps.attachmentModes[0]!}
                 onChange={(e) => setAttachmentMode(e.target.value as ExportAttachmentMode)}
                 options={caps.attachmentModes.map((m) => ({
@@ -530,6 +548,11 @@ export function ExportDialog({
             {format === 'jsonl'
               ? `${conversationIds.length} 个聊天将合并为一个 .jsonl 文件（每行一个会话）。`
               : `${conversationIds.length} 个聊天将打包为一个 ZIP，每个会话独立文件夹。`}
+          </p>
+        )}
+        {batchOverLimit && (
+          <p className="text-[12px] leading-5 text-amber-600 dark:text-amber-400">
+            单次最多批量导出 {EXPORT_BATCH_MAX} 个聊天，请减少选择后分批导出。
           </p>
         )}
       </div>

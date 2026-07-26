@@ -9,13 +9,16 @@ export const previewConversationExport = (conversationId: string, options: Expor
     preview: true,
   }).then((r) => r.preview)
 
-/** 下载单个会话的导出文件。 */
-export const downloadConversationExport = (conversationId: string, options: ExportOptions) =>
-  apiPostFile(`/conversations/${conversationId}/export`, options)
+/** 下载单个会话的导出文件（signal 用于关闭弹窗时中止请求）。 */
+export const downloadConversationExport = (
+  conversationId: string,
+  options: ExportOptions,
+  signal?: AbortSignal,
+) => apiPostFile(`/conversations/${conversationId}/export`, options, signal)
 
-/** 批量导出（ZIP / JSONL 单文件）。 */
-export const downloadBatchExport = (ids: string[], options: ExportOptions) =>
-  apiPostFile('/conversations/export-batch', { ids, ...options })
+/** 批量导出（ZIP / JSONL 单文件；signal 用于关闭弹窗时中止请求）。 */
+export const downloadBatchExport = (ids: string[], options: ExportOptions, signal?: AbortSignal) =>
+  apiPostFile('/conversations/export-batch', { ids, ...options }, signal)
 
 /** 把 Blob 存为本地文件（临时 URL + a[download]）。 */
 export function saveBlobToFile(blob: Blob, filename: string): void {

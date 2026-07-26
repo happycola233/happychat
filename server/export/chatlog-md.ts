@@ -4,8 +4,10 @@ import {
   attachmentDisplayName,
   attachmentRefsOf,
   dedupeCitations,
+  encodeAssetHref,
   modelNameOf,
   sanitizeLinkText,
+  sanitizeLinkUrl,
   statusLabel,
   textOfContent,
 } from './content'
@@ -51,9 +53,14 @@ function frontMatter(source: ExportSource): string {
   return lines.join('\n')
 }
 
-/** YAML 标量：含特殊字符或首尾空白时用 JSON 双引号形式（YAML 兼容）。 */
+/** YAML 标量：含特殊字符、首尾空白或会被解析成非字符串类型时用 JSON 双引号形式（YAML 兼容）。 */
 function yamlValue(value: string): string {
-  if (/^[^\s#&*!|>'"%@`[\]{},:-][^#:\n]*$/.test(value) && !/\s$/.test(value)) return value
+  // true/no/null/数字/日期等裸写会被 YAML 解析为布尔/空值/数字，必须加引号
+  const ambiguous =
+    /^(?:true|false|yes|no|on|off|null|~)$/i.test(value) || /^[+-]?(?:\d|\.\d)/.test(value)
+  if (!ambiguous && /^[^\s#&*!|>'"%@`[\]{},:-][^#:\n]*$/.test(value) && !/\s$/.test(value)) {
+    return value
+  }
   return JSON.stringify(value)
 }
 
@@ -159,8 +166,10 @@ function attachmentLines(m: MessageDTO, source: ExportSource, options: ExportOpt
     const name = sanitizeLinkText(attachmentDisplayName(ref, attachment))
     const embedded =
       options.attachmentMode === 'embed' && attachment && !attachment.missing && attachment.assetPath
-    // 规范 §8：已保存的附件用链接形（相对路径 assets/），否则纯名形
-    let line = embedded ? `${icon} [${name}](${attachment.assetPath})` : `${icon} ${name}`
+    // 规范 §8：已保存的附件用链接形（相对路径 assets/，百分号编码），否则纯名形
+    let line = embedded
+      ? `${icon} [${name}](${encodeAssetHref(attachment.assetPath!)})`
+      : `${icon} ${name}`
     if (ref.generated) {
       const pairs = ['generated=true']
       if (ref.revisedPrompt) pairs.push(`prompt=${metaValue(truncate(ref.revisedPrompt, 300))}`)
@@ -221,7 +230,8 @@ function citationBlock(m: MessageDTO): string | null {
   const lines = ['**来源**', '']
   cites.forEach((c, i) => {
     const title = sanitizeLinkText(c.title || hostOf(c.url))
-    lines.push(`${i + 1}. [${title}](${c.url})`)
+    // URL 经清洗防止换行/括号伪造行首哨兵或破坏链接语法
+    lines.push(`${i + 1}. [${title}](${sanitizeLinkUrl(c.url)})`)
   })
   return lines.join('\n')
 }

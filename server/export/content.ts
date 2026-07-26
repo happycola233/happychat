@@ -3,12 +3,20 @@ import type { ContentPart, UrlCitation } from '@shared/types/domain'
 import type { ExportAttachment, ExportSource } from './types'
 import { formatDurationSeconds } from './time'
 
+/**
+ * 只去掉首尾的空白「行」，保留行内的缩进与行尾空格——
+ * 整段 trim 会破坏首行缩进代码、行尾双空格硬换行等有效内容。
+ */
+function trimBlankLines(text: string): string {
+  return text.replace(/^(?:[ \t]*\n)+/, '').replace(/(?:\n[ \t]*)+$/, '')
+}
+
 /** 消息正文纯文本：input_text / output_text 按顺序拼接，段落间空行。 */
 export function textOfContent(content: ContentPart[]): string {
   const parts: string[] = []
   for (const p of content) {
     if ((p.type === 'input_text' || p.type === 'output_text') && p.text.trim()) {
-      parts.push(p.text.replace(/\r\n/g, '\n').trim())
+      parts.push(trimBlankLines(p.text.replace(/\r\n/g, '\n')))
     }
   }
   return parts.join('\n\n')
@@ -152,6 +160,30 @@ export function sanitizeFilename(name: string, fallback = '未命名聊天'): st
 /** Markdown 链接文本中的中括号会破坏链接语法，替换为全角。 */
 export function sanitizeLinkText(text: string): string {
   return text.replace(/\[/g, '［').replace(/\]/g, '］').replace(/[\r\n]+/g, ' ')
+}
+
+const pct = (c: string) => `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`
+
+/**
+ * assets/ 相对路径 → Markdown 链接目标：只编码会破坏 CommonMark 链接
+ * 解析或 URL 解析的字符（空格断开目标、括号截断、`#` 成为 fragment、
+ * `%` 与已有转义混淆），中文等非 ASCII 保持原样以保住导出文件的可读性。
+ */
+export function encodeAssetHref(path: string): string {
+  return path.replace(/[ %#?()<>]/g, pct)
+}
+
+/**
+ * 外部 URL 进入 Markdown 链接目标前的清洗：百分号编码空白、控制字符与
+ * 括号/尖括号。含换行的恶意 URL 否则可伪造 chatlog-md 的行首哨兵结构。
+ */
+export function sanitizeLinkUrl(url: string): string {
+  let out = ''
+  for (const ch of url) {
+    const cp = ch.codePointAt(0)!
+    out += cp <= 0x20 || cp === 0x7f || '()<>'.includes(ch) ? pct(ch) : ch
+  }
+  return out
 }
 
 const MIME_EXT: Record<string, string> = {

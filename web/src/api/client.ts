@@ -75,12 +75,14 @@ function filenameFromDisposition(header: string | null): string | null {
 export async function apiPostFile(
   path: string,
   body?: unknown,
+  signal?: AbortSignal,
 ): Promise<{ blob: Blob; filename: string | null; exportedCount: number | null }> {
   const res = await fetch(`/api${path}`, {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: body !== undefined ? JSON.stringify(body) : undefined,
+    signal,
   })
   if (!res.ok) {
     let message = '请求失败，请稍后重试'

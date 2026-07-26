@@ -34,7 +34,8 @@ export function buildJson(source: ExportSource, options: ExportOptions): string 
       title: source.conversation.title,
       createdAt: source.conversation.createdAt,
       updatedAt: source.conversation.updatedAt,
-      ...(options.scope === 'full' ? { activeLeafId: source.conversation.activeLeafId } : {}),
+      // 有效叶子（悬空引用已在收集阶段回退到存活祖先），保证可靠还原分支现场
+      ...(options.scope === 'full' ? { activeLeafId: source.activeLeafId } : {}),
     },
     messageCount: source.messages.length,
     messages: source.messages.map((m) => jsonMessage(m, source, options)),

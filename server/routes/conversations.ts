@@ -125,6 +125,10 @@ const EXPORT_ERROR = {
     message: '附件总量超过 512MB，无法打包导出；请改用「仅保留文件名」或分批导出',
     status: 413,
   },
+  too_many_files: {
+    message: '打包文件数超过 ZIP 的 65535 上限；请减少附件或分批导出',
+    status: 413,
+  },
 } as const
 
 /** 批量导出（字面量路由，须在 /:id 之前注册）：ZIP 打包 / JSONL 合并单文件。 */

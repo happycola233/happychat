@@ -4,9 +4,11 @@ import {
   attachmentDisplayName,
   attachmentRefsOf,
   dedupeCitations,
+  encodeAssetHref,
   exportHeaderNote,
   modelNameOf,
   sanitizeLinkText,
+  sanitizeLinkUrl,
   statusLabel,
   textOfContent,
   usageLine,
@@ -56,7 +58,7 @@ function renderMessage(m: MessageDTO, source: ExportSource, options: ExportOptio
     if (cites.length > 0) {
       const lines = ['**来源**', '']
       cites.forEach((c, i) => {
-        lines.push(`${i + 1}. [${sanitizeLinkText(c.title || c.url)}](${c.url})`)
+        lines.push(`${i + 1}. [${sanitizeLinkText(c.title || c.url)}](${sanitizeLinkUrl(c.url)})`)
       })
       blocks.push(lines.join('\n'))
     }
@@ -112,11 +114,8 @@ function attachmentLines(m: MessageDTO, source: ExportSource, options: ExportOpt
     const embedded =
       options.attachmentMode === 'embed' && attachment && !attachment.missing && attachment.assetPath
     if (embedded) {
-      lines.push(
-        ref.kind === 'image'
-          ? `![${name}](${attachment.assetPath})`
-          : `📄 [${name}](${attachment.assetPath})`,
-      )
+      const href = encodeAssetHref(attachment.assetPath!)
+      lines.push(ref.kind === 'image' ? `![${name}](${href})` : `📄 [${name}](${href})`)
     } else {
       lines.push(`*${ref.kind === 'image' ? '🖼️' : '📄'} ${name}*`)
     }

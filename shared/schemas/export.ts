@@ -46,9 +46,12 @@ export const exportConversationRequestSchema = exportOptionsSchema.extend({
 
 export type ExportConversationRequest = z.infer<typeof exportConversationRequestSchema>
 
+/** 单次批量导出的会话数上限（前端超限时提前禁用并提示分批，与服务端校验同源）。 */
+export const EXPORT_BATCH_MAX = 1000
+
 /** 批量导出请求：多个会话打包为 ZIP（JSONL 格式合并为单文件，每行一个会话）。 */
 export const exportBatchRequestSchema = exportOptionsSchema.extend({
-  ids: z.array(z.string().min(1)).min(1).max(200),
+  ids: z.array(z.string().min(1)).min(1).max(EXPORT_BATCH_MAX),
 })
 
 export type ExportBatchRequest = z.infer<typeof exportBatchRequestSchema>

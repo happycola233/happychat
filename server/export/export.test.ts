@@ -6,6 +6,8 @@ import { unzipSync, strFromU8 } from 'fflate'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { ContentPart, MessageStatus, UrlCitation, WebSearchAction } from '@shared/types/domain'
 import { exportOptionsSchema, type ExportOptions } from '@shared/schemas/export'
+// archive 不依赖数据库环境，可静态导入直接单测
+import { buildZip, ZIP_MAX_ENTRIES } from './archive'
 
 let tmpDir: string
 let dbClient: typeof import('../db/client')
@@ -248,6 +250,22 @@ async function createExportTree() {
     .where(eq(schema.conversations.id, conv.id))
 
   return { user, model, conv, img, lost, u1, a1, u2, a2, u2b }
+}
+
+async function createConversation(userId: string, title: string | null = '导出测试对话') {
+  const [conv] = await dbClient.db
+    .insert(schema.conversations)
+    .values({ userId, title })
+    .returning()
+  if (!conv) throw new Error('Failed to create conversation')
+  return conv
+}
+
+async function setActiveLeaf(conversationId: string, leafId: string) {
+  await dbClient.db
+    .update(schema.conversations)
+    .set({ activeLeafId: leafId })
+    .where(eq(schema.conversations.id, conversationId))
 }
 
 function opts(partial: Partial<ExportOptions> & Pick<ExportOptions, 'format'>): ExportOptions {
@@ -636,5 +654,255 @@ describe('预览 / 批量 / 边界', () => {
     const text = new TextDecoder().decode(result.file.data)
     expect(text).toContain('问题')
     expect(text).not.toContain('助手')
+  })
+})
+
+describe('审查修复回归', () => {
+  it('正文保留首行缩进与行尾空格，仅去掉首尾空白行', async () => {
+    const user = await createUser()
+    const conv = await createConversation(user.id)
+    const m = await addMessage({
+      conversationId: conv.id,
+      role: 'user',
+      createdAt: new Date('2025-03-28T15:00:00Z'),
+      content: [{ type: 'input_text', text: '\n\n    indented()\n硬换行  \n结尾\n\n' }],
+    })
+    await setActiveLeaf(conv.id, m.id)
+
+    const result = await exporter.exportConversation(
+      user.id,
+      conv.id,
+      opts({ format: 'markdown', timePrecision: 'none' }),
+    )
+    if (!result.ok) throw new Error('导出失败')
+    const text = new TextDecoder().decode(result.file.data)
+    // 首行 4 空格缩进（Markdown 缩进代码块）与行尾双空格（硬换行）不被破坏
+    expect(text).toContain('\n    indented()\n')
+    expect(text).toContain('硬换行  \n')
+    // 首尾空白行被去掉：标题块后紧跟正文，无多余空行
+    expect(text).toContain('## 🧑‍💻 用户\n\n    indented()')
+  })
+
+  it('附件名含空格/#/括号时链接目标百分号编码，中文保持原样', async () => {
+    const user = await createUser()
+    const conv = await createConversation(user.id)
+    const att = await addAttachment({
+      userId: user.id,
+      kind: 'image',
+      mime: 'image/png',
+      filename: 'my photo #1 (副本).png',
+      bytes: new Uint8Array([1, 2, 3]),
+    })
+    const m = await addMessage({
+      conversationId: conv.id,
+      role: 'user',
+      createdAt: new Date('2025-03-28T15:00:00Z'),
+      content: [
+        { type: 'input_text', text: '看图' },
+        { type: 'input_image', attachment_id: att.id },
+      ],
+    })
+    await setActiveLeaf(conv.id, m.id)
+
+    const result = await exporter.exportConversation(user.id, conv.id, opts({ format: 'chatlog-md' }))
+    if (!result.ok) throw new Error('导出失败')
+    const text = zipText(result.file.data, '.chat.md')
+    expect(text).toContain('🖼️ [my photo #1 (副本).png](assets/my%20photo%20%231%20%28副本%29.png)')
+    // ZIP 内的真实路径不编码
+    expect(Object.keys(unzipSync(result.file.data))).toContain('assets/my photo #1 (副本).png')
+  })
+
+  it('citation URL 里的换行与括号被编码，无法伪造 chatlog 行首哨兵', async () => {
+    const user = await createUser()
+    const model = await createModel()
+    const conv = await createConversation(user.id)
+    const q = await addMessage({
+      conversationId: conv.id,
+      role: 'user',
+      createdAt: new Date('2025-03-28T15:00:00Z'),
+      content: [{ type: 'input_text', text: '问题' }],
+    })
+    const a = await addMessage({
+      conversationId: conv.id,
+      parentId: q.id,
+      role: 'assistant',
+      modelId: model.id,
+      createdAt: new Date('2025-03-28T15:00:05Z'),
+      annotations: [
+        {
+          type: 'url_citation',
+          url: 'https://evil.test/a)\n## @ai',
+          title: '恶意来源',
+          start_index: 0,
+          end_index: 1,
+        },
+      ],
+      content: [{ type: 'output_text', text: '回答' }],
+    })
+    await setActiveLeaf(conv.id, a.id)
+
+    const result = await exporter.exportConversation(
+      user.id,
+      conv.id,
+      opts({ format: 'chatlog-md', includeModel: false, timePrecision: 'none' }),
+    )
+    if (!result.ok) throw new Error('导出失败')
+    const text = new TextDecoder().decode(result.file.data)
+    // 换行被编码为 %0A，URL 不再产生新行；裸 `## @ai` 行不存在
+    expect(text).toContain('%0A')
+    expect(text).not.toMatch(/^## @ai\s*$/m)
+    expect(text).not.toMatch(/^\)\s*$/m)
+  })
+
+  it('YAML 歧义标题（true/数字）在 front matter 中加引号保持字符串类型', async () => {
+    const user = await createUser()
+    for (const [title, expected] of [
+      ['true', 'title: "true"'],
+      ['123', 'title: "123"'],
+    ] as const) {
+      const conv = await createConversation(user.id, title)
+      const m = await addMessage({
+        conversationId: conv.id,
+        role: 'user',
+        createdAt: new Date('2025-03-28T15:00:00Z'),
+        content: [{ type: 'input_text', text: '内容' }],
+      })
+      await setActiveLeaf(conv.id, m.id)
+      const result = await exporter.exportConversation(user.id, conv.id, opts({ format: 'chatlog-md' }))
+      if (!result.ok) throw new Error('导出失败')
+      expect(new TextDecoder().decode(result.file.data)).toContain(expected)
+    }
+  })
+
+  it('scope=full 时 activeLeafId 悬空则回退到最近存活祖先', async () => {
+    const user = await createUser()
+    const conv = await createConversation(user.id)
+    const q = await addMessage({
+      conversationId: conv.id,
+      role: 'user',
+      createdAt: new Date('2025-03-28T15:00:00Z'),
+      content: [{ type: 'input_text', text: '问题' }],
+    })
+    const placeholder = await addMessage({
+      conversationId: conv.id,
+      parentId: q.id,
+      role: 'assistant',
+      status: 'streaming',
+      createdAt: new Date('2025-03-28T15:00:01Z'),
+      content: [],
+    })
+    await setActiveLeaf(conv.id, placeholder.id)
+
+    const result = await exporter.exportConversation(
+      user.id,
+      conv.id,
+      opts({ format: 'json', scope: 'full' }),
+    )
+    if (!result.ok) throw new Error('导出失败')
+    const doc = JSON.parse(new TextDecoder().decode(result.file.data)) as {
+      conversation: { activeLeafId: string | null }
+      messages: { id: string }[]
+    }
+    // 空流式占位被剔除后，activeLeafId 指向其父消息而非悬空 id
+    expect(doc.messages.map((m) => m.id)).toEqual([q.id])
+    expect(doc.conversation.activeLeafId).toBe(q.id)
+  })
+
+  it('DB 行缺失的图片引用保留 kind=image 与提示文件名', async () => {
+    const user = await createUser()
+    const conv = await createConversation(user.id)
+    const m = await addMessage({
+      conversationId: conv.id,
+      role: 'user',
+      createdAt: new Date('2025-03-28T15:00:00Z'),
+      content: [
+        { type: 'input_text', text: '图呢' },
+        { type: 'input_image', attachment_id: 'missing-att-row' },
+      ],
+    })
+    await setActiveLeaf(conv.id, m.id)
+
+    const result = await exporter.exportConversation(
+      user.id,
+      conv.id,
+      opts({ format: 'json', attachmentMode: 'name' }),
+    )
+    if (!result.ok) throw new Error('导出失败')
+    const doc = JSON.parse(new TextDecoder().decode(result.file.data)) as {
+      messages: { attachments?: { kind: string; missing?: boolean }[] }[]
+    }
+    expect(doc.messages[0]!.attachments).toEqual([
+      expect.objectContaining({ kind: 'image', missing: true }),
+    ])
+  })
+
+  it('jsonl：无有效样本的会话不产行——单会话报 empty_selection，批量计入跳过', async () => {
+    const user = await createUser()
+    // 只有一条纯附件消息的会话（omit 模式下没有任何文本样本）
+    const attOnly = await createConversation(user.id, '纯附件')
+    const att = await addAttachment({
+      userId: user.id,
+      kind: 'image',
+      mime: 'image/png',
+      filename: 'only.png',
+      bytes: new Uint8Array([1]),
+    })
+    const m1 = await addMessage({
+      conversationId: attOnly.id,
+      role: 'user',
+      createdAt: new Date('2025-03-28T15:00:00Z'),
+      content: [{ type: 'input_image', attachment_id: att.id }],
+    })
+    await setActiveLeaf(attOnly.id, m1.id)
+
+    const single = await exporter.exportConversation(
+      user.id,
+      attOnly.id,
+      opts({ format: 'jsonl', attachmentMode: 'omit' }),
+    )
+    expect(single.ok).toBe(false)
+    if (!single.ok) expect(single.code).toBe('empty_selection')
+
+    // 正常会话 + 纯附件会话批量导出：只产 1 行，exportedCount 如实为 1
+    const normal = await createConversation(user.id, '正常会话')
+    const m2 = await addMessage({
+      conversationId: normal.id,
+      role: 'user',
+      createdAt: new Date('2025-03-28T15:00:00Z'),
+      content: [{ type: 'input_text', text: '有文本' }],
+    })
+    await setActiveLeaf(normal.id, m2.id)
+    const batch = await exporter.exportConversationsBatch(
+      user.id,
+      [attOnly.id, normal.id],
+      opts({ format: 'jsonl', attachmentMode: 'omit' }),
+    )
+    if (!batch.ok) throw new Error('批量导出失败')
+    expect(batch.exportedCount).toBe(1)
+    expect(new TextDecoder().decode(batch.file.data).trim().split('\n')).toHaveLength(1)
+  })
+
+  it('流式 ZIP：混合存储/同步/异步压缩条目可正确解包还原', async () => {
+    const big = new Uint8Array(200_000)
+    for (let i = 0; i < big.length; i++) big[i] = i % 251
+    const entries = [
+      { path: 'a.png', data: new Uint8Array([1, 2, 3]) },
+      { path: 'small.txt', data: new TextEncoder().encode('hello 小文件') },
+      { path: 'big.txt', data: big },
+    ]
+    const zipData = await buildZip(entries)
+    const out = unzipSync(zipData)
+    expect(Object.keys(out).sort()).toEqual(['a.png', 'big.txt', 'small.txt'])
+    expect(out['a.png']).toEqual(new Uint8Array([1, 2, 3]))
+    expect(out['big.txt']).toEqual(big)
+    expect(strFromU8(out['small.txt']!)).toBe('hello 小文件')
+  })
+
+  it('ZIP 条目数超过 65535 上限时明确拒绝而非产出损坏文件', async () => {
+    const entries = Array.from({ length: ZIP_MAX_ENTRIES + 1 }, (_, i) => ({
+      path: `f${i}.txt`,
+      data: new Uint8Array(0),
+    }))
+    await expect(buildZip(entries)).rejects.toThrow(/65535/)
   })
 })

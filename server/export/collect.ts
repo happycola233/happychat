@@ -12,7 +12,12 @@ import {
   getOwnedConversation,
   toConversationDTO,
 } from '../services/conversations'
-import { assignAssetPaths, attachmentRefsOf, textOfContent } from './content'
+import {
+  assignAssetPaths,
+  attachmentRefsOf,
+  textOfContent,
+  type AttachmentRef,
+} from './content'
 import { resolveTimezone } from './time'
 import type { ExportAttachment, ExportSource } from './types'
 
@@ -83,6 +88,16 @@ export async function collectExportSource(
 
   if (messages.length === 0) return { ok: false, code: 'empty_selection' }
 
+  // scope=full 时计算有效的 activeLeafId：若指向被剔除的流式占位消息，
+  // 沿 parentId 回退到最近的存活祖先，避免 JSON 导出留下悬空引用
+  let activeLeafId: string | null = null
+  if (options.scope === 'full') {
+    const kept = new Set(messages.map((m) => m.id))
+    let cursor: string | null = conv.activeLeafId
+    while (cursor && !kept.has(cursor)) cursor = dtoById.get(cursor)?.parentId ?? null
+    activeLeafId = cursor
+  }
+
   const loaded = await loadAttachments(userId, messages, options, readFiles, embedBudget)
   if (!loaded.ok) return loaded
   const attachmentMap = loaded.map
@@ -93,6 +108,7 @@ export async function collectExportSource(
       conversation: toConversationDTO(conv),
       title: conv.title?.trim() || '未命名聊天',
       messages,
+      activeLeafId,
       attachments: attachmentMap,
       exportedAt,
       timezone: resolveTimezone(options.timezone),
@@ -117,7 +133,7 @@ async function loadAttachments(
     for (const ref of attachmentRefsOf(m.content)) {
       // 分支/分享历史中可能存在空串引用，直接跳过
       if (ref.attachmentId && !map.has(ref.attachmentId)) {
-        map.set(ref.attachmentId, placeholder(ref.attachmentId))
+        map.set(ref.attachmentId, placeholder(ref))
         ids.push(ref.attachmentId)
       }
     }
@@ -170,13 +186,16 @@ async function loadAttachments(
   return { ok: true, map }
 }
 
-/** DB 行不存在的引用占位（构建器按缺失附件降级展示）。 */
-function placeholder(id: string): ExportAttachment {
+/**
+ * DB 行不存在的引用占位（构建器按缺失附件降级展示）。
+ * kind / 文件名沿用 content 里的引用信息，避免缺失图片被错标成普通文件。
+ */
+function placeholder(ref: AttachmentRef): ExportAttachment {
   return {
-    id,
-    kind: 'file',
+    id: ref.attachmentId,
+    kind: ref.kind,
     mime: 'application/octet-stream',
-    filename: '',
+    filename: ref.filenameHint ?? '',
     byteSize: 0,
     assetPath: null,
     data: null,

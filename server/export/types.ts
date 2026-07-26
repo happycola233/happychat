@@ -22,6 +22,11 @@ export interface ExportSource {
   title: string
   /** 参与导出的消息：active=根→叶路径顺序；full=按创建时间升序的整棵树 */
   messages: MessageDTO[]
+  /**
+   * scope=full 时的有效当前叶子：会话的 activeLeafId 若指向被剔除的
+   * 流式占位消息，已回退到最近的存活祖先；scope=active 时为 null
+   */
+  activeLeafId: string | null
   /** content 中引用到的附件（含 DB 行缺失的占位项） */
   attachments: Map<string, ExportAttachment>
   /** 导出时刻（epoch ms），由调用方统一注入保证各构建器一致 */
