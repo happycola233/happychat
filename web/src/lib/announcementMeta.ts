@@ -16,6 +16,8 @@ export interface LevelMeta {
   bannerClass: string
   /** 图标与强调色（含 dark:）。 */
   accentClass: string
+  /** 通知中心列表的图标圆片配色：同色浅底 + 图标色（含 dark:）。 */
+  softClass: string
 }
 
 export const LEVEL_META: Record<AnnouncementLevel, LevelMeta> = {
@@ -26,6 +28,7 @@ export const LEVEL_META: Record<AnnouncementLevel, LevelMeta> = {
     bannerClass:
       'border-sky-200 bg-sky-50 text-sky-900 dark:border-sky-900/50 dark:bg-sky-950/40 dark:text-sky-100',
     accentClass: 'text-sky-600 dark:text-sky-400',
+    softClass: 'bg-sky-100 text-sky-600 dark:bg-sky-500/15 dark:text-sky-400',
   },
   success: {
     label: '更新',
@@ -34,6 +37,7 @@ export const LEVEL_META: Record<AnnouncementLevel, LevelMeta> = {
     bannerClass:
       'border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-100',
     accentClass: 'text-emerald-600 dark:text-emerald-400',
+    softClass: 'bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400',
   },
   warning: {
     label: '提醒',
@@ -42,6 +46,7 @@ export const LEVEL_META: Record<AnnouncementLevel, LevelMeta> = {
     bannerClass:
       'border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100',
     accentClass: 'text-amber-600 dark:text-amber-400',
+    softClass: 'bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400',
   },
   critical: {
     label: '重要',
@@ -50,6 +55,7 @@ export const LEVEL_META: Record<AnnouncementLevel, LevelMeta> = {
     bannerClass:
       'border-red-200 bg-red-50 text-red-900 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-100',
     accentClass: 'text-red-600 dark:text-red-400',
+    softClass: 'bg-red-100 text-red-600 dark:bg-red-500/15 dark:text-red-400',
   },
 }
 
