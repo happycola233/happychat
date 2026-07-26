@@ -1063,30 +1063,46 @@ export function Sidebar() {
                 className="hc-pop-in border-t border-neutral-200 px-3 pb-2.5 pt-2 dark:border-neutral-800"
                 data-testid="batch-toolbar"
               >
-                <div className="flex items-center justify-between pb-2">
+                <div className="flex items-center justify-between gap-2 pb-2">
                   <span
-                    className="text-[13px] font-medium text-neutral-900 dark:text-neutral-100"
+                    className={clsx(
+                      'min-w-0 truncate text-[13px] tabular-nums',
+                      selectedIds.size
+                        ? 'font-medium text-neutral-900 dark:text-neutral-100'
+                        : 'text-neutral-500 dark:text-neutral-400',
+                    )}
                     data-testid="batch-selected-count"
                   >
-                    已选 {selectedIds.size} 个聊天
+                    {selectedIds.size ? `已选 ${selectedIds.size} 个聊天` : '选择要管理的聊天'}
                   </span>
-                  <button
-                    type="button"
-                    onClick={toggleSelectAll}
-                    className="rounded-md px-1.5 py-0.5 text-xs text-neutral-500 transition hover:bg-neutral-200/70 hover:text-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
-                  >
-                    {allSelected ? '取消全选' : '全选'}
-                  </button>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={toggleSelectAll}
+                      className="rounded-full px-2 py-1 text-xs text-neutral-500 transition hover:bg-neutral-200/70 hover:text-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+                    >
+                      {allSelected ? '取消全选' : '全选'}
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="batch-done"
+                      onClick={exitBatchMode}
+                      className="rounded-full bg-neutral-900 px-2.5 py-1 text-xs font-medium text-white transition hover:bg-neutral-700 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
+                    >
+                      完成
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-stretch gap-1">
                   <div ref={movePickerRef} className="relative flex-1">
                     <button
                       type="button"
                       disabled={selectedIds.size === 0}
                       data-testid="batch-move"
                       onClick={() => setMovePickerOpen((open) => !open)}
-                      className="w-full rounded-lg bg-neutral-200/70 px-2 py-1.5 text-[13px] font-medium text-neutral-800 transition hover:bg-neutral-200 disabled:opacity-40 dark:bg-neutral-800 dark:text-neutral-100 dark:hover:bg-neutral-700"
+                      className="flex w-full flex-col items-center gap-1 rounded-lg py-1.5 text-xs text-neutral-600 transition hover:bg-neutral-200/70 hover:text-neutral-900 disabled:opacity-40 disabled:hover:bg-transparent dark:text-neutral-300 dark:hover:bg-neutral-800 dark:hover:text-neutral-100 dark:disabled:hover:bg-transparent"
                     >
+                      <FolderInput className="h-[17px] w-[17px]" strokeWidth={1.7} />
                       移动
                     </button>
                     {movePickerOpen && (
@@ -1119,8 +1135,9 @@ export function Sidebar() {
                     disabled={selectedIds.size === 0}
                     data-testid="batch-export"
                     onClick={() => setBatchExportOpen(true)}
-                    className="flex-1 rounded-lg bg-neutral-200/70 px-2 py-1.5 text-[13px] font-medium text-neutral-800 transition hover:bg-neutral-200 disabled:opacity-40 dark:bg-neutral-800 dark:text-neutral-100 dark:hover:bg-neutral-700"
+                    className="flex flex-1 flex-col items-center gap-1 rounded-lg py-1.5 text-xs text-neutral-600 transition hover:bg-neutral-200/70 hover:text-neutral-900 disabled:opacity-40 disabled:hover:bg-transparent dark:text-neutral-300 dark:hover:bg-neutral-800 dark:hover:text-neutral-100 dark:disabled:hover:bg-transparent"
                   >
+                    <Download className="h-[17px] w-[17px]" strokeWidth={1.7} />
                     导出
                   </button>
                   <button
@@ -1128,17 +1145,10 @@ export function Sidebar() {
                     disabled={selectedIds.size === 0}
                     data-testid="batch-delete"
                     onClick={() => batchDeleteWithConfirm(selectedList, exitBatchMode)}
-                    className="flex-1 rounded-lg bg-red-50 px-2 py-1.5 text-[13px] font-medium text-red-600 transition hover:bg-red-100 disabled:opacity-40 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-950/60"
+                    className="flex flex-1 flex-col items-center gap-1 rounded-lg py-1.5 text-xs text-red-600 transition hover:bg-red-50 disabled:opacity-40 disabled:hover:bg-transparent dark:text-red-400 dark:hover:bg-red-950/40 dark:disabled:hover:bg-transparent"
                   >
+                    <DeleteIcon className="h-[17px] w-[17px]" />
                     删除
-                  </button>
-                  <button
-                    type="button"
-                    data-testid="batch-done"
-                    onClick={exitBatchMode}
-                    className="rounded-lg bg-neutral-900 px-3 py-1.5 text-[13px] font-medium text-white transition hover:bg-neutral-700 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
-                  >
-                    完成
                   </button>
                 </div>
               </div>
