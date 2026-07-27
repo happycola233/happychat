@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { clsx } from 'clsx'
 import { ChevronDown, Globe, MessagesSquare, Search, TextSearch, UserSearch } from 'lucide-react'
 import type { SearchAction } from '@shared/types/domain'
@@ -43,17 +43,21 @@ function activeLabelOf(calls: LiveSearchCall[]): string {
   return '正在搜索网页'
 }
 
-/** 完成后的汇总：拼成「已搜索 N 个关键词 · 在 X 检索 K 次 · 浏览 M 个页面」。 */
-function summaryLabelOf(actions: SearchAction[]): string {
+/**
+ * 完成后的汇总：读作「已搜索 N 个关键词 · 在 X 检索 K 次 · 浏览 M 个页面」。
+ * 返回分段而不是整串，是为了让窄屏（手机）只在「·」处换行——
+ * 汇总一长就会折行，CJK 允许任意字间断行，整串渲染会掉出「串」这样的孤字尾行。
+ */
+function summarySegmentsOf(actions: SearchAction[]): string[] {
   const summary = summarizeSearchActions(actions)
   const phrases: string[] = []
   if (summary.webQueryCount) phrases.push(`搜索 ${summary.webQueryCount} 个关键词`)
   if (summary.xSearchCount) phrases.push(`在 X 检索 ${summary.xSearchCount} 次`)
   if (summary.pageCount) phrases.push(`浏览 ${summary.pageCount} 个页面`)
   if (summary.xThreadCount) phrases.push(`读取 ${summary.xThreadCount} 个 X 讨论串`)
-  if (phrases.length) return `已${phrases.join(' · ')}`
+  if (phrases.length) return [`已${phrases[0]}`, ...phrases.slice(1)]
   // 搜索确实发生过、但上游没回传任何查询词：只陈述发生了检索，不编造计数。
-  return summary.blindSearchCount ? '已搜索网页' : '已完成检索'
+  return [summary.blindSearchCount ? '已搜索网页' : '已完成检索']
 }
 
 /**
@@ -289,7 +293,7 @@ export function SearchActivity({ calls, answerStarted }: Props) {
     .filter((action): action is SearchAction => action !== null)
   if (!steps.length && !actions.length) return null
 
-  const label = active ? activeLabelOf(calls) : summaryLabelOf(actions)
+  const segments = active ? [activeLabelOf(calls)] : summarySegmentsOf(actions)
   // 本轮只用到 X 检索时，状态行直接挂 X 标记；混合或纯网页仍用地球。
   const xOnly = actions.length > 0 && actions.every((action) => isXSearchActionType(action.type))
 
@@ -300,23 +304,30 @@ export function SearchActivity({ calls, answerStarted }: Props) {
         onClick={toggle}
         aria-expanded={open}
         aria-label={open ? '折叠检索过程' : '展开检索过程'}
-        className="hc-search-toggle inline-flex items-center gap-2 py-0.5 text-[13px] leading-6 transition-colors"
+        className="hc-search-toggle inline-flex items-start gap-2 py-0.5 text-left text-[13px] leading-6 transition-colors"
       >
-        {/* 进行中状态由文字流光表达，来源图标始终保持静止。 */}
-        {xOnly ? (
-          <XLogo className="h-3 w-3 shrink-0" />
-        ) : (
-          <Globe className="h-3.5 w-3.5 shrink-0" />
-        )}
-        <span className={clsx(active && 'hc-reasoning-shimmer')} data-testid="search-label">
-          {label}
+        {/* 进行中状态由文字流光表达，来源图标始终保持静止。
+            图标钉在首行行盒里（h-6 = leading-6）：文案换行后它不会滑到两行之间。 */}
+        <span className="flex h-6 shrink-0 items-center" aria-hidden>
+          {xOnly ? <XLogo className="h-3 w-3" /> : <Globe className="h-3.5 w-3.5" />}
         </span>
-        <ChevronDown
-          className={clsx(
-            'h-3 w-3 shrink-0 transition-transform duration-300',
-            open && 'rotate-180',
-          )}
-        />
+        {/* 每段短语自身不折断，换行只发生在段间；箭头作为末位元素跟在最后一段后面。 */}
+        <span className="flex flex-wrap items-center gap-x-1.5" data-testid="search-label">
+          {segments.map((segment, index) => (
+            <Fragment key={`${segment}-${index}`}>
+              {index > 0 && <span aria-hidden>·</span>}
+              <span className={clsx('whitespace-nowrap', active && 'hc-reasoning-shimmer')}>
+                {segment}
+              </span>
+            </Fragment>
+          ))}
+          <ChevronDown
+            className={clsx(
+              'h-3 w-3 shrink-0 transition-transform duration-300',
+              open && 'rotate-180',
+            )}
+          />
+        </span>
       </button>
       <div
         className={clsx(

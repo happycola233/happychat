@@ -29,7 +29,9 @@ describe('SearchActivity', () => {
     ]
     const html = renderToStaticMarkup(<SearchActivity calls={calls} answerStarted />)
 
-    expect(html).toContain('已搜索 2 个关键词 · 浏览 1 个页面')
+    // 汇总按短语分段渲染（窄屏只在段间换行），断言逐段进行
+    expect(html).toContain('已搜索 2 个关键词')
+    expect(html).toContain('浏览 1 个页面')
     expect(html).toContain('react 19')
     expect(html).toContain('vite 7')
     expect(html).toContain('href="https://react.dev/blog"')
@@ -78,7 +80,8 @@ describe('SearchActivity', () => {
     ]
     const html = renderToStaticMarkup(<SearchActivity calls={calls} answerStarted />)
 
-    expect(html).toContain('已在 X 检索 2 次 · 读取 1 个 X 讨论串')
+    expect(html).toContain('已在 X 检索 2 次')
+    expect(html).toContain('读取 1 个 X 讨论串')
     expect(html).toContain('from:elonmusk')
     expect(html).toContain('仅 @elonmusk')
     expect(html).toContain('2026-07-01 ~ 今天')
@@ -102,6 +105,7 @@ describe('SearchActivity', () => {
         answerStarted
       />,
     )
-    expect(settled).toContain('已搜索 1 个关键词 · 在 X 检索 1 次')
+    expect(settled).toContain('已搜索 1 个关键词')
+    expect(settled).toContain('在 X 检索 1 次')
   })
 })
