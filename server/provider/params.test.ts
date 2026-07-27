@@ -353,6 +353,57 @@ describe('buildResponseBody', () => {
     expect(body.tools).toEqual([{ type: 'web_search', search_context_size: 'low' }])
   })
 
+  it('treats a toggle-managed tool in advanced JSON as a params template, not an injection', () => {
+    const hardParams = {
+      tools: [
+        { type: 'web_search', enable_image_understanding: false, enable_image_search: false },
+      ],
+    }
+
+    // 开关开：模板与生成的工具浅合并，自定义参数生效
+    expect(
+      buildResponseBody({
+        model: model({ hardParams }),
+        input: [],
+        instructions: null,
+        userParams: { web_search: true },
+        stream: true,
+      }).tools,
+    ).toEqual([
+      { type: 'web_search', enable_image_understanding: false, enable_image_search: false },
+    ])
+
+    // 开关关：模板整条丢弃，不能把工具塞回去，也不留下空 tools 字段
+    const off = buildResponseBody({
+      model: model({ hardParams }),
+      input: [],
+      instructions: null,
+      userParams: { web_search: false },
+      stream: true,
+    })
+    expect(off.tools).toBeUndefined()
+    expect('tools' in off).toBe(false)
+  })
+
+  it('keeps non-toggle tools injectable from advanced JSON while dropping the disabled search template', () => {
+    const body = buildResponseBody({
+      model: model({
+        hardParams: {
+          tools: [
+            { type: 'x_search', allowed_x_handles: ['xai'] },
+            { type: 'code_interpreter', container: { type: 'auto' } },
+          ],
+        },
+      }),
+      input: [],
+      instructions: null,
+      userParams: { web_search: false, x_search: false },
+      stream: true,
+    })
+
+    expect(body.tools).toEqual([{ type: 'code_interpreter', container: { type: 'auto' } }])
+  })
+
   it('keeps an explicit empty advanced JSON tools array as an override', () => {
     const body = buildResponseBody({
       model: model({

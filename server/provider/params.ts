@@ -13,6 +13,12 @@ export function isPlainObject(v: unknown): v is Record<string, unknown> {
 
 const WEB_SEARCH_TOOL_TYPES = new Set(['web_search', 'web_search_preview'])
 
+/**
+ * 启停由应用开关（能力位 + 会话开关 + 模型默认）决定的工具。
+ * 高级 JSON 里的同名条目只是「参数模板」：开关开启时合并进去，关闭时整条丢弃。
+ */
+const TOGGLE_MANAGED_TOOL_KEYS = new Set(['web_search', 'x_search'])
+
 function responseToolMergeKey(tool: unknown): string | null {
   if (!isPlainObject(tool) || typeof tool.type !== 'string') return null
   if (WEB_SEARCH_TOOL_TYPES.has(tool.type)) return 'web_search'
@@ -51,11 +57,17 @@ function mergeResponseTools(existing: unknown[], overrides: unknown[]): unknown[
     const key = responseToolMergeKey(tool)
     const existingIndex = key ? indexByKey.get(key) : undefined
     if (existingIndex !== undefined) {
-      merged[existingIndex] = tool
-    } else {
-      if (key) indexByKey.set(key, merged.length)
-      merged.push(tool)
+      // 浅合并：管理员只写想改的字段，应用生成的配置作为底稿。
+      const base = merged[existingIndex]
+      merged[existingIndex] =
+        isPlainObject(base) && isPlainObject(tool) ? { ...base, ...tool } : tool
+      continue
     }
+    // 开关关闭 → 应用没生成这个工具 → 高级 JSON 里的参数模板本轮不生效。
+    // 否则「关闭联网搜索」会被一份只想调参数的高级 JSON 悄悄推翻。
+    if (key && TOGGLE_MANAGED_TOOL_KEYS.has(key)) continue
+    if (key) indexByKey.set(key, merged.length)
+    merged.push(tool)
   }
 
   return merged
@@ -69,8 +81,17 @@ function mergeResponseIncludes(existing: unknown[], overrides: unknown[]): unkno
 export function mergeDeep(target: Record<string, unknown>, src: Record<string, unknown>): void {
   for (const [k, v] of Object.entries(src)) {
     const existing = target[k]
-    if (k === 'tools' && Array.isArray(existing) && Array.isArray(v) && v.length > 0) {
-      target[k] = mergeResponseTools(existing, v)
+    if (k === 'tools' && Array.isArray(v)) {
+      // 显式空数组 = 清空全部工具（管理员兜底）。
+      if (v.length === 0) {
+        target[k] = []
+        continue
+      }
+      // 应用没生成任何工具时也要走合并：开关型工具的模板要在这里被丢弃，
+      // 而不是让整个数组原样落到请求体上。
+      const tools = mergeResponseTools(Array.isArray(existing) ? existing : [], v)
+      if (tools.length === 0) delete target[k]
+      else target[k] = tools
     } else if (k === 'include' && Array.isArray(existing) && Array.isArray(v)) {
       target[k] = mergeResponseIncludes(existing, v)
     } else if (isPlainObject(v) && isPlainObject(existing)) mergeDeep(existing, v)
@@ -116,11 +137,11 @@ export function buildResponseBody(o: BuildBodyOptions): Record<string, unknown> 
     body.include = ['reasoning.encrypted_content']
   }
 
-  // 联网搜索：仅当模型支持且开关开启
+  // 联网搜索 / X 搜索：是否下发只由开关决定；工具自身的参数（如 xAI 的
+  // enable_image_search）由高级 JSON 里的同名条目在 mergeDeep 阶段合并进来。
   if (effectiveWebSearchEnabled(model, userParams)) {
     tools.push({ type: 'web_search' })
   }
-
   // X 搜索（xAI x_search）：与联网搜索独立，可同时下发
   if (effectiveXSearchEnabled(model, userParams)) {
     tools.push({ type: 'x_search' })

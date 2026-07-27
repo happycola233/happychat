@@ -564,6 +564,16 @@ export function ModelEditor({
             会按「硬参数 &gt; 用户参数 &gt; 模型默认」深度合并进上游请求体，完全可控（如
             summary、store、include 等）。留空表示无。
           </p>
+          <p className="text-xs leading-5 text-neutral-400">
+            <code className="font-mono">tools</code> 里的{' '}
+            <code className="font-mono">web_search</code> /{' '}
+            <code className="font-mono">x_search</code>{' '}
+            只作为参数模板：开关开启时与生成的工具合并（如{' '}
+            <code className="font-mono">
+              {'{"tools":[{"type":"web_search","enable_image_search":false}]}'}
+            </code>
+            ），关闭时整条丢弃，不会反过来把工具塞进请求。其他工具仍可在这里直接追加。
+          </p>
         </FormSection>
       </div>
     </Modal>
