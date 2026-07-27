@@ -19,6 +19,7 @@ function model(overrides: Partial<ModelForBuild> = {}): ModelForBuild {
       vision: false,
       file_input: false,
       web_search: true,
+      x_search: false,
       image_generation: false,
       reasoning: false,
     },
@@ -30,6 +31,7 @@ function model(overrides: Partial<ModelForBuild> = {}): ModelForBuild {
     defaultEffort: null,
     replayReasoning: false,
     defaultWebSearch: true,
+    defaultXSearch: false,
     sort: 0,
     createdAt: new Date(0),
     updatedAt: new Date(0),
@@ -74,6 +76,86 @@ describe('buildResponseBody', () => {
     expect(body.tools).toEqual([{ type: 'web_search' }])
   })
 
+  it('adds the x_search tool only when the model declares the capability', () => {
+    const withoutCapability = buildResponseBody({
+      model: model({ defaultParams: {}, defaultWebSearch: false }),
+      input: [],
+      instructions: null,
+      userParams: { x_search: true },
+      stream: true,
+    })
+    expect(withoutCapability.tools).toBeUndefined()
+
+    const enabled = buildResponseBody({
+      model: model({
+        capabilities: {
+          vision: false,
+          file_input: false,
+          web_search: false,
+          x_search: true,
+          image_generation: false,
+          reasoning: false,
+        },
+        defaultParams: {},
+        defaultWebSearch: false,
+      }),
+      input: [],
+      instructions: null,
+      userParams: { x_search: true },
+      stream: true,
+    })
+    expect(enabled.tools).toEqual([{ type: 'x_search' }])
+  })
+
+  it('sends web_search and x_search together when both are on', () => {
+    const body = buildResponseBody({
+      model: model({
+        capabilities: {
+          vision: false,
+          file_input: false,
+          web_search: true,
+          x_search: true,
+          image_generation: false,
+          reasoning: false,
+        },
+        defaultParams: {},
+        defaultWebSearch: true,
+        defaultXSearch: true,
+      }),
+      input: [],
+      instructions: null,
+      userParams: {},
+      stream: true,
+    })
+
+    expect(body.tools).toEqual([{ type: 'web_search' }, { type: 'x_search' }])
+  })
+
+  it('lets hardParams override the generated x_search tool config instead of duplicating it', () => {
+    const body = buildResponseBody({
+      model: model({
+        capabilities: {
+          vision: false,
+          file_input: false,
+          web_search: false,
+          x_search: true,
+          image_generation: false,
+          reasoning: false,
+        },
+        defaultParams: {},
+        defaultWebSearch: false,
+        defaultXSearch: true,
+        hardParams: { tools: [{ type: 'x_search', allowed_x_handles: ['xai'] }] },
+      }),
+      input: [],
+      instructions: null,
+      userParams: {},
+      stream: true,
+    })
+
+    expect(body.tools).toEqual([{ type: 'x_search', allowed_x_handles: ['xai'] }])
+  })
+
   it('does not inject a Responses image generation tool from the legacy capability flag', () => {
     const body = buildResponseBody({
       model: model({
@@ -81,11 +163,13 @@ describe('buildResponseBody', () => {
           vision: true,
           file_input: false,
           web_search: true,
+          x_search: false,
           image_generation: true,
           reasoning: false,
         },
         defaultParams: { image: { size: '1024x1024', quality: 'low' } },
         defaultWebSearch: true,
+        defaultXSearch: false,
       }),
       input: [],
       instructions: null,
@@ -103,6 +187,7 @@ describe('buildResponseBody', () => {
           vision: false,
           file_input: false,
           web_search: true,
+          x_search: false,
           image_generation: false,
           reasoning: true,
         },
@@ -133,6 +218,7 @@ describe('buildResponseBody', () => {
           vision: false,
           file_input: false,
           web_search: false,
+          x_search: false,
           image_generation: false,
           reasoning: true,
         },
@@ -154,6 +240,7 @@ describe('buildResponseBody', () => {
         vision: false,
         file_input: false,
         web_search: false,
+        x_search: false,
         image_generation: false,
         reasoning: true,
       },
@@ -187,6 +274,7 @@ describe('buildResponseBody', () => {
           vision: false,
           file_input: false,
           web_search: false,
+          x_search: false,
           image_generation: false,
           reasoning: true,
         },
@@ -228,6 +316,7 @@ describe('buildResponseBody', () => {
             vision: false,
             file_input: false,
             web_search: false,
+            x_search: false,
             image_generation: false,
             reasoning: true,
           },
@@ -332,6 +421,7 @@ describe('buildImageEditBody', () => {
           vision: true,
           file_input: false,
           web_search: false,
+          x_search: false,
           image_generation: true,
           reasoning: false,
         },

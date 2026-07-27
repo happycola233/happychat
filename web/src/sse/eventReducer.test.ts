@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { WireEvent } from '@shared/types/events'
-import { hasActiveWebSearch, initialLive, reduceEvent, reduceEvents } from './eventReducer'
+import { hasActiveSearch, initialLive, reduceEvent, reduceEvents } from './eventReducer'
 
 const event = (type: string, data: Record<string, unknown> = {}): WireEvent => ({
   type,
@@ -293,7 +293,7 @@ describe('reduceEvent', () => {
       reasoningPartKey: null,
       annotations: [],
       status: 'completed',
-      webSearchCalls: [],
+      searchCalls: [],
     })
   })
 
@@ -374,7 +374,7 @@ describe('reduceEvent', () => {
   })
 })
 
-describe('web search call tracking', () => {
+describe('search call tracking', () => {
   it('follows the OpenAI lifecycle: query details only arrive at output_item.done', () => {
     const searching = reduceEvents(initialLive(), [
       event('response.output_item.added', {
@@ -384,8 +384,8 @@ describe('web search call tracking', () => {
       event('response.web_search_call.in_progress', { item_id: 'ws_1' }),
       event('response.web_search_call.searching', { item_id: 'ws_1' }),
     ])
-    expect(searching.webSearchCalls).toEqual([{ id: 'ws_1', status: 'searching', action: null }])
-    expect(hasActiveWebSearch(searching.webSearchCalls)).toBe(true)
+    expect(searching.searchCalls).toEqual([{ id: 'ws_1', status: 'searching', action: null }])
+    expect(hasActiveSearch(searching.searchCalls)).toBe(true)
 
     const done = reduceEvents(searching, [
       event('response.web_search_call.completed', { item_id: 'ws_1' }),
@@ -399,10 +399,114 @@ describe('web search call tracking', () => {
         },
       }),
     ])
-    expect(done.webSearchCalls).toEqual([
+    expect(done.searchCalls).toEqual([
       { id: 'ws_1', status: 'completed', action: { type: 'search', queries: ['react 19 发布时间'] } },
     ])
-    expect(hasActiveWebSearch(done.webSearchCalls)).toBe(false)
+    expect(hasActiveSearch(done.searchCalls)).toBe(false)
+  })
+
+  it('tracks x_search custom_tool_call: type on added, query filled by input.done', () => {
+    // 形状取自 api.x.ai 实测：x_search 没有专用 lifecycle 事件，
+    // custom_tool_call_input.done 比 output_item.done 早到。
+    const added = reduceEvents(initialLive(), [
+      event('response.output_item.added', {
+        output_index: 0,
+        item: {
+          type: 'custom_tool_call',
+          id: 'ctc_1',
+          call_id: 'xs_call-0',
+          name: 'x_keyword_search',
+          input: '',
+          status: 'in_progress',
+        },
+      }),
+    ])
+    expect(added.searchCalls).toEqual([
+      { id: 'ctc_1', status: 'in_progress', action: { type: 'x_keyword_search' } },
+    ])
+    expect(hasActiveSearch(added.searchCalls)).toBe(true)
+
+    const filled = reduceEvents(added, [
+      event('response.custom_tool_call_input.done', {
+        item_id: 'ctc_1',
+        output_index: 0,
+        input: '{"query":"from:elonmusk","mode":"Latest"}',
+      }),
+    ])
+    expect(filled.searchCalls[0]?.action).toEqual({
+      type: 'x_keyword_search',
+      queries: ['from:elonmusk'],
+      mode: 'Latest',
+    })
+    // 参数已到但调用尚未结束，状态行仍是进行中
+    expect(hasActiveSearch(filled.searchCalls)).toBe(true)
+
+    const done = reduceEvents(filled, [
+      event('response.output_item.done', {
+        output_index: 0,
+        item: {
+          type: 'custom_tool_call',
+          id: 'ctc_1',
+          call_id: 'xs_call-0',
+          name: 'x_keyword_search',
+          input: '{"query":"from:elonmusk","mode":"Latest"}',
+          status: 'completed',
+        },
+      }),
+    ])
+    expect(done.searchCalls).toEqual([
+      {
+        id: 'ctc_1',
+        status: 'completed',
+        action: { type: 'x_keyword_search', queries: ['from:elonmusk'], mode: 'Latest' },
+      },
+    ])
+  })
+
+  it('keeps web_search and x_search in one interleaved timeline', () => {
+    const state = reduceEvents(initialLive(), [
+      event('response.output_item.added', {
+        item: { type: 'web_search_call', id: 'ws_1', status: 'in_progress' },
+      }),
+      event('response.output_item.added', {
+        item: {
+          type: 'custom_tool_call',
+          id: 'ctc_1',
+          call_id: 'xs_call-0',
+          name: 'x_semantic_search',
+          input: '{"query":"grok 4.5"}',
+          status: 'completed',
+        },
+      }),
+      event('response.output_item.done', {
+        item: {
+          type: 'web_search_call',
+          id: 'ws_1',
+          status: 'completed',
+          action: { type: 'search', queries: ['grok 4.5 review'] },
+        },
+      }),
+    ])
+    expect(state.searchCalls.map((call) => call.action?.type)).toEqual([
+      'search',
+      'x_semantic_search',
+    ])
+  })
+
+  it('ignores business custom_tool_call items that are not x_search', () => {
+    const state = reduceEvents(initialLive(), [
+      event('response.output_item.added', {
+        item: {
+          type: 'custom_tool_call',
+          id: 'ctc_biz',
+          call_id: 'call_biz',
+          name: 'get_weather',
+          input: '{"city":"OKC"}',
+          status: 'completed',
+        },
+      }),
+    ])
+    expect(state.searchCalls).toEqual([])
   })
 
   it('keeps discrete calls ordered and does not regress completed status on replay', () => {
@@ -424,7 +528,7 @@ describe('web search call tracking', () => {
         item: { type: 'web_search_call', id: 'ws_2', status: 'in_progress' },
       }),
     ])
-    expect(state.webSearchCalls).toEqual([
+    expect(state.searchCalls).toEqual([
       { id: 'ws_1', status: 'completed', action: { type: 'search', queries: ['a'] } },
       { id: 'ws_2', status: 'in_progress', action: null },
     ])
@@ -443,12 +547,12 @@ describe('web search call tracking', () => {
         },
       }),
     )
-    expect(state.webSearchCalls).toEqual([
+    expect(state.searchCalls).toEqual([
       { id: 'fc_1', status: 'completed', action: { type: 'search', queries: ['what is xAI'] } },
     ])
   })
 
-  it('adopts run.done webSearchActions as the authoritative final list', () => {
+  it('adopts run.done searchActions as the authoritative final list', () => {
     const streamed = reduceEvents(initialLive(), [
       event('response.output_item.added', {
         item: { type: 'web_search_call', id: 'ws_1', status: 'in_progress' },
@@ -459,17 +563,17 @@ describe('web search call tracking', () => {
       event('run.done', {
         state: 'completed',
         text: '正文',
-        webSearchActions: [
+        searchActions: [
           { type: 'search', queries: ['q'] },
           { type: 'open_page', url: 'https://react.dev/' },
         ],
         annotations: [],
       }),
     )
-    expect(next.webSearchCalls).toEqual([
-      { id: 'final-web-search-0', status: 'completed', action: { type: 'search', queries: ['q'] } },
+    expect(next.searchCalls).toEqual([
+      { id: 'final-search-0', status: 'completed', action: { type: 'search', queries: ['q'] } },
       {
-        id: 'final-web-search-1',
+        id: 'final-search-1',
         status: 'completed',
         action: { type: 'open_page', url: 'https://react.dev/' },
       },
@@ -488,12 +592,12 @@ describe('web search call tracking', () => {
       event('run.done', {
         state: 'completed',
         text: '正文',
-        webSearchActions: [doneAction],
+        searchActions: [doneAction],
         annotations: [],
       }),
     )
     // 与流式解析一致时保留原行身份，避免 UI 重播入场动画
-    expect(finished.webSearchCalls[0]).toBe(streamed.webSearchCalls[0])
+    expect(finished.searchCalls[0]).toBe(streamed.searchCalls[0])
 
     const canceled = reduceEvent(
       reduceEvents(initialLive(), [
@@ -505,6 +609,6 @@ describe('web search call tracking', () => {
       event('run.canceled', { state: 'canceled' }),
     )
     // 未解析出动作的占位调用在终态被丢弃，与持久化口径一致
-    expect(canceled.webSearchCalls).toEqual([{ id: 'ws_1', status: 'completed', action: doneAction }])
+    expect(canceled.searchCalls).toEqual([{ id: 'ws_1', status: 'completed', action: doneAction }])
   })
 })

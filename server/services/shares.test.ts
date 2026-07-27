@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import type { MessageDTO } from '@shared/types/api'
 import type { ContentPart } from '@shared/types/domain'
 
 let tmpDir: string
@@ -219,6 +220,34 @@ describe('createShare 附件包含开关', () => {
       .limit(1)
     const image = row!.snapshot[0]!.content.find((p) => p.type === 'input_image')
     expect((image as { attachment_id: string }).attachment_id).not.toBe('')
+  })
+})
+
+describe('历史分享快照兼容', () => {
+  it('旧快照里的 webSearchActions 读取时映射为 searchActions', async () => {
+    const user = await createUser()
+    const { conv, u1 } = await createConversationTree(user.id)
+    const result = await shares.createShare(user.id, conv.id, { ...baseInput, messageIds: [u1.id] })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    // 模拟 2026-07 改名前生成的冻结快照：只有 webSearchActions、没有 searchActions。
+    const [row] = await dbClient.db
+      .select()
+      .from(schema.sharedChats)
+      .where(eq(schema.sharedChats.conversationId, conv.id))
+      .limit(1)
+    const legacy = row!.snapshot.map((m) => {
+      const { searchActions: _dropped, ...rest } = m
+      return { ...rest, webSearchActions: [{ type: 'search', queries: ['旧快照'] }] }
+    })
+    await dbClient.db
+      .update(schema.sharedChats)
+      .set({ snapshot: legacy as unknown as MessageDTO[] })
+      .where(eq(schema.sharedChats.id, row!.id))
+
+    const pub = await shares.getPublicShare(row!.token)
+    expect(pub?.messages[0]?.searchActions).toEqual([{ type: 'search', queries: ['旧快照'] }])
   })
 })
 

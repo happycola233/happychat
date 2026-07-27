@@ -31,11 +31,17 @@ export type AnnouncementStatus = 'draft' | 'published'
  */
 export type AnnouncementPhase = 'draft' | 'scheduled' | 'active' | 'expired'
 
-/** 模型能力标记（管理员配置；前端据此显示/禁用对应控件） */
+/**
+ * 模型能力标记（管理员配置；前端据此显示/禁用对应控件）。
+ *
+ * `x_search` 是 xAI Grok 独有的 X（原 Twitter）站内检索工具，与 `web_search` 相互独立，
+ * 可同时开启；旧记录没有该字段，读取时按 false 处理。
+ */
 export interface ModelCapabilities {
   vision: boolean
   file_input: boolean
   web_search: boolean
+  x_search: boolean
   image_generation: boolean
   reasoning: boolean
 }
@@ -72,6 +78,7 @@ export interface ModelParams {
   max_output_tokens?: number
   reasoning_effort?: ReasoningEffort
   web_search?: boolean
+  x_search?: boolean
   image?: ImageOptions
 }
 
@@ -101,19 +108,48 @@ export type ModelKind = 'responses' | 'chat' | 'image'
  */
 export type ModelAccessMode = 'all' | 'selected'
 
+/** web_search 工具的动作类型：上游把三者都记为一次 `web_search_call`。 */
+export type WebSearchActionType = 'search' | 'open_page' | 'find_in_page'
+
 /**
- * web_search 工具的一步已完成动作（存于 messages.web_search_actions，按发生顺序）。
- * 上游把「搜索、打开页面、页内查找」都记为一次 web_search_call，具体动作在
- * 调用完成后的 output item 里给出；查询词在协议上是可选信息。
+ * x_search（xAI，检索 X 站内内容）的动作类型。
+ * 上游把每个子工具单独记为一次 server-side `custom_tool_call`，工具名即动作；
+ * `x_search` 是未知 `x_*` 子工具的兜底归类，保证上游新增能力时仍可展示。
  */
-export interface WebSearchAction {
-  type: 'search' | 'open_page' | 'find_in_page'
-  /** search：本步实际执行的搜索词（一次调用可含多条）。 */
+export type XSearchActionType =
+  | 'x_keyword_search'
+  | 'x_semantic_search'
+  | 'x_user_search'
+  | 'x_thread_fetch'
+  | 'x_search'
+
+export type SearchActionType = WebSearchActionType | XSearchActionType
+
+/**
+ * 一步已完成的检索动作（存于 messages.search_actions，按发生顺序）。
+ * web_search 与 x_search 共用一个有序数组，以保留两类检索真实的交错次序；
+ * 具体动作要等调用完成后的 output item 才给出，查询词在协议上是可选信息。
+ */
+export interface SearchAction {
+  type: SearchActionType
+  /** 检索类动作实际执行的查询词（web 一次调用可含多条，X 每次一条）。 */
   queries?: string[]
   /** open_page / find_in_page：目标页面 URL。 */
   url?: string
   /** find_in_page：页内查找的文本模式。 */
   pattern?: string
+  /** x_search：限定检索的 X 账号（已去掉 @）。 */
+  handles?: string[]
+  /** x_search：排除的 X 账号（已去掉 @）。 */
+  excludedHandles?: string[]
+  /** x_search：检索时间范围下界（YYYY-MM-DD）。 */
+  fromDate?: string
+  /** x_search：检索时间范围上界（YYYY-MM-DD）。 */
+  toDate?: string
+  /** x_keyword_search：排序模式，上游原值（如 Latest / Top）。 */
+  mode?: string
+  /** x_thread_fetch：目标帖子 ID。 */
+  postId?: string
 }
 
 /** web_search 引用注释（Responses API 扁平结构） */

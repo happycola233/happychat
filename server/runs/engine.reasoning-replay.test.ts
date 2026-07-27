@@ -68,6 +68,7 @@ async function createEngineFixture(input: unknown[] = []) {
         vision: false,
         file_input: false,
         web_search: false,
+        x_search: false,
         image_generation: false,
         reasoning: true,
       },

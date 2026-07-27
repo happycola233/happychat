@@ -144,7 +144,7 @@ export function ExportDialog({
   const [includeReasoning, setIncludeReasoning] = useState(true)
   const [includeModel, setIncludeModel] = useState(true)
   const [includeCitations, setIncludeCitations] = useState(true)
-  const [includeWebSearch, setIncludeWebSearch] = useState(true)
+  const [includeSearch, setIncludeSearch] = useState(true)
   const [includeUsage, setIncludeUsage] = useState(false)
   const [attachmentMode, setAttachmentMode] = useState<ExportAttachmentMode>('embed')
   const [timePrecision, setTimePrecision] = useState<ExportTimePrecision>('second')
@@ -166,7 +166,7 @@ export function ExportDialog({
       includeReasoning,
       includeModel,
       includeCitations,
-      includeWebSearch,
+      includeSearch,
       includeUsage,
       attachmentMode: caps.attachmentModes.includes(attachmentMode)
         ? attachmentMode
@@ -181,7 +181,7 @@ export function ExportDialog({
       includeReasoning,
       includeModel,
       includeCitations,
-      includeWebSearch,
+      includeSearch,
       includeUsage,
       attachmentMode,
       timePrecision,
@@ -391,17 +391,17 @@ export function ExportDialog({
             />
             <OptionToggleRow
               label="引用来源"
-              hint="联网搜索的参考链接列表"
+              hint="联网 / X 搜索的参考链接列表"
               disabled={!caps.citations}
               checked={includeCitations}
               onChange={setIncludeCitations}
             />
             <OptionToggleRow
-              label="联网搜索过程"
-              hint="搜索词与打开过的页面"
-              disabled={!caps.webSearch}
-              checked={includeWebSearch}
-              onChange={setIncludeWebSearch}
+              label="检索过程"
+              hint="联网搜索的搜索词与页面、X 搜索的站内检索"
+              disabled={!caps.search}
+              checked={includeSearch}
+              onChange={setIncludeSearch}
             />
             <OptionToggleRow
               label="Token 用量统计"

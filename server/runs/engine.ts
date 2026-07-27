@@ -3,17 +3,20 @@ import type {
   ContentPart,
   MessageUsage,
   ModelParams,
+  SearchAction,
   UrlCitation,
-  WebSearchAction,
 } from '@shared/types/domain'
 import { RUN_EVENT_TYPE } from '@shared/types/events'
 import { isReasoningEnabled } from '@shared/util/reasoning'
 import { appendReasoningSummaryDelta } from '@shared/util/reasoningSummary'
 import {
-  isWebSearchCallItem,
-  webSearchActionFromItem,
-  webSearchCallIdFromEvent,
-} from '@shared/util/webSearchActivity'
+  isSearchCallItem,
+  isXSearchActionType,
+  mergeSearchAction,
+  searchActionFromItem,
+  searchCallIdFromEvent,
+  xSearchActionFromToolInput,
+} from '@shared/util/searchActivity'
 import { db } from '../db/client'
 import { runEvents, runs } from '../db/schema'
 import { providerClientFromRow } from '../provider/client'
@@ -129,9 +132,10 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
     { attachmentId: string; revisedPrompt: string | null; contentPart: ContentPart }
   >()
   const imageContentParts: ContentPart[] = []
-  // web_search 动作按调用首次出现的顺序累积（Map 保序）；查询词等细节要等
-  // output_item.done / 终态 output 才出现，null 表示调用已见但动作暂不可解析。
-  const webSearchActionsByCallId = new Map<string, WebSearchAction | null>()
+  // 检索动作（web_search + x_search）按调用首次出现的顺序累积（Map 保序），
+  // 两类工具共用一个序列以保留真实交错次序；查询词等细节要等 output_item.done /
+  // 终态 output 才出现，null 表示调用已见但动作暂不可解析。
+  const searchActionsByCallId = new Map<string, SearchAction | null>()
   const imageSlots = new Map<string, ImageGenerationSlot>()
   const imageSlotOrder: ImageGenerationSlot[] = []
   const partialImageAttachmentIds = new Set<string>()
@@ -227,27 +231,30 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
     }
   }
 
-  const recordWebSearchItem = (item: unknown, fallbackId: string): void => {
-    if (!isWebSearchCallItem(item)) return
+  const recordSearchItem = (item: unknown, fallbackId: string): void => {
+    if (!isSearchCallItem(item)) return
     const callId = str(item.id) || fallbackId
     if (!callId) return
-    const action = webSearchActionFromItem(item)
-    // 只允许「无动作 → 有动作」的补全，避免终态回读把已解析结果冲掉。
-    if (!webSearchActionsByCallId.has(callId) || action) {
-      webSearchActionsByCallId.set(callId, action)
+    // 同一次调用会被上报多次（added 常常只有类型），只接受信息量不减少的覆盖。
+    const action = mergeSearchAction(
+      searchActionsByCallId.get(callId) ?? null,
+      searchActionFromItem(item),
+    )
+    if (!searchActionsByCallId.has(callId) || action) {
+      searchActionsByCallId.set(callId, action)
     }
   }
 
   /** 终态 output 兜底：覆盖丢帧或不发 lifecycle 事件的兼容上游。 */
-  const recordResponseWebSearchItems = (response: UpstreamResponse | undefined): void => {
+  const recordResponseSearchItems = (response: UpstreamResponse | undefined): void => {
     ;(response?.output ?? []).forEach((item, index) => {
-      recordWebSearchItem(item, `response-web-search-${index}`)
+      recordSearchItem(item, `response-search-${index}`)
     })
   }
 
-  const collectWebSearchActions = (): WebSearchAction[] =>
-    [...webSearchActionsByCallId.values()].filter(
-      (action): action is WebSearchAction => action !== null,
+  const collectSearchActions = (): SearchAction[] =>
+    [...searchActionsByCallId.values()].filter(
+      (action): action is SearchAction => action !== null,
     )
 
   const applyFinalResponse = (response: UpstreamResponse | undefined): void => {
@@ -392,8 +399,9 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
       switch (ev.type) {
         case 'response.output_item.added': {
           const item = ev.data.item
-          // xAI 旧实现的 web_search_call 可能一出现即 completed 且带 arguments，这里同样收录。
-          recordWebSearchItem(item, webSearchCallIdFromEvent(ev.data))
+          // xAI 旧实现的 web_search_call 可能一出现即 completed 且带 arguments；
+          // x_search 的 custom_tool_call 首帧只有工具名，都在这里先建立顺序占位。
+          recordSearchItem(item, searchCallIdFromEvent(ev.data))
           if (isImageGenerationItem(item)) {
             const outputIndex = num(ev.data.output_index)
             const callId = imageItemId(item) || str(ev.data.item_id)
@@ -417,12 +425,25 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
         }
         case 'response.output_item.done': {
           const item = ev.data.item
-          recordWebSearchItem(item, webSearchCallIdFromEvent(ev.data))
+          recordSearchItem(item, searchCallIdFromEvent(ev.data))
           if (isImageGenerationItem(item)) {
             emitCompletedImage(
               item,
               str(ev.data.output_index) || 'image',
               num(ev.data.output_index),
+            )
+          }
+          break
+        }
+        // x_search 的参数走 custom_tool_call_input，比 output_item.done 早到；
+        // 被取消/中断时它可能是唯一一次带回查询词的机会。
+        case 'response.custom_tool_call_input.done': {
+          const callId = searchCallIdFromEvent(ev.data)
+          const pending = callId ? searchActionsByCallId.get(callId) : undefined
+          if (pending && isXSearchActionType(pending.type)) {
+            searchActionsByCallId.set(
+              callId,
+              mergeSearchAction(pending, xSearchActionFromToolInput(pending.type, ev.data.input)),
             )
           }
           break
@@ -447,7 +468,7 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
           const resp = ev.data.response as UpstreamResponse | undefined
           applyFinalResponse(resp)
           saveResponseImages(resp)
-          recordResponseWebSearchItems(resp)
+          recordResponseSearchItems(resp)
           state = 'completed'
           captureReasoningReplayContext(state, resp)
           break
@@ -457,7 +478,7 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
           const resp = ev.data.response as UpstreamResponse | undefined
           applyFinalResponse(resp)
           saveResponseImages(resp)
-          recordResponseWebSearchItems(resp)
+          recordResponseSearchItems(resp)
           state = 'incomplete'
           incompleteReason = resp?.incomplete_details?.reason ?? 'max_output_tokens'
           captureReasoningReplayContext(state, resp)
@@ -532,7 +553,7 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
     reasoningSummary: reasoning || null,
     annotations,
     usage,
-    webSearchActions: collectWebSearchActions(),
+    searchActions: collectSearchActions(),
     incompleteReason,
     errorMessage,
     errorType,

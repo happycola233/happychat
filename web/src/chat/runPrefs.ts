@@ -1,10 +1,11 @@
 import type { ModelDTO } from '@shared/types/api'
 import type { ModelParams, ReasoningEffort } from '@shared/types/domain'
 import { effectiveReasoningEffort } from '@shared/util/reasoning'
-import { effectiveWebSearchEnabled } from '@shared/util/webSearch'
+import { effectiveWebSearchEnabled, effectiveXSearchEnabled } from '@shared/util/searchTools'
 
 export type ConversationRunPrefs = {
   web_search?: boolean
+  x_search?: boolean
   reasoning_effort?: ReasoningEffort
 }
 
@@ -22,10 +23,14 @@ export function getConversationRunPrefs(
     if (model.capabilities.web_search) {
       params.web_search = effectiveWebSearchEnabled(model, requestParams)
     }
+    if (model.capabilities.x_search) {
+      params.x_search = effectiveXSearchEnabled(model, requestParams)
+    }
     const effort = effectiveReasoningEffort(model, requestParams)
     if (effort) params.reasoning_effort = effort
   } else {
     if (requestParams?.web_search !== undefined) params.web_search = requestParams.web_search
+    if (requestParams?.x_search !== undefined) params.x_search = requestParams.x_search
     if (requestParams?.reasoning_effort !== undefined) {
       params.reasoning_effort = requestParams.reasoning_effort
     }

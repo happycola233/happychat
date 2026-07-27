@@ -14,23 +14,23 @@ describe('normalizeExportOptions', () => {
     expect(normalized.includeReasoning).toBe(false)
     expect(normalized.includeModel).toBe(false)
     expect(normalized.includeCitations).toBe(false)
-    expect(normalized.includeWebSearch).toBe(false)
+    expect(normalized.includeSearch).toBe(false)
     expect(normalized.includeUsage).toBe(false)
     expect(normalized.attachmentMode).toBe('name')
   })
 
-  it('chatlog-md 不支持联网搜索过程与全部分支，其余保留', () => {
+  it('chatlog-md 不支持检索过程与全部分支，其余保留', () => {
     const normalized = normalizeExportOptions(
       opts({
         format: 'chatlog-md',
         scope: 'full',
-        includeWebSearch: true,
+        includeSearch: true,
         messageIds: ['m1'],
         includeUsage: true,
       }),
     )
     expect(normalized.scope).toBe('active')
-    expect(normalized.includeWebSearch).toBe(false)
+    expect(normalized.includeSearch).toBe(false)
     expect(normalized.includeUsage).toBe(true)
     expect(normalized.messageIds).toEqual(['m1'])
   })

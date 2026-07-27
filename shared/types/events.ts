@@ -1,4 +1,4 @@
-import type { MessageUsage, RunState, UrlCitation, WebSearchAction } from './domain'
+import type { MessageUsage, RunState, SearchAction, UrlCitation } from './domain'
 
 /**
  * SSE 线格式：每帧 `id: <seq>` + `data: <WireEvent JSON>`（不使用 event: 字段，
@@ -51,8 +51,8 @@ export interface RunDoneData {
   text?: string
   reasoningSummary?: string | null
   annotations?: UrlCitation[]
-  /** web_search 动作序列终态权威值；仅 Responses 文本 run 携带（可为空数组）。 */
-  webSearchActions?: WebSearchAction[]
+  /** 检索动作序列（web_search + x_search）终态权威值；仅 Responses 文本 run 携带（可为空数组）。 */
+  searchActions?: SearchAction[]
   usage: MessageUsage
   incompleteReason: string | null
 }

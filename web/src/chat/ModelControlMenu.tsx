@@ -8,7 +8,7 @@ import {
   findReasoningEffortOption,
   isReasoningEffortAllowed,
 } from '@shared/util/reasoning'
-import { effectiveWebSearchEnabled } from '@shared/util/webSearch'
+import { effectiveWebSearchEnabled, effectiveXSearchEnabled } from '@shared/util/searchTools'
 import {
   GPT_IMAGE_2_SIZE_OPTIONS,
   formatImageSizeLabel,
@@ -16,6 +16,7 @@ import {
   validateGptImage2Size,
 } from '@shared/util/imageSize'
 import { ModelTagList } from '../components/ModelTags'
+import { XLogo } from '../components/XLogo'
 import { useHeightTransition } from '../hooks/useHeightTransition'
 import { useTriggerLabelWidth } from '../hooks/useTriggerLabelWidth'
 import { useModels } from '../hooks/useModels'
@@ -165,42 +166,102 @@ function ReasoningSection({ model }: { model: ModelDTO }) {
   )
 }
 
-/** 联网搜索开关行：整行可点、开关不关闭菜单（开关视觉内联渲染，避免 button 嵌套）。 */
-function WebSearchSection({ model, sheet }: { model: ModelDTO; sheet: boolean }) {
-  const activeWebSearch = useChatPrefs((s) => s.activeWebSearch)
-  const setActiveWebSearch = useChatPrefs((s) => s.setActiveWebSearch)
-  const enabled = activeWebSearch ?? effectiveWebSearchEnabled(model)
+/** 检索工具开关行：整行可点、开关不关闭菜单（开关视觉内联渲染，避免 button 嵌套）。 */
+function SearchToolToggleRow({
+  label,
+  icon,
+  enabled,
+  overridden,
+  onToggle,
+  sheet,
+  testId,
+}: {
+  label: string
+  icon: ReactNode
+  enabled: boolean
+  /** true=本次会话临时覆盖，false=沿用模型默认值（仅影响 title 提示）。 */
+  overridden: boolean
+  onToggle: () => void
+  sheet: boolean
+  testId: string
+}) {
   return (
-    <div className="shrink-0 p-1.5">
-      <button
-        type="button"
-        role="switch"
-        aria-checked={enabled}
-        data-testid="web-search-toggle"
-        onClick={() => setActiveWebSearch(!enabled)}
-        title={activeWebSearch === null ? '联网搜索（使用模型默认）' : '联网搜索（本次会话临时开关）'}
+    <button
+      type="button"
+      role="switch"
+      aria-checked={enabled}
+      data-testid={testId}
+      onClick={onToggle}
+      title={overridden ? `${label}（本次会话临时开关）` : `${label}（使用模型默认）`}
+      className={clsx(
+        'flex w-full items-center gap-2.5 rounded-lg px-3 text-left text-sm text-neutral-700 transition hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-800',
+        sheet ? 'py-2.5' : 'py-2',
+      )}
+    >
+      <span className="flex h-4 w-4 shrink-0 items-center justify-center text-neutral-500 dark:text-neutral-400">
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1">{label}</span>
+      <span
+        aria-hidden
         className={clsx(
-          'flex w-full items-center gap-2.5 rounded-lg px-3 text-left text-sm text-neutral-700 transition hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-800',
-          sheet ? 'py-2.5' : 'py-2',
+          'relative h-5 w-9 shrink-0 rounded-full transition',
+          enabled ? 'bg-blue-500' : 'bg-neutral-300 dark:bg-neutral-700',
         )}
       >
-        <Globe className="h-4 w-4 shrink-0 text-neutral-500 dark:text-neutral-400" />
-        <span className="min-w-0 flex-1">联网搜索</span>
         <span
-          aria-hidden
           className={clsx(
-            'relative h-5 w-9 shrink-0 rounded-full transition',
-            enabled ? 'bg-blue-500' : 'bg-neutral-300 dark:bg-neutral-700',
+            'absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-all',
+            enabled ? 'left-[18px]' : 'left-0.5',
           )}
-        >
-          <span
-            className={clsx(
-              'absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-all',
-              enabled ? 'left-[18px]' : 'left-0.5',
-            )}
-          />
-        </span>
-      </button>
+        />
+      </span>
+    </button>
+  )
+}
+
+/** 联网搜索 / X 搜索开关：两者相互独立，可同时开启，共处一个分区。 */
+function SearchToolsSection({
+  model,
+  sheet,
+  showWebSearch,
+  showXSearch,
+}: {
+  model: ModelDTO
+  sheet: boolean
+  showWebSearch: boolean
+  showXSearch: boolean
+}) {
+  const activeWebSearch = useChatPrefs((s) => s.activeWebSearch)
+  const setActiveWebSearch = useChatPrefs((s) => s.setActiveWebSearch)
+  const activeXSearch = useChatPrefs((s) => s.activeXSearch)
+  const setActiveXSearch = useChatPrefs((s) => s.setActiveXSearch)
+  const webEnabled = activeWebSearch ?? effectiveWebSearchEnabled(model)
+  const xEnabled = activeXSearch ?? effectiveXSearchEnabled(model)
+  return (
+    <div className="shrink-0 space-y-0.5 p-1.5">
+      {showWebSearch && (
+        <SearchToolToggleRow
+          label="联网搜索"
+          icon={<Globe className="h-4 w-4" />}
+          enabled={webEnabled}
+          overridden={activeWebSearch !== null}
+          onToggle={() => setActiveWebSearch(!webEnabled)}
+          sheet={sheet}
+          testId="web-search-toggle"
+        />
+      )}
+      {showXSearch && (
+        <SearchToolToggleRow
+          label="X 搜索"
+          icon={<XLogo className="h-3.5 w-3.5" />}
+          enabled={xEnabled}
+          overridden={activeXSearch !== null}
+          onToggle={() => setActiveXSearch(!xEnabled)}
+          sheet={sheet}
+          testId="x-search-toggle"
+        />
+      )}
     </div>
   )
 }
@@ -526,6 +587,7 @@ function MenuSections({
     model && !isImage && model.capabilities.reasoning && model.allowedEfforts.length > 0,
   )
   const showWebSearch = Boolean(model && !isImage && model.capabilities.web_search)
+  const showXSearch = Boolean(model && !isImage && model.capabilities.x_search)
 
   return (
     <>
@@ -541,10 +603,15 @@ function MenuSections({
           <ReasoningSection model={model!} />
         </>
       )}
-      {showWebSearch && (
+      {(showWebSearch || showXSearch) && (
         <>
           <Divider />
-          <WebSearchSection model={model!} sheet={sheet} />
+          <SearchToolsSection
+            model={model!}
+            sheet={sheet}
+            showWebSearch={showWebSearch}
+            showXSearch={showXSearch}
+          />
         </>
       )}
       {isImage && (
@@ -558,7 +625,7 @@ function MenuSections({
 }
 
 /**
- * 聚合选择器：模型 + 思考深度 + 联网搜索（图片模型则为分辨率/画质）收进一个菜单。
+ * 聚合选择器：模型 + 思考深度 + 联网搜索 / X 搜索（图片模型则为分辨率/画质）收进一个菜单。
  * 桌面端为锚定弹层（输入框内向上、顶栏向下，空间不足自动翻转；新对话居中时向左侧弹）；
  * 移动端为底部弹层（portal 到 body，遮罩 + 安全区内边距 + 更大的触控行高）。
  */
@@ -568,6 +635,7 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
   const setActiveModel = useChatPrefs((s) => s.setActiveModel)
   const activeEffort = useChatPrefs((s) => s.activeEffort)
   const activeWebSearch = useChatPrefs((s) => s.activeWebSearch)
+  const activeXSearch = useChatPrefs((s) => s.activeXSearch)
   const isMobile = useIsMobile()
   const [open, setOpen] = useState(false)
   // 桌面弹层实际方向与限高：首选方向空间不足且对侧更宽裕时翻转，再按所选方向的空间限高。
@@ -594,23 +662,26 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
   useHeightTransition(desktopPanelRef, model?.id)
   useHeightTransition(mobileDialogRef, model?.id)
 
-  // —— 触发器上直接反映本次请求会用到的思考深度与联网状态（下方渲染与宽度过渡共用）——
+  // —— 触发器上直接反映本次请求会用到的思考深度与检索开关状态（下方渲染与宽度过渡共用）——
   const isImage = model?.kind === 'image'
   const showReasoning = Boolean(
     model && !isImage && model.capabilities.reasoning && model.allowedEfforts.length > 0,
   )
   const showWebSearch = Boolean(model && !isImage && model.capabilities.web_search)
+  const showXSearch = Boolean(model && !isImage && model.capabilities.x_search)
   const activeSupportedEffort = isReasoningEffortAllowed(model, activeEffort) ? activeEffort : null
   const effectiveEffort = model ? (activeSupportedEffort ?? effectiveReasoningEffort(model)) : null
   const webEnabled = model ? (activeWebSearch ?? effectiveWebSearchEnabled(model)) : false
+  const xEnabled = model ? (activeXSearch ?? effectiveXSearchEnabled(model)) : false
   const effectiveEffortOption = model
     ? findReasoningEffortOption(model.allowedEfforts, effectiveEffort)
     : null
   const effortLabel = showReasoning ? (effectiveEffortOption?.description ?? '自动') : null
   const triggerGlobe = showWebSearch && webEnabled
+  const triggerXMark = showXSearch && xEnabled
 
-  // 标签内容变化（模型名 / 思考档位 / 联网地球增减）时，让触发器胶囊宽度平滑过渡而非跳变。
-  const labelSignature = `${model?.id ?? ''}␟${effortLabel ?? ''}␟${triggerGlobe ? '1' : '0'}`
+  // 标签内容变化（模型名 / 思考档位 / 检索图标增减）时，让触发器胶囊宽度平滑过渡而非跳变。
+  const labelSignature = `${model?.id ?? ''}␟${effortLabel ?? ''}␟${triggerGlobe ? '1' : '0'}␟${triggerXMark ? '1' : '0'}`
   useTriggerLabelWidth({
     wrapRef: labelWrapRef,
     contentRef: labelContentRef,
@@ -776,6 +847,14 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
                 className="h-3.5 w-3.5 shrink-0 text-neutral-400 dark:text-neutral-500"
                 aria-label="联网已开启"
               />
+            )}
+            {triggerXMark && (
+              <span
+                className="flex h-3.5 w-3.5 shrink-0 items-center justify-center text-neutral-400 dark:text-neutral-500"
+                aria-label="X 搜索已开启"
+              >
+                <XLogo className="h-3 w-3" />
+              </span>
             )}
           </span>
         </span>

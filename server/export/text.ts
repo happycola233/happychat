@@ -9,7 +9,7 @@ import {
   statusLabel,
   textOfContent,
   usageLine,
-  webSearchLines,
+  searchLines,
 } from './content'
 import { formatDurationShort, formatStamp } from './time'
 import type { ExportSource } from './types'
@@ -55,8 +55,8 @@ function renderMessage(m: MessageDTO, source: ExportSource, options: ExportOptio
     }
   }
 
-  if (options.includeWebSearch) {
-    for (const l of webSearchLines(m)) lines.push(`  〔联网〕${l}`)
+  if (options.includeSearch) {
+    for (const l of searchLines(m)) lines.push(`  〔检索〕${l}`)
   }
 
   if (options.attachmentMode !== 'omit') {

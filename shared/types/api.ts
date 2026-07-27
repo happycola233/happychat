@@ -16,11 +16,11 @@ import type {
   ReasoningEffort,
   ReasoningEffortOption,
   Role,
+  SearchAction,
   ThemePreference,
   UrlCitation,
   UserPreferences,
   UserRole,
-  WebSearchAction,
 } from './domain'
 
 /** 返回前端的用户信息（绝不含 passwordHash） */
@@ -91,6 +91,7 @@ export interface ModelDTO {
   allowedEfforts: ReasoningEffortOption[]
   defaultEffort: ReasoningEffort | null
   defaultWebSearch: boolean
+  defaultXSearch: boolean
   defaultParams: ModelParams | null
 }
 
@@ -159,8 +160,8 @@ export interface MessageDTO {
   /** 整次生成的墙钟耗时；优先由 run 起止时间计算，无 run 时可使用消息快照。 */
   generationDurationMs: number | null
   annotations: UrlCitation[] | null
-  /** web_search 工具本轮执行的动作序列；旧消息/旧分享快照可能没有该字段。 */
-  webSearchActions?: WebSearchAction[] | null
+  /** 检索工具（web_search + x_search）本轮执行的动作序列；旧消息/旧分享快照可能没有该字段。 */
+  searchActions?: SearchAction[] | null
   usage: MessageUsage | null
   errorMessage: string | null
   createdAt: number
@@ -205,8 +206,12 @@ export interface ConversationDetail {
   messages: MessageDTO[]
   /** 该会话最近一次生成所用模型（DB id），用于打开会话时恢复模型选择 */
   lastModelId: string | null
-  /** 该会话最近一次生成的联网/思考设置，用于恢复控件 */
-  lastParams: { web_search?: boolean; reasoning_effort?: ReasoningEffort } | null
+  /** 该会话最近一次生成的联网/X 搜索/思考设置，用于恢复控件 */
+  lastParams: {
+    web_search?: boolean
+    x_search?: boolean
+    reasoning_effort?: ReasoningEffort
+  } | null
 }
 
 export interface SendResult {

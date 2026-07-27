@@ -79,6 +79,7 @@ export default function ChatView() {
   const qc = useQueryClient()
   const activeModelId = useChatPrefs((s) => s.activeModelId)
   const activeWebSearch = useChatPrefs((s) => s.activeWebSearch)
+  const activeXSearch = useChatPrefs((s) => s.activeXSearch)
   const activeEffort = useChatPrefs((s) => s.activeEffort)
   const imageSize = useChatPrefs((s) => s.imageSize)
   const imageQuality = useChatPrefs((s) => s.imageQuality)
@@ -481,6 +482,7 @@ export default function ChatView() {
       resetActive({
         modelId: detail.lastModelId,
         webSearch: detail.lastParams?.web_search,
+        xSearch: detail.lastParams?.x_search,
         effort: detail.lastParams?.reasoning_effort ?? null,
       })
     }
@@ -580,6 +582,7 @@ export default function ChatView() {
     }
     if (model?.kind !== 'image') {
       if (activeWebSearch !== null) p.web_search = activeWebSearch
+      if (activeXSearch !== null) p.x_search = activeXSearch
       if (isReasoningEffortAllowed(model, activeEffort)) p.reasoning_effort = activeEffort
     }
     return p

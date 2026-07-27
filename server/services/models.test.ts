@@ -68,6 +68,7 @@ async function createFixture(options: { sort?: number; kind?: 'responses' | 'ima
       vision: false,
       file_input: false,
       web_search: false,
+      x_search: false,
       image_generation: options.kind === 'image',
       reasoning: false,
     },
@@ -109,12 +110,14 @@ describe('model user access', () => {
         vision: false,
         file_input: false,
         web_search: false,
+        x_search: false,
         image_generation: false,
         reasoning: true,
       },
       allowedEfforts: [{ value: 'medium', description: '中等' }],
       replayReasoning: true,
       defaultWebSearch: false,
+      defaultXSearch: false,
       sort: 0,
     })
 

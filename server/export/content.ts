@@ -1,5 +1,6 @@
 import type { MessageDTO } from '@shared/types/api'
-import type { ContentPart, UrlCitation } from '@shared/types/domain'
+import type { ContentPart, SearchAction, UrlCitation } from '@shared/types/domain'
+import { xPostUrl } from '@shared/util/searchActivity'
 import type { ExportAttachment, ExportSource } from './types'
 import { formatDurationSeconds } from './time'
 
@@ -117,19 +118,56 @@ export function usageLine(m: MessageDTO): string | null {
   return parts.join(' · ')
 }
 
-/** 联网搜索过程的逐步文字描述（按动作发生顺序）。 */
-export function webSearchLines(m: MessageDTO): string[] {
-  const actions = m.webSearchActions
+/** 排序模式与 UI 同口径译成自解释短语（导出是纯文本，更不能只写一个「最新」）。 */
+const X_SEARCH_MODE_LABELS: Record<string, string> = {
+  Latest: '按最新排序',
+  Top: '按热门排序',
+}
+
+/** x_search 动作的附加限定条件（账号 / 时间范围 / 排序）拼成一个括号后缀。 */
+function xSearchScopeSuffix(a: SearchAction): string {
+  const scopes: string[] = []
+  if (a.handles?.length) scopes.push(`仅 ${a.handles.map((h) => `@${h}`).join(' ')}`)
+  if (a.excludedHandles?.length)
+    scopes.push(`排除 ${a.excludedHandles.map((h) => `@${h}`).join(' ')}`)
+  if (a.fromDate || a.toDate) {
+    scopes.push(`${a.fromDate ?? '不限'} ~ ${a.toDate ?? '今天'}`)
+  }
+  if (a.mode) scopes.push(X_SEARCH_MODE_LABELS[a.mode] ?? `按 ${a.mode} 排序`)
+  return scopes.length ? `（${scopes.join('，')}）` : ''
+}
+
+/** 检索过程的逐步文字描述（web_search 与 x_search 按动作发生顺序混排）。 */
+export function searchLines(m: MessageDTO): string[] {
+  const actions = m.searchActions
   if (!actions?.length) return []
   const lines: string[] = []
   for (const a of actions) {
-    if (a.type === 'search') {
-      lines.push(a.queries?.length ? `搜索：${a.queries.map((q) => `「${q}」`).join(' ')}` : '搜索')
-    } else if (a.type === 'open_page') {
-      lines.push(a.url ? `打开页面：${a.url}` : '打开页面')
-    } else {
-      const target = a.url ? `：${a.url}` : ''
-      lines.push(a.pattern ? `页内查找「${a.pattern}」${target}` : `页内查找${target}`)
+    const quoted = a.queries?.length ? a.queries.map((q) => `「${q}」`).join(' ') : ''
+    switch (a.type) {
+      case 'search':
+        lines.push(quoted ? `搜索：${quoted}` : '搜索')
+        break
+      case 'open_page':
+        lines.push(a.url ? `打开页面：${a.url}` : '打开页面')
+        break
+      case 'find_in_page': {
+        const target = a.url ? `：${a.url}` : ''
+        lines.push(a.pattern ? `页内查找「${a.pattern}」${target}` : `页内查找${target}`)
+        break
+      }
+      case 'x_user_search':
+        lines.push(quoted ? `X 用户检索：${quoted}` : 'X 用户检索')
+        break
+      case 'x_thread_fetch':
+        lines.push(a.postId ? `读取 X 讨论串：${xPostUrl(a.postId)}` : '读取 X 讨论串')
+        break
+      default: {
+        // x_keyword_search / x_semantic_search / 未知 x_* 子工具
+        const label = a.type === 'x_semantic_search' ? 'X 语义检索' : 'X 检索'
+        lines.push(`${label}${quoted ? `：${quoted}` : ''}${xSearchScopeSuffix(a)}`)
+        break
+      }
     }
   }
   return lines

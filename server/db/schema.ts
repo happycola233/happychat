@@ -18,10 +18,10 @@ import type {
   StoredReasoningEffortOption,
   Role,
   RunState,
+  SearchAction,
   UrlCitation,
   UserPreferences,
   UserRole,
-  WebSearchAction,
 } from '../../shared/types/domain'
 import type { MessageDTO } from '../../shared/types/api'
 import type { ReasoningReplayContextV1 } from '../provider/reasoning-replay'
@@ -225,6 +225,8 @@ export const models = sqliteTable(
     // 服务端历史推理上下文管理开关；默认关闭，且不通过用户端 ModelDTO 暴露。
     replayReasoning: integer('replay_reasoning', { mode: 'boolean' }).notNull().default(false),
     defaultWebSearch: integer('default_web_search', { mode: 'boolean' }).notNull().default(false),
+    // X 搜索（xAI x_search）默认开关；与联网搜索相互独立。
+    defaultXSearch: integer('default_x_search', { mode: 'boolean' }).notNull().default(false),
     sort: integer('sort').notNull().default(0),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -329,8 +331,9 @@ export const messages = sqliteTable(
     reasoningDurationMs: integer('reasoning_duration_ms'),
     generationDurationMs: integer('generation_duration_ms'),
     annotations: text('annotations', { mode: 'json' }).$type<UrlCitation[]>(),
-    // web_search 工具本轮实际执行的动作序列（搜索词/打开页面/页内查找），供 UI 复现搜索过程。
-    webSearchActions: text('web_search_actions', { mode: 'json' }).$type<WebSearchAction[]>(),
+    // 检索工具本轮实际执行的动作序列（web_search 的搜索词/打开页面/页内查找与
+    // x_search 的 X 站内检索按真实交错顺序合并），供 UI 复现检索过程。
+    searchActions: text('search_actions', { mode: 'json' }).$type<SearchAction[]>(),
     inputTokens: integer('input_tokens'),
     cacheWriteTokens: integer('cache_write_tokens'),
     cachedTokens: integer('cached_tokens'),

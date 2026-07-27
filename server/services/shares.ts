@@ -52,6 +52,18 @@ function isUserAttachmentPart(p: ContentPart): p is Extract<ContentPart, { type:
 }
 
 /**
+ * 兼容 2026-07 之前生成的分享快照：那时检索动作叫 `webSearchActions`（只有 web_search）。
+ * 快照是冻结的 JSON，不做数据迁移，读取时就地映射到现在的 `searchActions`。
+ */
+function withLegacySearchActions(snapshot: MessageDTO[]): MessageDTO[] {
+  return snapshot.map((m) => {
+    if (m.searchActions !== undefined) return m
+    const legacy = (m as { webSearchActions?: MessageDTO['searchActions'] }).webSearchActions
+    return legacy === undefined ? m : { ...m, searchActions: legacy }
+  })
+}
+
+/**
  * 剥离快照中用户上传附件的引用：attachment_id 置空，文件保留文件名供占位展示。
  * 剥离后公开附件路由天然取不到 id，无需额外判断即实现“不包含附件”。
  */
@@ -222,7 +234,7 @@ export async function getPublicShare(token: string): Promise<PublicShareDTO | nu
   }
   return {
     title: row.title,
-    messages: row.snapshot,
+    messages: withLegacySearchActions(row.snapshot),
     createdAt: row.createdAt.getTime(),
     updatedAt: row.updatedAt.getTime(),
     attachmentsIncluded: row.includeAttachments,

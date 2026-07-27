@@ -2,8 +2,9 @@ import { and, asc, desc, eq, inArray } from 'drizzle-orm'
 import type { ConversationDTO, ConversationSearchResultDTO, MessageDTO } from '@shared/types/api'
 import type { ModelParams, ReasoningEffort } from '@shared/types/domain'
 import { textFromContent } from '@shared/util/contentText'
+import { normalizeModelCapabilities } from '@shared/util/modelCapabilities'
 import { effectiveReasoningEffort, isReasoningEnabled } from '@shared/util/reasoning'
-import { effectiveWebSearchEnabled } from '@shared/util/webSearch'
+import { effectiveWebSearchEnabled, effectiveXSearchEnabled } from '@shared/util/searchTools'
 import { db } from '../db/client'
 import { attachments, conversations, messages, models, runEvents, runs } from '../db/schema'
 import { removeUpload } from '../storage/files'
@@ -55,7 +56,7 @@ export function toMessageDTO(
     reasoningDurationMs: timing?.reasoningDurationMs ?? m.reasoningDurationMs ?? null,
     generationDurationMs: timing?.generationDurationMs ?? m.generationDurationMs ?? null,
     annotations: m.annotations,
-    webSearchActions: m.webSearchActions,
+    searchActions: m.searchActions,
     usage:
       m.totalTokens != null
         ? {
@@ -329,35 +330,48 @@ interface ConversationRunPreferenceRow {
   modelDefaultParams: typeof models.$inferSelect.defaultParams | null
   modelDefaultEffort: typeof models.$inferSelect.defaultEffort | null
   modelDefaultWebSearch: boolean | null
+  modelDefaultXSearch: boolean | null
+}
+
+type ConversationRunPreferenceParams = {
+  web_search?: boolean
+  x_search?: boolean
+  reasoning_effort?: ReasoningEffort
 }
 
 type ConversationRunPreferences = {
   modelId: string | null
-  params: { web_search?: boolean; reasoning_effort?: ReasoningEffort } | null
+  params: ConversationRunPreferenceParams | null
 }
 
 function toConversationRunPreferences(
   row: ConversationRunPreferenceRow,
 ): ConversationRunPreferences {
   const rp = (row.requestParams ?? {}) as ModelParams
-  const params: { web_search?: boolean; reasoning_effort?: ReasoningEffort } = {}
+  const params: ConversationRunPreferenceParams = {}
 
   if (row.modelCapabilities) {
+    const capabilities = normalizeModelCapabilities(row.modelCapabilities)
     const modelConfig = {
       kind: row.modelKind ?? undefined,
-      capabilities: row.modelCapabilities,
+      capabilities,
       allowedEfforts: row.modelAllowedEfforts,
       defaultParams: row.modelDefaultParams,
       defaultEffort: row.modelDefaultEffort,
       defaultWebSearch: row.modelDefaultWebSearch ?? false,
+      defaultXSearch: row.modelDefaultXSearch ?? false,
     }
-    if (row.modelCapabilities.web_search) {
+    if (capabilities.web_search) {
       params.web_search = effectiveWebSearchEnabled(modelConfig, rp)
+    }
+    if (capabilities.x_search) {
+      params.x_search = effectiveXSearchEnabled(modelConfig, rp)
     }
     const effort = effectiveReasoningEffort(modelConfig, rp)
     if (effort) params.reasoning_effort = effort
   } else {
     if (rp.web_search !== undefined) params.web_search = rp.web_search
+    if (rp.x_search !== undefined) params.x_search = rp.x_search
     if (rp.reasoning_effort !== undefined) params.reasoning_effort = rp.reasoning_effort
   }
 
@@ -384,6 +398,7 @@ export async function getConversationLastRun(
       modelDefaultParams: models.defaultParams,
       modelDefaultEffort: models.defaultEffort,
       modelDefaultWebSearch: models.defaultWebSearch,
+      modelDefaultXSearch: models.defaultXSearch,
     })
     .from(runs)
     .leftJoin(models, eq(runs.modelId, models.id))
@@ -402,6 +417,7 @@ export async function getConversationLastRun(
       modelDefaultParams: models.defaultParams,
       modelDefaultEffort: models.defaultEffort,
       modelDefaultWebSearch: models.defaultWebSearch,
+      modelDefaultXSearch: models.defaultXSearch,
     })
     .from(conversations)
     .leftJoin(models, eq(conversations.modelId, models.id))

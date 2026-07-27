@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { eq } from 'drizzle-orm'
 import { unzipSync, strFromU8 } from 'fflate'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import type { ContentPart, MessageStatus, UrlCitation, WebSearchAction } from '@shared/types/domain'
+import type { ContentPart, MessageStatus, UrlCitation, SearchAction } from '@shared/types/domain'
 import { exportOptionsSchema, type ExportOptions } from '@shared/schemas/export'
 // archive 不依赖数据库环境，可静态导入直接单测
 import { buildZip, ZIP_MAX_ENTRIES } from './archive'
@@ -64,12 +64,14 @@ async function createModel() {
         vision: true,
         file_input: true,
         web_search: true,
+        x_search: false,
         image_generation: false,
         reasoning: true,
       },
       allowedEfforts: [{ value: 'high', description: '深度思考' }],
       defaultEffort: 'high',
       defaultWebSearch: false,
+      defaultXSearch: false,
     })
     .returning()
   if (!model) throw new Error('Failed to create model')
@@ -88,7 +90,7 @@ async function addMessage(input: {
   reasoningDurationMs?: number | null
   generationDurationMs?: number | null
   annotations?: UrlCitation[] | null
-  webSearchActions?: WebSearchAction[] | null
+  searchActions?: SearchAction[] | null
   tokens?: { input: number; output: number; reasoning?: number; cached?: number; total: number }
   errorMessage?: string | null
 }) {
@@ -106,7 +108,7 @@ async function addMessage(input: {
       reasoningDurationMs: input.reasoningDurationMs ?? null,
       generationDurationMs: input.generationDurationMs ?? null,
       annotations: input.annotations ?? null,
-      webSearchActions: input.webSearchActions ?? null,
+      searchActions: input.searchActions ?? null,
       inputTokens: input.tokens?.input ?? null,
       outputTokens: input.tokens?.output ?? null,
       reasoningTokens: input.tokens?.reasoning ?? null,
@@ -226,9 +228,11 @@ async function createExportTree() {
       { type: 'url_citation', url: 'https://example.com/a', title: '示例来源', start_index: 0, end_index: 4 },
       { type: 'url_citation', url: 'https://example.com/a', title: '重复来源', start_index: 5, end_index: 8 },
     ],
-    webSearchActions: [
+    searchActions: [
       { type: 'search', queries: ['天气'] },
       { type: 'open_page', url: 'https://example.com/weather' },
+      { type: 'x_keyword_search', queries: ['from:xai 天气'], handles: ['xai'], mode: 'Latest' },
+      { type: 'x_thread_fetch', postId: '2081485024872796427' },
     ],
     tokens: { input: 100, output: 50, reasoning: 10, cached: 20, total: 150 },
     content: [
@@ -403,7 +407,7 @@ describe('chatlog-md 导出', () => {
 })
 
 describe('其他格式', () => {
-  it('markdown：角色标题、内嵌图片、联网搜索过程与来源', async () => {
+  it('markdown：角色标题、内嵌图片、检索过程（网页 + X）与来源', async () => {
     const { user, conv } = await createExportTree()
     const result = await exporter.exportConversation(user.id, conv.id, opts({ format: 'markdown' }))
     if (!result.ok) throw new Error('导出失败')
@@ -412,9 +416,11 @@ describe('其他格式', () => {
     expect(text).toContain('## 🧑‍💻 用户 · 2025-03-28 23:04:06')
     expect(text).toContain('## 🤖 助手 · 2025-03-28 23:04:19 · 测试模型')
     expect(text).toContain('![照片.png](assets/照片.png)')
-    expect(text).toContain('**联网搜索**')
+    expect(text).toContain('**检索过程**')
     expect(text).toContain('- 搜索：「天气」')
     expect(text).toContain('- 打开页面：https://example.com/weather')
+    expect(text).toContain('- X 检索：「from:xai 天气」（仅 @xai，按最新排序）')
+    expect(text).toContain('- 读取 X 讨论串：https://x.com/i/status/2081485024872796427')
     expect(text).toContain('[示例来源](https://example.com/a)')
   })
 
@@ -452,9 +458,11 @@ describe('其他格式', () => {
     expect(doc.messages.some((m) => m.id === u2b.id)).toBe(true)
     const assistant = doc.messages.find((m) => m.id === a2.id)!
     expect(assistant.reasoningSummary).toBeUndefined()
-    expect(assistant.webSearchActions).toEqual([
+    expect(assistant.searchActions).toEqual([
       { type: 'search', queries: ['天气'] },
       { type: 'open_page', url: 'https://example.com/weather' },
+      { type: 'x_keyword_search', queries: ['from:xai 天气'], handles: ['xai'], mode: 'Latest' },
+      { type: 'x_thread_fetch', postId: '2081485024872796427' },
     ])
     expect(assistant.attachments).toEqual([
       expect.objectContaining({ filename: '走丢的图.png' }),

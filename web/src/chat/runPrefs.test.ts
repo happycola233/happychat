@@ -15,6 +15,7 @@ const baseModel: ModelDTO = {
     file_input: false,
     image_generation: false,
     web_search: true,
+  x_search: false,
   },
   allowedEfforts: [
     { value: 'none', description: '关闭' },
@@ -24,6 +25,7 @@ const baseModel: ModelDTO = {
   ],
   defaultEffort: 'medium',
   defaultWebSearch: true,
+  defaultXSearch: false,
   defaultParams: null,
 }
 
@@ -54,6 +56,7 @@ describe('getConversationRunPrefs', () => {
           allowedEfforts: [],
           defaultEffort: null,
           defaultWebSearch: false,
+          defaultXSearch: false,
         },
         { image: { size: 'auto', quality: 'auto' } },
       ),

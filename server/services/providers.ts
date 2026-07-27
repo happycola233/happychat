@@ -27,6 +27,7 @@ async function insertInferredModel(providerId: string, upstreamModelId: string):
     defaultEffort: d.defaultEffort,
     replayReasoning: false,
     defaultWebSearch: d.defaultWebSearch,
+    defaultXSearch: d.defaultXSearch,
   })
 }
 

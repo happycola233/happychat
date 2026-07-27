@@ -12,7 +12,7 @@ import {
   statusLabel,
   textOfContent,
   usageLine,
-  webSearchLines,
+  searchLines,
 } from './content'
 import { formatDurationShort, formatStamp } from './time'
 import type { ExportSource } from './types'
@@ -41,10 +41,10 @@ function renderMessage(m: MessageDTO, source: ExportSource, options: ExportOptio
     if (thinking) blocks.push(thinking)
   }
 
-  if (options.includeWebSearch) {
-    const lines = webSearchLines(m)
+  if (options.includeSearch) {
+    const lines = searchLines(m)
     if (lines.length > 0) {
-      blocks.push(['**联网搜索**', '', ...lines.map((l) => `- ${l}`)].join('\n'))
+      blocks.push(['**检索过程**', '', ...lines.map((l) => `- ${l}`)].join('\n'))
     }
   }
 

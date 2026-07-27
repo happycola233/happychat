@@ -16,7 +16,7 @@ import {
   statusLabel,
   textOfContent,
   usageLine,
-  webSearchLines,
+  searchLines,
 } from './content'
 import { formatDurationShort, formatStamp } from './time'
 import type { ExportAttachment, ExportSource } from './types'
@@ -108,11 +108,11 @@ function messageHtml(m: MessageDTO, source: ExportSource, options: ExportOptions
     }
   }
 
-  if (options.includeWebSearch) {
-    const lines = webSearchLines(m)
+  if (options.includeSearch) {
+    const lines = searchLines(m)
     if (lines.length > 0) {
       parts.push(
-        `<div class="search"><div class="label">联网搜索</div><ul>${lines
+        `<div class="search"><div class="label">检索过程</div><ul>${lines
           .map((l) => `<li>${esc(l)}</li>`)
           .join('')}</ul></div>`,
       )

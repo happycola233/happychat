@@ -69,12 +69,14 @@ async function createModel() {
         vision: true,
         file_input: true,
         web_search: true,
+        x_search: false,
         image_generation: false,
         reasoning: true,
       },
       allowedEfforts: [{ value: 'high', description: '深度思考' }],
       defaultEffort: 'high',
       defaultWebSearch: false,
+      defaultXSearch: false,
     })
     .returning()
   if (!model) throw new Error('Failed to create model')

@@ -27,8 +27,8 @@ export const exportOptionsSchema = z.object({
   includeModel: z.boolean().default(true),
   /** 包含联网搜索的引用来源列表 */
   includeCitations: z.boolean().default(true),
-  /** 包含联网搜索过程（搜索词 / 打开的页面） */
-  includeWebSearch: z.boolean().default(true),
+  /** 包含检索过程（联网搜索的搜索词/页面、X 搜索的站内检索） */
+  includeSearch: z.boolean().default(true),
   /** 包含 Token 用量与耗时统计 */
   includeUsage: z.boolean().default(false),
   attachmentMode: z.enum(EXPORT_ATTACHMENT_MODES).default('embed'),

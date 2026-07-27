@@ -1,7 +1,7 @@
 import { REASONING_MIN_OUTPUT_TOKENS } from '@shared/constants'
 import type { ModelParams } from '@shared/types/domain'
 import { effectiveReasoningEffort } from '@shared/util/reasoning'
-import { effectiveWebSearchEnabled } from '@shared/util/webSearch'
+import { effectiveWebSearchEnabled, effectiveXSearchEnabled } from '@shared/util/searchTools'
 import type { models } from '../db/schema'
 import { applyPromptCacheKey } from './promptCache'
 
@@ -16,6 +16,7 @@ const WEB_SEARCH_TOOL_TYPES = new Set(['web_search', 'web_search_preview'])
 function responseToolMergeKey(tool: unknown): string | null {
   if (!isPlainObject(tool) || typeof tool.type !== 'string') return null
   if (WEB_SEARCH_TOOL_TYPES.has(tool.type)) return 'web_search'
+  if (tool.type === 'x_search') return 'x_search'
   if (tool.type === 'function' && typeof tool.name === 'string') return `function:${tool.name}`
   if (tool.type === 'mcp' && typeof tool.server_label === 'string')
     return `mcp:${tool.server_label}`
@@ -118,6 +119,11 @@ export function buildResponseBody(o: BuildBodyOptions): Record<string, unknown> 
   // 联网搜索：仅当模型支持且开关开启
   if (effectiveWebSearchEnabled(model, userParams)) {
     tools.push({ type: 'web_search' })
+  }
+
+  // X 搜索（xAI x_search）：与联网搜索独立，可同时下发
+  if (effectiveXSearchEnabled(model, userParams)) {
+    tools.push({ type: 'x_search' })
   }
 
   if (tools.length > 0) body.tools = tools

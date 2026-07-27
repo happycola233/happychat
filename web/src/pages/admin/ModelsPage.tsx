@@ -42,6 +42,7 @@ const CAP_BADGE: Partial<Record<keyof ModelCapabilities, string>> = {
   vision: '视觉',
   file_input: '文件',
   web_search: '联网',
+  x_search: 'X 搜索',
   reasoning: '思考',
 }
 

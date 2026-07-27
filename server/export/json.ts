@@ -66,7 +66,7 @@ function jsonMessage(
     out.reasoningDurationMs = m.reasoningDurationMs
   }
   if (options.includeCitations) out.annotations = m.annotations ?? null
-  if (options.includeWebSearch) out.webSearchActions = m.webSearchActions ?? null
+  if (options.includeSearch) out.searchActions = m.searchActions ?? null
   if (options.includeUsage) {
     out.usage = m.usage
     out.generationDurationMs = m.generationDurationMs

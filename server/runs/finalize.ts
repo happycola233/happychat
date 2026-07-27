@@ -3,8 +3,8 @@ import type {
   ContentPart,
   MessageUsage,
   ModelParams,
+  SearchAction,
   UrlCitation,
-  WebSearchAction,
 } from '@shared/types/domain'
 import { RUN_EVENT_TYPE } from '@shared/types/events'
 import { isReasoningEnabled } from '@shared/util/reasoning'
@@ -30,8 +30,8 @@ export interface FinalizeArgs {
   reasoningSummary: string | null
   annotations: UrlCitation[]
   usage: MessageUsage
-  /** web_search 工具实际执行的动作序列；仅 Responses 文本引擎传入。 */
-  webSearchActions?: WebSearchAction[] | null
+  /** 检索工具（web_search + x_search）实际执行的动作序列；仅 Responses 文本引擎传入。 */
+  searchActions?: SearchAction[] | null
   incompleteReason: string | null
   errorMessage: string | null
   errorType?: string | null
@@ -68,8 +68,8 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
       status: msgStatus,
       reasoningSummary: a.reasoningSummary,
       annotations: a.annotations.length ? a.annotations : null,
-      // 搜索确实发生过就保留（含失败/取消），供 UI 复现搜索过程。
-      webSearchActions: a.webSearchActions?.length ? a.webSearchActions : null,
+      // 检索确实发生过就保留（含失败/取消），供 UI 复现检索过程。
+      searchActions: a.searchActions?.length ? a.searchActions : null,
       runId: a.run.id,
       reasoningDurationMs,
       generationDurationMs,
@@ -154,7 +154,7 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
       reasoningSummary: a.reasoningSummary,
       annotations: a.annotations,
       // 数组本身就是终态权威值：空数组会清掉前端未解析出动作的占位调用。
-      ...(a.webSearchActions ? { webSearchActions: a.webSearchActions } : {}),
+      ...(a.searchActions ? { searchActions: a.searchActions } : {}),
       usage: a.usage,
       incompleteReason: a.incompleteReason,
     })

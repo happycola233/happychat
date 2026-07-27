@@ -27,8 +27,8 @@ export interface ExportFormatCaps {
   model: boolean
   /** 支持引用来源列表 */
   citations: boolean
-  /** 支持联网搜索过程 */
-  webSearch: boolean
+  /** 支持检索过程（联网搜索 + X 搜索） */
+  search: boolean
   /** 支持 Token 用量统计 */
   usage: boolean
   /** 时间精度选项是否生效（JSON/JSONL 保留原始毫秒时间戳，不适用） */
@@ -50,7 +50,7 @@ export const EXPORT_FORMAT_CAPS: Record<ExportFormat, ExportFormatCaps> = {
     reasoning: true,
     model: true,
     citations: true,
-    webSearch: true,
+    search: true,
     usage: true,
     time: true,
     scopeFull: false,
@@ -67,7 +67,7 @@ export const EXPORT_FORMAT_CAPS: Record<ExportFormat, ExportFormatCaps> = {
     reasoning: true,
     model: true,
     citations: true,
-    webSearch: false,
+    search: false,
     usage: true,
     time: true,
     scopeFull: false,
@@ -82,7 +82,7 @@ export const EXPORT_FORMAT_CAPS: Record<ExportFormat, ExportFormatCaps> = {
     reasoning: true,
     model: true,
     citations: true,
-    webSearch: true,
+    search: true,
     usage: true,
     time: true,
     scopeFull: false,
@@ -97,7 +97,7 @@ export const EXPORT_FORMAT_CAPS: Record<ExportFormat, ExportFormatCaps> = {
     reasoning: true,
     model: true,
     citations: true,
-    webSearch: true,
+    search: true,
     usage: true,
     time: false,
     scopeFull: true,
@@ -112,7 +112,7 @@ export const EXPORT_FORMAT_CAPS: Record<ExportFormat, ExportFormatCaps> = {
     reasoning: false,
     model: false,
     citations: false,
-    webSearch: false,
+    search: false,
     usage: false,
     time: false,
     scopeFull: false,
@@ -127,7 +127,7 @@ export const EXPORT_FORMAT_CAPS: Record<ExportFormat, ExportFormatCaps> = {
     reasoning: true,
     model: true,
     citations: true,
-    webSearch: true,
+    search: true,
     usage: true,
     time: true,
     scopeFull: false,
@@ -151,7 +151,7 @@ export function normalizeExportOptions(options: ExportOptions): ExportOptions {
     includeReasoning: caps.reasoning && options.includeReasoning,
     includeModel: caps.model && options.includeModel,
     includeCitations: caps.citations && options.includeCitations,
-    includeWebSearch: caps.webSearch && options.includeWebSearch,
+    includeSearch: caps.search && options.includeSearch,
     includeUsage: caps.usage && options.includeUsage,
     attachmentMode: caps.attachmentModes.includes(options.attachmentMode)
       ? options.attachmentMode

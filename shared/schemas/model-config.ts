@@ -19,6 +19,8 @@ export const capabilitiesSchema = z.object({
   vision: z.boolean(),
   file_input: z.boolean(),
   web_search: z.boolean(),
+  // 后加入的能力位：老客户端与历史记录不会带该字段，缺省按不支持处理。
+  x_search: z.boolean().default(false),
   image_generation: z.boolean(),
   reasoning: z.boolean(),
 })
@@ -84,6 +86,7 @@ export const modelParamsSchema = z.object({
   max_output_tokens: z.number().int().positive().optional(),
   reasoning_effort: effortSchema.optional(),
   web_search: z.boolean().optional(),
+  x_search: z.boolean().optional(),
   image: imageOptionsSchema.optional(),
 })
 
@@ -112,6 +115,7 @@ export const modelUpdateSchema = z.object({
   defaultEffort: effortSchema.nullable().optional(),
   replayReasoning: z.boolean().optional(),
   defaultWebSearch: z.boolean().optional(),
+  defaultXSearch: z.boolean().optional(),
   sort: z.number().int().optional(),
 })
 
@@ -119,6 +123,7 @@ const defaultCapabilities = {
   vision: false,
   file_input: false,
   web_search: false,
+  x_search: false,
   image_generation: false,
   reasoning: false,
 }
@@ -141,6 +146,7 @@ export const modelCreateSchema = z.object({
   defaultEffort: effortSchema.nullable().optional(),
   replayReasoning: z.boolean().default(false),
   defaultWebSearch: z.boolean().default(false),
+  defaultXSearch: z.boolean().default(false),
   sort: z.number().int().default(0),
 })
 

@@ -14,6 +14,7 @@ export interface InferredModelDefaults {
   defaultEffort: ReasoningEffort | null
   hardParams: ModelHardParams
   defaultWebSearch: boolean
+  defaultXSearch: boolean
 }
 
 const MODELS_SUPPORTING_MAX_EFFORT = new Set([
@@ -36,6 +37,7 @@ export function inferModelDefaults(modelId: string): InferredModelDefaults {
         vision: true,
         file_input: false,
         web_search: false,
+        x_search: false,
         image_generation: true,
         reasoning: false,
       },
@@ -43,10 +45,13 @@ export function inferModelDefaults(modelId: string): InferredModelDefaults {
       defaultEffort: null,
       hardParams: {},
       defaultWebSearch: false,
+      defaultXSearch: false,
     }
   }
 
   const reasoning = id.includes('gpt-5') || id.startsWith('o')
+  // x_search 是 xAI Grok 独有的服务端工具，只给 grok 系模型预置该能力。
+  const xSearch = id.includes('grok')
   // 仅为上游明确列出的三款 GPT-5.6 模型预置 max；未知变体仍可由管理员手动配置。
   const supportsMaxEffort = MODELS_SUPPORTING_MAX_EFFORT.has(id)
   const allowedEfforts = DEFAULT_REASONING_EFFORT_OPTIONS.filter(
@@ -58,6 +63,7 @@ export function inferModelDefaults(modelId: string): InferredModelDefaults {
       vision: true,
       file_input: true,
       web_search: true,
+      x_search: xSearch,
       image_generation: false,
       reasoning,
     },
@@ -71,5 +77,6 @@ export function inferModelDefaults(modelId: string): InferredModelDefaults {
     // 管理员硬参数：思考模型固定 summary='auto' 以展示官方思考摘要
     hardParams: reasoning ? { reasoning: { summary: 'auto' } } : {},
     defaultWebSearch: false,
+    defaultXSearch: false,
   }
 }

@@ -283,6 +283,7 @@ adminRoutes.patch('/models/:id', jsonValidator(modelUpdateSchema), async (c) => 
   }
   if (input.replayReasoning !== undefined) patch.replayReasoning = input.replayReasoning
   if (input.defaultWebSearch !== undefined) patch.defaultWebSearch = input.defaultWebSearch
+  if (input.defaultXSearch !== undefined) patch.defaultXSearch = input.defaultXSearch
   if (input.sort !== undefined) patch.sort = input.sort
   await db.update(models).set(patch).where(eq(models.id, id))
   return c.json({ ok: true })

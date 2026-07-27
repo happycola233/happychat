@@ -30,15 +30,23 @@ const CAP_LABELS: Record<EditableCapability, string> = {
   vision: '图片输入（视觉）',
   file_input: '文件输入',
   web_search: '联网搜索',
+  x_search: 'X 搜索（xAI）',
   reasoning: '思考（reasoning）',
 }
 
-const EDITABLE_CAP_KEYS: EditableCapability[] = ['vision', 'file_input', 'web_search', 'reasoning']
+const EDITABLE_CAP_KEYS: EditableCapability[] = [
+  'vision',
+  'file_input',
+  'web_search',
+  'x_search',
+  'reasoning',
+]
 
 const BLANK_CAPS: ModelCapabilities = {
   vision: false,
   file_input: false,
   web_search: false,
+  x_search: false,
   image_generation: false,
   reasoning: false,
 }
@@ -155,6 +163,7 @@ export function ModelEditor({
     )
   })
   const [defaultWebSearch, setDefaultWebSearch] = useState(model?.defaultWebSearch ?? false)
+  const [defaultXSearch, setDefaultXSearch] = useState(model?.defaultXSearch ?? false)
   const [replayReasoning, setReplayReasoning] = useState(model?.replayReasoning ?? false)
   const [params, setParams] = useState<ModelParams>(model?.defaultParams ?? {})
   const [pricing, setPricing] = useState<ModelPricing>(model?.pricing ?? {})
@@ -215,6 +224,7 @@ export function ModelEditor({
         defaultEffort: defaultEffort || null,
         replayReasoning,
         defaultWebSearch: caps.web_search ? defaultWebSearch : false,
+        defaultXSearch: caps.x_search ? defaultXSearch : false,
         defaultParams: {
           temperature: params.temperature,
           top_p: params.top_p,
@@ -399,6 +409,15 @@ export function ModelEditor({
               label="默认开启联网搜索"
               checked={defaultWebSearch}
               onChange={setDefaultWebSearch}
+            />
+          )}
+
+          {caps.x_search && (
+            <ToggleRow
+              label="默认开启 X 搜索"
+              description="xAI Grok 专有的 X（原 Twitter）站内检索工具，与联网搜索相互独立、可同时开启。"
+              checked={defaultXSearch}
+              onChange={setDefaultXSearch}
             />
           )}
         </FormSection>
