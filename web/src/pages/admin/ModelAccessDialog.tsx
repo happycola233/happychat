@@ -46,7 +46,11 @@ function UserAvatar({ user, className }: { user: AdminUserDTO; className?: strin
         aria-hidden
         draggable={false}
         onError={() => setImageLoadFailed(true)}
-        className={clsx('shrink-0 rounded-full object-cover', className)}
+        className={clsx(
+          // 上传头像可能带透明通道；叠放时仍需实色衬底，避免透出前一个头像。
+          'shrink-0 rounded-full bg-neutral-100 object-cover dark:bg-neutral-800',
+          className,
+        )}
       />
     )
   }
@@ -57,8 +61,8 @@ function UserAvatar({ user, className }: { user: AdminUserDTO; className?: strin
       className={clsx(
         'flex shrink-0 select-none items-center justify-center rounded-full font-semibold',
         user.role === 'admin'
-          ? 'bg-gradient-to-br from-violet-100 to-violet-200/70 text-violet-700 dark:from-violet-500/30 dark:to-violet-500/10 dark:text-violet-300'
-          : 'bg-gradient-to-br from-sky-100 to-sky-200/70 text-sky-700 dark:from-sky-500/30 dark:to-sky-500/10 dark:text-sky-300',
+          ? 'bg-violet-50 bg-gradient-to-br from-violet-100 to-violet-200/70 text-violet-700 dark:bg-violet-950 dark:from-violet-500/30 dark:to-violet-500/10 dark:text-violet-300'
+          : 'bg-sky-50 bg-gradient-to-br from-sky-100 to-sky-200/70 text-sky-700 dark:bg-sky-950 dark:from-sky-500/30 dark:to-sky-500/10 dark:text-sky-300',
         className,
       )}
     >
