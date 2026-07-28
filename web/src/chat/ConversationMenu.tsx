@@ -194,7 +194,7 @@ export function ConversationMenu({ conversationId }: Props) {
                 danger
                 onClick={() => {
                   setOpen(false)
-                  deleteWithConfirm(conversation.id)
+                  deleteWithConfirm(conversation)
                 }}
               >
                 删除

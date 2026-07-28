@@ -56,7 +56,7 @@ function titleOf(conversation: ConversationDTO): string {
 /** 会话行处理器集合：普通列表与文件夹内列表共用同一组回调。 */
 interface ConversationRowHandlers {
   onOpen: (id: string) => void
-  onDelete: (id: string) => void
+  onDelete: (conversation: ConversationDTO) => void
   onTogglePin: (id: string, pinned: boolean) => void
   onRename: (id: string, title: string) => void
   onShare: (id: string) => void
@@ -245,7 +245,7 @@ function ConversationRow({
   /** 批量模式：提供后行点击 = 切换选中，隐藏行内菜单 */
   batch?: { selected: boolean; onToggleSelect: (id: string) => void } | null
   onOpen: (id: string) => void
-  onDelete?: (id: string) => void
+  onDelete?: (conversation: ConversationDTO) => void
   onTogglePin?: (id: string, pinned: boolean) => void
   onRename?: (id: string, title: string) => void
   onShare?: (id: string) => void
@@ -425,7 +425,7 @@ function ConversationRow({
                   danger
                   onClick={() => {
                     setMenuOpen(false)
-                    onDelete?.(conversation.id)
+                    onDelete?.(conversation)
                   }}
                 >
                   删除

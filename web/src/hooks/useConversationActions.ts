@@ -11,6 +11,9 @@ import {
 import { askConfirm } from '../store/confirm'
 import { useTitleTypingStore } from '../store/titleTyping'
 import { toast } from '../store/toast'
+import { conversationDeleteConfirmationTitle } from './conversationDeleteConfirmation'
+
+type ConversationDeleteTarget = Pick<ConversationDTO, 'id' | 'title'>
 
 /** 会话操作（删除/置顶/重命名/移动到文件夹/批量），侧栏行内菜单、顶栏菜单与批量工具栏共用。 */
 export function useConversationActions() {
@@ -96,14 +99,14 @@ export function useConversationActions() {
     onError: (e) => toast.error(e instanceof Error ? e.message : '重命名失败'),
   })
 
-  const deleteWithConfirm = (conversationId: string) => {
+  const deleteWithConfirm = (conversation: ConversationDeleteTarget) => {
     void askConfirm({
-      title: '删除聊天？',
+      title: conversationDeleteConfirmationTitle(conversation.title),
       description: '该聊天及其全部消息、附件将被永久删除，且无法恢复。',
       confirmLabel: '删除',
       tone: 'danger',
     }).then((confirmed) => {
-      if (confirmed) remove.mutate(conversationId)
+      if (confirmed) remove.mutate(conversation.id)
     })
   }
 
