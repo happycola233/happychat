@@ -55,7 +55,11 @@ export function AuthNotice({
         className,
       )}
     >
-      <Glyph className={clsx('mt-px h-4 w-4 shrink-0', style.icon)} />
+      {/* 图标撑成一整行行高(leading-5)再垂直居中，才能和首行文字对齐；直接给图标加 mt-px
+          会因为 16px 图标与 20px 行盒不等高而看起来一高一低。 */}
+      <span className="flex h-5 shrink-0 items-center">
+        <Glyph className={clsx('h-4 w-4', style.icon)} />
+      </span>
       <div className="min-w-0">{children}</div>
     </div>
   )
