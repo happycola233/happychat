@@ -25,6 +25,7 @@ import { IndeterminateCheckbox } from '../components/ui/IndeterminateCheckbox'
 import { toast } from '../store/toast'
 import { buildPath } from './buildPath'
 import { textFromContent } from './contentText'
+import { MessageSelectionPresets } from './MessageSelectionPresets'
 
 function SectionTitle({ children, aside }: { children: string; aside?: React.ReactNode }) {
   return (
@@ -157,6 +158,10 @@ export function ExportDialog({
     return path.filter((m) => selected.has(m.id)).map((m) => m.id)
   }, [selectionEnabled, selected, path])
   const selectionEmpty = selectedIds !== null && selectedIds.length === 0
+  const selectedSet = useMemo(
+    () => selected ?? new Set(path.map((message) => message.id)),
+    [selected, path],
+  )
 
   const options: ExportOptions = useMemo(
     () => ({
@@ -250,7 +255,11 @@ export function ExportDialog({
       return next
     })
   }
-  const allSelected = selected === null || path.every((m) => selected.has(m.id))
+  const replaceSelection = (ids: ReadonlySet<string>) => {
+    const selectsEveryMessage =
+      ids.size === path.length && path.every((message) => ids.has(message.id))
+    setSelected(selectsEveryMessage ? null : new Set(ids))
+  }
 
   return (
     <Modal
@@ -415,20 +424,22 @@ export function ExportDialog({
 
         {/* ---------------- 消息选择（单会话 + 当前分支） ---------------- */}
         {selectionEnabled && path.length > 0 && (
-          <section className="space-y-2">
+          <section className="space-y-2.5">
             <SectionTitle
               aside={
-                <button
-                  type="button"
-                  onClick={() => setSelected(allSelected ? new Set() : null)}
-                  className="text-xs text-neutral-500 transition hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200"
-                >
-                  {allSelected ? '清空' : '全选'}
-                </button>
+                <span className="text-[12px] tabular-nums text-neutral-400">
+                  已选 {selectedSet.size} / {path.length} 条
+                </span>
               }
             >
               选择消息
             </SectionTitle>
+            <MessageSelectionPresets
+              messages={path}
+              selectedIds={selectedSet}
+              onChange={replaceSelection}
+              testIdPrefix="export"
+            />
             <div className="hc-scrollbar max-h-[min(240px,32vh)] overflow-y-auto rounded-xl border border-neutral-200 dark:border-neutral-800">
               <div className="divide-y divide-neutral-100 dark:divide-neutral-800/80">
                 {path.map((m) => {

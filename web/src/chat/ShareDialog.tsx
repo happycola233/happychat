@@ -24,6 +24,7 @@ import { askConfirm } from '../store/confirm'
 import { toast } from '../store/toast'
 import { buildPath } from './buildPath'
 import { CopyIcon, ExternalLinkIcon } from './icons'
+import { MessageSelectionPresets } from './MessageSelectionPresets'
 
 type Expiry = 'keep' | 'never' | '7' | '30'
 
@@ -57,35 +58,6 @@ function SectionTitle({ children, aside }: { children: string; aside?: React.Rea
       </h4>
       {aside}
     </div>
-  )
-}
-
-/** 快捷选择胶囊：点击把选择集整体设为该预设；当前选择与预设完全一致时高亮。 */
-function QuickChip({
-  label,
-  active,
-  onClick,
-  testId,
-}: {
-  label: string
-  active: boolean
-  onClick: () => void
-  testId?: string
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      data-testid={testId}
-      className={clsx(
-        'rounded-full border px-2.5 py-1 text-xs transition select-none',
-        active
-          ? 'border-sky-300 bg-sky-500/10 font-medium text-sky-600 dark:border-sky-500/40 dark:text-sky-400'
-          : 'border-neutral-200 text-neutral-500 hover:border-neutral-300 hover:bg-neutral-50 hover:text-neutral-700 dark:border-neutral-700 dark:text-neutral-400 dark:hover:border-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-200',
-      )}
-    >
-      {label}
-    </button>
   )
 }
 
@@ -152,23 +124,12 @@ export function ShareDialog({
   const expired = share ? isShareExpired(share) : false
 
   const allIds = useMemo(() => path.map((m) => m.id), [path])
-  const userIds = useMemo(
-    () => path.filter((m) => m.role === 'user').map((m) => m.id),
-    [path],
-  )
-  const assistantIds = useMemo(
-    () => path.filter((m) => m.role === 'assistant').map((m) => m.id),
-    [path],
-  )
   const newCount = share ? path.filter((m) => !prevSharedIds.has(m.id)).length : 0
   const missingCount = share
     ? [...prevSharedIds].filter((id) => !allIds.includes(id)).length
     : 0
   const hasUserAttachments = path.some((m) => userAttachmentCount(m) > 0)
 
-  const equalsPreset = (ids: string[]) =>
-    ids.length > 0 && selected.size === ids.length && ids.every((id) => selected.has(id))
-  const applyPreset = (ids: string[]) => setSelected(new Set(ids))
   const toggleOne = (id: string) =>
     setSelected((cur) => {
       const next = new Set(cur)
@@ -342,35 +303,12 @@ export function ShareDialog({
               分享内容
             </SectionTitle>
 
-            <div className="flex flex-wrap items-center gap-1.5">
-              <QuickChip
-                label="全部消息"
-                active={equalsPreset(allIds)}
-                onClick={() => applyPreset(allIds)}
-                testId="share-quick-all"
-              />
-              <QuickChip
-                label="全部用户消息"
-                active={equalsPreset(userIds)}
-                onClick={() => applyPreset(userIds)}
-                testId="share-quick-user"
-              />
-              <QuickChip
-                label="全部 AI 回复"
-                active={equalsPreset(assistantIds)}
-                onClick={() => applyPreset(assistantIds)}
-                testId="share-quick-ai"
-              />
-              {selected.size > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setSelected(new Set())}
-                  className="rounded-full px-2 py-1 text-xs text-neutral-400 transition hover:text-neutral-600 dark:hover:text-neutral-300"
-                >
-                  清空
-                </button>
-              )}
-            </div>
+            <MessageSelectionPresets
+              messages={path}
+              selectedIds={selected}
+              onChange={(ids) => setSelected(new Set(ids))}
+              testIdPrefix="share"
+            />
 
             <div className="hc-scrollbar max-h-[min(320px,40vh)] overflow-y-auto rounded-xl border border-neutral-200 dark:border-neutral-800">
               <div className="divide-y divide-neutral-100 dark:divide-neutral-800/80">
