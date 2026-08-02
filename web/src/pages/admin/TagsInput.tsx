@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { X } from 'lucide-react'
 import { ModelTagBadge } from '../../components/ModelTags'
+import { Field } from './FormField'
 
 const MAX_TAGS = 8
 const MAX_TAG_LENGTH = 16
@@ -10,14 +11,18 @@ const MAX_TAG_LENGTH = 16
  * 与用户端展示同一套 ModelTagBadge 配色，管理员配置时即所见即所得。
  */
 export function TagsInput({
+  label = '标签（可选）',
   tags,
   onChange,
   placeholder,
 }: {
+  label?: string
   tags: string[]
   onChange: (tags: string[]) => void
   placeholder?: string
 }) {
+  const inputId = useId()
+  const descriptionId = `${inputId}-description`
   const [draft, setDraft] = useState('')
 
   const commitDraft = () => {
@@ -43,7 +48,7 @@ export function TagsInput({
   const removeTag = (tag: string) => onChange(tags.filter((t) => t !== tag))
 
   return (
-    <div>
+    <Field label={label} htmlFor={inputId}>
       <div className="flex min-h-11 w-full flex-wrap items-center gap-1.5 rounded-xl border border-neutral-300 bg-white px-2.5 py-1.5 transition focus-within:border-sky-500 focus-within:ring-2 focus-within:ring-sky-500/15 dark:border-neutral-700 dark:bg-neutral-800 dark:focus-within:border-sky-400">
         {tags.map((tag) => (
           <span key={tag} className="inline-flex items-center gap-0.5">
@@ -59,6 +64,8 @@ export function TagsInput({
           </span>
         ))}
         <input
+          id={inputId}
+          aria-describedby={descriptionId}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
@@ -77,10 +84,10 @@ export function TagsInput({
           className="min-w-24 flex-1 bg-transparent py-0.5 text-sm outline-none placeholder:text-neutral-400 dark:text-neutral-100"
         />
       </div>
-      <p className="mt-1 text-xs leading-5 text-neutral-400">
+      <p id={descriptionId} className="mt-1 text-xs leading-5 text-neutral-400">
         直接展示在用户的模型列表里（如「内测」「禁止滥用」）；每个不超过 {MAX_TAG_LENGTH} 字，最多{' '}
         {MAX_TAGS} 个。
       </p>
-    </div>
+    </Field>
   )
 }

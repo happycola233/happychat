@@ -15,6 +15,7 @@ import {
   createReasoningEffortDraft,
   validateReasoningEffortDrafts,
 } from './reasoningEffortDrafts'
+import { Field, SmallField } from './FormField'
 import { TagsInput } from './TagsInput'
 
 const fieldClass =
@@ -75,28 +76,6 @@ function FormSection({
       </div>
       {children}
     </section>
-  )
-}
-
-/** 标准字段：sm 标签 + 控件。 */
-function Field({ label, children }: { label: ReactNode; children: ReactNode }) {
-  return (
-    <label className="block">
-      <span className="mb-1.5 block text-sm font-medium text-neutral-700 dark:text-neutral-300">
-        {label}
-      </span>
-      {children}
-    </label>
-  )
-}
-
-/** 紧凑字段：xs 标签（参数、定价这类次级输入）。 */
-function SmallField({ label, children }: { label: ReactNode; children: ReactNode }) {
-  return (
-    <label className="block">
-      <span className="mb-1.5 block text-xs text-neutral-500">{label}</span>
-      {children}
-    </label>
   )
 }
 
@@ -366,9 +345,7 @@ export function ModelEditor({
             />
           </Field>
 
-          <Field label="标签（可选）">
-            <TagsInput tags={tags} onChange={setTags} />
-          </Field>
+          <TagsInput tags={tags} onChange={setTags} />
         </FormSection>
 
         {/* ============ 能力 ============ */}
