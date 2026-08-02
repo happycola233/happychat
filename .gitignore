@@ -9,5 +9,3 @@ data/
 !.env.example
 .DS_Store
 *.log
-AGENTS.md
-CLAUDE.md
