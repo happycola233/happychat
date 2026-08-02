@@ -8,6 +8,7 @@ import type {
 } from '@shared/types/api'
 import type { ModelAccessUpdateInput, ModelCreateInput } from '@shared/schemas/model-config'
 import { normalizeModelCapabilities } from '@shared/util/modelCapabilities'
+import { normalizeModelTags } from '@shared/util/modelTags'
 import { normalizeReasoningEffortOptions } from '@shared/util/reasoning'
 import { db } from '../db/client'
 import { models, modelUserAccess, providers, users } from '../db/schema'
@@ -27,7 +28,8 @@ export function toModelDTO(m: ModelRow): ModelDTO {
     // 老记录可能缺少后加入的能力位，出参前统一补齐。
     capabilities: normalizeModelCapabilities(m.capabilities),
     description: m.description ?? null,
-    tags: m.tags ?? [],
+    // 旧记录的 string[] 与新对象数组在 API 边界统一升级，非法颜色安全回退为自动配色。
+    tags: normalizeModelTags(m.tags),
     // API 只公开规范对象；旧 string[] 记录在这里无损升级，保留原顺序和子集。
     allowedEfforts: normalizeReasoningEffortOptions(m.allowedEfforts),
     defaultEffort: m.defaultEffort ?? null,

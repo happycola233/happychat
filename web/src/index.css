@@ -1526,6 +1526,18 @@ html.hc-ios .hc-chat-scroll {
   color: color-mix(in srgb, var(--hc-folder-color) 78%, white);
 }
 
+/* 自定义模型标签只保存一个主题色：浅色模式向白/黑两端拉开，深色模式向深底/白字拉开。
+   即使管理员选择极亮或极暗的颜色，小字号徽章仍保留足够的前景/背景区分。
+   不加描边——自动配色的标签是纯色块，两者混排时描边会显得自定义标签“多了一圈”。 */
+.hc-model-tag-custom {
+  background: color-mix(in srgb, var(--hc-model-tag-color) 14%, white);
+  color: color-mix(in srgb, var(--hc-model-tag-color) 45%, black);
+}
+.dark .hc-model-tag-custom {
+  background: color-mix(in srgb, var(--hc-model-tag-color) 24%, #171717);
+  color: color-mix(in srgb, var(--hc-model-tag-color) 45%, white);
+}
+
 /* ===================== 登录 / 注册 ===================== */
 
 /* 氛围光晕：与新对话 hero 光晕同一套视觉语言（重点色染色 + 多段渐变近似高斯衰减、
@@ -1781,7 +1793,7 @@ html.hc-ios .hc-chat-scroll {
   }
 }
 
-/* react-colorful（文件夹自定义取色）：尺寸铺满面板、圆角对齐弹窗风格。 */
+/* react-colorful（文件夹/模型标签自定义取色）：尺寸铺满面板、圆角对齐弹窗风格。 */
 .hc-color-picker .react-colorful {
   width: 100%;
   height: 150px;

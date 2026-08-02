@@ -13,6 +13,7 @@ import type {
   ModelKind,
   ModelParams,
   ModelPricing,
+  ModelTag,
   ReasoningEffort,
   ReasoningEffortOption,
   Role,
@@ -86,8 +87,8 @@ export interface ModelDTO {
   capabilities: ModelCapabilities
   /** 用户可见的模型简介（模型选择器 ⓘ 展示）；null=未配置 */
   description: string | null
-  /** 用户可见的模型标签（如「内测」「禁止滥用」），直接显示在模型列表里 */
-  tags: string[]
+  /** 用户可见的模型标签；可自定义主题色，null 时按文字自动配色。 */
+  tags: ModelTag[]
   allowedEfforts: ReasoningEffortOption[]
   defaultEffort: ReasoningEffort | null
   defaultWebSearch: boolean

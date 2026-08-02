@@ -46,6 +46,16 @@ export interface ModelCapabilities {
   reasoning: boolean
 }
 
+/** 用户可见的模型标签；color=null 时按标签文字稳定自动配色。 */
+export interface ModelTag {
+  label: string
+  /** 自定义主题色（#RRGGBB）；null=自动配色。 */
+  color: string | null
+}
+
+/** models.tags JSON 的兼容存储形态；旧记录是字符串，新记录统一写对象。 */
+export type StoredModelTag = string | ModelTag
+
 /**
  * 原样发送给上游的 reasoning.effort 值。
  *

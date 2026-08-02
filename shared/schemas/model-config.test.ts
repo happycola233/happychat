@@ -4,6 +4,7 @@ import {
   MODEL_ACCESS_USER_LIMIT,
   modelAccessUpdateSchema,
   modelCreateSchema,
+  modelTagsSchema,
   modelUpdateSchema,
   reasoningEffortOptionsSchema,
 } from './model-config'
@@ -57,6 +58,26 @@ describe('reasoning effort schemas', () => {
     expect(
       reasoningEffortOptionsSchema.safeParse([{ value: 'high', description: ' ' }]).success,
     ).toBe(false)
+  })
+})
+
+describe('model tag schema', () => {
+  it('normalizes legacy labels and custom colors', () => {
+    expect(
+      modelTagsSchema.parse([' 内测 ', { label: '推荐', color: '#ABCDEF' }, { label: '自动' }]),
+    ).toEqual([
+      { label: '内测', color: null },
+      { label: '推荐', color: '#abcdef' },
+      { label: '自动', color: null },
+    ])
+  })
+
+  it('rejects duplicate labels and unsafe color values', () => {
+    expect(modelTagsSchema.safeParse([{ label: '内测', color: null }, '内测']).success).toBe(false)
+    expect(modelTagsSchema.safeParse([{ label: '内测', color: 'red' }]).success).toBe(false)
+    expect(modelTagsSchema.safeParse([{ label: '内测', color: '#fff;display:none' }]).success).toBe(
+      false,
+    )
   })
 })
 

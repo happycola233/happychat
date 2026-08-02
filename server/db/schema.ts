@@ -19,6 +19,7 @@ import type {
   Role,
   RunState,
   SearchAction,
+  StoredModelTag,
   UrlCitation,
   UserPreferences,
   UserRole,
@@ -206,8 +207,8 @@ export const models = sqliteTable(
     displayName: text('display_name').notNull(),
     // 用户可见的模型简介（模型选择器 ⓘ 展示）；null=未配置。
     description: text('description'),
-    // 用户可见的模型标签（如「内测」「禁止滥用」），直接显示在模型列表里。
-    tags: text('tags', { mode: 'json' }).$type<string[]>(),
+    // 旧记录为 string[]，新记录写 {label,color}[]；读取时由共享 helper 统一归一化。
+    tags: text('tags', { mode: 'json' }).$type<StoredModelTag[]>(),
     kind: text('kind').$type<ModelKind>().notNull().default('responses'),
     enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
     // 用户端开放范围；与 enabled（全局总开关）正交。selected 即使名单为空也保持拒绝。

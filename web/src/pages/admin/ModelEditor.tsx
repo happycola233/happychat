@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { PROMPT_VARIABLES } from '@shared/util/promptTemplate'
 import type { AdminModelDTO } from '@shared/types/api'
-import type { ModelCapabilities, ModelParams, ModelPricing } from '@shared/types/domain'
+import type { ModelCapabilities, ModelParams, ModelPricing, ModelTag } from '@shared/types/domain'
 import * as adminApi from '../../api/admin'
 import { Button } from '../../components/ui/Button'
 import { Modal } from '../../components/ui/Modal'
@@ -125,7 +125,7 @@ export function ModelEditor({
   const [modelId, setModelId] = useState(model?.modelId ?? '')
   const [displayName, setDisplayName] = useState(model?.displayName ?? '')
   const [description, setDescription] = useState(model?.description ?? '')
-  const [tags, setTags] = useState<string[]>(model?.tags ?? [])
+  const [tags, setTags] = useState<ModelTag[]>(model?.tags ?? [])
   const [kind, setKind] = useState(model?.kind ?? 'responses')
   const [caps, setCaps] = useState<ModelCapabilities>(model?.capabilities ?? BLANK_CAPS)
   const [systemPrompt, setSystemPrompt] = useState(model?.defaultSystemPrompt ?? '')

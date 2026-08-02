@@ -1,4 +1,6 @@
+import type { CSSProperties } from 'react'
 import { clsx } from 'clsx'
+import type { ModelTag } from '@shared/types/domain'
 
 /**
  * 模型标签徽章：聊天端模型选择器与管理端模型列表共用。
@@ -12,33 +14,36 @@ const TAG_TONES = [
   'bg-rose-50 text-rose-600 dark:bg-rose-950/50 dark:text-rose-300',
 ] as const
 
-function tagToneClass(tag: string): string {
+function tagToneClass(label: string): string {
   let hash = 0
-  for (let i = 0; i < tag.length; i++) hash = (hash * 31 + tag.charCodeAt(i)) >>> 0
+  for (let i = 0; i < label.length; i++) hash = (hash * 31 + label.charCodeAt(i)) >>> 0
   return TAG_TONES[hash % TAG_TONES.length]!
 }
 
-export function ModelTagBadge({ tag, className }: { tag: string; className?: string }) {
+export function ModelTagBadge({ tag, className }: { tag: ModelTag; className?: string }) {
+  const style = tag.color ? ({ '--hc-model-tag-color': tag.color } as CSSProperties) : undefined
+
   return (
     <span
       className={clsx(
         'inline-flex max-w-24 items-center truncate rounded px-1 py-px text-[10px] font-medium leading-4',
-        tagToneClass(tag),
+        tag.color ? 'hc-model-tag-custom' : tagToneClass(tag.label),
         className,
       )}
+      style={style}
     >
-      {tag}
+      {tag.label}
     </span>
   )
 }
 
 /** 一组标签（模型列表行内直接可见）。 */
-export function ModelTagList({ tags, className }: { tags: string[]; className?: string }) {
+export function ModelTagList({ tags, className }: { tags: ModelTag[]; className?: string }) {
   if (tags.length === 0) return null
   return (
     <span className={clsx('inline-flex min-w-0 shrink items-center gap-1', className)}>
       {tags.map((tag) => (
-        <ModelTagBadge key={tag} tag={tag} />
+        <ModelTagBadge key={tag.label} tag={tag} />
       ))}
     </span>
   )

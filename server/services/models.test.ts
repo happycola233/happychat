@@ -131,6 +131,30 @@ describe('model user access', () => {
     expect(stored?.replayReasoning).toBe(true)
   })
 
+  it('normalizes legacy model tags and safely preserves custom colors', async () => {
+    const fixture = await createFixture()
+    await dbClient.db
+      .update(schema.models)
+      .set({
+        tags: [
+          ' 内测 ',
+          { label: '推荐', color: '#ABCDEF' },
+          { label: '安全回退', color: 'not-a-color' },
+        ],
+      })
+      .where(eq(schema.models.id, fixture.modelId))
+
+    const model = (await modelServices.listEnabledModels(fixture.userId)).find(
+      (candidate) => candidate.id === fixture.modelId,
+    )
+
+    expect(model?.tags).toEqual([
+      { label: '内测', color: null },
+      { label: '推荐', color: '#abcdef' },
+      { label: '安全回退', color: null },
+    ])
+  })
+
   it('keeps existing and newly inserted models available to all users by default', async () => {
     const fixture = await createFixture()
 

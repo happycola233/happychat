@@ -1,5 +1,10 @@
 import { z } from 'zod'
 import { defaultReasoningEffortDescription } from '../constants'
+import {
+  MODEL_TAG_COLOR_PATTERN,
+  MODEL_TAG_MAX_COUNT,
+  MODEL_TAG_MAX_LABEL_LENGTH,
+} from '../util/modelTags'
 import { isSafeReasoningEffortValue } from '../util/reasoning'
 
 export const providerCreateSchema = z.object({
@@ -67,11 +72,46 @@ export const reasoningEffortOptionsSchema = z
 /** 用户可见的模型简介，选择器 ⓘ 展示。 */
 export const modelDescriptionSchema = z.string().trim().max(500, '模型描述不能超过 500 个字符')
 
+const modelTagLabelSchema = z
+  .string()
+  .trim()
+  .min(1, '标签不能为空')
+  .max(MODEL_TAG_MAX_LABEL_LENGTH, `单个标签不能超过 ${MODEL_TAG_MAX_LABEL_LENGTH} 个字符`)
+
+/** 自定义标签色只接受完整十六进制值，出参统一为小写。 */
+export const modelTagColorSchema = z
+  .string()
+  .regex(MODEL_TAG_COLOR_PATTERN, '标签颜色格式不正确')
+  .transform((color) => color.toLowerCase())
+
+export const modelTagSchema = z.object({
+  label: modelTagLabelSchema,
+  color: modelTagColorSchema.nullable().default(null),
+})
+
+// 兼容旧管理端提交的 string[]；服务端解析后始终得到对象数组。
+const modelTagInputSchema = z.union([
+  modelTagSchema,
+  modelTagLabelSchema.transform((label) => ({ label, color: null })),
+])
+
 /** 用户可见的模型标签，直接显示在模型列表里。 */
 export const modelTagsSchema = z
-  .array(z.string().trim().min(1, '标签不能为空').max(16, '单个标签不能超过 16 个字符'))
-  .max(8, '单个模型最多 8 个标签')
-  .refine((tags) => new Set(tags).size === tags.length, '标签不能重复')
+  .array(modelTagInputSchema)
+  .max(MODEL_TAG_MAX_COUNT, `单个模型最多 ${MODEL_TAG_MAX_COUNT} 个标签`)
+  .superRefine((tags, ctx) => {
+    const seenLabels = new Set<string>()
+    tags.forEach((tag, index) => {
+      if (seenLabels.has(tag.label)) {
+        ctx.addIssue({
+          code: 'custom',
+          message: `标签「${tag.label}」重复`,
+          path: [index, 'label'],
+        })
+      }
+      seenLabels.add(tag.label)
+    })
+  })
 
 export const imageOptionsSchema = z.object({
   size: z.string().optional(),
