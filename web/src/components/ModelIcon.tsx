@@ -10,6 +10,9 @@ import { ICON_EMOJI_CLASS, ICON_SIZE_CLASS, type IconSize } from './iconSizing'
 
 export type { IconSize } from './iconSizing'
 
+/** 单色品牌图标的默认前景色：小尺寸下保持足够对比，同时避免纯黑抢过名称。 */
+export const DEFAULT_MODEL_ICON_TONE_CLASS = 'text-neutral-700 dark:text-neutral-300'
+
 /** 无图标时的文字兜底：字号要比图标本身小一档才不会显得挤。 */
 const FALLBACK_TEXT_CLASS: Record<IconSize, string> = {
   xs: 'text-[8px]',
@@ -142,7 +145,8 @@ export function ModelIconMark({
       aria-hidden
       className={clsx(
         'flex shrink-0 items-center justify-center rounded-[4px] font-semibold leading-none',
-        'bg-neutral-200/70 text-neutral-500 dark:bg-neutral-700/60 dark:text-neutral-300',
+        'bg-neutral-200/70 dark:bg-neutral-700/60',
+        DEFAULT_MODEL_ICON_TONE_CLASS,
         ICON_SIZE_CLASS[size],
         FALLBACK_TEXT_CLASS[size],
         className,
@@ -173,7 +177,7 @@ export function ModelGroupGlyph({
       className={clsx(
         'inline-flex shrink-0 items-center justify-center leading-none',
         ICON_SIZE_CLASS[size],
-        effectiveColor ? undefined : 'text-neutral-500 dark:text-neutral-300',
+        effectiveColor ? undefined : DEFAULT_MODEL_ICON_TONE_CLASS,
         className,
       )}
       style={effectiveColor ? { color: effectiveColor } : undefined}

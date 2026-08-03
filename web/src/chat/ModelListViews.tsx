@@ -3,7 +3,11 @@ import { createPortal } from 'react-dom'
 import { clsx } from 'clsx'
 import { Check, ChevronDown, ChevronLeft, ChevronRight, Info, Search, X } from 'lucide-react'
 import type { ModelDTO, ModelGroupDTO } from '@shared/types/api'
-import { ModelGroupGlyph, ModelIconMark } from '../components/ModelIcon'
+import {
+  DEFAULT_MODEL_ICON_TONE_CLASS,
+  ModelGroupGlyph,
+  ModelIconMark,
+} from '../components/ModelIcon'
 import { ModelTagList } from '../components/ModelTags'
 import { useModelPickerStore } from '../store/modelPicker'
 import {
@@ -106,13 +110,15 @@ function ModelRow({
             modelId={model.modelId}
             displayName={model.displayName}
             size="sm"
-            className="text-neutral-500 dark:text-neutral-400"
+            className={DEFAULT_MODEL_ICON_TONE_CLASS}
           />
           <span className="min-w-0 shrink truncate text-neutral-800 dark:text-neutral-100">
             {model.displayName}
           </span>
           <ModelTagList tags={model.tags} />
-          {model.kind === 'image' && <span className="shrink-0 text-xs text-neutral-400">生图</span>}
+          {model.kind === 'image' && (
+            <span className="shrink-0 text-xs text-neutral-400">生图</span>
+          )}
           {selected && (
             <Check className="ml-auto h-4 w-4 shrink-0 text-neutral-500 dark:text-neutral-400" />
           )}
@@ -408,10 +414,7 @@ export function ModelListSection({
   const [search, setSearch] = useState('')
 
   const allSections = useMemo(() => buildModelSections(models, groups), [models, groups])
-  const sections = useMemo(
-    () => filterModelSections(allSections, search),
-    [allSections, search],
-  )
+  const sections = useMemo(() => filterModelSections(allSections, search), [allSections, search])
   const searching = search.trim().length > 0
   const grouped = hasGroupStructure(allSections)
 

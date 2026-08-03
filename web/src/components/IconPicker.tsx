@@ -9,7 +9,7 @@ import { useLobeIconCatalog } from '../hooks/useModels'
 import { askConfirm } from '../store/confirm'
 import { toast } from '../store/toast'
 import { Field } from '../pages/admin/FormField'
-import { ModelIconMark } from './ModelIcon'
+import { DEFAULT_MODEL_ICON_TONE_CLASS, ModelIconMark } from './ModelIcon'
 import { CURATED_ICON_SLUGS, ICON_SEARCH_RESULT_LIMIT } from './curatedIcons'
 
 const EmojiPickerPanel = lazy(() => import('../chat/EmojiPickerPanel'))
@@ -24,8 +24,10 @@ const TABS: { value: PickerTab; label: string }[] = [
 
 const cellClass =
   'flex h-9 w-9 items-center justify-center rounded-lg border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400'
-const cellIdleClass =
-  'border-transparent text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800'
+const cellIdleClass = clsx(
+  'border-transparent hover:bg-neutral-100 dark:hover:bg-neutral-800',
+  DEFAULT_MODEL_ICON_TONE_CLASS,
+)
 const cellSelectedClass =
   'border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-950/50 dark:text-sky-200'
 
@@ -298,11 +300,7 @@ export function IconPicker({
           )}
         >
           {value ? (
-            <ModelIconMark
-              icon={value}
-              size="lg"
-              className="text-neutral-700 dark:text-neutral-200"
-            />
+            <ModelIconMark icon={value} size="lg" className={DEFAULT_MODEL_ICON_TONE_CLASS} />
           ) : (
             <span className="text-[11px] text-neutral-400">未设置</span>
           )}

@@ -22,7 +22,7 @@ import type {
 import { guessModelIconSlug } from '@shared/util/modelIconGuess'
 import * as adminApi from '../../api/admin'
 import { IconPicker } from '../../components/IconPicker'
-import { ModelIconMark } from '../../components/ModelIcon'
+import { DEFAULT_MODEL_ICON_TONE_CLASS, ModelIconMark } from '../../components/ModelIcon'
 import { Button } from '../../components/ui/Button'
 import { Modal } from '../../components/ui/Modal'
 import { Toggle } from '../../components/ui/Toggle'
@@ -542,7 +542,7 @@ export function ModelEditor({
                   <ModelIconMark
                     icon={{ type: 'lobe', slug: autoIconSlug }}
                     size="sm"
-                    className="text-neutral-600 dark:text-neutral-300"
+                    className={DEFAULT_MODEL_ICON_TONE_CLASS}
                   />
                   <span className="text-neutral-400">{autoIconSlug}</span>
                 </span>

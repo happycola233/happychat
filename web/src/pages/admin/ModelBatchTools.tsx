@@ -7,7 +7,11 @@ import type { ModelIcon } from '@shared/types/domain'
 import { sameModelIcon } from '@shared/util/modelIcon'
 import { guessModelIconSlug } from '@shared/util/modelIconGuess'
 import * as adminApi from '../../api/admin'
-import { ModelGroupGlyph, ModelIconMark } from '../../components/ModelIcon'
+import {
+  DEFAULT_MODEL_ICON_TONE_CLASS,
+  ModelGroupGlyph,
+  ModelIconMark,
+} from '../../components/ModelIcon'
 import { Button } from '../../components/ui/Button'
 import { Checkbox } from '../../components/ui/Checkbox'
 import { EmptyState } from '../../components/ui/EmptyState'
@@ -208,7 +212,9 @@ export function BatchIconDialog({
                   </div>
                   <div className="truncate text-xs text-neutral-400">{model.modelId}</div>
                 </div>
-                <div className="flex shrink-0 items-center gap-2 text-neutral-500 dark:text-neutral-400">
+                <div
+                  className={`flex shrink-0 items-center gap-2 ${DEFAULT_MODEL_ICON_TONE_CLASS}`}
+                >
                   <ModelIconMark icon={model.icon} displayName={model.displayName} size="md" />
                   <ArrowRight aria-hidden className="h-3.5 w-3.5 text-neutral-300" />
                   <ModelIconMark icon={next} displayName={model.displayName} size="md" />

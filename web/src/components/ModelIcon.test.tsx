@@ -77,7 +77,9 @@ describe('ModelGroupGlyph', () => {
     expect(emojiGroup).toContain('text-[18px]')
     expect(coloredDefaultGroup).toContain('style="color:#8b5cf6"')
     expect(emojiGroup).not.toContain('#8b5cf6')
-    expect(emojiGroup).toContain('text-neutral-500')
+    expect(defaultGroup).toContain('text-neutral-700')
+    expect(defaultGroup).toContain('dark:text-neutral-300')
+    expect(emojiGroup).toContain('text-neutral-700')
     for (const html of [defaultGroup, coloredDefaultGroup, emojiGroup]) {
       const rootTag = html.match(/^<span\b[^>]*>/)?.[0] ?? ''
       expect(html).not.toContain('hc-icon-chip')

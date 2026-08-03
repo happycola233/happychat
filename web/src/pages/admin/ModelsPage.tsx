@@ -31,7 +31,11 @@ import {
 import type { AdminModelDTO, AdminModelGroupDTO } from '@shared/types/api'
 import type { ModelCapabilities } from '@shared/types/domain'
 import * as adminApi from '../../api/admin'
-import { ModelGroupGlyph, ModelIconMark } from '../../components/ModelIcon'
+import {
+  DEFAULT_MODEL_ICON_TONE_CLASS,
+  ModelGroupGlyph,
+  ModelIconMark,
+} from '../../components/ModelIcon'
 import { ModelTagList } from '../../components/ModelTags'
 import { Button } from '../../components/ui/Button'
 import { cardSurface } from '../../components/ui/Card'
@@ -156,7 +160,7 @@ function ModelRow({
         modelId={model.modelId}
         displayName={model.displayName}
         size="md"
-        className="text-neutral-600 dark:text-neutral-300"
+        className={DEFAULT_MODEL_ICON_TONE_CLASS}
       />
 
       <div className="min-w-0 flex-1">
