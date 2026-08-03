@@ -7,8 +7,8 @@ import { LOBE_ICON_SLUG_PATTERN } from './modelIcon'
  * 不能因为都能生图就共用 DALL·E 品牌图标）。匹配对象是小写化的 modelId，未命中时再退一步匹配 displayName——
  * 网关常把上游 id 改成 `xxx/claude-sonnet-5` 之类，而管理员填的外显名往往更干净。
  *
- * 取色原则：**有官方彩色版就用彩色版**（品牌辨识度是图标存在的意义），
- * 只有本身就是单色标识的品牌（OpenAI / Grok / Flux 等）才用单色版——
+ * 取色原则：优先使用官方彩色版（品牌辨识度是图标存在的意义），但彩色资产在某个
+ * 主题背景下会丢失主体轮廓时改用单色版（例如 Kimi 彩色版的白色主体会消失在浅色背景）。
  * 单色版内部是 `currentColor`，前端会用 CSS mask 渲染，深浅色主题都清晰。
  *
  * 这里只做「猜测」：结果既用于未配置图标时的渲染兜底，也用于管理端「批量识别图标」把猜测
@@ -40,7 +40,7 @@ const RULES: readonly IconGuessRule[] = [
   // —— 国内主流 ——
   { test: /deepseek/, slug: 'deepseek-color' },
   { test: /qwen|qwq|qvq|tongyi/, slug: 'qwen-color' },
-  { test: /kimi|moonshot/, slug: 'kimi-color' },
+  { test: /kimi|moonshot/, slug: 'kimi' },
   { test: /\bglm\b|chatglm|zhipu|cogview|cogvideo|cogagent/, slug: 'zhipu-color' },
   { test: /doubao|seedream|seedance|seed-|volcengine/, slug: 'doubao-color' },
   { test: /hunyuan/, slug: 'hunyuan-color' },

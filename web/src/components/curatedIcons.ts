@@ -3,7 +3,8 @@
  *
  * 内置库有 900+ 个图标，一次性渲染会同时发出 900 个 SVG 请求，因此选择器默认只展示这一小撮
  * 高频品牌；要找别的就用搜索，从完整目录里过滤（结果同样有数量上限）。
- * 取色原则与自动识别一致：有官方彩色版就用彩色版，本身是单色标识的品牌用单色版。
+ * 取色原则与自动识别一致：优先官方彩色版；彩色资产在某个主题背景下轮廓不清时，
+ * 改用能随 `currentColor` 适配深浅主题的单色版。
  */
 export const CURATED_ICON_SLUGS: readonly string[] = [
   // 主流对话模型
@@ -13,7 +14,7 @@ export const CURATED_ICON_SLUGS: readonly string[] = [
   'grok',
   'deepseek-color',
   'qwen-color',
-  'kimi-color',
+  'kimi',
   'zhipu-color',
   'doubao-color',
   'hunyuan-color',
