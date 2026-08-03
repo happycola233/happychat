@@ -8,10 +8,15 @@ import { attachments, conversations, messages, runs, users } from '../db/schema'
 import { buildPromptVars } from './promptVars'
 import { must } from '../lib/assert'
 import { buildChatBody, buildChatMessages } from '../provider/chat'
-import { buildInput, type ResolvedAttachment } from '../provider/context'
+import { buildAnthropicBody, buildAnthropicMessages } from '../provider/anthropic'
+import {
+  buildInput,
+  MAX_GENERATED_IMAGE_CONTEXT_ITEMS,
+  type ResolvedAttachment,
+} from '../provider/context'
 import { buildImageBody, buildImageEditBody, buildResponseBody } from '../provider/params'
 import { promptCacheKeyForConversation } from '../provider/promptCache'
-import type { ReasoningReplayContextV1 } from '../provider/reasoning-replay'
+import type { AnthropicReplayContextV1, ProviderReplayContext } from '../provider/reasoning-replay'
 import { buildPath, getConversationMessages, getOwnedConversation } from '../services/conversations'
 import { getRunnableModel } from '../services/models'
 import {
@@ -37,6 +42,8 @@ export interface ImageSourceRef {
 }
 
 const IMAGE_EDIT_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp'])
+const ANTHROPIC_IMAGE_MIMES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
+const ANTHROPIC_MAX_BASE64_IMAGE_BYTES = 10 * 1024 * 1024
 
 export interface PreparedRun {
   ok: true
@@ -106,7 +113,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  */
 export function selectReasoningReplayItems(args: {
   enabled: boolean
-  context: ReasoningReplayContextV1 | Record<string, unknown> | null
+  context: ProviderReplayContext | Record<string, unknown> | null
   providerId: string
   providerBaseUrl: string
   upstreamModelId: string
@@ -123,6 +130,30 @@ export function selectReasoningReplayItems(args: {
     return undefined
   }
   return args.context.items
+}
+
+/** Anthropic 原始 content[] 只允许回到完全相同的提供商、Base URL 与模型。 */
+export function selectAnthropicReplayContent(args: {
+  enabled: boolean
+  context: ProviderReplayContext | Record<string, unknown> | null
+  providerId: string
+  providerBaseUrl: string
+  upstreamModelId: string
+}): AnthropicReplayContextV1['content'] | undefined {
+  if (!args.enabled || !isRecord(args.context) || args.context.version !== 1) return undefined
+  if (args.context.protocol !== 'anthropic_messages' || !Array.isArray(args.context.content)) {
+    return undefined
+  }
+  if (!isRecord(args.context.source)) return undefined
+  const source = args.context.source
+  if (
+    source.providerId !== args.providerId ||
+    source.providerBaseUrl !== args.providerBaseUrl ||
+    source.upstreamModelId !== args.upstreamModelId
+  ) {
+    return undefined
+  }
+  return args.context.content.filter(isRecord)
 }
 
 /** 读取路径中引用的附件为内联 data URL（请求构建用）。 */
@@ -224,6 +255,96 @@ async function validateFileInputBudget(
       status: 400,
       message: '单次请求中的文件总大小不能超过 50MB',
       code: 'file_request_too_large',
+    }
+  }
+  return null
+}
+
+/** 在入队前校验 Anthropic 支持的附件类型与单图编码上限。完整 JSON 大小在 fetch 前精确校验。 */
+async function validateAnthropicAttachments(
+  pathMessages: MsgRow[],
+  newAttachments: AttachmentRef[],
+  imageSources: ImageSourceRef[],
+): Promise<PrepareError | null> {
+  const generatedImageIdSet = new Set(
+    pathMessages
+      .flatMap((message) =>
+        message.content
+          .filter(
+            (part): part is Extract<ContentPart, { type: 'image_result' }> =>
+              part.type === 'image_result',
+          )
+          .map((part) => part.attachment_id),
+      )
+      .slice(-MAX_GENERATED_IMAGE_CONTEXT_ITEMS),
+  )
+  const historicalRefs = pathMessages.flatMap((message) =>
+    message.content
+      .filter(
+        (
+          part,
+        ): part is Extract<ContentPart, { type: 'input_image' | 'input_file' | 'image_result' }> =>
+          part.type === 'input_image' ||
+          part.type === 'input_file' ||
+          (part.type === 'image_result' && generatedImageIdSet.has(part.attachment_id)),
+      )
+      .map((part) => ({
+        id: part.attachment_id,
+        kind: part.type === 'input_file' ? ('file' as const) : ('image' as const),
+      })),
+  )
+  const newAttachmentIds = new Set(newAttachments.map((attachment) => attachment.attachmentId))
+  const refs = [
+    ...historicalRefs,
+    ...newAttachments.map((attachment) => ({ id: attachment.attachmentId, kind: attachment.kind })),
+    ...imageSources
+      .filter((source) => !newAttachmentIds.has(source.attachmentId))
+      .map((source) => ({ id: source.attachmentId, kind: 'image' as const })),
+  ]
+  if (refs.length === 0) return null
+
+  const rows = await db
+    .select({
+      id: attachments.id,
+      byteSize: attachments.byteSize,
+      mime: attachments.mime,
+      filename: attachments.filename,
+    })
+    .from(attachments)
+    .where(inArray(attachments.id, [...new Set(refs.map((ref) => ref.id))]))
+  const attachmentById = new Map(rows.map((attachment) => [attachment.id, attachment]))
+  for (const ref of refs) {
+    const attachment = attachmentById.get(ref.id)
+    if (!attachment) continue
+    if (ref.kind === 'image') {
+      if (!ANTHROPIC_IMAGE_MIMES.has(attachment.mime)) {
+        return {
+          ok: false,
+          status: 400,
+          message: `Anthropic 图片输入不支持：${attachment.filename}`,
+          code: 'unsupported_image_input',
+        }
+      }
+      const base64Bytes = Math.ceil(attachment.byteSize / 3) * 4
+      if (base64Bytes > ANTHROPIC_MAX_BASE64_IMAGE_BYTES) {
+        return {
+          ok: false,
+          status: 400,
+          message: 'Anthropic 单张图片的 base64 编码大小不能超过 10MB',
+          code: 'image_too_large',
+        }
+      }
+      continue
+    }
+
+    const mime = fileInputMime(attachment.filename, attachment.mime)
+    if (mime !== 'application/pdf' && !mime?.startsWith('text/')) {
+      return {
+        ok: false,
+        status: 400,
+        message: `Anthropic Messages 仅支持 PDF 与纯文本文件：${attachment.filename}`,
+        code: 'unsupported_file_type',
+      }
     }
   }
   return null
@@ -337,8 +458,18 @@ async function createAssistantAndRun(opts: {
       const reasoningItems =
         model.kind === 'responses' && m.role === 'assistant'
           ? selectReasoningReplayItems({
-              enabled: model.replayReasoning,
-              context: m.reasoningReplayContext,
+              enabled: model.replayProviderContext,
+              context: m.providerReplayContext,
+              providerId: provider.id,
+              providerBaseUrl: provider.baseUrl,
+              upstreamModelId: model.modelId,
+            })
+          : undefined
+      const anthropicContent =
+        model.kind === 'anthropic' && m.role === 'assistant'
+          ? selectAnthropicReplayContent({
+              enabled: model.replayProviderContext,
+              context: m.providerReplayContext,
               providerId: provider.id,
               providerBaseUrl: provider.baseUrl,
               upstreamModelId: model.modelId,
@@ -349,6 +480,7 @@ async function createAssistantAndRun(opts: {
         content: m.content,
         runtimeContext: m.runtimeContext,
         ...(reasoningItems ? { reasoningItems } : {}),
+        ...(anthropicContent ? { anthropicContent } : {}),
       }
     })
     const input = buildInput(pathMessages, attMap)
@@ -380,6 +512,14 @@ async function createAssistantAndRun(opts: {
         userParams,
         stream: true,
         promptCacheKey,
+      })
+    } else if (model.kind === 'anthropic') {
+      body = buildAnthropicBody({
+        model,
+        messages: buildAnthropicMessages(pathMessages, attMap),
+        instructions,
+        userParams,
+        stream: true,
       })
     } else {
       body = buildResponseBody({
@@ -476,11 +616,14 @@ export async function prepareRun(args: PrepareArgs): Promise<PrepareResult> {
     return { ok: false, status: 404, message: '会话不存在', code: 'not_found' }
   }
   const parentId = args.parentId !== undefined ? args.parentId : (conv?.activeLeafId ?? null)
-  if (model.kind === 'responses') {
+  if (model.kind === 'responses' || model.kind === 'anthropic') {
     const allMessages = conv ? await getConversationMessages(conv.id) : []
     const parentPath = parentId ? buildPath(allMessages, parentId) : []
-    const fileBudgetError = await validateFileInputBudget(parentPath, refs)
-    if (fileBudgetError) return fileBudgetError
+    const attachmentBudgetError =
+      model.kind === 'anthropic'
+        ? await validateAnthropicAttachments(parentPath, refs, sourceRefs)
+        : await validateFileInputBudget(parentPath, refs)
+    if (attachmentBudgetError) return attachmentBudgetError
   }
 
   const userContent: ContentPart[] = []
@@ -684,11 +827,14 @@ export async function prepareRegenerate(args: RegenerateArgs): Promise<PrepareRe
   const normalizedParams = normalizeImageParamsForModel(model, reasoningParams)
   if (!normalizedParams.ok) return normalizedParams
 
-  if (model.kind === 'responses') {
+  if (model.kind === 'responses' || model.kind === 'anthropic') {
     const allMessages = await getConversationMessages(conv.id)
     const parentPath = buildPath(allMessages, oldAssistant.parentId)
-    const fileBudgetError = await validateFileInputBudget(parentPath, [])
-    if (fileBudgetError) return fileBudgetError
+    const attachmentBudgetError =
+      model.kind === 'anthropic'
+        ? await validateAnthropicAttachments(parentPath, [], [])
+        : await validateFileInputBudget(parentPath, [])
+    if (attachmentBudgetError) return attachmentBudgetError
   }
 
   const { conversation, assistantMessage, run, body, imageOperation } = await createAssistantAndRun(

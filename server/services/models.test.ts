@@ -2,12 +2,13 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { eq } from 'drizzle-orm'
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
 let tmpDir: string
 let dbClient: typeof import('../db/client')
 let schema: typeof import('../db/schema')
 let modelServices: typeof import('./models')
+let providerServices: typeof import('./providers')
 let fixtureSeq = 0
 
 beforeAll(async () => {
@@ -22,7 +23,13 @@ beforeAll(async () => {
   dbClient = await import('../db/client')
   schema = await import('../db/schema')
   modelServices = await import('./models')
+  providerServices = await import('./providers')
   migration.runMigrations()
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
 })
 
 afterAll(() => {
@@ -30,7 +37,13 @@ afterAll(() => {
   if (tmpDir) rmSync(tmpDir, { recursive: true, force: true })
 })
 
-async function createFixture(options: { sort?: number; kind?: 'responses' | 'image' } = {}) {
+async function createFixture(
+  options: {
+    sort?: number
+    kind?: 'responses' | 'chat' | 'anthropic' | 'image'
+    protocol?: 'openai' | 'anthropic'
+  } = {},
+) {
   const n = fixtureSeq++
   const adminId = `model-access-admin-${n}`
   const userId = `model-access-user-${n}`
@@ -56,6 +69,7 @@ async function createFixture(options: { sort?: number; kind?: 'responses' | 'ima
     name: `Provider ${n}`,
     baseUrl: 'https://example.test/v1',
     apiKey: 'test-key',
+    protocol: options.protocol ?? 'openai',
   })
   await dbClient.db.insert(schema.models).values({
     id: modelId,
@@ -82,7 +96,7 @@ describe('model user access', () => {
     const fixture = await createFixture()
     await dbClient.db
       .update(schema.models)
-      .set({ replayReasoning: true })
+      .set({ replayProviderContext: true })
       .where(eq(schema.models.id, fixture.modelId))
 
     const publicModel = (await modelServices.listEnabledModels(fixture.userId)).find(
@@ -93,8 +107,8 @@ describe('model user access', () => {
     )
 
     expect(publicModel).toBeDefined()
-    expect(publicModel).not.toHaveProperty('replayReasoning')
-    expect(adminModel?.replayReasoning).toBe(true)
+    expect(publicModel).not.toHaveProperty('replayProviderContext')
+    expect(adminModel?.replayProviderContext).toBe(true)
   })
 
   it('persists the explicit replay setting when an administrator creates a model', async () => {
@@ -115,7 +129,7 @@ describe('model user access', () => {
         reasoning: true,
       },
       allowedEfforts: [{ value: 'medium', description: '中等' }],
-      replayReasoning: true,
+      replayProviderContext: true,
       defaultWebSearch: false,
       defaultXSearch: false,
       sort: 0,
@@ -123,12 +137,146 @@ describe('model user access', () => {
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.model.replayReasoning).toBe(true)
+    expect(result.model.replayProviderContext).toBe(true)
     const [stored] = await dbClient.db
-      .select({ replayReasoning: schema.models.replayReasoning })
+      .select({ replayProviderContext: schema.models.replayProviderContext })
       .from(schema.models)
       .where(eq(schema.models.id, result.model.id))
-    expect(stored?.replayReasoning).toBe(true)
+    expect(stored?.replayProviderContext).toBe(true)
+  })
+
+  it('rejects a model engine that does not match its provider protocol', async () => {
+    const fixture = await createFixture()
+    const result = await modelServices.createModel({
+      providerId: fixture.providerId,
+      modelId: 'claude-sonnet-5',
+      displayName: 'Mismatched Claude',
+      tags: [],
+      kind: 'anthropic',
+      enabled: true,
+      capabilities: {
+        vision: true,
+        file_input: true,
+        web_search: true,
+        x_search: false,
+        image_generation: false,
+        reasoning: true,
+      },
+      allowedEfforts: [],
+      replayProviderContext: true,
+      defaultWebSearch: false,
+      defaultXSearch: false,
+      sort: 0,
+    })
+
+    expect(result).toEqual({ ok: false, code: 'provider_protocol_mismatch' })
+  })
+
+  it('requires a visible max_output_tokens default for Anthropic models', async () => {
+    const fixture = await createFixture()
+    await dbClient.db
+      .update(schema.providers)
+      .set({ protocol: 'anthropic' })
+      .where(eq(schema.providers.id, fixture.providerId))
+
+    const result = await modelServices.createModel({
+      providerId: fixture.providerId,
+      modelId: 'claude-sonnet-5',
+      displayName: 'Claude without max tokens',
+      tags: [],
+      kind: 'anthropic',
+      enabled: true,
+      capabilities: {
+        vision: true,
+        file_input: true,
+        web_search: true,
+        x_search: false,
+        image_generation: false,
+        reasoning: true,
+      },
+      allowedEfforts: [],
+      replayProviderContext: true,
+      defaultWebSearch: false,
+      defaultXSearch: false,
+      sort: 0,
+    })
+
+    expect(result).toEqual({ ok: false, code: 'anthropic_max_output_tokens_required' })
+  })
+
+  it('rejects an Anthropic manual thinking budget that exhausts the output limit', async () => {
+    const fixture = await createFixture()
+    await dbClient.db
+      .update(schema.providers)
+      .set({ protocol: 'anthropic' })
+      .where(eq(schema.providers.id, fixture.providerId))
+
+    const result = await modelServices.createModel({
+      providerId: fixture.providerId,
+      modelId: 'claude-haiku-4-5',
+      displayName: 'Claude with invalid thinking budget',
+      tags: [],
+      kind: 'anthropic',
+      enabled: true,
+      capabilities: {
+        vision: true,
+        file_input: true,
+        web_search: false,
+        x_search: false,
+        image_generation: false,
+        reasoning: true,
+      },
+      defaultParams: { max_output_tokens: 4096 },
+      hardParams: { thinking: { type: 'enabled', budget_tokens: 8192 } },
+      allowedEfforts: [{ value: 'enabled', description: '开启' }],
+      defaultEffort: 'enabled',
+      replayProviderContext: true,
+      defaultWebSearch: false,
+      defaultXSearch: false,
+      sort: 0,
+    })
+
+    expect(result).toEqual({ ok: false, code: 'anthropic_thinking_budget_conflict' })
+  })
+
+  it('does not import a catalog fetched from stale provider connection settings', async () => {
+    const fixture = await createFixture()
+    const [provider] = await dbClient.db
+      .select()
+      .from(schema.providers)
+      .where(eq(schema.providers.id, fixture.providerId))
+      .limit(1)
+    if (!provider) throw new Error('provider fixture missing')
+
+    let resolveFetch!: (response: Response) => void
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockReturnValue(
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve
+        }),
+      ),
+    )
+    const syncPromise = providerServices.syncProviderModels(provider)
+    await dbClient.db
+      .update(schema.providers)
+      .set({ baseUrl: 'https://changed.example.test/v1' })
+      .where(eq(schema.providers.id, provider.id))
+    resolveFetch(
+      new Response(JSON.stringify({ data: [{ id: 'catalog-model-from-stale-provider' }] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+
+    await expect(syncPromise).rejects.toBeInstanceOf(
+      providerServices.ProviderConnectionChangedError,
+    )
+    const inserted = await dbClient.db
+      .select()
+      .from(schema.models)
+      .where(eq(schema.models.modelId, 'catalog-model-from-stale-provider'))
+    expect(inserted).toEqual([])
   })
 
   it('normalizes legacy model tags and safely preserves custom colors', async () => {

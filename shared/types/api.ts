@@ -14,6 +14,7 @@ import type {
   ModelParams,
   ModelPricing,
   ModelTag,
+  ProviderProtocol,
   ReasoningEffort,
   ReasoningEffortOption,
   Role,
@@ -66,6 +67,7 @@ export interface ProviderDTO {
   id: string
   name: string
   baseUrl: string
+  protocol: ProviderProtocol
   enabled: boolean
   hasApiKey: boolean
   apiKeyMask: string | null
@@ -106,8 +108,8 @@ export interface AdminModelDTO extends ModelDTO {
   /** accessMode=selected 时当前名单人数；all 时固定为 0。 */
   allowedUserCount: number
   defaultSystemPrompt: string | null
-  /** 是否让服务端持久化并重放 Responses API 的加密推理上下文。 */
-  replayReasoning: boolean
+  /** 是否让服务端持久化并重放提供商私有上下文。 */
+  replayProviderContext: boolean
   hardParams: ModelHardParams | null
   pricing: ModelPricing | null
   sort: number

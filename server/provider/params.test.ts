@@ -29,7 +29,7 @@ function model(overrides: Partial<ModelForBuild> = {}): ModelForBuild {
     pricing: null,
     allowedEfforts: null,
     defaultEffort: null,
-    replayReasoning: false,
+    replayProviderContext: false,
     defaultWebSearch: true,
     defaultXSearch: false,
     sort: 0,
@@ -246,7 +246,7 @@ describe('buildResponseBody', () => {
       },
       allowedEfforts: ['none', 'medium'],
       defaultEffort: 'medium',
-      replayReasoning: true,
+      replayProviderContext: true,
     })
 
     const enabled = buildResponseBody({
@@ -280,7 +280,7 @@ describe('buildResponseBody', () => {
         },
         allowedEfforts: ['medium'],
         defaultEffort: 'medium',
-        replayReasoning: true,
+        replayProviderContext: true,
         hardParams: {
           include: ['reasoning.encrypted_content', 'web_search_call.action.sources'],
         },
@@ -296,7 +296,7 @@ describe('buildResponseBody', () => {
   it('preserves an administrator include when replay storage is disabled', () => {
     const body = buildResponseBody({
       model: model({
-        replayReasoning: false,
+        replayProviderContext: false,
         hardParams: { include: ['reasoning.encrypted_content'] },
       }),
       input: [],

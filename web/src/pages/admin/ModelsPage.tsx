@@ -48,6 +48,7 @@ const CAP_BADGE: Partial<Record<keyof ModelCapabilities, string>> = {
 
 function kindLabel(m: AdminModelDTO): string {
   if (m.kind === 'image') return '图片模型'
+  if (m.kind === 'anthropic') return '对话模型（Anthropic）'
   return m.kind === 'chat' ? '对话模型（chat）' : '对话模型'
 }
 

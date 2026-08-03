@@ -14,3 +14,13 @@ export interface ReasoningReplayContextV1 {
   /** 终态 response.output 中 type === 'reasoning' 的 item 原样数组。 */
   items: unknown[]
 }
+
+/** Anthropic 必须原样回传完整 assistant content[]，其中可能同时含多种 opaque 字段。 */
+export interface AnthropicReplayContextV1 {
+  version: 1
+  protocol: 'anthropic_messages'
+  source: ReasoningReplayContextV1['source']
+  content: Record<string, unknown>[]
+}
+
+export type ProviderReplayContext = ReasoningReplayContextV1 | AnthropicReplayContextV1

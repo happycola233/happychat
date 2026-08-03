@@ -225,8 +225,20 @@ async function createExportTree() {
     createdAt: t4,
     generationDurationMs: 3210,
     annotations: [
-      { type: 'url_citation', url: 'https://example.com/a', title: '示例来源', start_index: 0, end_index: 4 },
-      { type: 'url_citation', url: 'https://example.com/a', title: '重复来源', start_index: 5, end_index: 8 },
+      {
+        type: 'url_citation',
+        url: 'https://example.com/a',
+        title: '示例来源',
+        start_index: 0,
+        end_index: 4,
+      },
+      {
+        type: 'url_citation',
+        url: 'https://example.com/a',
+        title: '重复来源',
+        start_index: 5,
+        end_index: 8,
+      },
     ],
     searchActions: [
       { type: 'search', queries: ['天气'] },
@@ -289,7 +301,11 @@ function zipText(data: Uint8Array, suffix: string): string {
 describe('chatlog-md 导出', () => {
   it('生成符合规范的 front matter、日期节、消息头、思考块、附件行与转义', async () => {
     const { user, conv } = await createExportTree()
-    const result = await exporter.exportConversation(user.id, conv.id, opts({ format: 'chatlog-md' }))
+    const result = await exporter.exportConversation(
+      user.id,
+      conv.id,
+      opts({ format: 'chatlog-md' }),
+    )
     if (!result.ok) throw new Error('导出失败')
 
     // 有附件 → ZIP 打包；主文件 + assets/，缺失附件不入包
@@ -373,7 +389,12 @@ describe('chatlog-md 导出', () => {
     const result = await exporter.exportConversation(
       user.id,
       conv.id,
-      opts({ format: 'chatlog-md', includeUsage: true, timePrecision: 'day', attachmentMode: 'omit' }),
+      opts({
+        format: 'chatlog-md',
+        includeUsage: true,
+        timePrecision: 'day',
+        attachmentMode: 'omit',
+      }),
     )
     if (!result.ok) throw new Error('导出失败')
     const text = new TextDecoder().decode(result.file.data)
@@ -464,9 +485,7 @@ describe('其他格式', () => {
       { type: 'x_keyword_search', queries: ['from:xai 天气'], handles: ['xai'], mode: 'Latest' },
       { type: 'x_thread_fetch', postId: '2081485024872796427' },
     ])
-    expect(assistant.attachments).toEqual([
-      expect.objectContaining({ filename: '走丢的图.png' }),
-    ])
+    expect(assistant.attachments).toEqual([expect.objectContaining({ filename: '走丢的图.png' })])
   })
 
   it('jsonl：单行 messages 结构，附件按文件名占位', async () => {
@@ -712,7 +731,11 @@ describe('审查修复回归', () => {
     })
     await setActiveLeaf(conv.id, m.id)
 
-    const result = await exporter.exportConversation(user.id, conv.id, opts({ format: 'chatlog-md' }))
+    const result = await exporter.exportConversation(
+      user.id,
+      conv.id,
+      opts({ format: 'chatlog-md' }),
+    )
     if (!result.ok) throw new Error('导出失败')
     const text = zipText(result.file.data, '.chat.md')
     expect(text).toContain('🖼️ [my photo #1 (副本).png](assets/my%20photo%20%231%20%28副本%29.png)')
@@ -756,11 +779,54 @@ describe('审查修复回归', () => {
     )
     if (!result.ok) throw new Error('导出失败')
     const text = new TextDecoder().decode(result.file.data)
-    // 换行被编码为 %0A，URL 不再产生新行；裸 `## @ai` 行不存在
-    expect(text).toContain('%0A')
+    // URL 解析会移除换行，Markdown 清洗继续编码括号；裸 `## @ai` 行不存在
+    expect(text).toContain('https://evil.test/a%29##%20@ai')
     expect(text).not.toMatch(/^## @ai\s*$/m)
     expect(text).not.toMatch(/^\)\s*$/m)
   })
+
+  it.each(['markdown', 'chatlog-md', 'html'] as const)(
+    '%s 导出不会生成非 http(s) citation 链接',
+    async (format) => {
+      const user = await createUser()
+      const model = await createModel()
+      const conv = await createConversation(user.id)
+      const q = await addMessage({
+        conversationId: conv.id,
+        role: 'user',
+        createdAt: new Date('2025-03-28T15:00:00Z'),
+        content: [{ type: 'input_text', text: '问题' }],
+      })
+      const a = await addMessage({
+        conversationId: conv.id,
+        parentId: q.id,
+        role: 'assistant',
+        modelId: model.id,
+        createdAt: new Date('2025-03-28T15:00:05Z'),
+        annotations: [
+          {
+            type: 'url_citation',
+            url: 'javascript:alert(document.domain)',
+            title: '不安全来源',
+            start_index: 0,
+            end_index: 1,
+          },
+        ],
+        content: [{ type: 'output_text', text: '回答' }],
+      })
+      await setActiveLeaf(conv.id, a.id)
+
+      const result = await exporter.exportConversation(
+        user.id,
+        conv.id,
+        opts({ format, includeModel: false, timePrecision: 'none' }),
+      )
+      if (!result.ok) throw new Error('导出失败')
+      const text = new TextDecoder().decode(result.file.data)
+      expect(text).not.toContain('javascript:')
+      expect(text).not.toContain('不安全来源')
+    },
+  )
 
   it('YAML 歧义标题（true/数字）在 front matter 中加引号保持字符串类型', async () => {
     const user = await createUser()
@@ -776,7 +842,11 @@ describe('审查修复回归', () => {
         content: [{ type: 'input_text', text: '内容' }],
       })
       await setActiveLeaf(conv.id, m.id)
-      const result = await exporter.exportConversation(user.id, conv.id, opts({ format: 'chatlog-md' }))
+      const result = await exporter.exportConversation(
+        user.id,
+        conv.id,
+        opts({ format: 'chatlog-md' }),
+      )
       if (!result.ok) throw new Error('导出失败')
       expect(new TextDecoder().decode(result.file.data)).toContain(expected)
     }

@@ -246,7 +246,7 @@ export async function createConversationBranch(
       runId: null,
       reasoningSummary: sourceMessage.reasoningSummary,
       // opaque 推理上下文与消息/附件 id 无关；独立分支保留它以维持后续多轮推理连续性。
-      reasoningReplayContext: sourceMessage.reasoningReplayContext,
+      providerReplayContext: sourceMessage.providerReplayContext,
       reasoningDurationMs: timing?.reasoningDurationMs ?? null,
       generationDurationMs: timing?.generationDurationMs ?? null,
       annotations: sourceMessage.annotations,

@@ -11,13 +11,9 @@ import { ImagePreviewTrigger } from '../chat/ImagePreview'
 import { Markdown } from '../chat/Markdown'
 import { ReasoningCard, type ReasoningCardStatus } from '../chat/ReasoningCard'
 import { SearchActivity } from '../chat/SearchActivity'
-import { SHOW_CITATION_SOURCE_CHIPS } from '../chat/citationDisplay'
+import { safeCitationUrl, SHOW_CITATION_SOURCE_CHIPS } from '../chat/citationDisplay'
 import { persistedSearchCalls } from '../sse/eventReducer'
-import {
-  CopyMessageButton,
-  MessageTimeLabel,
-  MessageUsageStats,
-} from '../chat/MessageMeta'
+import { CopyMessageButton, MessageTimeLabel, MessageUsageStats } from '../chat/MessageMeta'
 import { Spinner } from '../components/ui/Spinner'
 import { formatShortDate } from '../lib/format'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
@@ -94,11 +90,7 @@ function ExcludedAttachmentPlaceholder({ part }: { part: SharedAttachmentPart })
       ) : (
         <ImageOff className="h-4 w-4 shrink-0" />
       )}
-      {isFile ? (
-        <span className="max-w-[14rem] truncate">{part.filename}</span>
-      ) : (
-        <span>图片</span>
-      )}
+      {isFile ? <span className="max-w-[14rem] truncate">{part.filename}</span> : <span>图片</span>}
       <span className="shrink-0 text-xs text-neutral-400/80 dark:text-neutral-600">
         未包含在分享中
       </span>
@@ -178,21 +170,26 @@ function hostOf(url: string): string {
 function Citations({ items }: { items: UrlCitation[] | null }) {
   if (!items?.length) return null
   const seen = new Set<string>()
-  const unique = items.filter((c) => (seen.has(c.url) ? false : (seen.add(c.url), true)))
+  const unique = items.flatMap((citation) => {
+    const safeUrl = safeCitationUrl(citation.url)
+    if (!safeUrl || seen.has(safeUrl)) return []
+    seen.add(safeUrl)
+    return [{ citation, safeUrl }]
+  })
   if (unique.length === 0) return null
 
   return (
     <div className="flex flex-wrap gap-1.5 pt-1">
-      {unique.map((c, i) => (
+      {unique.map(({ citation, safeUrl }, i) => (
         <a
-          key={c.url}
-          href={c.url}
+          key={safeUrl}
+          href={safeUrl}
           target="_blank"
           rel="noreferrer"
-          title={c.title || c.url}
+          title={citation.title || safeUrl}
           className="max-w-[16rem] truncate rounded-md bg-neutral-100 px-2 py-0.5 text-xs text-neutral-500 transition hover:text-neutral-800 dark:bg-neutral-800 dark:hover:text-neutral-200"
         >
-          {i + 1}. {c.title || hostOf(c.url)}
+          {i + 1}. {citation.title || hostOf(safeUrl)}
         </a>
       ))}
     </div>

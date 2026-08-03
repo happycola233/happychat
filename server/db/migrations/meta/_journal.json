@@ -162,6 +162,13 @@
       "when": 1784723101878,
       "tag": "0022_search_actions_and_x_search",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1785739833395,
+      "tag": "0023_anthropic_messages_protocol",
+      "breakpoints": true
     }
   ]
 }

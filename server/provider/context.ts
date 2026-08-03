@@ -7,6 +7,8 @@ export interface PathMessage {
   runtimeContext?: string | null
   /** 服务端提存的 Responses reasoning items；仅在来源门控通过后传入本纯构建函数。 */
   reasoningItems?: unknown[]
+  /** 来源门控通过后的 Anthropic assistant 原始 content blocks。 */
+  anthropicContent?: Record<string, unknown>[]
 }
 
 export interface ResolvedAttachment {
@@ -16,7 +18,7 @@ export interface ResolvedAttachment {
   kind: 'image' | 'file'
 }
 
-const MAX_GENERATED_IMAGE_CONTEXT_ITEMS = 12
+export const MAX_GENERATED_IMAGE_CONTEXT_ITEMS = 12
 
 function generatedImageContextIds(messages: PathMessage[]): Set<string> {
   const ids = messages.flatMap((message) =>

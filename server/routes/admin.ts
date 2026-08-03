@@ -12,7 +12,12 @@ import {
 } from '@shared/schemas/model-config'
 import { inviteCreateSchema, statsFilterSchema, userUpdateSchema } from '@shared/schemas/admin'
 import { appConfigUpdateSchema } from '@shared/schemas/app-config'
+import {
+  hasAnthropicMaxOutputTokens,
+  hasAnthropicThinkingBudgetConflict,
+} from '@shared/util/anthropic'
 import { normalizeReasoningEffortOptions } from '@shared/util/reasoning'
+import { providerProtocolSupportsModelKind } from '@shared/util/providerProtocol'
 import { announcementCreateSchema, announcementUpdateSchema } from '@shared/schemas/announcement'
 import { db } from '../db/client'
 import { attachments, inviteCodes, models, providers, usageLogs, users } from '../db/schema'
@@ -53,6 +58,7 @@ import {
 import {
   getProviderModelCatalog,
   importProviderModels,
+  ProviderConnectionChangedError,
   syncProviderModels,
 } from '../services/providers'
 import { removeUpload } from '../storage/files'
@@ -81,8 +87,8 @@ adminRoutes.get('/providers/:id', async (c) => {
 })
 
 adminRoutes.post('/providers', jsonValidator(providerCreateSchema), async (c) => {
-  const { name, baseUrl, apiKey } = c.req.valid('json')
-  const rows = await db.insert(providers).values({ name, baseUrl, apiKey }).returning()
+  const { name, baseUrl, apiKey, protocol } = c.req.valid('json')
+  const rows = await db.insert(providers).values({ name, baseUrl, apiKey, protocol }).returning()
   const row = rows[0]
   if (!row) return c.json({ error: { message: '创建失败' } }, 500)
   return c.json({ id: row.id })
@@ -91,15 +97,50 @@ adminRoutes.post('/providers', jsonValidator(providerCreateSchema), async (c) =>
 adminRoutes.patch('/providers/:id', jsonValidator(providerUpdateSchema), async (c) => {
   const id = c.req.param('id')
   const input = c.req.valid('json')
-  const [existing] = await db.select().from(providers).where(eq(providers.id, id)).limit(1)
-  if (!existing) return c.json({ error: { message: '提供商不存在', code: 'not_found' } }, 404)
+  const result = db.transaction(
+    (tx) => {
+      const existing = tx.select().from(providers).where(eq(providers.id, id)).limit(1).get()
+      if (!existing) return 'missing' as const
 
-  const patch: Partial<typeof providers.$inferInsert> = {}
-  if (input.name !== undefined) patch.name = input.name
-  if (input.baseUrl !== undefined) patch.baseUrl = input.baseUrl
-  if (input.enabled !== undefined) patch.enabled = input.enabled
-  if (input.apiKey !== undefined) patch.apiKey = input.apiKey
-  await db.update(providers).set(patch).where(eq(providers.id, id))
+      const patch: Partial<typeof providers.$inferInsert> = {}
+      if (input.name !== undefined) patch.name = input.name
+      if (input.baseUrl !== undefined) patch.baseUrl = input.baseUrl
+      if (input.enabled !== undefined) patch.enabled = input.enabled
+      if (input.apiKey !== undefined) patch.apiKey = input.apiKey
+      if (input.protocol !== undefined && input.protocol !== existing.protocol) {
+        const providerModels = tx
+          .select({ kind: models.kind })
+          .from(models)
+          .where(eq(models.providerId, id))
+          .all()
+        if (
+          providerModels.some(
+            (model) => !providerProtocolSupportsModelKind(input.protocol!, model.kind),
+          )
+        ) {
+          return 'protocol_in_use' as const
+        }
+        patch.protocol = input.protocol
+      }
+      tx.update(providers).set(patch).where(eq(providers.id, id)).run()
+      return 'updated' as const
+    },
+    { behavior: 'immediate' },
+  )
+  if (result === 'missing') {
+    return c.json({ error: { message: '提供商不存在', code: 'not_found' } }, 404)
+  }
+  if (result === 'protocol_in_use') {
+    return c.json(
+      {
+        error: {
+          message: '该提供商已有模型，切换协议前请先删除这些模型。',
+          code: 'provider_protocol_in_use',
+        },
+      },
+      400,
+    )
+  }
   return c.json({ ok: true })
 })
 
@@ -131,7 +172,12 @@ adminRoutes.post('/providers/:id/sync', async (c) => {
     .where(eq(providers.id, c.req.param('id')))
     .limit(1)
   if (!p) return c.json({ error: { message: '提供商不存在', code: 'not_found' } }, 404)
-  return c.json(await syncProviderModels(p))
+  try {
+    return c.json(await syncProviderModels(p))
+  } catch (error) {
+    if (!(error instanceof ProviderConnectionChangedError)) throw error
+    return c.json({ error: { message: error.message, code: 'provider_connection_changed' } }, 409)
+  }
 })
 
 /** 上游模型目录：带「已添加实例数」标注，供管理端挑选后按需添加。 */
@@ -153,7 +199,12 @@ adminRoutes.post('/providers/:id/import-models', jsonValidator(modelImportSchema
     .where(eq(providers.id, c.req.param('id')))
     .limit(1)
   if (!p) return c.json({ error: { message: '提供商不存在', code: 'not_found' } }, 404)
-  return c.json(await importProviderModels(p, c.req.valid('json').modelIds))
+  try {
+    return c.json(await importProviderModels(p, c.req.valid('json').modelIds))
+  } catch (error) {
+    if (!(error instanceof ProviderConnectionChangedError)) throw error
+    return c.json({ error: { message: error.message, code: 'provider_connection_changed' } }, 409)
+  }
 })
 
 // ---------------- Models ----------------
@@ -211,7 +262,23 @@ adminRoutes.post('/models', jsonValidator(modelCreateSchema), async (c) => {
 
   const result = await createModel(input)
   if (!result.ok) {
-    return c.json({ error: { message: '所属供应商不存在', code: result.code } }, 400)
+    const errorMessages = {
+      provider_missing: '所属供应商不存在',
+      provider_protocol_mismatch: '模型类型与所属供应商协议不匹配',
+      anthropic_max_output_tokens_required:
+        'Anthropic Messages API 必须配置正整数 max_output_tokens',
+      anthropic_thinking_budget_conflict:
+        'Anthropic thinking.budget_tokens 必须小于最终 max_tokens',
+    } as const
+    return c.json(
+      {
+        error: {
+          message: errorMessages[result.code],
+          code: result.code,
+        },
+      },
+      400,
+    )
   }
   return c.json({ model: result.model })
 })
@@ -238,6 +305,57 @@ adminRoutes.patch('/models/:id', jsonValidator(modelUpdateSchema), async (c) => 
   const input = c.req.valid('json')
   const [existing] = await db.select().from(models).where(eq(models.id, id)).limit(1)
   if (!existing) return c.json({ error: { message: '模型不存在', code: 'not_found' } }, 404)
+  if (input.kind !== undefined && input.kind !== existing.kind) {
+    const [provider] = await db
+      .select({ protocol: providers.protocol })
+      .from(providers)
+      .where(eq(providers.id, existing.providerId))
+      .limit(1)
+    if (!provider || !providerProtocolSupportsModelKind(provider.protocol, input.kind)) {
+      return c.json(
+        {
+          error: {
+            message: '模型类型与所属供应商协议不匹配',
+            code: 'provider_protocol_mismatch',
+          },
+        },
+        400,
+      )
+    }
+  }
+
+  const nextKind = input.kind ?? existing.kind
+  const nextDefaultParams =
+    input.defaultParams !== undefined ? input.defaultParams : existing.defaultParams
+  const nextHardParams = input.hardParams !== undefined ? input.hardParams : existing.hardParams
+  if (nextKind === 'anthropic' && !hasAnthropicMaxOutputTokens(nextDefaultParams)) {
+    return c.json(
+      {
+        error: {
+          message: 'Anthropic Messages API 必须配置正整数 max_output_tokens',
+          code: 'anthropic_max_output_tokens_required',
+        },
+      },
+      400,
+    )
+  }
+  if (
+    nextKind === 'anthropic' &&
+    hasAnthropicThinkingBudgetConflict(
+      nextHardParams?.max_tokens ?? nextDefaultParams?.max_output_tokens,
+      nextHardParams?.thinking,
+    )
+  ) {
+    return c.json(
+      {
+        error: {
+          message: 'Anthropic thinking.budget_tokens 必须小于最终 max_tokens',
+          code: 'anthropic_thinking_budget_conflict',
+        },
+      },
+      400,
+    )
+  }
 
   let nextReasoningConfig:
     | Pick<typeof models.$inferInsert, 'allowedEfforts' | 'defaultEffort'>
@@ -274,14 +392,19 @@ adminRoutes.patch('/models/:id', jsonValidator(modelUpdateSchema), async (c) => 
   if (input.kind !== undefined) patch.kind = input.kind
   if (input.capabilities !== undefined) patch.capabilities = input.capabilities
   if (input.defaultSystemPrompt !== undefined) patch.defaultSystemPrompt = input.defaultSystemPrompt
-  if (input.defaultParams !== undefined) patch.defaultParams = input.defaultParams
-  if (input.hardParams !== undefined) patch.hardParams = input.hardParams
+  if (input.defaultParams !== undefined || input.hardParams !== undefined) {
+    // 两项共同决定 Anthropic thinking 预算合法性；并发的部分 PATCH 也必须整对写入。
+    patch.defaultParams = nextDefaultParams
+    patch.hardParams = nextHardParams
+  }
   if (input.pricing !== undefined) patch.pricing = input.pricing
   if (nextReasoningConfig) {
     patch.allowedEfforts = nextReasoningConfig.allowedEfforts
     patch.defaultEffort = nextReasoningConfig.defaultEffort
   }
-  if (input.replayReasoning !== undefined) patch.replayReasoning = input.replayReasoning
+  if (input.replayProviderContext !== undefined) {
+    patch.replayProviderContext = input.replayProviderContext
+  }
   if (input.defaultWebSearch !== undefined) patch.defaultWebSearch = input.defaultWebSearch
   if (input.defaultXSearch !== undefined) patch.defaultXSearch = input.defaultXSearch
   if (input.sort !== undefined) patch.sort = input.sort

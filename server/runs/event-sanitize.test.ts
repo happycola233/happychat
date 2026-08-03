@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  collectEncryptedContentStrings,
-  redactEncryptedContent,
+  collectProviderOpaqueStrings,
+  redactProviderOpaqueContent,
   sanitizeEventData,
 } from './event-sanitize'
 
@@ -112,7 +112,7 @@ describe('sanitizeEventData', () => {
     }
 
     expect(sanitizeEventData('error', original, ['opaque-request-ciphertext'])).toEqual({
-      message: 'The reasoning item [encrypted_content omitted] could not be decrypted.',
+      message: 'The reasoning item [provider opaque content omitted] could not be decrypted.',
     })
     expect(original.message).toContain('opaque-request-ciphertext')
   })
@@ -145,18 +145,22 @@ describe('sanitizeEventData', () => {
     expect(JSON.stringify(original)).toContain('terminal-ciphertext')
   })
 
-  it('collects only explicit encrypted_content string values', () => {
+  it('collects Responses and Anthropic opaque string values', () => {
     expect(
-      collectEncryptedContentStrings({
+      collectProviderOpaqueStrings({
         input: [
           { type: 'reasoning', encrypted_content: 'cipher-1' },
           { nested: { encrypted_content: 'cipher-2' } },
+          { type: 'thinking', signature: 'signature-1' },
+          { type: 'redacted_thinking', data: 'redacted-1' },
+          { citations: [{ encrypted_index: 'citation-1' }] },
           { encrypted_content: null },
         ],
       }),
-    ).toEqual(['cipher-1', 'cipher-2'])
-    expect(redactEncryptedContent('{"encrypted_content":"cipher-1"}')).toBe(
+    ).toEqual(['cipher-1', 'cipher-2', 'signature-1', 'redacted-1', 'citation-1'])
+    expect(redactProviderOpaqueContent('{"encrypted_content":"cipher-1"}')).toBe(
       '{"encrypted_content":null}',
     )
+    expect(redactProviderOpaqueContent('{"signature":"signature-1"}')).toBe('{"signature":null}')
   })
 })

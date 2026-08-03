@@ -249,6 +249,41 @@ describe('selectReasoningReplayItems', () => {
   })
 })
 
+describe('selectAnthropicReplayContent', () => {
+  const content = [
+    { type: 'thinking', thinking: 'summary', signature: 'opaque-signature' },
+    { type: 'redacted_thinking', data: 'opaque-redacted-data' },
+  ]
+  const source = {
+    providerId: 'anthropic-provider',
+    providerBaseUrl: 'https://api.anthropic.com',
+    upstreamModelId: 'claude-sonnet-5',
+  }
+  const context = {
+    version: 1 as const,
+    protocol: 'anthropic_messages' as const,
+    source,
+    content,
+  }
+
+  it('只在私有信封来源完全一致时返回完整 content blocks', () => {
+    expect(prepare.selectAnthropicReplayContent({ enabled: true, context, ...source })).toEqual(
+      content,
+    )
+    expect(
+      prepare.selectAnthropicReplayContent({
+        enabled: true,
+        context,
+        ...source,
+        upstreamModelId: 'claude-opus-5',
+      }),
+    ).toBeUndefined()
+    expect(
+      prepare.selectAnthropicReplayContent({ enabled: false, context, ...source }),
+    ).toBeUndefined()
+  })
+})
+
 describe('prepareRun active leaf', () => {
   it('returns a new conversation with activeLeafId set to the assistant placeholder', async () => {
     const { userId, modelId } = await createRunnableModel()
@@ -260,6 +295,96 @@ describe('prepareRun active leaf', () => {
     const all = await conversationServices.getConversationMessages(result.conversation.id)
     const path = conversationServices.buildPath(all, result.conversation.activeLeafId)
     expect(path.map((m) => m.id)).toEqual([result.userMessage.id, result.assistantMessage.id])
+  })
+
+  it('为 Anthropic 模型构建顶层 system、原生 messages 与可见高级 JSON 默认值', async () => {
+    const runnable = await createRunnableModel()
+    await dbClient.db
+      .update(schema.providers)
+      .set({ protocol: 'anthropic', baseUrl: 'https://api.anthropic.com' })
+      .where(eq(schema.providers.id, runnable.providerId))
+    await dbClient.db
+      .update(schema.models)
+      .set({
+        modelId: 'claude-sonnet-5',
+        kind: 'anthropic',
+        capabilities: {
+          vision: true,
+          file_input: true,
+          web_search: true,
+          x_search: false,
+          image_generation: false,
+          reasoning: true,
+        },
+        allowedEfforts: ['none', 'high'],
+        defaultEffort: 'high',
+        defaultParams: { max_output_tokens: 16000 },
+        replayProviderContext: true,
+        hardParams: {
+          cache_control: { type: 'ephemeral' },
+          thinking: { type: 'adaptive', display: 'summarized' },
+          tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+        },
+      })
+      .where(eq(schema.models.id, runnable.modelId))
+
+    const result = assertPrepared(
+      await prepare.prepareRun({
+        userId: runnable.userId,
+        modelId: runnable.modelId,
+        text: 'hello Claude',
+        params: { web_search: true },
+        clientTimezone: 'Asia/Shanghai',
+      }),
+    )
+
+    expect(result.body).toMatchObject({
+      model: 'claude-sonnet-5',
+      max_tokens: 16000,
+      cache_control: { type: 'ephemeral' },
+      thinking: { type: 'adaptive', display: 'summarized' },
+      output_config: { effort: 'high' },
+      tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: expect.stringContaining('<runtime_context>') },
+            { type: 'text', text: 'hello Claude' },
+          ],
+        },
+      ],
+    })
+    expect(result.body.system).toEqual(expect.stringContaining('<runtime_context_protocol>'))
+  })
+
+  it('在持久化消息前拒绝 Anthropic 不支持的 Office 文件', async () => {
+    const runnable = await createRunnableFileModel()
+    await dbClient.db
+      .update(schema.providers)
+      .set({ protocol: 'anthropic' })
+      .where(eq(schema.providers.id, runnable.providerId))
+    await dbClient.db
+      .update(schema.models)
+      .set({ kind: 'anthropic' })
+      .where(eq(schema.models.id, runnable.modelId))
+    const attachment = await createFileAttachment(runnable.userId, {
+      filename: 'unsupported.docx',
+      mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    })
+
+    const result = await prepare.prepareRun({
+      userId: runnable.userId,
+      modelId: runnable.modelId,
+      text: 'read it',
+      attachments: [attachment],
+    })
+
+    expect(result).toMatchObject({
+      ok: false,
+      code: 'unsupported_file_type',
+      message: expect.stringContaining('PDF 与纯文本'),
+    })
   })
 
   it('uses admin web search defaults for new runs without persisting a synthetic override', async () => {
@@ -355,7 +480,7 @@ describe('prepareRun active leaf', () => {
     await dbClient.db
       .update(schema.models)
       .set({
-        replayReasoning: true,
+        replayProviderContext: true,
         capabilities: {
           vision: false,
           file_input: false,
@@ -382,7 +507,7 @@ describe('prepareRun active leaf', () => {
       .set({
         status: 'complete',
         content: [{ type: 'output_text', text: '第一答', annotations: [] }],
-        reasoningReplayContext: {
+        providerReplayContext: {
           version: 1,
           source: { providerId, providerBaseUrl, upstreamModelId },
           reasoningContext: 'all_turns',

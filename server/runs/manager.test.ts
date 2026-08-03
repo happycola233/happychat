@@ -46,7 +46,7 @@ describe('recoverInterruptedRuns', () => {
         providerId: provider.id,
         modelId: 'gpt-manager',
         displayName: 'Manager model',
-        replayReasoning: true,
+        replayProviderContext: true,
         capabilities: {
           vision: false,
           file_input: false,
@@ -73,7 +73,7 @@ describe('recoverInterruptedRuns', () => {
         status: 'streaming',
         modelId: model.id,
         content: [],
-        reasoningReplayContext: {
+        providerReplayContext: {
           version: 1,
           source: {
             providerId: provider.id,
@@ -111,7 +111,7 @@ describe('recoverInterruptedRuns', () => {
     expect(recoveredRun?.state).toBe('interrupted')
     expect(recoveredMessage).toMatchObject({
       status: 'interrupted',
-      reasoningReplayContext: null,
+      providerReplayContext: null,
     })
   })
 })

@@ -121,14 +121,17 @@ describe('reasoning replay model config', () => {
   }
 
   it('defaults new models to not replay encrypted reasoning context', () => {
-    expect(modelCreateSchema.parse(createInput).replayReasoning).toBe(false)
+    expect(modelCreateSchema.parse(createInput).replayProviderContext).toBe(false)
   })
 
   it('accepts explicit create and partial update values', () => {
-    expect(modelCreateSchema.parse({ ...createInput, replayReasoning: true }).replayReasoning).toBe(
-      true,
-    )
-    expect(modelUpdateSchema.parse({ replayReasoning: true })).toEqual({ replayReasoning: true })
+    expect(
+      modelCreateSchema.parse({ ...createInput, replayProviderContext: true })
+        .replayProviderContext,
+    ).toBe(true)
+    expect(modelUpdateSchema.parse({ replayProviderContext: true })).toEqual({
+      replayProviderContext: true,
+    })
     expect(modelUpdateSchema.parse({})).toEqual({})
   })
 })

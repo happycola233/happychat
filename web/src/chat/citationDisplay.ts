@@ -1,7 +1,7 @@
-/**
- * 暂时关闭消息末尾的引用来源标签。
- *
- * Citations 组件与 annotations 数据链路继续保留；需要恢复时只需改为 true。
- * 这是代码级显示开关，不对用户设置开放。
- */
-export const SHOW_CITATION_SOURCE_CHIPS = false
+import { safeHttpUrl } from '@shared/util/url'
+
+/** 原生联网搜索的引用必须随模型答案展示；本站统一显示为消息末尾来源标签。 */
+export const SHOW_CITATION_SOURCE_CHIPS = true
+
+/** 上游引用会直接进入可点击链接；只接受浏览器安全的网页协议。 */
+export const safeCitationUrl = safeHttpUrl

@@ -7,7 +7,7 @@ const provider = { id: 'provider-1', baseUrl: 'https://example.test/v1' }
 const model = {
   kind: 'responses' as const,
   modelId: 'gpt-test',
-  replayReasoning: true,
+  replayProviderContext: true,
   capabilities: { reasoning: true },
   allowedEfforts: ['none', 'medium'],
   defaultParams: null,
@@ -54,7 +54,7 @@ describe('reasoning replay capture', () => {
   })
 
   it.each([
-    ['switch off', { model: { ...model, replayReasoning: false } }],
+    ['switch off', { model: { ...model, replayProviderContext: false } }],
     ['effort none', { requestParams: { reasoning_effort: 'none' } satisfies ModelParams }],
     ['chat protocol', { model: { ...model, kind: 'chat' as const } }],
     ['failed response', { terminalState: 'failed' as const }],

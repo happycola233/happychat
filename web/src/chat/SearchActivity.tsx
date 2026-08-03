@@ -55,6 +55,8 @@ function summarySegmentsOf(actions: SearchAction[]): string[] {
   if (summary.xSearchCount) phrases.push(`在 X 检索 ${summary.xSearchCount} 次`)
   if (summary.pageCount) phrases.push(`浏览 ${summary.pageCount} 个页面`)
   if (summary.xThreadCount) phrases.push(`读取 ${summary.xThreadCount} 个 X 讨论串`)
+  const failedSearchCount = actions.filter((action) => Boolean(action.error)).length
+  if (failedSearchCount) phrases.push(`${failedSearchCount} 次搜索失败`)
   if (phrases.length) return [`已${phrases[0]}`, ...phrases.slice(1)]
   // 搜索确实发生过、但上游没回传任何查询词：只陈述发生了检索，不编造计数。
   return [summary.blindSearchCount ? '已搜索网页' : '已完成检索']
@@ -168,6 +170,13 @@ function StepContent({ action }: { action: SearchAction | null }) {
 
   switch (action.type) {
     case 'search':
+      if (action.error) {
+        return (
+          <span className="block truncate text-[13px] leading-6 text-red-500 dark:text-red-400">
+            搜索失败（{action.error}）
+          </span>
+        )
+      }
       if (!queries.length) return <span className={stepTextClass}>检索网页</span>
       return <QueryChips queries={queries} />
 

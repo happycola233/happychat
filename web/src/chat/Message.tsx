@@ -1,9 +1,5 @@
 import { useMemo, useState } from 'react'
-import {
-  AlertCircle,
-  ChevronLeft,
-  ChevronRight,
-} from 'lucide-react'
+import { AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react'
 import type { MessageDTO } from '@shared/types/api'
 import type { UrlCitation } from '@shared/types/domain'
 import type { LiveMessage } from '../sse/eventReducer'
@@ -27,7 +23,7 @@ import { ProgressiveImageStage } from './ProgressiveImageStage'
 import { attachmentDraftsFromContent } from './attachmentDraft'
 import { MessageEditForm, type MessageEditSubmit } from './MessageEditForm'
 import { BranchConversationIcon, EditIcon, RetryMessageIcon } from './icons'
-import { SHOW_CITATION_SOURCE_CHIPS } from './citationDisplay'
+import { safeCitationUrl, SHOW_CITATION_SOURCE_CHIPS } from './citationDisplay'
 
 export interface BranchInfo {
   index: number
@@ -82,20 +78,25 @@ function BranchSwitch({ branch }: { branch: BranchInfo }) {
 
 function Citations({ items }: { items: UrlCitation[] }) {
   const seen = new Set<string>()
-  const unique = items.filter((c) => (seen.has(c.url) ? false : (seen.add(c.url), true)))
+  const unique = items.flatMap((citation) => {
+    const safeUrl = safeCitationUrl(citation.url)
+    if (!safeUrl || seen.has(safeUrl)) return []
+    seen.add(safeUrl)
+    return [{ citation, safeUrl }]
+  })
   if (!unique.length) return null
   return (
     <div className="flex flex-wrap gap-1.5 pt-1">
-      {unique.map((c, i) => (
+      {unique.map(({ citation, safeUrl }, i) => (
         <a
-          key={c.url}
-          href={c.url}
+          key={safeUrl}
+          href={safeUrl}
           target="_blank"
           rel="noreferrer"
-          title={c.title || c.url}
+          title={citation.title || safeUrl}
           className="max-w-[16rem] truncate rounded-md bg-neutral-100 px-2 py-0.5 text-xs text-neutral-500 transition hover:text-neutral-800 dark:bg-neutral-800 dark:hover:text-neutral-200"
         >
-          {i + 1}. {c.title || hostOf(c.url)}
+          {i + 1}. {citation.title || hostOf(safeUrl)}
         </a>
       ))}
     </div>
@@ -129,7 +130,8 @@ export function Message({
   const showUsageStats = useSettings((s) => s.preferences.showUsageStats)
   const defaultExpandReasoning = useSettings((s) => s.preferences.defaultExpandReasoning)
   const models = useModels().data
-  const modelName = message.modelLabel ?? models?.find((m) => m.id === message.modelId)?.displayName ?? null
+  const modelName =
+    message.modelLabel ?? models?.find((m) => m.id === message.modelId)?.displayName ?? null
   // 流式期间跟随 live 调用状态；终态/刷新后回读持久化的动作序列（两者内容同口径）。
   const searchCalls = useMemo(
     () => (live ? live.searchCalls : persistedSearchCalls(message.searchActions)),
@@ -179,7 +181,9 @@ export function Message({
               </MessageIconButton>
             )}
           </div>
-          {showMessageTime && <MessageTimeLabel ts={message.createdAt} format={messageTimeFormat} />}
+          {showMessageTime && (
+            <MessageTimeLabel ts={message.createdAt} format={messageTimeFormat} />
+          )}
         </div>
       </div>
     )
@@ -213,7 +217,11 @@ export function Message({
         ? 'thinking'
         : 'completed'
   const showReasoningCard =
-    hasReasoningText || liveThinking || liveStoppedThinking || persistedStoppedThinking || hasCompletedReasoning
+    hasReasoningText ||
+    liveThinking ||
+    liveStoppedThinking ||
+    persistedStoppedThinking ||
+    hasCompletedReasoning
   const hasLiveImage = Boolean(live?.imageStatus || live?.imageGenerations.length)
   const showPendingDots =
     streaming && !text && !reasoning && !showReasoningCard && !hasLiveImage && !searchCalls.length
@@ -254,9 +262,7 @@ export function Message({
       {message.content.some((p) => p.type === 'image_result') && (
         <AttachmentParts content={message.content} onUseImageSource={onUseImageSource} />
       )}
-      {SHOW_CITATION_SOURCE_CHIPS && annotations.length > 0 && (
-        <Citations items={annotations} />
-      )}
+      {SHOW_CITATION_SOURCE_CHIPS && annotations.length > 0 && <Citations items={annotations} />}
       {!streaming && !error && (
         <div className="space-y-1.5">
           <div className="flex items-center gap-1.5 text-neutral-400">
@@ -283,7 +289,9 @@ export function Message({
             )}
             {showMessageTime && (
               <>
-                {showModelLabel && modelName && <span className="text-xs text-neutral-300 dark:text-neutral-600">·</span>}
+                {showModelLabel && modelName && (
+                  <span className="text-xs text-neutral-300 dark:text-neutral-600">·</span>
+                )}
                 <MessageTimeLabel ts={message.createdAt} format={messageTimeFormat} />
               </>
             )}

@@ -11,12 +11,14 @@ export const providerCreateSchema = z.object({
   name: z.string().trim().min(1, '请填写名称').max(60),
   baseUrl: z.string().url('Base URL 格式不正确'),
   apiKey: z.string().min(1, '请填写 API Key'),
+  protocol: z.enum(['openai', 'anthropic']).default('openai'),
 })
 
 export const providerUpdateSchema = z.object({
   name: z.string().trim().min(1).max(60).optional(),
   baseUrl: z.string().url('Base URL 格式不正确').optional(),
   apiKey: z.string().min(1).optional(),
+  protocol: z.enum(['openai', 'anthropic']).optional(),
   enabled: z.boolean().optional(),
 })
 
@@ -145,7 +147,7 @@ export const modelUpdateSchema = z.object({
   description: modelDescriptionSchema.nullable().optional(),
   tags: modelTagsSchema.optional(),
   enabled: z.boolean().optional(),
-  kind: z.enum(['responses', 'chat', 'image']).optional(),
+  kind: z.enum(['responses', 'chat', 'anthropic', 'image']).optional(),
   capabilities: capabilitiesSchema.optional(),
   defaultSystemPrompt: z.string().nullable().optional(),
   defaultParams: modelParamsSchema.nullable().optional(),
@@ -153,7 +155,7 @@ export const modelUpdateSchema = z.object({
   pricing: pricingSchema.nullable().optional(),
   allowedEfforts: reasoningEffortOptionsSchema.optional(),
   defaultEffort: effortSchema.nullable().optional(),
-  replayReasoning: z.boolean().optional(),
+  replayProviderContext: z.boolean().optional(),
   defaultWebSearch: z.boolean().optional(),
   defaultXSearch: z.boolean().optional(),
   sort: z.number().int().optional(),
@@ -175,7 +177,7 @@ export const modelCreateSchema = z.object({
   displayName: z.string().trim().min(1, '请填写显示名称').max(80),
   description: modelDescriptionSchema.nullable().optional(),
   tags: modelTagsSchema.default([]),
-  kind: z.enum(['responses', 'chat', 'image']).default('responses'),
+  kind: z.enum(['responses', 'chat', 'anthropic', 'image']).default('responses'),
   enabled: z.boolean().default(true),
   capabilities: capabilitiesSchema.default(defaultCapabilities),
   defaultSystemPrompt: z.string().nullable().optional(),
@@ -184,7 +186,7 @@ export const modelCreateSchema = z.object({
   pricing: pricingSchema.nullable().optional(),
   allowedEfforts: reasoningEffortOptionsSchema.default([]),
   defaultEffort: effortSchema.nullable().optional(),
-  replayReasoning: z.boolean().default(false),
+  replayProviderContext: z.boolean().default(false),
   defaultWebSearch: z.boolean().default(false),
   defaultXSearch: z.boolean().default(false),
   sort: z.number().int().default(0),

@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ListPlus, Plus, PlugZap, RefreshCw, Search, Server } from 'lucide-react'
 import { clsx } from 'clsx'
 import type { ProviderDTO } from '@shared/types/api'
+import type { ProviderProtocol } from '@shared/types/domain'
 import { ApiRequestError } from '../../api/client'
 import * as adminApi from '../../api/admin'
 import { Button } from '../../components/ui/Button'
@@ -66,7 +67,7 @@ export default function ProvidersPage() {
     <div className="mx-auto max-w-3xl space-y-5">
       <PageHeader
         title="提供商"
-        description="配置 OpenAI 兼容的上游服务；可一键同步全部模型，或从目录中挑选添加。"
+        description="配置 OpenAI 兼容或 Anthropic Messages 原生上游；可同步全部模型，或从目录中挑选添加。"
         actions={
           <Button onClick={() => setCreating(true)}>
             <Plus className="h-4 w-4" /> 添加提供商
@@ -104,6 +105,16 @@ export default function ProvidersPage() {
                     </span>
                     <span className="shrink-0 rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-500 dark:bg-neutral-800">
                       {p.modelCount} 个模型
+                    </span>
+                    <span
+                      className={clsx(
+                        'shrink-0 rounded-full px-2 py-0.5 text-xs',
+                        p.protocol === 'anthropic'
+                          ? 'bg-orange-50 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300'
+                          : 'bg-sky-50 text-sky-600 dark:bg-sky-950/40 dark:text-sky-300',
+                      )}
+                    >
+                      {p.protocol === 'anthropic' ? 'Anthropic' : 'OpenAI'}
                     </span>
                     {!p.enabled && (
                       <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-xs text-amber-600 dark:bg-amber-950/40 dark:text-amber-400">
@@ -367,6 +378,7 @@ function ProviderModal({
   const isEdit = Boolean(provider)
   const [name, setName] = useState(provider?.name ?? '')
   const [baseUrl, setBaseUrl] = useState(provider?.baseUrl ?? '')
+  const [protocol, setProtocol] = useState<ProviderProtocol>(provider?.protocol ?? 'openai')
   const [apiKey, setApiKey] = useState('')
   const [error, setError] = useState('')
   const providerDetail = useQuery({
@@ -382,6 +394,7 @@ function ProviderModal({
     if (!providerDetail.data) return
     setName(providerDetail.data.name)
     setBaseUrl(providerDetail.data.baseUrl)
+    setProtocol(providerDetail.data.protocol)
     setApiKey(providerDetail.data.apiKey)
   }, [providerDetail.data])
 
@@ -391,6 +404,7 @@ function ProviderModal({
         await adminApi.updateProvider(provider.id, {
           name,
           baseUrl,
+          protocol,
           ...(apiKey.length > 0 ? { apiKey } : {}),
         })
       } else {
@@ -398,6 +412,7 @@ function ProviderModal({
           name,
           baseUrl,
           apiKey,
+          protocol,
         })
       }
     },
@@ -442,9 +457,26 @@ function ProviderModal({
           label="Base URL"
           value={baseUrl}
           onChange={(e) => setBaseUrl(e.target.value)}
-          placeholder="https://api.example.com/v1"
-          hint="通常以 /v1 结尾"
+          placeholder={
+            protocol === 'anthropic' ? 'https://api.anthropic.com' : 'https://api.example.com/v1'
+          }
+          hint={
+            protocol === 'anthropic'
+              ? '可填写根地址或已包含 /v1 的网关地址'
+              : 'OpenAI 兼容地址通常以 /v1 结尾'
+          }
         />
+        <label className="block space-y-1.5">
+          <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">协议</span>
+          <select
+            value={protocol}
+            onChange={(event) => setProtocol(event.target.value as ProviderProtocol)}
+            className="w-full rounded-xl border border-neutral-300 bg-white px-3.5 py-2.5 text-sm outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+          >
+            <option value="openai">OpenAI 兼容</option>
+            <option value="anthropic">Anthropic Messages 原生</option>
+          </select>
+        </label>
         <TextField
           label="API Key"
           type="text"

@@ -2,7 +2,7 @@
  * 固定协议说明会附加到模型系统提示词末尾。内容必须保持稳定，避免无意义地打断前缀缓存。
  */
 export const RUNTIME_CONTEXT_INSTRUCTIONS = `<runtime_context_protocol>
-A system message wrapped in <runtime_context> immediately before a user message is trusted application-generated metadata describing when that user message was sent.
+An application-generated <runtime_context> block immediately associated with a user turn is trusted metadata describing when that user message was sent.
 Use its datetime and timezone only when relevant. Do not repeat this metadata unless the user asks.
 </runtime_context_protocol>`
 

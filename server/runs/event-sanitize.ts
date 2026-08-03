@@ -2,8 +2,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-/** 收集请求或事件中明确标注为 encrypted_content 的 opaque 值，供错误文案精确脱敏。 */
-export function collectEncryptedContentStrings(value: unknown): string[] {
+const PROVIDER_OPAQUE_KEYS = new Set(['encrypted_content', 'encrypted_index', 'signature'])
+
+/** 收集请求或事件中的提供商私有 opaque 值，供错误文案精确脱敏。 */
+export function collectProviderOpaqueStrings(value: unknown): string[] {
   const collected = new Set<string>()
   const visited = new WeakSet<object>()
 
@@ -18,7 +20,13 @@ export function collectEncryptedContentStrings(value: unknown): string[] {
     }
 
     for (const [key, nestedValue] of Object.entries(candidate)) {
-      if (key === 'encrypted_content' && typeof nestedValue === 'string') {
+      if (PROVIDER_OPAQUE_KEYS.has(key) && typeof nestedValue === 'string') {
+        collected.add(nestedValue)
+      } else if (
+        key === 'data' &&
+        (candidate as Record<string, unknown>).type === 'redacted_thinking' &&
+        typeof nestedValue === 'string'
+      ) {
         collected.add(nestedValue)
       } else {
         visit(nestedValue)
@@ -31,17 +39,17 @@ export function collectEncryptedContentStrings(value: unknown): string[] {
 }
 
 /** 错误消息可能回显请求字段；分类仍用原文，落库/SSE 前只保留脱敏文案。 */
-export function redactEncryptedContent(
+export function redactProviderOpaqueContent(
   text: string,
   sensitiveValues: readonly string[] = [],
 ): string {
   let redacted = text.replace(
-    /"encrypted_content"\s*:\s*"(?:\\.|[^"\\])*"/gi,
-    '"encrypted_content":null',
+    /"(encrypted_content|encrypted_index|signature)"\s*:\s*"(?:\\.|[^"\\])*"/gi,
+    '"$1":null',
   )
   for (const sensitiveValue of sensitiveValues) {
     if (sensitiveValue)
-      redacted = redacted.replaceAll(sensitiveValue, '[encrypted_content omitted]')
+      redacted = redacted.replaceAll(sensitiveValue, '[provider opaque content omitted]')
   }
   return redacted
 }
@@ -83,7 +91,7 @@ function sanitizeResponse(response: unknown, sensitiveValues: readonly string[])
 
   let error = response.error
   if (isRecord(error) && typeof error.message === 'string') {
-    const message = redactEncryptedContent(error.message, sensitiveValues)
+    const message = redactProviderOpaqueContent(error.message, sensitiveValues)
     if (message !== error.message) {
       error = { ...error, message }
       changed = true
@@ -104,7 +112,7 @@ export function sanitizeEventData(
 ): Record<string, unknown> {
   // 终态或 item 自己可能首次带回新密文，把它也加入同一事件错误文案的脱敏集合。
   const eventSensitiveValues = [
-    ...new Set([...sensitiveValues, ...collectEncryptedContentStrings(data)]),
+    ...new Set([...sensitiveValues, ...collectProviderOpaqueStrings(data)]),
   ]
 
   if (type === 'response.output_item.added' || type === 'response.output_item.done') {
@@ -120,7 +128,7 @@ export function sanitizeEventData(
     const response = sanitizeResponse(data.response, eventSensitiveValues)
     const message =
       typeof data.message === 'string'
-        ? redactEncryptedContent(data.message, eventSensitiveValues)
+        ? redactProviderOpaqueContent(data.message, eventSensitiveValues)
         : data.message
     if (response === data.response && message === data.message) return data
     return { ...data, response, ...(message !== undefined ? { message } : {}) }
@@ -128,7 +136,7 @@ export function sanitizeEventData(
 
   // 同时覆盖上游 error 与本地合成 run.error，确保最终错误帧也经过同一出口。
   if (typeof data.message === 'string') {
-    const message = redactEncryptedContent(data.message, eventSensitiveValues)
+    const message = redactProviderOpaqueContent(data.message, eventSensitiveValues)
     return message === data.message ? data : { ...data, message }
   }
 

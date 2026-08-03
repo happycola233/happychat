@@ -1,6 +1,7 @@
 import { and, desc, eq } from 'drizzle-orm'
 import { DEFAULT_TITLE_PROMPT } from '@shared/constants'
 import { textFromContent } from '@shared/util/contentText'
+import { anthropicModelProfile } from '@shared/util/anthropic'
 import { titleLocaleFromBrowser } from '@shared/util/titleLocale'
 import { db } from '../db/client'
 import { conversations, models, providers, runs } from '../db/schema'
@@ -45,6 +46,27 @@ async function callTitleModel(m: ModelRow, p: ProviderRow, prompt: string): Prom
       stream: false,
     })) as { choices?: { message?: { content?: string } }[] }
     return resp.choices?.[0]?.message?.content ?? ''
+  }
+  if (m.kind === 'anthropic') {
+    const body: Record<string, unknown> = {
+      model: m.modelId,
+      messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
+      max_tokens: 512,
+    }
+    const profile = anthropicModelProfile(m.modelId)
+    // Sonnet 5 等型号默认开启 adaptive thinking；标题任务显式关闭，避免 512 token 被思考耗尽。
+    if (profile.thinkingDefaultsOn && profile.canDisableThinking) {
+      body.thinking = { type: 'disabled' }
+    } else if (profile.thinkingDefaultsOn) {
+      body.output_config = { effort: 'low' }
+    }
+    const resp = (await client.createAnthropicMessage(body)) as {
+      content?: { type?: string; text?: string }[]
+    }
+    return (resp.content ?? [])
+      .filter((block) => block.type === 'text')
+      .map((block) => block.text ?? '')
+      .join('')
   }
   const resp = await client.createResponse({
     model: m.modelId,

@@ -7,9 +7,14 @@ import type {
   ProviderDetailDTO,
 } from '@shared/types/api'
 import type { ModelAccessUpdateInput, ModelCreateInput } from '@shared/schemas/model-config'
+import {
+  hasAnthropicMaxOutputTokens,
+  hasAnthropicThinkingBudgetConflict,
+} from '@shared/util/anthropic'
 import { normalizeModelCapabilities } from '@shared/util/modelCapabilities'
 import { normalizeModelTags } from '@shared/util/modelTags'
 import { normalizeReasoningEffortOptions } from '@shared/util/reasoning'
+import { providerProtocolSupportsModelKind } from '@shared/util/providerProtocol'
 import { db } from '../db/client'
 import { models, modelUserAccess, providers, users } from '../db/schema'
 import { must } from '../lib/assert'
@@ -53,7 +58,7 @@ export function toAdminModelDTO(
     // all 模式下关联行不参与语义；即使遇到历史脏数据，也不向前端报告误导性人数。
     allowedUserCount: m.accessMode === 'selected' ? allowedUserCount : 0,
     defaultSystemPrompt: m.defaultSystemPrompt,
-    replayReasoning: m.replayReasoning,
+    replayProviderContext: m.replayProviderContext,
     hardParams: m.hardParams ?? null,
     pricing: m.pricing ?? null,
     sort: m.sort,
@@ -65,6 +70,7 @@ export function toProviderDTO(p: ProviderRow, modelCount: number): ProviderDTO {
     id: p.id,
     name: p.name,
     baseUrl: p.baseUrl,
+    protocol: p.protocol,
     enabled: p.enabled,
     hasApiKey: Boolean(p.apiKey),
     apiKeyMask: p.apiKey ? maskSecret(p.apiKey) : null,
@@ -262,47 +268,75 @@ export async function updateModelAccess(
 
 export type CreateModelResult =
   | { ok: true; model: AdminModelDTO }
-  | { ok: false; code: 'provider_missing' }
+  | {
+      ok: false
+      code:
+        | 'provider_missing'
+        | 'provider_protocol_mismatch'
+        | 'anthropic_max_output_tokens_required'
+        | 'anthropic_thinking_budget_conflict'
+    }
 
 /**
  * 手动添加模型：校验供应商存在后入库。
  * 同一供应商下允许多条同 modelId 记录（参数不同视为不同的模型实例）。
  */
 export async function createModel(input: ModelCreateInput): Promise<CreateModelResult> {
-  const [provider] = await db
-    .select()
-    .from(providers)
-    .where(eq(providers.id, input.providerId))
-    .limit(1)
-  if (!provider) return { ok: false, code: 'provider_missing' }
+  return db.transaction(
+    (tx) => {
+      const provider = tx
+        .select()
+        .from(providers)
+        .where(eq(providers.id, input.providerId))
+        .limit(1)
+        .get()
+      if (!provider) return { ok: false, code: 'provider_missing' } as const
+      if (!providerProtocolSupportsModelKind(provider.protocol, input.kind)) {
+        return { ok: false, code: 'provider_protocol_mismatch' } as const
+      }
+      if (input.kind === 'anthropic' && !hasAnthropicMaxOutputTokens(input.defaultParams)) {
+        return { ok: false, code: 'anthropic_max_output_tokens_required' } as const
+      }
+      if (
+        input.kind === 'anthropic' &&
+        hasAnthropicThinkingBudgetConflict(
+          input.hardParams?.max_tokens ?? input.defaultParams?.max_output_tokens,
+          input.hardParams?.thinking,
+        )
+      ) {
+        return { ok: false, code: 'anthropic_thinking_budget_conflict' } as const
+      }
 
-  const row = must(
-    await db
-      .insert(models)
-      .values({
-        providerId: input.providerId,
-        modelId: input.modelId,
-        displayName: input.displayName,
-        description: input.description ?? null,
-        tags: input.tags,
-        kind: input.kind,
-        enabled: input.enabled,
-        capabilities: input.capabilities,
-        defaultSystemPrompt: input.defaultSystemPrompt ?? null,
-        defaultParams: input.defaultParams ?? null,
-        hardParams: input.hardParams ?? null,
-        pricing: input.pricing ?? null,
-        allowedEfforts: input.allowedEfforts,
-        defaultEffort: input.defaultEffort ?? null,
-        replayReasoning: input.replayReasoning,
-        defaultWebSearch: input.defaultWebSearch,
-        defaultXSearch: input.defaultXSearch,
-        sort: input.sort,
-      })
-      .returning()
-      .then((r) => r[0]),
+      const row = must(
+        tx
+          .insert(models)
+          .values({
+            providerId: input.providerId,
+            modelId: input.modelId,
+            displayName: input.displayName,
+            description: input.description ?? null,
+            tags: input.tags,
+            kind: input.kind,
+            enabled: input.enabled,
+            capabilities: input.capabilities,
+            defaultSystemPrompt: input.defaultSystemPrompt ?? null,
+            defaultParams: input.defaultParams ?? null,
+            hardParams: input.hardParams ?? null,
+            pricing: input.pricing ?? null,
+            allowedEfforts: input.allowedEfforts,
+            defaultEffort: input.defaultEffort ?? null,
+            replayProviderContext: input.replayProviderContext,
+            defaultWebSearch: input.defaultWebSearch,
+            defaultXSearch: input.defaultXSearch,
+            sort: input.sort,
+          })
+          .returning()
+          .get(),
+      )
+      return { ok: true, model: toAdminModelDTO(row, provider.name) } as const
+    },
+    { behavior: 'immediate' },
   )
-  return { ok: true, model: toAdminModelDTO(row, provider.name) }
 }
 
 export type ReorderModelsResult =

@@ -3,6 +3,9 @@
 export type UserRole = 'admin' | 'user'
 export type Role = 'user' | 'assistant' | 'system'
 
+/** 上游原生协议；决定鉴权头、版本路径与模型目录的解析方式。 */
+export type ProviderProtocol = 'openai' | 'anthropic'
+
 // ========================= 站内公告 =========================
 
 /** 公告级别：决定配色与默认触达强度（info 蓝 / success 绿 / warning 琥珀 / critical 红）。 */
@@ -107,7 +110,7 @@ export interface ModelPricing {
   image?: number
 }
 
-export type ModelKind = 'responses' | 'chat' | 'image'
+export type ModelKind = 'responses' | 'chat' | 'anthropic' | 'image'
 
 /**
  * 模型在用户端的开放范围。
@@ -142,6 +145,8 @@ export type SearchActionType = WebSearchActionType | XSearchActionType
  */
 export interface SearchAction {
   type: SearchActionType
+  /** 服务端搜索工具以 HTTP 200 返回的业务错误码；仅失败调用存在。 */
+  error?: string
   /** 检索类动作实际执行的查询词（web 一次调用可含多条，X 每次一条）。 */
   queries?: string[]
   /** open_page / find_in_page：目标页面 URL。 */

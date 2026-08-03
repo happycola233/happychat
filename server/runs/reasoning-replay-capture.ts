@@ -6,9 +6,9 @@ import type { UpstreamResponse } from '../provider/upstream-types'
 const MAX_REASONING_REPLAY_ITEMS_BYTES = 256 * 1024
 
 interface CaptureModel extends ReasoningModelConfig {
-  kind: 'responses' | 'chat' | 'image'
+  kind: 'responses' | 'chat' | 'anthropic' | 'image'
   modelId: string
-  replayReasoning: boolean
+  replayProviderContext: boolean
 }
 
 interface CaptureProvider {
@@ -34,7 +34,7 @@ export function buildReasoningReplayContext(
   options: BuildReasoningReplayContextOptions,
 ): ReasoningReplayContextV1 | null {
   if (options.terminalState !== 'completed' && options.terminalState !== 'incomplete') return null
-  if (options.model.kind !== 'responses' || !options.model.replayReasoning) return null
+  if (options.model.kind !== 'responses' || !options.model.replayProviderContext) return null
 
   const effort = effectiveReasoningEffort(options.model, options.requestParams)
   if (!effort || effort === 'none') return null

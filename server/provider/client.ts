@@ -1,4 +1,6 @@
-import { joinBaseUrl } from '@shared/util/url'
+import type { ProviderProtocol } from '@shared/types/domain'
+import type { AnthropicCatalogCapabilities } from '@shared/util/anthropic'
+import { joinAnthropicUrl, joinBaseUrl } from '@shared/util/url'
 import type { providers } from '../db/schema'
 import { type ChatChunk, parseChatStream } from './chat'
 import { UpstreamError, networkError, toUpstreamError } from './errors'
@@ -9,16 +11,24 @@ export interface UpstreamModel {
   id: string
   created?: number
   owned_by?: string
+  display_name?: string
+  created_at?: string
+  capabilities?: AnthropicCatalogCapabilities
+  max_input_tokens?: number
+  max_tokens?: number
 }
 
+const ANTHROPIC_MAX_REQUEST_BYTES = 32 * 1024 * 1024
+
 /**
- * 集中封装的上游客户端：所有对 OpenAI 兼容 Provider 的请求都经此类，
- * 不在各处散落 fetch。Base URL 通过 joinBaseUrl 拼接（base 末尾已是 /v1）。
+ * 集中封装的上游客户端：OpenAI 兼容与 Anthropic Provider 的请求都经此类，
+ * 不在各处散落 fetch。两种协议分别通过对应 URL helper 兼容根地址和已含版本路径的网关。
  */
 export class ProviderClient {
   constructor(
     private readonly baseUrl: string,
     private readonly apiKey: string,
+    private readonly protocol: ProviderProtocol = 'openai',
   ) {}
 
   private endpoint(path: string): string {
@@ -29,8 +39,17 @@ export class ProviderClient {
     return { Authorization: `Bearer ${this.apiKey}`, ...extra }
   }
 
+  private anthropicHeaders(extra?: Record<string, string>): Record<string, string> {
+    return {
+      'x-api-key': this.apiKey,
+      'anthropic-version': '2023-06-01',
+      ...extra,
+    }
+  }
+
   /** GET /models —— 拉取上游可用模型列表。 */
   async listModels(): Promise<UpstreamModel[]> {
+    if (this.protocol === 'anthropic') return this.listAnthropicModels()
     let res: Response
     try {
       res = await fetch(this.endpoint('/models'), { headers: this.authHeaders() })
@@ -42,6 +61,33 @@ export class ProviderClient {
     return data.data ?? []
   }
 
+  private async listAnthropicModels(): Promise<UpstreamModel[]> {
+    const models: UpstreamModel[] = []
+    let afterId: string | null = null
+    for (;;) {
+      const url = new URL(joinAnthropicUrl(this.baseUrl, '/v1/models'))
+      url.searchParams.set('limit', '100')
+      if (afterId) url.searchParams.set('after_id', afterId)
+
+      let res: Response
+      try {
+        res = await fetch(url, { headers: this.anthropicHeaders() })
+      } catch (e) {
+        throw networkError(e)
+      }
+      if (!res.ok) throw await toUpstreamError(res)
+      const page = (await res.json()) as {
+        data?: UpstreamModel[]
+        has_more?: boolean
+        last_id?: string | null
+      }
+      models.push(...(page.data ?? []))
+      if (!page.has_more) return models
+      if (!page.last_id) throw new Error('Anthropic Models 分页响应缺少 last_id')
+      afterId = page.last_id
+    }
+  }
+
   /** 通用 JSON POST（流式/非流式由后续阶段在此基础上扩展）。 */
   async postJson(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
     try {
@@ -49,6 +95,28 @@ export class ProviderClient {
         method: 'POST',
         headers: this.authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(body),
+        signal,
+      })
+    } catch (e) {
+      throw networkError(e)
+    }
+  }
+
+  /** Anthropic 原生 JSON POST；与 OpenAI 兼容路径隔离鉴权头和版本路径。 */
+  private async postAnthropicMessage(body: unknown, signal?: AbortSignal): Promise<Response> {
+    const serializedBody = JSON.stringify(body)
+    if (Buffer.byteLength(serializedBody, 'utf8') > ANTHROPIC_MAX_REQUEST_BYTES) {
+      throw new UpstreamError({
+        message: '请求体超过 Anthropic Messages 的 32MB 限制。',
+        status: 413,
+        type: 'request_too_large',
+      })
+    }
+    try {
+      return await fetch(joinAnthropicUrl(this.baseUrl, '/v1/messages'), {
+        method: 'POST',
+        headers: this.anthropicHeaders({ 'Content-Type': 'application/json' }),
+        body: serializedBody,
         signal,
       })
     } catch (e) {
@@ -95,6 +163,27 @@ export class ProviderClient {
     yield* parseChatStream(res.body)
   }
 
+  /** POST /v1/messages（非流式）：用于标题生成等短任务。 */
+  async createAnthropicMessage(
+    body: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    const res = await this.postAnthropicMessage({ ...body, stream: false }, signal)
+    if (!res.ok) throw await toUpstreamError(res)
+    return res.json()
+  }
+
+  /** POST /v1/messages（流式）：返回 Anthropic 原生 SSE 事件。 */
+  async *createAnthropicMessageStream(
+    body: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): AsyncGenerator<StreamEvent> {
+    const res = await this.postAnthropicMessage({ ...body, stream: true }, signal)
+    if (!res.ok) throw await toUpstreamError(res)
+    if (!res.body) throw new UpstreamError({ message: '上游未返回流式响应', status: res.status })
+    yield* parseSSEStream(res.body)
+  }
+
   /** POST /images/generations（非流式）：返回原始 JSON（含 data[].b64_json）。 */
   async createImage(body: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
     const res = await this.postJson('/images/generations', body, signal)
@@ -112,5 +201,5 @@ export class ProviderClient {
 
 /** 由 providers 表行构造客户端。 */
 export function providerClientFromRow(row: typeof providers.$inferSelect): ProviderClient {
-  return new ProviderClient(row.baseUrl, row.apiKey)
+  return new ProviderClient(row.baseUrl, row.apiKey, row.protocol)
 }

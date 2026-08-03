@@ -92,7 +92,7 @@ async function addMessage(input: {
   modelId?: string | null
   runtimeContext?: string | null
   reasoningSummary?: string | null
-  reasoningReplayContext?: ReasoningReplayContextV1 | null
+  providerReplayContext?: ReasoningReplayContextV1 | null
 }) {
   const [message] = await dbClient.db
     .insert(schema.messages)
@@ -105,7 +105,7 @@ async function addMessage(input: {
       modelId: input.modelId ?? null,
       runtimeContext: input.runtimeContext ?? null,
       reasoningSummary: input.reasoningSummary ?? null,
-      reasoningReplayContext: input.reasoningReplayContext ?? null,
+      providerReplayContext: input.providerReplayContext ?? null,
     })
     .returning()
   if (!message) throw new Error('Failed to create message')
@@ -182,7 +182,7 @@ describe('createConversationBranch', () => {
     })
 
     const generatedImageId = `source-image-${seq++}`
-    const reasoningReplayContext = {
+    const providerReplayContext = {
       version: 1 as const,
       source: {
         providerId: model.providerId,
@@ -206,7 +206,7 @@ describe('createConversationBranch', () => {
       role: 'assistant',
       modelId: model.id,
       reasoningSummary: '**已思考**',
-      reasoningReplayContext,
+      providerReplayContext,
       content: [
         { type: 'output_text', text: '目标回答', annotations: [] },
         { type: 'image_result', attachment_id: generatedImageId, revised_prompt: '测试图片' },
@@ -348,7 +348,7 @@ describe('createConversationBranch', () => {
     expect(copiedPath[0]?.runtimeContext).toBe('runtime-context-snapshot')
     expect(copiedPath.at(-1)).toMatchObject({
       reasoningSummary: '**已思考**',
-      reasoningReplayContext,
+      providerReplayContext,
       reasoningDurationMs: 5_000,
       generationDurationMs: 20_000,
       inputTokens: 120,
@@ -399,7 +399,7 @@ describe('createConversationBranch', () => {
       reasoningDurationMs: 5_000,
       generationDurationMs: 20_000,
     })
-    expect(copiedMessageDto).not.toHaveProperty('reasoningReplayContext')
+    expect(copiedMessageDto).not.toHaveProperty('providerReplayContext')
     expect(JSON.stringify(copiedMessageDto)).not.toContain('opaque-branch-ciphertext')
 
     const shareResult = await shareServices.createShare(user.id, result.conversationId, {
@@ -414,7 +414,7 @@ describe('createConversationBranch', () => {
       .from(schema.sharedChats)
       .where(eq(schema.sharedChats.conversationId, result.conversationId))
       .limit(1)
-    expect(JSON.stringify(shareRow?.snapshot)).not.toContain('reasoningReplayContext')
+    expect(JSON.stringify(shareRow?.snapshot)).not.toContain('providerReplayContext')
     expect(JSON.stringify(shareRow?.snapshot)).not.toContain('opaque-branch-ciphertext')
     expect(await conversationServices.getConversationLastRun(result.conversationId)).toEqual({
       modelId: model.id,
@@ -456,7 +456,7 @@ describe('createConversationBranch', () => {
       .at(-1)
     expect(nestedTarget).toMatchObject({
       runId: null,
-      reasoningReplayContext,
+      providerReplayContext,
       reasoningDurationMs: 5_000,
       generationDurationMs: 20_000,
     })

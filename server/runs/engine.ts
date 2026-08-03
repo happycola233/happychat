@@ -25,8 +25,8 @@ import type { ReasoningReplayContextV1 } from '../provider/reasoning-replay'
 import type { UpstreamOutputItem, UpstreamResponse } from '../provider/upstream-types'
 import { runEmitter } from './emitter'
 import {
-  collectEncryptedContentStrings,
-  redactEncryptedContent,
+  collectProviderOpaqueStrings,
+  redactProviderOpaqueContent,
   sanitizeEventData,
 } from './event-sanitize'
 import { reconcileFinalResponse } from './final-response'
@@ -80,12 +80,12 @@ interface ImageGenerationSlot {
 export async function runEngine(ctx: EngineContext): Promise<void> {
   // 既包含历史请求密文，也持续吸收本轮 added/done/terminal 中出现的新版本，
   // 以防兼容上游稍后的错误消息回显任一 opaque 值。
-  const sensitiveEncryptedContent = new Set(collectEncryptedContentStrings(ctx.body))
+  const sensitiveProviderContent = new Set(collectProviderOpaqueStrings(ctx.body))
   let seq = 0
   const persistEmit = (type: string, data: Record<string, unknown>): number => {
-    collectEncryptedContentStrings(data).forEach((value) => sensitiveEncryptedContent.add(value))
+    collectProviderOpaqueStrings(data).forEach((value) => sensitiveProviderContent.add(value))
     // 所有落库/浏览器事件共用唯一净化入口；原始上游对象仍留给终态校准和私有提取。
-    const sanitizedData = sanitizeEventData(type, data, [...sensitiveEncryptedContent])
+    const sanitizedData = sanitizeEventData(type, data, [...sensitiveProviderContent])
     const sequenceNumber = seq++
     db.insert(runEvents)
       .values({ runId: ctx.run.id, sequenceNumber, type, data: sanitizedData })
@@ -124,7 +124,7 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
   let errorCode: string | null = null
   let httpStatus: number | null = null
   let upstreamResponseId: string | null = null
-  let reasoningReplayContext: ReasoningReplayContextV1 | null = null
+  let providerReplayContext: ReasoningReplayContextV1 | null = null
   let receivedTerminalEvent = false
   const finalContentParts: ContentPart[] = []
   const finalImages = new Map<
@@ -253,9 +253,7 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
   }
 
   const collectSearchActions = (): SearchAction[] =>
-    [...searchActionsByCallId.values()].filter(
-      (action): action is SearchAction => action !== null,
-    )
+    [...searchActionsByCallId.values()].filter((action): action is SearchAction => action !== null)
 
   const applyFinalResponse = (response: UpstreamResponse | undefined): void => {
     const reconciled = reconcileFinalResponse(
@@ -369,7 +367,7 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
     terminalState: 'completed' | 'incomplete',
     response: UpstreamResponse | undefined,
   ): void => {
-    reasoningReplayContext = buildReasoningReplayContext({
+    providerReplayContext = buildReasoningReplayContext({
       runId: ctx.run.id,
       terminalState,
       model: ctx.model,
@@ -488,18 +486,18 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
           receivedTerminalEvent = true
           const resp = ev.data.response as UpstreamResponse | undefined
           state = 'failed'
-          errorMessage = redactEncryptedContent(resp?.error?.message ?? '生成失败', [
-            ...sensitiveEncryptedContent,
-            ...collectEncryptedContentStrings(resp),
+          errorMessage = redactProviderOpaqueContent(resp?.error?.message ?? '生成失败', [
+            ...sensitiveProviderContent,
+            ...collectProviderOpaqueStrings(resp),
           ])
           break
         }
         case 'error':
           receivedTerminalEvent = true
           state = 'failed'
-          errorMessage = redactEncryptedContent(str(ev.data.message) || '生成失败', [
-            ...sensitiveEncryptedContent,
-            ...collectEncryptedContentStrings(ev.data),
+          errorMessage = redactProviderOpaqueContent(str(ev.data.message) || '生成失败', [
+            ...sensitiveProviderContent,
+            ...collectProviderOpaqueStrings(ev.data),
           ])
           break
         default:
@@ -521,12 +519,16 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
     } else {
       const ue = e instanceof UpstreamError ? e : null
       state = 'failed'
-      errorMessage = redactEncryptedContent(
+      errorMessage = redactProviderOpaqueContent(
         ue?.message ?? (e instanceof Error ? e.message : '生成失败'),
-        [...sensitiveEncryptedContent],
+        [...sensitiveProviderContent],
       )
-      errorType = ue?.type ? redactEncryptedContent(ue.type, [...sensitiveEncryptedContent]) : null
-      errorCode = ue?.code ? redactEncryptedContent(ue.code, [...sensitiveEncryptedContent]) : null
+      errorType = ue?.type
+        ? redactProviderOpaqueContent(ue.type, [...sensitiveProviderContent])
+        : null
+      errorCode = ue?.code
+        ? redactProviderOpaqueContent(ue.code, [...sensitiveProviderContent])
+        : null
       httpStatus = ue?.status ?? null
     }
   }
@@ -560,7 +562,7 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
     errorCode,
     httpStatus,
     upstreamResponseId,
-    reasoningReplayContext,
+    providerReplayContext,
     startedAt,
     content: finalContentParts.length ? finalContentParts : undefined,
     persistEmit,

@@ -14,6 +14,7 @@ import type {
   ModelKind,
   ModelParams,
   ModelPricing,
+  ProviderProtocol,
   ReasoningEffort,
   StoredReasoningEffortOption,
   Role,
@@ -25,7 +26,7 @@ import type {
   UserRole,
 } from '../../shared/types/domain'
 import type { MessageDTO } from '../../shared/types/api'
-import type { ReasoningReplayContextV1 } from '../provider/reasoning-replay'
+import type { ProviderReplayContext } from '../provider/reasoning-replay'
 
 // ---- 通用列工厂（每次返回新的 builder 实例）----
 const pk = () => text('id').primaryKey().$defaultFn(newId)
@@ -189,6 +190,7 @@ export const providers = sqliteTable('providers', {
   baseUrl: text('base_url').notNull(),
   // API Key 明文存库；管理员列表 DTO 固定脱敏，编辑详情接口按需返回完整值。
   apiKey: text('api_key').notNull(),
+  protocol: text('protocol').$type<ProviderProtocol>().notNull().default('openai'),
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
@@ -223,8 +225,10 @@ export const models = sqliteTable(
       StoredReasoningEffortOption[]
     >(),
     defaultEffort: text('default_effort').$type<ReasoningEffort>(),
-    // 服务端历史推理上下文管理开关；默认关闭，且不通过用户端 ModelDTO 暴露。
-    replayReasoning: integer('replay_reasoning', { mode: 'boolean' }).notNull().default(false),
+    // 历史 SQL 列名保留 replay_reasoning；TS 语义覆盖 Responses reasoning 与 Anthropic blocks。
+    replayProviderContext: integer('replay_reasoning', { mode: 'boolean' })
+      .notNull()
+      .default(false),
     defaultWebSearch: integer('default_web_search', { mode: 'boolean' }).notNull().default(false),
     // X 搜索（xAI x_search）默认开关；与联网搜索相互独立。
     defaultXSearch: integer('default_x_search', { mode: 'boolean' }).notNull().default(false),
@@ -324,10 +328,10 @@ export const messages = sqliteTable(
     // 关联生成任务（无 DB 级 FK，避免与 runs 循环引用）
     runId: text('run_id'),
     reasoningSummary: text('reasoning_summary'),
-    // 上游 opaque 推理密文的服务端私有信封，仅用于下一轮历史重放。
-    reasoningReplayContext: text('reasoning_replay_context', {
+    // 历史 SQL 列名保留 reasoning_replay_context；信封可含多种上游 opaque content。
+    providerReplayContext: text('reasoning_replay_context', {
       mode: 'json',
-    }).$type<ReasoningReplayContextV1>(),
+    }).$type<ProviderReplayContext>(),
     // 展示用计时快照。独立分支不复制 run 审计记录，仍需保留原消息的耗时明细。
     reasoningDurationMs: integer('reasoning_duration_ms'),
     generationDurationMs: integer('generation_duration_ms'),

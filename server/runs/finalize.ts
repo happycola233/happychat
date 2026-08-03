@@ -11,7 +11,7 @@ import { isReasoningEnabled } from '@shared/util/reasoning'
 import { db } from '../db/client'
 import { conversations, errorLogs, messages, runs, usageLogs } from '../db/schema'
 import { buildAssistantContent } from '../provider/normalize'
-import type { ReasoningReplayContextV1 } from '../provider/reasoning-replay'
+import type { ProviderReplayContext } from '../provider/reasoning-replay'
 import { computeGenerationDurationMs } from '../services/run-timing'
 import { getReasoningDurationSnapshot } from '../services/run-timing-snapshot'
 import { maybeGenerateTitle } from '../services/title'
@@ -30,7 +30,7 @@ export interface FinalizeArgs {
   reasoningSummary: string | null
   annotations: UrlCitation[]
   usage: MessageUsage
-  /** 检索工具（web_search + x_search）实际执行的动作序列；仅 Responses 文本引擎传入。 */
+  /** 原生检索工具（web_search + x_search）实际执行的动作序列。 */
   searchActions?: SearchAction[] | null
   incompleteReason: string | null
   errorMessage: string | null
@@ -38,7 +38,7 @@ export interface FinalizeArgs {
   errorCode?: string | null
   httpStatus?: number | null
   upstreamResponseId: string | null
-  reasoningReplayContext?: ReasoningReplayContextV1 | null
+  providerReplayContext?: ProviderReplayContext | null
   startedAt: Date
   content?: ContentPart[]
   persistEmit: (type: string, data: Record<string, unknown>) => number
@@ -80,9 +80,9 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
       reasoningTokens: a.usage.reasoningTokens,
       totalTokens: a.usage.totalTokens,
       // 仅写消息私有列；run.done、日志与面向浏览器的 DTO 都不携带该信封。
-      reasoningReplayContext:
+      providerReplayContext:
         a.state === 'completed' || a.state === 'incomplete'
-          ? (a.reasoningReplayContext ?? null)
+          ? (a.providerReplayContext ?? null)
           : null,
       errorMessage:
         a.errorMessage ??

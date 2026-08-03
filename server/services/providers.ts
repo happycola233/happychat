@@ -1,34 +1,64 @@
 import { eq } from 'drizzle-orm'
 import { EXCLUDED_MODEL_IDS } from '@shared/constants'
+import type { AnthropicCatalogCapabilities } from '@shared/util/anthropic'
 import type {
   ImportModelsResult,
   SyncModelsResult,
   UpstreamCatalogModelDTO,
 } from '@shared/types/api'
 import { db } from '../db/client'
-import { models } from '../db/schema'
+import { models, providers } from '../db/schema'
 import { providerClientFromRow } from '../provider/client'
 import { inferModelDefaults } from '../provider/model-defaults'
 import type { ProviderRow } from '../runs/types'
 
-/** 按推断默认配置为某供应商插入一个上游模型（同步与手动挑选共用）。 */
-async function insertInferredModel(providerId: string, upstreamModelId: string): Promise<void> {
-  const d = inferModelDefaults(upstreamModelId)
-  await db.insert(models).values({
-    providerId,
-    modelId: upstreamModelId,
-    displayName: upstreamModelId,
+type CatalogModel = {
+  id: string
+  capabilities?: AnthropicCatalogCapabilities
+  max_tokens?: number
+}
+
+export class ProviderConnectionChangedError extends Error {
+  constructor() {
+    super('拉取模型目录期间提供商连接配置已变化，请重试。')
+    this.name = 'ProviderConnectionChangedError'
+  }
+}
+
+function sameProviderConnection(current: ProviderRow, fetchedFrom: ProviderRow): boolean {
+  return (
+    current.protocol === fetchedFrom.protocol &&
+    current.baseUrl === fetchedFrom.baseUrl &&
+    current.apiKey === fetchedFrom.apiKey
+  )
+}
+
+/** 按目录能力推断模型配置；同步与手动挑选共用同一组可见默认值。 */
+function inferredModelValues(
+  provider: ProviderRow,
+  upstreamModel: CatalogModel,
+): typeof models.$inferInsert {
+  const d = inferModelDefaults(
+    upstreamModel.id,
+    provider.protocol,
+    upstreamModel.capabilities,
+    upstreamModel.max_tokens,
+  )
+  return {
+    providerId: provider.id,
+    modelId: upstreamModel.id,
+    displayName: upstreamModel.id,
     kind: d.kind,
-    enabled: !EXCLUDED_MODEL_IDS.includes(upstreamModelId),
+    enabled: !EXCLUDED_MODEL_IDS.includes(upstreamModel.id),
     capabilities: d.capabilities,
-    defaultParams: {},
+    defaultParams: d.defaultParams,
     hardParams: d.hardParams,
     allowedEfforts: d.allowedEfforts,
     defaultEffort: d.defaultEffort,
-    replayReasoning: false,
+    replayProviderContext: d.replayProviderContext,
     defaultWebSearch: d.defaultWebSearch,
     defaultXSearch: d.defaultXSearch,
-  })
+  }
 }
 
 /**
@@ -37,23 +67,39 @@ async function insertInferredModel(providerId: string, upstreamModelId: string):
  */
 export async function syncProviderModels(provider: ProviderRow): Promise<SyncModelsResult> {
   const upstream = await providerClientFromRow(provider).listModels()
-  const existing = await db
-    .select({ modelId: models.modelId })
-    .from(models)
-    .where(eq(models.providerId, provider.id))
-  const existingIds = new Set(existing.map((m) => m.modelId))
+  return db.transaction(
+    (tx) => {
+      const currentProvider = tx
+        .select()
+        .from(providers)
+        .where(eq(providers.id, provider.id))
+        .limit(1)
+        .get()
+      if (!currentProvider || !sameProviderConnection(currentProvider, provider)) {
+        throw new ProviderConnectionChangedError()
+      }
 
-  let added = 0
-  const result: { modelId: string; isNew: boolean }[] = []
-  for (const um of upstream) {
-    const isNew = !existingIds.has(um.id)
-    if (isNew) {
-      await insertInferredModel(provider.id, um.id)
-      added++
-    }
-    result.push({ modelId: um.id, isNew })
-  }
-  return { added, total: upstream.length, models: result }
+      const existing = tx
+        .select({ modelId: models.modelId })
+        .from(models)
+        .where(eq(models.providerId, provider.id))
+        .all()
+      const existingIds = new Set(existing.map((model) => model.modelId))
+      let added = 0
+      const result: { modelId: string; isNew: boolean }[] = []
+      for (const upstreamModel of upstream) {
+        const isNew = !existingIds.has(upstreamModel.id)
+        if (isNew) {
+          tx.insert(models).values(inferredModelValues(provider, upstreamModel)).run()
+          existingIds.add(upstreamModel.id)
+          added += 1
+        }
+        result.push({ modelId: upstreamModel.id, isNew })
+      }
+      return { added, total: upstream.length, models: result }
+    },
+    { behavior: 'immediate' },
+  )
 }
 
 /** 拉取上游 /models 目录并标注每个 id 在本站已有的实例数，供管理端「挑选模型」勾选。 */
@@ -80,8 +126,26 @@ export async function importProviderModels(
 ): Promise<ImportModelsResult> {
   // 去重防止重复提交同一个 id 时一次插入多份。
   const uniqueIds = [...new Set(modelIds)]
-  for (const modelId of uniqueIds) {
-    await insertInferredModel(provider.id, modelId)
-  }
-  return { added: uniqueIds.length }
+  const catalog = await providerClientFromRow(provider).listModels()
+  const catalogById = new Map(catalog.map((model) => [model.id, model]))
+  return db.transaction(
+    (tx) => {
+      const currentProvider = tx
+        .select()
+        .from(providers)
+        .where(eq(providers.id, provider.id))
+        .limit(1)
+        .get()
+      if (!currentProvider || !sameProviderConnection(currentProvider, provider)) {
+        throw new ProviderConnectionChangedError()
+      }
+      for (const modelId of uniqueIds) {
+        tx.insert(models)
+          .values(inferredModelValues(provider, catalogById.get(modelId) ?? { id: modelId }))
+          .run()
+      }
+      return { added: uniqueIds.length }
+    },
+    { behavior: 'immediate' },
+  )
 }

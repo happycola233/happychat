@@ -40,17 +40,24 @@ export function friendlyUpstreamMessage(
     case 'rate_limit_error':
     case 'rate_limit_exceeded':
       return '已触发上游限流，请稍后重试。'
+    case 'overloaded_error':
+      return 'Anthropic 上游当前过载，请稍后重试。'
+    case 'request_too_large':
+      return '请求体超过 Anthropic Messages 的 32MB 限制。'
+    case 'billing_error':
+      return rawMessage ? `Anthropic 账户计费异常：${rawMessage}` : 'Anthropic 账户计费异常。'
     case 'server_error':
     case 'internal_server_error':
-      return rawMessage
-        ? `上游服务返回错误：${rawMessage}`
-        : `上游服务返回错误（HTTP ${status}）。`
+    case 'api_error':
+      return rawMessage ? `上游服务返回错误：${rawMessage}` : `上游服务返回错误（HTTP ${status}）。`
     default:
       break
   }
   if (status === 401 || status === 403) return '上游鉴权失败，请检查 Base URL 与 API Key。'
-  if (status === 404) return '上游接口不存在，请检查 Base URL 是否正确（应以 /v1 结尾）。'
+  if (status === 404) return '上游接口不存在，请检查 Base URL 与提供商协议是否正确。'
   if (status === 429) return '已触发上游限流，请稍后重试。'
+  if (status === 413) return '上游拒绝了过大的请求体，请减少附件或历史内容。'
+  if (status === 529) return 'Anthropic 上游当前过载，请稍后重试。'
   if (status >= 500) return `上游服务暂时不可用（HTTP ${status}）。`
   return rawMessage ?? `上游请求失败（HTTP ${status}）。`
 }

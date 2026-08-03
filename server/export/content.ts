@@ -1,6 +1,7 @@
 import type { MessageDTO } from '@shared/types/api'
 import type { ContentPart, SearchAction, UrlCitation } from '@shared/types/domain'
 import { xPostUrl } from '@shared/util/searchActivity'
+import { safeHttpUrl } from '@shared/util/url'
 import type { ExportAttachment, ExportSource } from './types'
 import { formatDurationSeconds } from './time'
 
@@ -76,15 +77,16 @@ export function attachmentDisplayName(
   return ref.kind === 'image' ? (ref.generated ? '生成的图片' : '图片') : '文件'
 }
 
-/** 引用来源按 URL 去重（与消息 UI 同口径），保持首次出现顺序。 */
+/** 只保留 http(s) 引用并按规范化 URL 去重（与消息 UI 同口径）。 */
 export function dedupeCitations(annotations: UrlCitation[] | null | undefined): UrlCitation[] {
   if (!annotations?.length) return []
   const seen = new Set<string>()
   const out: UrlCitation[] = []
   for (const c of annotations) {
-    if (!c.url || seen.has(c.url)) continue
-    seen.add(c.url)
-    out.push(c)
+    const safeUrl = safeHttpUrl(c.url)
+    if (!safeUrl || seen.has(safeUrl)) continue
+    seen.add(safeUrl)
+    out.push({ ...c, url: safeUrl })
   }
   return out
 }
@@ -108,9 +110,7 @@ export function usageLine(m: MessageDTO): string | null {
   if (u.cacheWriteTokens) inputExtra.push(`缓存写入 ${u.cacheWriteTokens}`)
   if (u.cachedTokens) inputExtra.push(`缓存读取 ${u.cachedTokens}`)
   parts.push(`输入 ${u.inputTokens}${inputExtra.length ? `（${inputExtra.join('，')}）` : ''}`)
-  parts.push(
-    `输出 ${u.outputTokens}${u.reasoningTokens ? `（推理 ${u.reasoningTokens}）` : ''}`,
-  )
+  parts.push(`输出 ${u.outputTokens}${u.reasoningTokens ? `（推理 ${u.reasoningTokens}）` : ''}`)
   parts.push(`合计 ${u.totalTokens} tokens`)
   if (m.generationDurationMs != null && m.generationDurationMs > 0) {
     parts.push(`耗时 ${formatDurationSeconds(m.generationDurationMs)}`)
@@ -197,7 +197,10 @@ export function sanitizeFilename(name: string, fallback = '未命名聊天'): st
 
 /** Markdown 链接文本中的中括号会破坏链接语法，替换为全角。 */
 export function sanitizeLinkText(text: string): string {
-  return text.replace(/\[/g, '［').replace(/\]/g, '］').replace(/[\r\n]+/g, ' ')
+  return text
+    .replace(/\[/g, '［')
+    .replace(/\]/g, '］')
+    .replace(/[\r\n]+/g, ' ')
 }
 
 const pct = (c: string) => `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`

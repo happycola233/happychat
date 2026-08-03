@@ -67,7 +67,7 @@ describe('assistant message branch action', () => {
 })
 
 describe('assistant citation source chips', () => {
-  it('keeps the entire source-chip block hidden while the code-level display switch is off', () => {
+  it('shows the original source required by native search citations', () => {
     const message: MessageDTO = {
       ...assistantMessage(),
       annotations: [
@@ -83,7 +83,35 @@ describe('assistant citation source chips', () => {
 
     const html = renderMessage(message)
 
-    expect(html).not.toContain('https://example.com/source')
-    expect(html).not.toContain('示例来源')
+    expect(html).toContain('https://example.com/source')
+    expect(html).toContain('示例来源')
+  })
+
+  it('never turns non-http citation schemes into clickable links', () => {
+    const message: MessageDTO = {
+      ...assistantMessage(),
+      annotations: [
+        {
+          type: 'url_citation',
+          url: 'javascript:alert(1)',
+          title: '恶意来源',
+          start_index: 0,
+          end_index: 1,
+        },
+        {
+          type: 'url_citation',
+          url: 'data:text/html,unsafe',
+          title: '数据链接',
+          start_index: 1,
+          end_index: 2,
+        },
+      ],
+    }
+
+    const html = renderMessage(message)
+    expect(html).not.toContain('javascript:')
+    expect(html).not.toContain('data:text/html')
+    expect(html).not.toContain('恶意来源')
+    expect(html).not.toContain('数据链接')
   })
 })

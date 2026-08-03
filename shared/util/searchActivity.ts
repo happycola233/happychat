@@ -128,6 +128,7 @@ function webSearchActionFromRecord(record: Record<string, unknown>): SearchActio
   const queries = normalizeQueries(record.queries, record.query)
   const url = str(record.url).trim()
   const pattern = str(record.pattern).trim()
+  const error = str(record.error).trim()
 
   // 显式 type 优先；无 type 的旧形状按字段组合推断（url+pattern → 页内查找）。
   const type: SearchActionType | null =
@@ -146,7 +147,11 @@ function webSearchActionFromRecord(record: Record<string, unknown>): SearchActio
 
   if (type === 'search') {
     // 官方口径：search action「通常但不总是」包含查询词，缺失时保留计数不造数据。
-    return queries.length ? { type, queries } : { type }
+    return {
+      type,
+      ...(queries.length ? { queries } : {}),
+      ...(error ? { error } : {}),
+    }
   }
   if (type === 'open_page') return url ? { type, url } : { type }
   return {
@@ -265,9 +270,7 @@ export interface SearchActivitySummary {
 }
 
 /** 供 UI 生成「已搜索 N 个关键词 · 在 X 检索 K 次」类文案的口径统计。 */
-export function summarizeSearchActions(
-  actions: readonly SearchAction[],
-): SearchActivitySummary {
+export function summarizeSearchActions(actions: readonly SearchAction[]): SearchActivitySummary {
   let webQueryCount = 0
   let blindSearchCount = 0
   let xSearchCount = 0
@@ -291,5 +294,11 @@ export function summarizeSearchActions(
         break
     }
   }
-  return { webQueryCount, blindSearchCount, pageCount: pages.size, xSearchCount, xThreadCount: threads.size }
+  return {
+    webQueryCount,
+    blindSearchCount,
+    pageCount: pages.size,
+    xSearchCount,
+    xThreadCount: threads.size,
+  }
 }

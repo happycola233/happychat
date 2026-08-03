@@ -6,6 +6,7 @@ import { messages, models, runs } from '../db/schema'
 import { computeGenerationDurationMs } from '../services/run-timing'
 import { getReasoningDurationSnapshot } from '../services/run-timing-snapshot'
 import { runChatEngine } from './chat-engine'
+import { runAnthropicEngine } from './anthropic-engine'
 import { runEngine } from './engine'
 import { runImageEngine } from './image-run'
 import type { EngineContext } from './types'
@@ -20,9 +21,11 @@ class RunManager {
     const engine =
       ctx.model.kind === 'image'
         ? runImageEngine
-        : ctx.model.kind === 'chat'
-          ? runChatEngine
-          : runEngine
+        : ctx.model.kind === 'anthropic'
+          ? runAnthropicEngine
+          : ctx.model.kind === 'chat'
+            ? runChatEngine
+            : runEngine
     void engine({ ...ctx, abortController: ac })
       .catch((e) => console.error('run engine 未捕获错误:', e))
       .finally(() => this.active.delete(ctx.run.id))
@@ -64,7 +67,7 @@ export async function recoverInterruptedRuns(): Promise<void> {
           status: 'interrupted',
           errorMessage: '生成被中断（服务已重启）',
           // 进程中断没有可信终态 Response，不能保留可能在终结写入中途留下的重放信封。
-          reasoningReplayContext: null,
+          providerReplayContext: null,
           reasoningDurationMs,
           generationDurationMs: computeGenerationDurationMs(r.startedAt, finishedAt),
         })

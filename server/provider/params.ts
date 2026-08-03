@@ -133,7 +133,7 @@ export function buildResponseBody(o: BuildBodyOptions): Record<string, unknown> 
   if (effort) {
     body.reasoning = { effort }
   }
-  if (model.replayReasoning && effort && effort !== 'none') {
+  if (model.replayProviderContext && effort && effort !== 'none') {
     body.include = ['reasoning.encrypted_content']
   }
 

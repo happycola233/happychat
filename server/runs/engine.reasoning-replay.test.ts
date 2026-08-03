@@ -63,7 +63,7 @@ async function createEngineFixture(input: unknown[] = []) {
       providerId: provider.id,
       modelId: 'gpt-engine-test',
       displayName: `Engine model ${sequence}`,
-      replayReasoning: true,
+      replayProviderContext: true,
       capabilities: {
         vision: false,
         file_input: false,
@@ -201,7 +201,7 @@ describe('runEngine reasoning replay privacy and terminal handling', () => {
       status: 'complete',
       content: [{ type: 'output_text', text: '终态正文' }],
       reasoningSummary: '终态摘要',
-      reasoningReplayContext: {
+      providerReplayContext: {
         version: 1,
         source: {
           providerId: fixture.provider.id,
@@ -227,7 +227,7 @@ describe('runEngine reasoning replay privacy and terminal handling', () => {
       reasoningSummary: '终态摘要',
       usage: { inputTokens: 12, outputTokens: 8, reasoningTokens: 3, totalTokens: 20 },
     })
-    expect(done?.data).not.toHaveProperty('reasoningReplayContext')
+    expect(done?.data).not.toHaveProperty('providerReplayContext')
   })
 
   it.each([
@@ -254,7 +254,7 @@ describe('runEngine reasoning replay privacy and terminal handling', () => {
     })
     expect(storedMessage).toMatchObject({
       status: 'error',
-      reasoningReplayContext: null,
+      providerReplayContext: null,
     })
   })
 
@@ -304,7 +304,7 @@ describe('runEngine reasoning replay privacy and terminal handling', () => {
     const serializedPersistentData = JSON.stringify({ storedEvents, errorRows, storedMessage })
 
     expect(serializedPersistentData).not.toContain(historyCiphertext)
-    expect(serializedPersistentData).toContain('[encrypted_content omitted]')
-    expect(storedMessage).toMatchObject({ status: 'error', reasoningReplayContext: null })
+    expect(serializedPersistentData).toContain('[provider opaque content omitted]')
+    expect(storedMessage).toMatchObject({ status: 'error', providerReplayContext: null })
   })
 })

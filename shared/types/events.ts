@@ -51,7 +51,7 @@ export interface RunDoneData {
   text?: string
   reasoningSummary?: string | null
   annotations?: UrlCitation[]
-  /** 检索动作序列（web_search + x_search）终态权威值；仅 Responses 文本 run 携带（可为空数组）。 */
+  /** 检索动作序列（web_search + x_search）终态权威值；文本 run 可携带空数组。 */
   searchActions?: SearchAction[]
   usage: MessageUsage
   incompleteReason: string | null

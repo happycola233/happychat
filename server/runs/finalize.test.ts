@@ -113,7 +113,7 @@ describe('finalizeRun terminal snapshots', () => {
       },
     ])
 
-    const reasoningReplayContext = {
+    const providerReplayContext = {
       version: 1 as const,
       source: {
         providerId: provider.id,
@@ -150,7 +150,7 @@ describe('finalizeRun terminal snapshots', () => {
       incompleteReason: null,
       errorMessage: null,
       upstreamResponseId: null,
-      reasoningReplayContext,
+      providerReplayContext,
       startedAt,
       persistEmit: (type, data) => {
         emittedEvents.push({ type, data })
@@ -167,14 +167,14 @@ describe('finalizeRun terminal snapshots', () => {
     expect(persistedRun?.finishedAt).toBeInstanceOf(Date)
     expect(persistedMessage).toMatchObject({
       status: 'complete',
-      reasoningReplayContext,
+      providerReplayContext,
       searchActions,
       reasoningDurationMs: 3_500,
       generationDurationMs: persistedRun!.finishedAt!.getTime() - startedAt.getTime(),
     })
     expect(emittedEvents.map((event) => event.type)).toEqual(['run.done'])
     expect(emittedEvents[0]?.data).toMatchObject({ searchActions })
-    expect(emittedEvents[0]?.data).not.toHaveProperty('reasoningReplayContext')
+    expect(emittedEvents[0]?.data).not.toHaveProperty('providerReplayContext')
     expect(JSON.stringify(emittedEvents)).not.toContain('opaque-finalize-ciphertext')
 
     const [failedMessage] = await dbClient.db
@@ -224,7 +224,7 @@ describe('finalizeRun terminal snapshots', () => {
       incompleteReason: null,
       errorMessage: 'upstream failed',
       upstreamResponseId: null,
-      reasoningReplayContext,
+      providerReplayContext,
       startedAt,
       persistEmit: () => 0,
     })
@@ -232,7 +232,7 @@ describe('finalizeRun terminal snapshots', () => {
     const persistedFailedMessage = await dbClient.db.query.messages.findFirst({
       where: eq(schema.messages.id, failedMessage.id),
     })
-    expect(persistedFailedMessage?.reasoningReplayContext).toBeNull()
+    expect(persistedFailedMessage?.providerReplayContext).toBeNull()
     // 空数组表示本轮没有任何搜索动作，列保持 null 而不是存 []。
     expect(persistedFailedMessage?.searchActions).toBeNull()
   })
