@@ -4,7 +4,7 @@ import { HexColorInput, HexColorPicker } from 'react-colorful'
 import { clsx } from 'clsx'
 import type { ModelTag } from '@shared/types/domain'
 import { MODEL_TAG_MAX_COUNT, MODEL_TAG_MAX_LABEL_LENGTH } from '@shared/util/modelTags'
-import { COLOR_PRESETS } from '../../components/colorPresets'
+import { MODEL_TAG_COLOR_PRESETS } from '../../components/colorPresets'
 import { ModelTagBadge } from '../../components/ModelTags'
 import {
   ColorModeButton,
@@ -17,7 +17,7 @@ import { Field } from './FormField'
 const CUSTOM_COLOR_SEED = '#6366f1'
 
 function isPresetColor(color: string): boolean {
-  return (COLOR_PRESETS as readonly string[]).includes(color)
+  return (MODEL_TAG_COLOR_PRESETS as readonly string[]).includes(color)
 }
 
 /**
@@ -208,7 +208,7 @@ export function TagsInput({
             {/* 自动配色与固定色分组，视觉上区分“跟随文字”与“指定颜色”。 */}
             <span aria-hidden className="h-5 w-px bg-neutral-300 dark:bg-neutral-600" />
 
-            {COLOR_PRESETS.map((preset) => (
+            {MODEL_TAG_COLOR_PRESETS.map((preset) => (
               <ColorSwatch
                 key={preset}
                 onClick={() => chooseColor(preset)}

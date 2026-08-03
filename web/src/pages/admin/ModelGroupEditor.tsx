@@ -8,23 +8,21 @@ import { resolveModelGroupColor } from '@shared/util/modelGroupAppearance'
 import * as adminApi from '../../api/admin'
 import { IconPicker } from '../../components/IconPicker'
 import { ModelGroupGlyph } from '../../components/ModelIcon'
-import { COLOR_PRESETS } from '../../components/colorPresets'
-import { Button } from '../../components/ui/Button'
 import {
-  ColorModeButton,
-  ColorSwatch,
-  CUSTOM_COLOR_SWATCH_BACKGROUND,
-} from '../../components/ui/ColorSwatch'
+  FOLDER_COLOR_PRESETS,
+  FOLDER_CUSTOM_COLOR_SEED,
+  FOLDER_CUSTOM_COLOR_SWATCH_BACKGROUND,
+  FOLDER_CUSTOM_COLOR_SWATCH_ICON_COLOR,
+} from '../../components/colorPresets'
+import { Button } from '../../components/ui/Button'
+import { ColorModeButton, ColorSwatch } from '../../components/ui/ColorSwatch'
 import { Modal } from '../../components/ui/Modal'
 import { toast } from '../../store/toast'
 import { Field } from './FormField'
 
-/** 打开自定义取色时的种子色，让状态明确是「自定义」而不是空。 */
-const CUSTOM_COLOR_SEED = '#6366f1'
-
 /**
  * 模型分组的新建 / 编辑弹窗。
- * 颜色区沿用 TagsInput 的「自动 + 预设色板 + 自定义取色」三段式，视觉与交互保持一致。
+ * 颜色区与聊天文件夹共用柔和浅色色板，并保留「默认 + 预设 + 自定义」三段式交互。
  */
 export function ModelGroupEditor({
   group,
@@ -44,7 +42,8 @@ export function ModelGroupEditor({
   )
   const [customPickerOpen, setCustomPickerOpen] = useState(false)
 
-  const isPresetColor = color !== null && (COLOR_PRESETS as readonly string[]).includes(color)
+  const isPresetColor =
+    color !== null && (FOLDER_COLOR_PRESETS as readonly string[]).includes(color)
   const customColor = color !== null && !isPresetColor ? color : null
 
   const save = useMutation({
@@ -139,7 +138,7 @@ export function ModelGroupEditor({
                 默认
               </ColorModeButton>
               <span aria-hidden className="h-5 w-px bg-neutral-300 dark:bg-neutral-600" />
-              {COLOR_PRESETS.map((preset) => (
+              {FOLDER_COLOR_PRESETS.map((preset) => (
                 <ColorSwatch
                   key={preset}
                   onClick={() => {
@@ -152,7 +151,7 @@ export function ModelGroupEditor({
                 >
                   {color === preset && (
                     <Check
-                      className="h-3.5 w-3.5 text-white [filter:drop-shadow(0_1px_1.5px_rgb(0_0_0/0.55))]"
+                      className="h-3.5 w-3.5 text-neutral-800 [filter:drop-shadow(0_1px_1px_rgb(255_255_255/0.65))]"
                       strokeWidth={3}
                     />
                   )}
@@ -162,7 +161,7 @@ export function ModelGroupEditor({
               <ColorSwatch
                 onClick={() => {
                   const opening = !customPickerOpen
-                  if (opening && !customColor) setColor(CUSTOM_COLOR_SEED)
+                  if (opening && !customColor) setColor(FOLDER_CUSTOM_COLOR_SEED)
                   setCustomPickerOpen(opening)
                 }}
                 aria-label="自定义颜色"
@@ -170,30 +169,41 @@ export function ModelGroupEditor({
                 selected={customColor !== null}
                 title="自定义颜色"
                 className="text-white"
-                style={{ background: customColor ?? CUSTOM_COLOR_SWATCH_BACKGROUND }}
+                style={{
+                  background: customColor ?? FOLDER_CUSTOM_COLOR_SWATCH_BACKGROUND,
+                }}
               >
                 {customColor && !customPickerOpen ? (
                   <Check className="h-3.5 w-3.5 drop-shadow" strokeWidth={3} />
                 ) : (
-                  <Pipette className="h-3.5 w-3.5 drop-shadow" />
+                  <Pipette
+                    className={
+                      customColor
+                        ? 'h-3.5 w-3.5 drop-shadow'
+                        : 'h-3.5 w-3.5 [filter:drop-shadow(0_1px_1px_rgb(255_255_255/0.75))]'
+                    }
+                    style={
+                      customColor ? undefined : { color: FOLDER_CUSTOM_COLOR_SWATCH_ICON_COLOR }
+                    }
+                  />
                 )}
               </ColorSwatch>
             </div>
             {customPickerOpen && (
               <div className="hc-color-picker mt-3 rounded-xl border border-neutral-200 bg-white p-3 dark:border-neutral-700 dark:bg-neutral-900">
-                <HexColorPicker color={color ?? CUSTOM_COLOR_SEED} onChange={setColor} />
+                <HexColorPicker color={color ?? FOLDER_CUSTOM_COLOR_SEED} onChange={setColor} />
                 <div className="mt-2.5 flex items-center gap-2">
                   <span
                     aria-hidden
                     className="h-8 w-8 shrink-0 rounded-lg border border-black/5 dark:border-white/10"
-                    style={{ backgroundColor: color ?? CUSTOM_COLOR_SEED }}
+                    style={{ backgroundColor: color ?? FOLDER_CUSTOM_COLOR_SEED }}
                   />
                   <div className="relative flex-1">
                     <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-sm text-neutral-400">
                       #
                     </span>
                     <HexColorInput
-                      color={color ?? CUSTOM_COLOR_SEED}
+                      color={color ?? FOLDER_CUSTOM_COLOR_SEED}
                       onChange={setColor}
                       aria-label="分组十六进制颜色值"
                       className="w-full rounded-lg border border-neutral-200 bg-white py-1.5 pl-6 pr-2.5 font-mono text-sm text-neutral-900 outline-none transition focus:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:focus:border-neutral-500"

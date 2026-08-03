@@ -3,18 +3,20 @@ import { clsx } from 'clsx'
 import { Check, Pipette } from 'lucide-react'
 import { HexColorInput, HexColorPicker } from 'react-colorful'
 import type { FolderDTO } from '@shared/types/api'
-import { ColorSwatch, CUSTOM_COLOR_SWATCH_BACKGROUND } from '../components/ui/ColorSwatch'
+import {
+  FOLDER_COLOR_PRESETS,
+  FOLDER_CUSTOM_COLOR_SEED,
+  FOLDER_CUSTOM_COLOR_SWATCH_BACKGROUND,
+  FOLDER_CUSTOM_COLOR_SWATCH_ICON_COLOR,
+} from '../components/colorPresets'
+import { ColorSwatch } from '../components/ui/ColorSwatch'
 import { useFolderActions } from '../hooks/useFolders'
 import { useFolderEditor } from '../store/folderEditor'
 import { useIsMobile } from '../store/sidebar'
-import { FOLDER_COLOR_PRESETS } from './folderColors'
 import { FolderIdentityField } from './FolderIdentityField'
 
 // Emoji 面板（frimousse）懒加载：只有打开图标选择时才请求该 chunk。
 const EmojiPickerPanel = lazy(() => import('./EmojiPickerPanel'))
-
-/** 自定义取色的初始色（用户尚未选过颜色时的取色器起点）。 */
-const CUSTOM_COLOR_SEED = '#0ea5e9'
 
 type ExpandedPanel = 'emoji' | 'color' | null
 
@@ -182,14 +184,19 @@ function FolderEditorDialogInner({
                 showSelectedRing={false}
                 style={{ backgroundColor: preset }}
               >
-                {color === preset && <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />}
+                {color === preset && (
+                  <Check
+                    className="h-3.5 w-3.5 text-neutral-800 [filter:drop-shadow(0_1px_1px_rgb(255_255_255/0.65))]"
+                    strokeWidth={3}
+                  />
+                )}
               </ColorSwatch>
             ))}
             {/* 自定义取色 */}
             <ColorSwatch
               onClick={() => {
                 if (panel !== 'color') {
-                  if (!isCustomColor) setColor(color ?? CUSTOM_COLOR_SEED)
+                  if (!isCustomColor) setColor(color ?? FOLDER_CUSTOM_COLOR_SEED)
                   setPanel('color')
                 } else {
                   setPanel(null)
@@ -202,13 +209,22 @@ function FolderEditorDialogInner({
               showSelectedRing={false}
               className="text-white"
               style={{
-                background: isCustomColor ? color : CUSTOM_COLOR_SWATCH_BACKGROUND,
+                background: isCustomColor ? color : FOLDER_CUSTOM_COLOR_SWATCH_BACKGROUND,
               }}
             >
               {isCustomColor && panel !== 'color' ? (
                 <Check className="h-3.5 w-3.5" strokeWidth={3} />
               ) : (
-                <Pipette className="h-3.5 w-3.5 drop-shadow" />
+                <Pipette
+                  className={
+                    isCustomColor
+                      ? 'h-3.5 w-3.5 drop-shadow'
+                      : 'h-3.5 w-3.5 [filter:drop-shadow(0_1px_1px_rgb(255_255_255/0.75))]'
+                  }
+                  style={
+                    isCustomColor ? undefined : { color: FOLDER_CUSTOM_COLOR_SWATCH_ICON_COLOR }
+                  }
+                />
               )}
             </ColorSwatch>
           </div>
@@ -217,19 +233,19 @@ function FolderEditorDialogInner({
         {/* 自定义取色面板（react-colorful，内联展开） */}
         {panel === 'color' && (
           <div className="hc-color-picker mt-3 rounded-xl border border-neutral-200 p-3 dark:border-neutral-800">
-            <HexColorPicker color={color ?? CUSTOM_COLOR_SEED} onChange={setColor} />
+            <HexColorPicker color={color ?? FOLDER_CUSTOM_COLOR_SEED} onChange={setColor} />
             <div className="mt-2.5 flex items-center gap-2">
               <span
                 aria-hidden
                 className="h-8 w-8 shrink-0 rounded-lg border border-black/5 dark:border-white/10"
-                style={{ backgroundColor: color ?? CUSTOM_COLOR_SEED }}
+                style={{ backgroundColor: color ?? FOLDER_CUSTOM_COLOR_SEED }}
               />
               <div className="relative flex-1">
                 <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-sm text-neutral-400">
                   #
                 </span>
                 <HexColorInput
-                  color={color ?? CUSTOM_COLOR_SEED}
+                  color={color ?? FOLDER_CUSTOM_COLOR_SEED}
                   onChange={setColor}
                   aria-label="十六进制颜色值"
                   className="w-full rounded-lg border border-neutral-200 bg-white py-1.5 pl-6 pr-2.5 font-mono text-sm text-neutral-900 outline-none transition focus:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:focus:border-neutral-500"
