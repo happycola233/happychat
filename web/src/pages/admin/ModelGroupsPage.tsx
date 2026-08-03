@@ -71,7 +71,7 @@ function GroupRow({
       >
         <GripVertical className="h-4 w-4" />
       </button>
-      <ModelGroupGlyph group={group} size="sm" />
+      <ModelGroupGlyph group={group} size="md" className="mr-1" />
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium text-neutral-800 dark:text-neutral-100">
           {group.name}
