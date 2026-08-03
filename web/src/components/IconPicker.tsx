@@ -259,7 +259,7 @@ export function CustomIconGrid({
 
 /**
  * 图标选择器：内置库 / 自定义上传 / Emoji 三种来源收敛到一个控件，
- * 顶部预览芯片即当前效果（与用户端渲染同一个组件，所见即所得）。
+ * 顶部预览按钮展示当前效果（与用户端渲染同一个组件，所见即所得）。
  */
 export function IconPicker({
   label = '图标（可选）',

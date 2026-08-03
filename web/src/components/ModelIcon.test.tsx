@@ -1,20 +1,23 @@
+import type { ReactNode } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { buildLobeIconCatalog } from '../hooks/useModels'
-import { ModelIconMark } from './ModelIcon'
+import { ModelGroupGlyph, ModelIconMark } from './ModelIcon'
+
+function renderWithCatalog(
+  node: ReactNode,
+  icons: Array<{ slug: string; mono: boolean }> = [],
+): string {
+  const queryClient = new QueryClient()
+  queryClient.setQueryData(['lobe-icons'], buildLobeIconCatalog({ version: '1.94.0', icons }))
+  return renderToStaticMarkup(
+    <QueryClientProvider client={queryClient}>{node}</QueryClientProvider>,
+  )
+}
 
 function renderIcon(slug: string, mono: boolean): string {
-  const queryClient = new QueryClient()
-  queryClient.setQueryData(
-    ['lobe-icons'],
-    buildLobeIconCatalog({ version: '1.94.0', icons: [{ slug, mono }] }),
-  )
-  return renderToStaticMarkup(
-    <QueryClientProvider client={queryClient}>
-      <ModelIconMark icon={{ type: 'lobe', slug }} />
-    </QueryClientProvider>,
-  )
+  return renderWithCatalog(<ModelIconMark icon={{ type: 'lobe', slug }} />, [{ slug, mono }])
 }
 
 describe('ModelIconMark', () => {
@@ -46,5 +49,39 @@ describe('ModelIconMark', () => {
     )
 
     expect(html).toContain('/api/model-icons/lobe/openai')
+  })
+})
+
+describe('ModelGroupGlyph', () => {
+  it('normalizes default and Emoji group icons to the same unpadded size', () => {
+    const defaultGroup = renderWithCatalog(
+      <ModelGroupGlyph group={{ icon: null, color: null }} size="md" />,
+    )
+    const emojiGroup = renderWithCatalog(
+      <ModelGroupGlyph
+        group={{ icon: { type: 'emoji', char: '🧠' }, color: '#8b5cf6' }}
+        size="md"
+      />,
+    )
+
+    const defaultRootTag = defaultGroup.match(/^<span\b[^>]*>/)?.[0] ?? ''
+    const emojiRootTag = emojiGroup.match(/^<span\b[^>]*>/)?.[0] ?? ''
+    expect(defaultGroup).toContain('lucide-folder')
+    expect(defaultGroup).toContain('h-full w-full')
+    expect(defaultRootTag).toContain('h-5 w-5')
+    expect(emojiGroup).toContain('🧠')
+    expect(emojiRootTag).toContain('h-5 w-5')
+    expect(emojiGroup).toContain('text-[18px]')
+    expect(emojiGroup).toContain('hc-colored-glyph')
+    expect(emojiGroup).toContain('hc-contrasted-glyph')
+    expect(emojiGroup).toContain('--hc-glyph-color:#8b5cf6')
+    for (const html of [defaultGroup, emojiGroup]) {
+      const rootTag = html.match(/^<span\b[^>]*>/)?.[0] ?? ''
+      expect(html).not.toContain('hc-icon-chip')
+      expect(html).not.toContain('bg-neutral-200/70')
+      expect(html).not.toContain('dark:bg-neutral-700/60')
+      expect(rootTag).not.toMatch(/\b(?:(?:dark:)?bg-|rounded|border|shadow|ring)/)
+      expect(rootTag).not.toMatch(/\b(?:[mp](?:[trblxy])?-|gap-)/)
+    }
   })
 })

@@ -1,13 +1,13 @@
 import { Suspense, lazy, useEffect, useState } from 'react'
 import { clsx } from 'clsx'
-import { Check, Pipette, SmilePlus } from 'lucide-react'
+import { Check, Pipette } from 'lucide-react'
 import { HexColorInput, HexColorPicker } from 'react-colorful'
 import type { FolderDTO } from '@shared/types/api'
 import { useFolderActions } from '../hooks/useFolders'
 import { useFolderEditor } from '../store/folderEditor'
 import { useIsMobile } from '../store/sidebar'
 import { FOLDER_COLOR_PRESETS } from './folderColors'
-import { FolderGlyph } from './folderVisuals'
+import { FolderIdentityField } from './FolderIdentityField'
 
 // Emoji 面板（frimousse）懒加载：只有打开图标选择时才请求该 chunk。
 const EmojiPickerPanel = lazy(() => import('./EmojiPickerPanel'))
@@ -80,60 +80,41 @@ function FolderEditorDialogInner({
           'hc-pop-in relative z-10 flex w-full max-w-sm flex-col overflow-hidden rounded-2xl bg-white p-5 shadow-xl dark:bg-neutral-900',
           // Emoji 展开时给弹窗一个明确的视口内高度，让中间列表承担剩余空间；
           // 浏览器放大导致 CSS 视口变矮时，也不会再给整个弹窗套一层滚动条。
-          panel === 'emoji'
-            ? 'h-[min(38rem,calc(100dvh-2rem))]'
-            : 'max-h-[calc(100dvh-2rem)]',
+          panel === 'emoji' ? 'h-[min(38rem,calc(100dvh-2rem))]' : 'max-h-[calc(100dvh-2rem)]',
         )}
       >
         <h3 className="text-[15px] font-semibold text-neutral-900 dark:text-neutral-100">
           {isEdit ? '文件夹设置' : '新建文件夹'}
         </h3>
 
-        {/* 图标 + 名称：图标按钮即实时预览 */}
-        <div className="mt-4 flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => setPanel(panel === 'emoji' ? null : 'emoji')}
-            aria-label="选择图标"
-            title="选择图标"
-            aria-expanded={panel === 'emoji'}
-            className={clsx(
-              'group relative rounded-xl transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400',
-              panel === 'emoji'
-                ? 'ring-2 ring-neutral-300 dark:ring-neutral-600'
-                : 'hover:ring-2 hover:ring-neutral-200 dark:hover:ring-neutral-700',
-            )}
-          >
-            <FolderGlyph folder={{ color, emoji }} size="lg" />
-            <span className="absolute -bottom-1 -right-1 flex h-4.5 w-4.5 items-center justify-center rounded-full border border-neutral-200 bg-white text-neutral-500 shadow-sm dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
-              <SmilePlus className="h-3 w-3" />
-            </span>
-          </button>
-          <input
-            // 桌面端保留打开即输入；移动端不主动唤起软键盘。
-            autoFocus={!isEdit && !isMobile}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
+        <div className="mt-4">
+          <FolderIdentityField
+            name={name}
+            color={color}
+            emoji={emoji}
+            iconPickerOpen={panel === 'emoji'}
+            autoFocusName={!isEdit && !isMobile}
+            onNameChange={setName}
+            onNameKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault()
                 void submit()
               }
             }}
-            maxLength={40}
-            placeholder="文件夹名称"
-            aria-label="文件夹名称"
-            data-testid="folder-name-input"
-            className="min-w-0 flex-1 rounded-xl border border-neutral-200 bg-white px-3 py-2.5 text-sm text-neutral-900 outline-none transition focus:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:focus:border-neutral-500"
+            onToggleIconPicker={() => setPanel(panel === 'emoji' ? null : 'emoji')}
           />
         </div>
 
         {/* Emoji 选择面板（内联展开，避免小屏弹层溢出视口） */}
         {panel === 'emoji' && (
-          <div className="mt-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-neutral-200 dark:border-neutral-800">
-            <div className="flex shrink-0 items-center justify-between px-2.5 pt-2">
+          <div
+            id="folder-emoji-picker-panel"
+            aria-label="选择文件夹图标"
+            className="mt-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-neutral-200 dark:border-neutral-800"
+          >
+            <div className="flex h-10 shrink-0 items-center justify-between border-b border-neutral-100 px-3 dark:border-neutral-800">
               <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">
-                选择图标
+                选择文件夹图标
               </span>
               {emoji && (
                 <button
@@ -144,7 +125,7 @@ function FolderEditorDialogInner({
                   }}
                   className="rounded-md px-1.5 py-0.5 text-xs text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
                 >
-                  移除图标
+                  恢复默认图标
                 </button>
               )}
             </div>

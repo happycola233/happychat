@@ -5,15 +5,9 @@ import type { ModelIcon as ModelIconValue } from '@shared/types/domain'
 import { LOBE_ICON_SLUG_PATTERN } from '@shared/util/modelIcon'
 import { guessModelIconSlug } from '@shared/util/modelIconGuess'
 import { useLobeIconCatalog } from '../hooks/useModels'
+import { ICON_EMOJI_CLASS, ICON_SIZE_CLASS, type IconSize } from './iconSizing'
 
-export type IconSize = 'xs' | 'sm' | 'md' | 'lg'
-
-const SIZE_CLASS: Record<IconSize, string> = {
-  xs: 'h-3.5 w-3.5',
-  sm: 'h-4 w-4',
-  md: 'h-5 w-5',
-  lg: 'h-6 w-6',
-}
+export type { IconSize } from './iconSizing'
 
 /** 无图标时的文字兜底：字号要比图标本身小一档才不会显得挤。 */
 const FALLBACK_TEXT_CLASS: Record<IconSize, string> = {
@@ -22,15 +16,6 @@ const FALLBACK_TEXT_CLASS: Record<IconSize, string> = {
   md: 'text-[10px]',
   lg: 'text-[11px]',
 }
-
-const CHIP_SIZE_CLASS: Record<IconSize, string> = {
-  xs: 'h-5 w-5 rounded-md text-[12px]',
-  sm: 'h-6 w-6 rounded-lg text-[14px]',
-  md: 'h-8 w-8 rounded-lg text-[17px]',
-  lg: 'h-11 w-11 rounded-xl text-[24px]',
-}
-
-const CHIP_GLYPH_SIZE: Record<IconSize, IconSize> = { xs: 'xs', sm: 'xs', md: 'sm', lg: 'lg' }
 
 function lobeIconUrl(slug: string, version?: string, theme?: 'light' | 'dark'): string {
   const params = new URLSearchParams()
@@ -92,7 +77,8 @@ export function ModelIconMark({
         aria-hidden
         className={clsx(
           'flex shrink-0 items-center justify-center leading-none',
-          SIZE_CLASS[size],
+          ICON_SIZE_CLASS[size],
+          ICON_EMOJI_CLASS[size],
           className,
         )}
       >
@@ -107,7 +93,7 @@ export function ModelIconMark({
       return (
         <span
           aria-hidden
-          className={clsx('shrink-0', SIZE_CLASS[size], 'hc-icon-mask', className)}
+          className={clsx('shrink-0', ICON_SIZE_CLASS[size], 'hc-icon-mask', className)}
           style={
             {
               '--hc-icon-url': `url("${lobeIconUrl(resolved.slug, catalog?.version)}")`,
@@ -121,14 +107,14 @@ export function ModelIconMark({
       <>
         <span
           aria-hidden
-          className={clsx(colorIconClass, 'block dark:hidden', SIZE_CLASS[size], className)}
+          className={clsx(colorIconClass, 'block dark:hidden', ICON_SIZE_CLASS[size], className)}
           style={{
             backgroundImage: `url("${lobeIconUrl(resolved.slug, catalog?.version, 'light')}")`,
           }}
         />
         <span
           aria-hidden
-          className={clsx(colorIconClass, 'hidden dark:block', SIZE_CLASS[size], className)}
+          className={clsx(colorIconClass, 'hidden dark:block', ICON_SIZE_CLASS[size], className)}
           style={{
             backgroundImage: `url("${lobeIconUrl(resolved.slug, catalog?.version, 'dark')}")`,
           }}
@@ -144,7 +130,7 @@ export function ModelIconMark({
         alt=""
         loading="lazy"
         src={customIconUrl(resolved.id)}
-        className={clsx('shrink-0 rounded-[3px] object-contain', SIZE_CLASS[size], className)}
+        className={clsx('shrink-0 rounded-[3px] object-contain', ICON_SIZE_CLASS[size], className)}
       />
     )
   }
@@ -156,7 +142,7 @@ export function ModelIconMark({
       className={clsx(
         'flex shrink-0 items-center justify-center rounded-[4px] font-semibold leading-none',
         'bg-neutral-200/70 text-neutral-500 dark:bg-neutral-700/60 dark:text-neutral-300',
-        SIZE_CLASS[size],
+        ICON_SIZE_CLASS[size],
         FALLBACK_TEXT_CLASS[size],
         className,
       )}
@@ -167,8 +153,8 @@ export function ModelIconMark({
 }
 
 /**
- * 分组图标芯片：圆角底色块 + 图形，视觉语言与侧边栏聊天文件夹的 FolderGlyph 一致
- * （任意主题色经 color-mix 派生浅底/前景，深色模式自动提亮）。
+ * 分组裸图标：按管理员图标或默认文件夹图形本身的尺寸占位。
+ * 自定义主题色只作用于图形前景，深色模式会自动提亮。
  */
 export function ModelGroupGlyph({
   group,
@@ -179,25 +165,25 @@ export function ModelGroupGlyph({
   size?: IconSize
   className?: string
 }) {
-  const style = group.color ? ({ '--hc-icon-color': group.color } as CSSProperties) : undefined
+  const style = group.color ? ({ '--hc-glyph-color': group.color } as CSSProperties) : undefined
   return (
     <span
       aria-hidden
       className={clsx(
-        'flex shrink-0 items-center justify-center leading-none',
-        CHIP_SIZE_CLASS[size],
+        'inline-flex shrink-0 items-center justify-center leading-none',
+        ICON_SIZE_CLASS[size],
         group.color
-          ? 'hc-icon-chip'
-          : 'bg-neutral-200/70 text-neutral-500 dark:bg-neutral-700/60 dark:text-neutral-300',
+          ? 'hc-colored-glyph hc-contrasted-glyph'
+          : 'text-neutral-500 dark:text-neutral-300',
         className,
       )}
       style={style}
     >
       {group.icon ? (
-        <ModelIconMark icon={group.icon} size={CHIP_GLYPH_SIZE[size]} />
+        <ModelIconMark icon={group.icon} size={size} />
       ) : (
-        // fill=currentColor 让 lucide 线框图标变成实心块，作为芯片里的默认图形更醒目。
-        <Folder className={SIZE_CLASS[CHIP_GLYPH_SIZE[size]]} fill="currentColor" strokeWidth={1} />
+        // fill=currentColor 让默认文件夹保持清晰的实心轮廓。
+        <Folder className="h-full w-full" fill="currentColor" strokeWidth={1} />
       )}
     </span>
   )

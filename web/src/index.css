@@ -1515,15 +1515,17 @@ html.hc-ios .hc-chat-scroll {
 
 /* ===================== 聊天文件夹 ===================== */
 
-/* 文件夹图标芯片：任意 #RRGGBB 主题色经 color-mix 派生浅底 + 主题色前景；
-   深色模式提高底色浓度并向白色方向提亮前景，保证中等饱和度颜色在深底上可读。 */
-.hc-folder-glyph {
-  background: color-mix(in srgb, var(--hc-folder-color) 15%, transparent);
-  color: var(--hc-folder-color);
+/* 聊天文件夹与模型分组的主题色只作用于图形前景，不绘制底板或边界。
+   文件夹在浅色模式保留用户原始选色；分组沿用既有的向黑色混合规则，确保极浅色可辨认；
+   深色模式共享向白色提亮规则。 */
+.hc-colored-glyph {
+  color: var(--hc-glyph-color);
 }
-.dark .hc-folder-glyph {
-  background: color-mix(in srgb, var(--hc-folder-color) 24%, transparent);
-  color: color-mix(in srgb, var(--hc-folder-color) 78%, white);
+.hc-colored-glyph.hc-contrasted-glyph {
+  color: color-mix(in srgb, var(--hc-glyph-color) 55%, black);
+}
+.dark .hc-colored-glyph {
+  color: color-mix(in srgb, var(--hc-glyph-color) 78%, white);
 }
 
 /* 自定义模型标签只保存一个主题色：浅色模式向白/黑两端拉开，深色模式向深底/白字拉开。
@@ -1554,19 +1556,6 @@ html.hc-ios .hc-chat-scroll {
   mask-position: center;
   -webkit-mask-size: contain;
   mask-size: contain;
-}
-
-/* 分组图标芯片：浅色前景向黑色混合，确保极浅自定义色仍可辨认；
-   深色模式则加浓底色并向白色提亮前景。两种主题都保留一道低对比内边界。 */
-.hc-icon-chip {
-  background: color-mix(in srgb, var(--hc-icon-color) 15%, transparent);
-  color: color-mix(in srgb, var(--hc-icon-color) 55%, black);
-  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.08);
-}
-.dark .hc-icon-chip {
-  background: color-mix(in srgb, var(--hc-icon-color) 24%, transparent);
-  color: color-mix(in srgb, var(--hc-icon-color) 78%, white);
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.08);
 }
 
 /* ===================== 登录 / 注册 ===================== */

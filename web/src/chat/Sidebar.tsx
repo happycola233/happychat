@@ -589,8 +589,8 @@ function FolderBlock({
     >
       {expanded &&
         (members.length ? (
-          // 缩进 + 引导线：线对齐文件夹图标芯片的竖直中线（px-2.5 + 芯片半宽）。
-          <ul className="ml-[22px] mt-0.5 space-y-0.5 border-l border-neutral-200 pl-1.5 dark:border-neutral-800">
+          // 缩进 + 引导线：线对齐统一 16px 文件夹图标的竖直中线（px-2.5 + 8px）。
+          <ul className="ml-[18px] mt-0.5 space-y-0.5 border-l border-neutral-200 pl-1.5 dark:border-neutral-800">
             {members.map((conversation) => (
               <ConversationRow
                 key={conversation.id}
@@ -611,7 +611,7 @@ function FolderBlock({
             ))}
           </ul>
         ) : (
-          <p className="ml-[22px] border-l border-neutral-200 py-1.5 pl-3 text-xs text-neutral-400 dark:border-neutral-800">
+          <p className="ml-[18px] border-l border-neutral-200 py-1.5 pl-3 text-xs text-neutral-400 dark:border-neutral-800">
             文件夹是空的
           </p>
         ))}

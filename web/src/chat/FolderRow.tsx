@@ -44,7 +44,7 @@ export function FolderRow({
       <div
         ref={rowRef}
         className={clsx(
-          'group relative flex items-center rounded-lg px-2.5 py-1.5 text-[13px] transition',
+          'group relative flex min-h-8 items-center rounded-lg px-2.5 py-1.5 text-[13px] transition',
           containsActive && !expanded
             ? 'bg-neutral-200/60 dark:bg-neutral-800/70'
             : 'hover:bg-neutral-200/70 dark:hover:bg-neutral-800',
