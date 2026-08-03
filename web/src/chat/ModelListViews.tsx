@@ -162,7 +162,7 @@ function ModelSearchBox({
   sheet: boolean
 }) {
   return (
-    <div className="relative shrink-0 px-1.5 pb-1.5">
+    <div className="relative mb-1.5 shrink-0 px-1.5">
       <Search
         aria-hidden
         className="pointer-events-none absolute left-4 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400 dark:text-neutral-500"
