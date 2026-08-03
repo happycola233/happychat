@@ -385,6 +385,7 @@ export function IconPicker({
               >
                 <EmojiPickerPanel
                   autoFocusSearch={false}
+                  surface="muted"
                   onSelect={(char) => select({ type: 'emoji', char })}
                 />
               </Suspense>

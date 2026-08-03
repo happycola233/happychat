@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
+import { clsx } from 'clsx'
 import { EmojiPicker } from 'frimousse'
 import type {
   EmojiPickerListCategoryHeaderProps,
@@ -12,13 +13,21 @@ const EMOJI_CELL_IDEAL_PX = 40
 /** viewport 左右 padding（px-1.5×2）+ 滚动条 gutter 的预留宽度。 */
 const VIEWPORT_CHROME_PX = 22
 
+export type EmojiPickerSurface = 'base' | 'muted'
+
+const SURFACE_CLASS: Record<EmojiPickerSurface, string> = {
+  base: '[--hc-emoji-surface:white] dark:[--hc-emoji-surface:var(--color-neutral-900)]',
+  muted:
+    '[--hc-emoji-surface:var(--color-neutral-50)] dark:[--hc-emoji-surface:var(--color-neutral-900)]',
+}
+
 // 自定义渲染组件必须保持模块级稳定引用：若在面板组件里内联创建，
 // 面板每次重渲染（如父弹窗输入名称）都会生成新的组件身份，
 // frimousse 会把整个虚拟化列表卸载重建，滚动/交互明显变卡。
 function CategoryHeader({ category, ...props }: EmojiPickerListCategoryHeaderProps) {
   return (
     <div
-      className="bg-white px-1.5 pb-1 pt-2.5 text-xs font-medium text-neutral-400 dark:bg-neutral-900 dark:text-neutral-500"
+      className="bg-[var(--hc-emoji-surface)] px-1.5 pb-1 pt-2.5 text-xs font-medium text-neutral-400 dark:text-neutral-500"
       {...props}
     >
       {category.label}
@@ -59,10 +68,13 @@ function Emoji({ emoji, ...props }: EmojiPickerListEmojiProps) {
 export default function EmojiPickerPanel({
   autoFocusSearch,
   onSelect,
+  surface = 'base',
 }: {
   /** 桌面端可直接搜索；移动端关闭，避免点开图标面板时再次唤起软键盘。 */
   autoFocusSearch: boolean
   onSelect: (emoji: string) => void
+  /** 与宿主面板一致的表面色，供搜索区和粘性分类标题遮住滚动内容。 */
+  surface?: EmojiPickerSurface
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   // 网格参数在首次布局时按容器宽度计算：虚拟化要求单元格尺寸固定（不能 flex 拉伸，
@@ -86,7 +98,10 @@ export default function EmojiPickerPanel({
   return (
     <div
       ref={containerRef}
-      className="h-full min-h-0 w-full"
+      className={clsx(
+        'h-full min-h-0 w-full bg-[var(--hc-emoji-surface)]',
+        SURFACE_CLASS[surface],
+      )}
       style={grid ? ({ '--hc-emoji-cell': `${grid.cellPx}px` } as CSSProperties) : undefined}
     >
       {grid !== null && (
@@ -98,7 +113,7 @@ export default function EmojiPickerPanel({
           className="flex h-full w-full flex-col"
         >
           {/* 抬高层级并带背景：粘性分类头等 viewport 内元素在任何浏览器/缩放下都不会盖到搜索框 */}
-          <div className="relative z-10 bg-white px-2.5 pb-2 pt-2.5 dark:bg-neutral-900">
+          <div className="relative z-10 bg-[var(--hc-emoji-surface)] px-2.5 pb-2 pt-2.5">
             <EmojiPicker.Search
               autoFocus={autoFocusSearch}
               placeholder="搜索表情…"
