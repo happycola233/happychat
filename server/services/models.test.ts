@@ -147,6 +147,35 @@ describe('model user access', () => {
     expect(stored?.replayProviderContext).toBe(true)
   })
 
+  it('rejects a model whose configured icon does not exist', async () => {
+    const fixture = await createFixture()
+    const result = await modelServices.createModel({
+      providerId: fixture.providerId,
+      modelId: `missing-icon-${fixtureSeq}`,
+      displayName: 'Missing icon model',
+      tags: [],
+      icon: { type: 'lobe', slug: 'definitely-not-installed' },
+      groupId: null,
+      kind: 'responses',
+      enabled: true,
+      capabilities: {
+        vision: false,
+        file_input: false,
+        web_search: false,
+        x_search: false,
+        image_generation: false,
+        reasoning: false,
+      },
+      allowedEfforts: [],
+      replayProviderContext: false,
+      defaultWebSearch: false,
+      defaultXSearch: false,
+      sort: 0,
+    })
+
+    expect(result).toEqual({ ok: false, code: 'icon_missing' })
+  })
+
   it('rejects a model engine that does not match its provider protocol', async () => {
     const fixture = await createFixture()
     const result = await modelServices.createModel({

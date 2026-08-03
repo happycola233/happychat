@@ -12,8 +12,10 @@ import {
   findSectionKeyOfModel,
   flattenSections,
   hasGroupStructure,
+  openedSectionOnViewChange,
   sectionKey,
   sectionName,
+  type ModelListView,
   type ModelSection,
 } from './modelGroups'
 
@@ -397,7 +399,7 @@ export function ModelListSection({
   activeModelId: string | null
   onSelectModel: (id: string) => void
   sheet: boolean
-  view: 'flat' | 'tree'
+  view: ModelListView
   /** 视图切换控件，渲染在分区标题右侧 */
   viewToggle: React.ReactNode
 }) {
@@ -417,6 +419,15 @@ export function ModelListSection({
   const [openedKey, setOpenedKey] = useState<string | null>(() =>
     findSectionKeyOfModel(allSections, activeModelId),
   )
+  const previousViewRef = useRef<ModelListView>(view)
+
+  useLayoutEffect(() => {
+    const previousView = previousViewRef.current
+    previousViewRef.current = view
+    setOpenedKey((currentOpenedKey) =>
+      openedSectionOnViewChange(previousView, view, currentOpenedKey, allSections, activeModelId),
+    )
+  }, [view, allSections, activeModelId])
 
   // 菜单打开即挂载本组件：首帧把选中模型滚进列表可视区。
   // 依赖 view/openedKey/search 是因为切换视图或钻取后可见内容整体换过，需要重新定位。

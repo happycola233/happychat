@@ -10,6 +10,8 @@ export interface ModelSection {
   models: ModelDTO[]
 }
 
+export type ModelListView = 'flat' | 'tree'
+
 export const UNGROUPED_LABEL = '未分组'
 
 /** 分区的稳定 key（未分组用一个不可能与 uuid 冲突的常量）。 */
@@ -101,4 +103,17 @@ export function findSectionKeyOfModel(
     if (section.models.some((model) => model.id === modelId)) return sectionKey(section)
   }
   return null
+}
+
+/** 只在进入 tree 的边沿重新定位；tree 内主动钻取时保留用户当前目录。 */
+export function openedSectionOnViewChange(
+  previousView: ModelListView,
+  nextView: ModelListView,
+  currentOpenedKey: string | null,
+  sections: ModelSection[],
+  activeModelId: string | null,
+): string | null {
+  return previousView !== 'tree' && nextView === 'tree'
+    ? findSectionKeyOfModel(sections, activeModelId)
+    : currentOpenedKey
 }

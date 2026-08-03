@@ -32,6 +32,7 @@ import { db } from '../db/client'
 import {
   attachments,
   inviteCodes,
+  modelGroups,
   modelIcons,
   models,
   providers,
@@ -69,11 +70,11 @@ import {
   clearCustomIconReferences,
   createModelGroup,
   deleteModelGroup,
-  getModelGroup,
   listAdminModelGroups,
   reorderModelGroups,
   updateModelGroup,
 } from '../services/model-groups'
+import { modelIconReferencesExist } from '../services/model-icon-references'
 import {
   createModel,
   getModelAccess,
@@ -89,7 +90,7 @@ import {
   ProviderConnectionChangedError,
   syncProviderModels,
 } from '../services/providers'
-import { removeUpload, saveUpload } from '../storage/files'
+import { removeUpload, removeUploadStrict, saveUpload } from '../storage/files'
 import type { AppEnv } from '../http/types'
 
 export const adminRoutes = new Hono<AppEnv>()
@@ -294,6 +295,7 @@ adminRoutes.post('/models', jsonValidator(modelCreateSchema), async (c) => {
       provider_missing: '所属供应商不存在',
       provider_protocol_mismatch: '模型类型与所属供应商协议不匹配',
       group_missing: '所选分组不存在，请刷新后重试',
+      icon_missing: '所选图标不存在，请刷新后重试',
       anthropic_max_output_tokens_required:
         'Anthropic Messages API 必须配置正整数 max_output_tokens',
       anthropic_thinking_budget_conflict:
@@ -332,125 +334,122 @@ adminRoutes.post('/models/reorder', jsonValidator(modelReorderSchema), async (c)
 adminRoutes.patch('/models/:id', jsonValidator(modelUpdateSchema), async (c) => {
   const id = c.req.param('id')
   const input = c.req.valid('json')
-  const [existing] = await db.select().from(models).where(eq(models.id, id)).limit(1)
-  if (!existing) return c.json({ error: { message: '模型不存在', code: 'not_found' } }, 404)
-  if (input.kind !== undefined && input.kind !== existing.kind) {
-    const [provider] = await db
-      .select({ protocol: providers.protocol })
-      .from(providers)
-      .where(eq(providers.id, existing.providerId))
-      .limit(1)
-    if (!provider || !providerProtocolSupportsModelKind(provider.protocol, input.kind)) {
-      return c.json(
-        {
-          error: {
-            message: '模型类型与所属供应商协议不匹配',
-            code: 'provider_protocol_mismatch',
-          },
-        },
-        400,
-      )
-    }
-  }
+  const result = db.transaction(
+    (tx) => {
+      const existing = tx.select().from(models).where(eq(models.id, id)).limit(1).get()
+      if (!existing) return { ok: false, code: 'model_missing' } as const
 
-  const nextKind = input.kind ?? existing.kind
-  const nextDefaultParams =
-    input.defaultParams !== undefined ? input.defaultParams : existing.defaultParams
-  const nextHardParams = input.hardParams !== undefined ? input.hardParams : existing.hardParams
-  if (nextKind === 'anthropic' && !hasAnthropicMaxOutputTokens(nextDefaultParams)) {
-    return c.json(
-      {
-        error: {
-          message: 'Anthropic Messages API 必须配置正整数 max_output_tokens',
-          code: 'anthropic_max_output_tokens_required',
-        },
-      },
-      400,
-    )
-  }
-  if (
-    nextKind === 'anthropic' &&
-    hasAnthropicThinkingBudgetConflict(
-      nextHardParams?.max_tokens ?? nextDefaultParams?.max_output_tokens,
-      nextHardParams?.thinking,
-    )
-  ) {
-    return c.json(
-      {
-        error: {
-          message: 'Anthropic thinking.budget_tokens 必须小于最终 max_tokens',
-          code: 'anthropic_thinking_budget_conflict',
-        },
-      },
-      400,
-    )
-  }
+      if (input.kind !== undefined && input.kind !== existing.kind) {
+        const provider = tx
+          .select({ protocol: providers.protocol })
+          .from(providers)
+          .where(eq(providers.id, existing.providerId))
+          .limit(1)
+          .get()
+        if (!provider || !providerProtocolSupportsModelKind(provider.protocol, input.kind)) {
+          return { ok: false, code: 'provider_protocol_mismatch' } as const
+        }
+      }
 
-  let nextReasoningConfig:
-    | Pick<typeof models.$inferInsert, 'allowedEfforts' | 'defaultEffort'>
-    | undefined
-  if (input.allowedEfforts !== undefined || input.defaultEffort !== undefined) {
-    const nextAllowedEfforts = input.allowedEfforts ?? existing.allowedEfforts
-    const nextDefaultEffort =
-      input.defaultEffort !== undefined ? input.defaultEffort : existing.defaultEffort
-    if (!includesReasoningEffort(nextAllowedEfforts, nextDefaultEffort)) {
-      return c.json(
-        {
-          error: {
-            message: '默认思考等级必须包含在可用等级中',
-            code: 'invalid_default_effort',
-          },
-        },
-        400,
-      )
-    }
-    // 两项作为一个一致性单元写入：并发的部分 PATCH 最终也只会落下完整、合法的一对配置。
-    nextReasoningConfig = {
-      allowedEfforts: nextAllowedEfforts,
-      defaultEffort: nextDefaultEffort,
-    }
-  }
+      const nextKind = input.kind ?? existing.kind
+      const nextDefaultParams =
+        input.defaultParams !== undefined ? input.defaultParams : existing.defaultParams
+      const nextHardParams =
+        input.hardParams !== undefined ? input.hardParams : existing.hardParams
+      if (nextKind === 'anthropic' && !hasAnthropicMaxOutputTokens(nextDefaultParams)) {
+        return { ok: false, code: 'anthropic_max_output_tokens_required' } as const
+      }
+      if (
+        nextKind === 'anthropic' &&
+        hasAnthropicThinkingBudgetConflict(
+          nextHardParams?.max_tokens ?? nextDefaultParams?.max_output_tokens,
+          nextHardParams?.thinking,
+        )
+      ) {
+        return { ok: false, code: 'anthropic_thinking_budget_conflict' } as const
+      }
 
-  // 分组存在性显式校验：外键违例会抛成 500，这里换成可读的 400（并发删除分组时可复现）。
-  if (input.groupId) {
-    const group = await getModelGroup(input.groupId)
-    if (!group) {
-      return c.json(
-        { error: { message: '所选分组不存在，请刷新后重试', code: 'group_missing' } },
-        400,
-      )
-    }
-  }
+      let nextReasoningConfig:
+        | Pick<typeof models.$inferInsert, 'allowedEfforts' | 'defaultEffort'>
+        | undefined
+      if (input.allowedEfforts !== undefined || input.defaultEffort !== undefined) {
+        const nextAllowedEfforts = input.allowedEfforts ?? existing.allowedEfforts
+        const nextDefaultEffort =
+          input.defaultEffort !== undefined ? input.defaultEffort : existing.defaultEffort
+        if (!includesReasoningEffort(nextAllowedEfforts, nextDefaultEffort)) {
+          return { ok: false, code: 'invalid_default_effort' } as const
+        }
+        // 两项作为一个一致性单元写入，并发的部分 PATCH 不会落下不合法的半份配置。
+        nextReasoningConfig = {
+          allowedEfforts: nextAllowedEfforts,
+          defaultEffort: nextDefaultEffort,
+        }
+      }
 
-  const patch: Partial<typeof models.$inferInsert> = {}
-  // 同 id 多实例：修改 modelId 不再检查供应商内是否重复。
-  if (input.modelId !== undefined) patch.modelId = input.modelId
-  if (input.displayName !== undefined) patch.displayName = input.displayName
-  if (input.description !== undefined) patch.description = input.description
-  if (input.tags !== undefined) patch.tags = input.tags
-  if (input.icon !== undefined) patch.icon = input.icon
-  if (input.groupId !== undefined) patch.groupId = input.groupId
-  if (input.enabled !== undefined) patch.enabled = input.enabled
-  if (input.kind !== undefined) patch.kind = input.kind
-  if (input.capabilities !== undefined) patch.capabilities = input.capabilities
-  if (input.defaultSystemPrompt !== undefined) patch.defaultSystemPrompt = input.defaultSystemPrompt
-  if (input.defaultParams !== undefined || input.hardParams !== undefined) {
-    // 两项共同决定 Anthropic thinking 预算合法性；并发的部分 PATCH 也必须整对写入。
-    patch.defaultParams = nextDefaultParams
-    patch.hardParams = nextHardParams
+      if (input.groupId) {
+        const group = tx
+          .select({ id: modelGroups.id })
+          .from(modelGroups)
+          .where(eq(modelGroups.id, input.groupId))
+          .limit(1)
+          .get()
+        if (!group) return { ok: false, code: 'group_missing' } as const
+      }
+      if (input.icon !== undefined && !modelIconReferencesExist(tx, [input.icon])) {
+        return { ok: false, code: 'icon_missing' } as const
+      }
+
+      const patch: Partial<typeof models.$inferInsert> = {}
+      // 同 id 多实例：修改 modelId 不再检查供应商内是否重复。
+      if (input.modelId !== undefined) patch.modelId = input.modelId
+      if (input.displayName !== undefined) patch.displayName = input.displayName
+      if (input.description !== undefined) patch.description = input.description
+      if (input.tags !== undefined) patch.tags = input.tags
+      if (input.icon !== undefined) patch.icon = input.icon
+      if (input.groupId !== undefined) patch.groupId = input.groupId
+      if (input.enabled !== undefined) patch.enabled = input.enabled
+      if (input.kind !== undefined) patch.kind = input.kind
+      if (input.capabilities !== undefined) patch.capabilities = input.capabilities
+      if (input.defaultSystemPrompt !== undefined) {
+        patch.defaultSystemPrompt = input.defaultSystemPrompt
+      }
+      if (input.defaultParams !== undefined || input.hardParams !== undefined) {
+        patch.defaultParams = nextDefaultParams
+        patch.hardParams = nextHardParams
+      }
+      if (input.pricing !== undefined) patch.pricing = input.pricing
+      if (nextReasoningConfig) {
+        patch.allowedEfforts = nextReasoningConfig.allowedEfforts
+        patch.defaultEffort = nextReasoningConfig.defaultEffort
+      }
+      if (input.replayProviderContext !== undefined) {
+        patch.replayProviderContext = input.replayProviderContext
+      }
+      if (input.defaultWebSearch !== undefined) patch.defaultWebSearch = input.defaultWebSearch
+      if (input.defaultXSearch !== undefined) patch.defaultXSearch = input.defaultXSearch
+      if (input.sort !== undefined) patch.sort = input.sort
+      tx.update(models).set(patch).where(eq(models.id, id)).run()
+      return { ok: true } as const
+    },
+    { behavior: 'immediate' },
+  )
+
+  if (!result.ok) {
+    if (result.code === 'model_missing') {
+      return c.json({ error: { message: '模型不存在', code: 'not_found' } }, 404)
+    }
+    const messages = {
+      provider_protocol_mismatch: '模型类型与所属供应商协议不匹配',
+      anthropic_max_output_tokens_required:
+        'Anthropic Messages API 必须配置正整数 max_output_tokens',
+      anthropic_thinking_budget_conflict:
+        'Anthropic thinking.budget_tokens 必须小于最终 max_tokens',
+      invalid_default_effort: '默认思考等级必须包含在可用等级中',
+      group_missing: '所选分组不存在，请刷新后重试',
+      icon_missing: '所选图标不存在，请刷新后重试',
+    } as const
+    return c.json({ error: { message: messages[result.code], code: result.code } }, 400)
   }
-  if (input.pricing !== undefined) patch.pricing = input.pricing
-  if (nextReasoningConfig) {
-    patch.allowedEfforts = nextReasoningConfig.allowedEfforts
-    patch.defaultEffort = nextReasoningConfig.defaultEffort
-  }
-  if (input.replayProviderContext !== undefined) {
-    patch.replayProviderContext = input.replayProviderContext
-  }
-  if (input.defaultWebSearch !== undefined) patch.defaultWebSearch = input.defaultWebSearch
-  if (input.defaultXSearch !== undefined) patch.defaultXSearch = input.defaultXSearch
-  if (input.sort !== undefined) patch.sort = input.sort
-  await db.update(models).set(patch).where(eq(models.id, id))
   return c.json({ ok: true })
 })
 
@@ -463,6 +462,12 @@ adminRoutes.delete('/models/:id', async (c) => {
 adminRoutes.post('/models/icons/batch', jsonValidator(modelIconBatchSchema), async (c) => {
   const result = await applyModelIcons(c.req.valid('json').items)
   if (!result.ok) {
+    if (result.code === 'icon_missing') {
+      return c.json(
+        { error: { message: '所选图标不存在，请刷新后重试', code: result.code } },
+        400,
+      )
+    }
     return c.json(
       {
         error: {
@@ -484,13 +489,28 @@ adminRoutes.get('/model-groups', async (c) => {
 })
 
 adminRoutes.post('/model-groups', jsonValidator(modelGroupCreateSchema), async (c) => {
-  return c.json({ group: await createModelGroup(c.req.valid('json')) })
+  const result = await createModelGroup(c.req.valid('json'))
+  if (!result.ok) {
+    return c.json(
+      { error: { message: '所选图标不存在，请刷新后重试', code: result.code } },
+      400,
+    )
+  }
+  return c.json({ group: result.group })
 })
 
 adminRoutes.patch('/model-groups/:id', jsonValidator(modelGroupUpdateSchema), async (c) => {
-  const group = await updateModelGroup(c.req.param('id'), c.req.valid('json'))
-  if (!group) return c.json({ error: { message: '分组不存在', code: 'not_found' } }, 404)
-  return c.json({ group })
+  const result = await updateModelGroup(c.req.param('id'), c.req.valid('json'))
+  if (!result.ok) {
+    if (result.code === 'group_missing') {
+      return c.json({ error: { message: '分组不存在', code: 'not_found' } }, 404)
+    }
+    return c.json(
+      { error: { message: '所选图标不存在，请刷新后重试', code: result.code } },
+      400,
+    )
+  }
+  return c.json({ group: result.group })
 })
 
 /** 删除分组：组内模型回到未分组，不会被删除。 */
@@ -578,8 +598,9 @@ adminRoutes.post('/model-icons/custom', async (c) => {
   if (file.size > MAX_CUSTOM_ICON_BYTES) {
     return c.json({ error: { message: '图标最大 1MB', code: 'too_large' } }, 400)
   }
-  const nameField = typeof body['name'] === 'string' ? body['name'] : file.name
-  const parsedName = customIconNameSchema.safeParse(nameField.replace(/\.[^.]+$/, ''))
+  const nameField =
+    typeof body['name'] === 'string' ? body['name'] : file.name.replace(/\.[^.]+$/, '')
+  const parsedName = customIconNameSchema.safeParse(nameField)
   if (!parsedName.success) {
     return c.json(
       { error: { message: parsedName.error.issues[0]?.message ?? '图标名称不合法', code: 'invalid_request' } },
@@ -605,16 +626,19 @@ adminRoutes.post('/model-icons/custom', async (c) => {
 /** 删除自定义图标：同时把引用它的模型/分组图标置空（JSON 列无法靠 FK 级联）。 */
 adminRoutes.delete('/model-icons/custom/:id', async (c) => {
   const id = c.req.param('id')
-  const [icon] = await db.select().from(modelIcons).where(eq(modelIcons.id, id)).limit(1)
-  if (!icon) return c.json({ error: { message: '图标不存在', code: 'not_found' } }, 404)
-  db.transaction(
+  const removed = db.transaction(
     (tx) => {
+      const icon = tx.select().from(modelIcons).where(eq(modelIcons.id, id)).limit(1).get()
+      if (!icon) return false
       clearCustomIconReferences(tx, id)
       tx.delete(modelIcons).where(eq(modelIcons.id, id)).run()
+      // SQL 已执行但事务尚未提交；删盘失败会抛错并回滚引用与图标库记录。
+      removeUploadStrict(icon.storagePath)
+      return true
     },
     { behavior: 'immediate' },
   )
-  removeUpload(icon.storagePath)
+  if (!removed) return c.json({ error: { message: '图标不存在', code: 'not_found' } }, 404)
   return c.json({ ok: true })
 })
 

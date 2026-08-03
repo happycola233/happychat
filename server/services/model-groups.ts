@@ -9,6 +9,7 @@ import { normalizeModelIcon } from '@shared/util/modelIcon'
 import { db } from '../db/client'
 import { modelGroups, models, modelUserAccess, providers } from '../db/schema'
 import { must } from '../lib/assert'
+import { modelIconReferencesExist, type DbTransaction } from './model-icon-references'
 import { accessJoinForUser, accessibleToUser } from './models'
 
 type ModelGroupRow = typeof modelGroups.$inferSelect
@@ -71,37 +72,88 @@ export async function getModelGroup(id: string): Promise<ModelGroupRow | null> {
   return row ?? null
 }
 
-export async function createModelGroup(input: ModelGroupCreateInput): Promise<AdminModelGroupDTO> {
-  // 新分组排到末尾：取当前最大 sort + 100，沿用模型排序的稀疏步长约定。
-  const [maxRow] = await db.select({ max: sql<number | null>`max(${modelGroups.sort})` }).from(modelGroups)
-  const row = must(
-    await db
-      .insert(modelGroups)
-      .values({
-        name: input.name,
-        icon: input.icon ?? null,
-        color: input.color ?? null,
-        sort: (maxRow?.max ?? 0) + 100,
-      })
-      .returning()
-      .then((rows) => rows[0]),
+export type CreateModelGroupResult =
+  | { ok: true; group: AdminModelGroupDTO }
+  | { ok: false; code: 'icon_missing' }
+
+export async function createModelGroup(
+  input: ModelGroupCreateInput,
+): Promise<CreateModelGroupResult> {
+  return db.transaction(
+    (tx) => {
+      if (!modelIconReferencesExist(tx, [input.icon])) {
+        return { ok: false, code: 'icon_missing' } as const
+      }
+      // 新分组排到末尾：取当前最大 sort + 100，沿用模型排序的稀疏步长约定。
+      const maxRow = tx
+        .select({ max: sql<number | null>`max(${modelGroups.sort})` })
+        .from(modelGroups)
+        .get()
+      const row = must(
+        tx
+          .insert(modelGroups)
+          .values({
+            name: input.name,
+            icon: input.icon ?? null,
+            color: input.color ?? null,
+            sort: (maxRow?.max ?? 0) + 100,
+          })
+          .returning()
+          .get(),
+      )
+      return {
+        ok: true,
+        group: {
+          ...toModelGroupDTO(row),
+          modelCount: 0,
+          createdAt: row.createdAt.getTime(),
+          updatedAt: row.updatedAt.getTime(),
+        },
+      } as const
+    },
+    { behavior: 'immediate' },
   )
-  return { ...toModelGroupDTO(row), modelCount: 0, createdAt: row.createdAt.getTime(), updatedAt: row.updatedAt.getTime() }
 }
 
 /** 更新分组：undefined=不改动，null=清除图标/颜色。 */
 export async function updateModelGroup(
   id: string,
   input: ModelGroupUpdateInput,
-): Promise<ModelGroupDTO | null> {
-  if (!(await getModelGroup(id))) return null
-  const patch: Partial<typeof modelGroups.$inferInsert> = {}
-  if (input.name !== undefined) patch.name = input.name
-  if (input.icon !== undefined) patch.icon = input.icon
-  if (input.color !== undefined) patch.color = input.color
-  const [row] = await db.update(modelGroups).set(patch).where(eq(modelGroups.id, id)).returning()
-  return row ? toModelGroupDTO(row) : null
+): Promise<UpdateModelGroupResult> {
+  return db.transaction(
+    (tx) => {
+      const existing = tx
+        .select({ id: modelGroups.id })
+        .from(modelGroups)
+        .where(eq(modelGroups.id, id))
+        .limit(1)
+        .get()
+      if (!existing) return { ok: false, code: 'group_missing' } as const
+      if (input.icon !== undefined && !modelIconReferencesExist(tx, [input.icon])) {
+        return { ok: false, code: 'icon_missing' } as const
+      }
+
+      const patch: Partial<typeof modelGroups.$inferInsert> = {}
+      if (input.name !== undefined) patch.name = input.name
+      if (input.icon !== undefined) patch.icon = input.icon
+      if (input.color !== undefined) patch.color = input.color
+      const row = tx
+        .update(modelGroups)
+        .set(patch)
+        .where(eq(modelGroups.id, id))
+        .returning()
+        .get()
+      return row
+        ? ({ ok: true, group: toModelGroupDTO(row) } as const)
+        : ({ ok: false, code: 'group_missing' } as const)
+    },
+    { behavior: 'immediate' },
+  )
 }
+
+export type UpdateModelGroupResult =
+  | { ok: true; group: ModelGroupDTO }
+  | { ok: false; code: 'group_missing' | 'icon_missing' }
 
 /**
  * 删除分组：组内模型回到「未分组」，**不会被删除**。
@@ -200,6 +252,7 @@ export async function assignModelsToGroup(
 export type ApplyModelIconsResult =
   | { ok: true; updated: number }
   | { ok: false; code: 'unknown_models'; invalidIds: string[] }
+  | { ok: false; code: 'icon_missing' }
 
 /** 批量写入模型图标（管理端「批量识别图标」确认后提交的差异集）。 */
 export async function applyModelIcons(
@@ -216,6 +269,9 @@ export async function applyModelIcons(
       const updatedAtById = new Map(found.map((row) => [row.id, row.updatedAt]))
       const invalidIds = ids.filter((id) => !updatedAtById.has(id))
       if (invalidIds.length) return { ok: false, code: 'unknown_models', invalidIds } as const
+      if (!modelIconReferencesExist(tx, items.map((item) => item.icon))) {
+        return { ok: false, code: 'icon_missing' } as const
+      }
 
       for (const item of items) {
         tx.update(models)
@@ -233,7 +289,7 @@ export async function applyModelIcons(
  * 某个自定义图标被删除时，把所有引用它的模型/分组图标置空。
  * 图标是 JSON 列，无法靠 FK 级联，必须显式清理，否则前端会一直请求已删除的图标 id。
  */
-export function clearCustomIconReferences(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], iconId: string): void {
+export function clearCustomIconReferences(tx: DbTransaction, iconId: string): void {
   const modelRows = tx
     .select({ id: models.id, icon: models.icon, updatedAt: models.updatedAt })
     .from(models)

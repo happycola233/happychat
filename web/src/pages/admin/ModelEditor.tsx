@@ -381,6 +381,9 @@ export function ModelEditor({
     onSuccess: () => {
       toast.success(isCreate ? '已添加模型' : '已保存')
       qc.invalidateQueries({ queryKey: ['admin', 'models'] })
+      if (isCreate || groupId !== (model?.groupId ?? '')) {
+        qc.invalidateQueries({ queryKey: ['admin', 'model-groups'] })
+      }
       qc.invalidateQueries({ queryKey: ['models'] })
       onClose()
     },

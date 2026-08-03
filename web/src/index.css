@@ -1556,15 +1556,17 @@ html.hc-ios .hc-chat-scroll {
   mask-size: contain;
 }
 
-/* 分组图标芯片：与聊天文件夹 .hc-folder-glyph 同一套 color-mix 派生规则
-   （浅色淡底 + 主题色前景，深色加浓底色并向白色提亮前景）。 */
+/* 分组图标芯片：浅色前景向黑色混合，确保极浅自定义色仍可辨认；
+   深色模式则加浓底色并向白色提亮前景。两种主题都保留一道低对比内边界。 */
 .hc-icon-chip {
   background: color-mix(in srgb, var(--hc-icon-color) 15%, transparent);
-  color: var(--hc-icon-color);
+  color: color-mix(in srgb, var(--hc-icon-color) 55%, black);
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.08);
 }
 .dark .hc-icon-chip {
   background: color-mix(in srgb, var(--hc-icon-color) 24%, transparent);
   color: color-mix(in srgb, var(--hc-icon-color) 78%, white);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.08);
 }
 
 /* ===================== 登录 / 注册 ===================== */

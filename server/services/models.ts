@@ -20,6 +20,7 @@ import { db } from '../db/client'
 import { models, modelGroups, modelUserAccess, providers, users } from '../db/schema'
 import { must } from '../lib/assert'
 import { maskSecret } from '../lib/mask'
+import { modelIconReferencesExist } from './model-icon-references'
 
 type ModelRow = typeof models.$inferSelect
 type ProviderRow = typeof providers.$inferSelect
@@ -282,6 +283,7 @@ export type CreateModelResult =
         | 'provider_missing'
         | 'provider_protocol_mismatch'
         | 'group_missing'
+        | 'icon_missing'
         | 'anthropic_max_output_tokens_required'
         | 'anthropic_thinking_budget_conflict'
     }
@@ -324,6 +326,9 @@ export async function createModel(input: ModelCreateInput): Promise<CreateModelR
           .limit(1)
           .get()
         if (!group) return { ok: false, code: 'group_missing' } as const
+      }
+      if (!modelIconReferencesExist(tx, [input.icon])) {
+        return { ok: false, code: 'icon_missing' } as const
       }
 
       const row = must(

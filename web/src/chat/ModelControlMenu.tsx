@@ -551,6 +551,7 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
   const activeEffort = useChatPrefs((s) => s.activeEffort)
   const activeWebSearch = useChatPrefs((s) => s.activeWebSearch)
   const activeXSearch = useChatPrefs((s) => s.activeXSearch)
+  const modelPickerView = useSettings((s) => s.preferences.modelPickerView)
   const isMobile = useIsMobile()
   const [open, setOpen] = useState(false)
   // 桌面弹层实际方向与限高：首选方向空间不足且对侧更宽裕时翻转，再按所选方向的空间限高。
@@ -573,9 +574,10 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
   const menuId = useId()
 
   const model = models?.find((m) => m.id === activeModelId)
-  // 切换模型后分区增减（思考/联网/图片参数）会改变面板尺寸：让高度平滑过渡而非跳变。
-  useHeightTransition(desktopPanelRef, model?.id)
-  useHeightTransition(mobileDialogRef, model?.id)
+  // 切换模型或列表视图都会改变面板尺寸，两类提交共用同一份高度过渡签名。
+  const heightSignature = `${model?.id ?? ''}␟${modelPickerView}`
+  useHeightTransition(desktopPanelRef, heightSignature)
+  useHeightTransition(mobileDialogRef, heightSignature)
 
   // —— 触发器上直接反映本次请求会用到的思考深度与检索开关状态（下方渲染与宽度过渡共用）——
   const isImage = model?.kind === 'image'

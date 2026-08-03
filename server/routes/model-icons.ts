@@ -7,8 +7,10 @@ import { modelIcons } from '../db/schema'
 import type { AppEnv } from '../http/types'
 import {
   getLobeIconCatalog,
-  lobeIconsVersion,
+  lobeIconAssetVersion,
   readLobeIcon,
+  renderLobeIconForTheme,
+  type LobeIconTheme,
 } from '../services/lobe-icons'
 import { mimeFromPath, readUpload } from '../storage/files'
 
@@ -24,11 +26,12 @@ modelIconRoutes.use('*', requireUser)
 
 /** 内置图标目录：供管理端图标选择器搜索。ETag 取包版本，升级依赖时自然失效。 */
 modelIconRoutes.get('/catalog', (c) => {
-  const etag = `"lobe-icons-${lobeIconsVersion}"`
+  const etag = `"lobe-icons-${lobeIconAssetVersion}"`
   c.header('ETag', etag)
-  c.header('Cache-Control', 'public, max-age=86400')
+  // 目录提供后续 SVG URL 的版本号，页面重载时必须先确认它仍是最新；会话内由 Query cache 去重。
+  c.header('Cache-Control', 'no-cache')
   if (c.req.header('if-none-match') === etag) return c.body(null, 304)
-  return c.json({ version: lobeIconsVersion, icons: getLobeIconCatalog() })
+  return c.json({ version: lobeIconAssetVersion, icons: getLobeIconCatalog() })
 })
 
 modelIconRoutes.get('/lobe/:slug', (c) => {
@@ -41,16 +44,26 @@ modelIconRoutes.get('/lobe/:slug', (c) => {
   if (svg === null) {
     return c.json({ error: { message: '图标不存在', code: 'not_found' } }, 404)
   }
-  const etag = `"lobe-${lobeIconsVersion}-${slug}"`
+  const requestedTheme = c.req.query('theme')
+  if (requestedTheme !== undefined && requestedTheme !== 'light' && requestedTheme !== 'dark') {
+    return c.json({ error: { message: '图标主题不合法', code: 'invalid_theme' } }, 400)
+  }
+  const theme: LobeIconTheme = requestedTheme ?? 'light'
+  const etag = `"lobe-${lobeIconAssetVersion}-${theme}-${slug}"`
   c.header('ETag', etag)
-  // 内容随包版本固定：同一 URL 的字节永远不变，可安全用 immutable 长缓存。
-  c.header('Cache-Control', 'public, max-age=31536000, immutable')
+  // 只有 URL 显式携带当前目录版本时字节才真正不可变；首帧无版本或旧版本请求必须重验证。
+  c.header(
+    'Cache-Control',
+    c.req.query('v') === lobeIconAssetVersion
+      ? 'public, max-age=31536000, immutable'
+      : 'no-cache',
+  )
   if (c.req.header('if-none-match') === etag) return c.body(null, 304)
   c.header('Content-Type', 'image/svg+xml; charset=utf-8')
   // 图标可能被当作 <img> 加载：显式禁止嗅探，并禁掉 SVG 内联脚本的执行环境。
   c.header('X-Content-Type-Options', 'nosniff')
   c.header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox")
-  return c.body(svg)
+  return c.body(renderLobeIconForTheme(svg, theme))
 })
 
 modelIconRoutes.get('/custom/:id', async (c) => {

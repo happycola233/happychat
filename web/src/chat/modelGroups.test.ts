@@ -6,6 +6,7 @@ import {
   findSectionKeyOfModel,
   flattenSections,
   hasGroupStructure,
+  openedSectionOnViewChange,
   sectionKey,
   sectionName,
 } from './modelGroups'
@@ -153,5 +154,24 @@ describe('findSectionKeyOfModel', () => {
   it('returns null for unknown or missing ids', () => {
     expect(findSectionKeyOfModel(sections, null)).toBeNull()
     expect(findSectionKeyOfModel(sections, 'nope')).toBeNull()
+  })
+})
+
+describe('openedSectionOnViewChange', () => {
+  const sections = buildModelSections(
+    [model('model-a', { groupId: openai.id }), model('model-b', { groupId: anthropic.id })],
+    [openai, anthropic],
+  )
+
+  it('uses the latest active model when entering tree view', () => {
+    expect(openedSectionOnViewChange('flat', 'tree', openai.id, sections, 'model-b')).toBe(
+      anthropic.id,
+    )
+  })
+
+  it('does not override deliberate navigation while already in tree view', () => {
+    expect(openedSectionOnViewChange('tree', 'tree', openai.id, sections, 'model-b')).toBe(
+      openai.id,
+    )
   })
 })

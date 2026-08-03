@@ -32,8 +32,12 @@ const CHIP_SIZE_CLASS: Record<IconSize, string> = {
 
 const CHIP_GLYPH_SIZE: Record<IconSize, IconSize> = { xs: 'xs', sm: 'xs', md: 'sm', lg: 'lg' }
 
-function lobeIconUrl(slug: string): string {
-  return `/api/model-icons/lobe/${encodeURIComponent(slug)}`
+function lobeIconUrl(slug: string, version?: string, theme?: 'light' | 'dark'): string {
+  const params = new URLSearchParams()
+  if (version) params.set('v', version)
+  if (theme) params.set('theme', theme)
+  const query = params.toString()
+  return `/api/model-icons/lobe/${encodeURIComponent(slug)}${query ? `?${query}` : ''}`
 }
 
 function customIconUrl(id: string): string {
@@ -41,7 +45,7 @@ function customIconUrl(id: string): string {
 }
 
 /**
- * 内置图标未加载到目录时的兜底判定：`-color` / `-brand` 后缀基本都是固定品牌色。
+ * 内置图标未加载到目录时的兜底判定：`-color` / `-brand` 后缀基本都含固定品牌色。
  * 只用于目录到达前的首帧，目录到达后一律以服务端扫描出的精确 mono 标记为准
  * （少数 `-color` 图标内部其实也用 currentColor，纯靠后缀会判错）。
  */
@@ -54,7 +58,8 @@ function guessMono(slug: string): boolean {
  *
  * 三条渲染路径：
  * - 内置单色图标 → CSS mask + currentColor，随主题与 hover 态自动变色；
- * - 内置彩色图标 / 自定义上传 → `<img>`；
+ * - 内置彩色图标 → 按明暗主题请求服务端着色后的 background image；
+ * - 自定义上传 → `<img>`；
  * - Emoji → 直接渲染字符。
  * 都没有时按 modelId 自动识别品牌图标，仍认不出才退到首字母色块。
  */
@@ -73,7 +78,7 @@ export function ModelIconMark({
   size?: IconSize
   className?: string
 }) {
-  const { data: monoBySlug } = useLobeIconCatalog()
+  const { data: catalog } = useLobeIconCatalog()
 
   // 未显式配置图标时按 modelId 猜一个品牌图标：管理员什么都不配也能开箱即用地看到品牌标识，
   // 管理端的「批量识别图标」只是把同一份猜测固化成可编辑的显式值。
@@ -97,24 +102,38 @@ export function ModelIconMark({
   }
 
   if (resolved?.type === 'lobe' && LOBE_ICON_SLUG_PATTERN.test(resolved.slug)) {
-    const mono = monoBySlug?.get(resolved.slug) ?? guessMono(resolved.slug)
+    const mono = catalog?.monoBySlug[resolved.slug] ?? guessMono(resolved.slug)
     if (mono) {
       return (
         <span
           aria-hidden
           className={clsx('shrink-0', SIZE_CLASS[size], 'hc-icon-mask', className)}
-          style={{ '--hc-icon-url': `url("${lobeIconUrl(resolved.slug)}")` } as CSSProperties}
+          style={
+            {
+              '--hc-icon-url': `url("${lobeIconUrl(resolved.slug, catalog?.version)}")`,
+            } as CSSProperties
+          }
         />
       )
     }
+    const colorIconClass = 'shrink-0 bg-contain bg-center bg-no-repeat'
     return (
-      <img
-        aria-hidden
-        alt=""
-        loading="lazy"
-        src={lobeIconUrl(resolved.slug)}
-        className={clsx('shrink-0 object-contain', SIZE_CLASS[size], className)}
-      />
+      <>
+        <span
+          aria-hidden
+          className={clsx(colorIconClass, 'block dark:hidden', SIZE_CLASS[size], className)}
+          style={{
+            backgroundImage: `url("${lobeIconUrl(resolved.slug, catalog?.version, 'light')}")`,
+          }}
+        />
+        <span
+          aria-hidden
+          className={clsx(colorIconClass, 'hidden dark:block', SIZE_CLASS[size], className)}
+          style={{
+            backgroundImage: `url("${lobeIconUrl(resolved.slug, catalog?.version, 'dark')}")`,
+          }}
+        />
+      </>
     )
   }
 

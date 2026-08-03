@@ -65,7 +65,7 @@ function GroupRow({
         ref={setActivatorNodeRef}
         type="button"
         aria-label={`拖拽排序「${group.name}」`}
-        className="flex h-8 w-6 cursor-grab items-center justify-center text-neutral-300 transition hover:text-neutral-500 active:cursor-grabbing dark:text-neutral-600 dark:hover:text-neutral-400"
+        className="flex h-8 w-6 touch-none cursor-grab items-center justify-center text-neutral-300 transition hover:text-neutral-500 active:cursor-grabbing dark:text-neutral-600 dark:hover:text-neutral-400"
         {...attributes}
         {...listeners}
       >

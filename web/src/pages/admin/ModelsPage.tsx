@@ -126,7 +126,10 @@ function ModelRow({
       )}
     >
       {batchMode ? (
-        <span className="flex h-8 w-6 shrink-0 items-center justify-center">
+        <span
+          className="flex h-8 w-6 shrink-0 items-center justify-center"
+          onClick={(event) => event.stopPropagation()}
+        >
           <IndeterminateCheckbox
             checked={selected}
             onChange={onToggleSelected}
@@ -328,6 +331,7 @@ export default function ModelsPage() {
     onSuccess: () => {
       toast.success('已删除')
       invalidate()
+      qc.invalidateQueries({ queryKey: ['admin', 'model-groups'] })
       qc.invalidateQueries({ queryKey: ['models'] })
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : '删除失败'),

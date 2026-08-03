@@ -42,21 +42,21 @@ function LobeIconGrid({
   onChange: (icon: ModelIcon) => void
 }) {
   const [search, setSearch] = useState('')
-  const { data: monoBySlug, isPending } = useLobeIconCatalog()
+  const { data: catalog, isPending } = useLobeIconCatalog()
 
   const slugs = useMemo(() => {
     const keyword = search.trim().toLowerCase()
     if (!keyword) return CURATED_ICON_SLUGS
-    if (!monoBySlug) return []
+    if (!catalog) return []
     const matched: string[] = []
-    for (const slug of monoBySlug.keys()) {
+    for (const slug of catalog.slugs) {
       if (slug.includes(keyword)) {
         matched.push(slug)
         if (matched.length >= ICON_SEARCH_RESULT_LIMIT) break
       }
     }
     return matched.sort()
-  }, [search, monoBySlug])
+  }, [search, catalog])
 
   const searching = search.trim().length > 0
   const truncated = searching && slugs.length >= ICON_SEARCH_RESULT_LIMIT
@@ -114,12 +114,12 @@ function LobeIconGrid({
 }
 
 /** 自定义图标库：上传一次，可被多个模型/分组引用。 */
-function CustomIconGrid({
+export function CustomIconGrid({
   value,
   onChange,
 }: {
   value: ModelIcon | null
-  onChange: (icon: ModelIcon) => void
+  onChange: (icon: ModelIcon | null) => void
 }) {
   const qc = useQueryClient()
   const fileRef = useRef<HTMLInputElement>(null)
@@ -141,16 +141,29 @@ function CustomIconGrid({
 
   const remove = useMutation({
     mutationFn: adminApi.deleteCustomIcon,
-    onSuccess: () => {
+    onSuccess: (_result, deletedId) => {
       toast.success('已删除图标')
       void qc.invalidateQueries({ queryKey: ['admin', 'custom-icons'] })
       // 引用它的模型/分组已被服务端置空，两份列表都要刷新。
       void qc.invalidateQueries({ queryKey: ['admin', 'models'] })
       void qc.invalidateQueries({ queryKey: ['admin', 'model-groups'] })
       void qc.invalidateQueries({ queryKey: ['models'] })
+      // 当前编辑草稿不会随 Query 缓存刷新；删的是当前值时要同步清空，避免保存后写回悬空 id。
+      if (value?.type === 'custom' && value.id === deletedId) onChange(null)
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : '删除失败'),
   })
+
+  const requestRemove = (icon: { id: string; name: string }) => {
+    void askConfirm({
+      title: '删除自定义图标？',
+      description: `「${icon.name}」将从图标库移除，正在使用它的模型与分组会恢复为默认图标。`,
+      confirmLabel: '删除',
+      tone: 'danger',
+    }).then((ok) => {
+      if (ok) remove.mutate(icon.id)
+    })
+  }
 
   const onPick = (file: File | undefined) => {
     if (!file) return
@@ -160,6 +173,8 @@ function CustomIconGrid({
     }
     upload.mutate({ file, name: file.name.replace(/\.[^.]+$/, '').slice(0, 40) || '自定义图标' })
   }
+  const selectedCustomIcon =
+    value?.type === 'custom' ? icons?.find((icon) => icon.id === value.id) : undefined
 
   return (
     <div className="space-y-2">
@@ -205,24 +220,25 @@ function CustomIconGrid({
                 <button
                   type="button"
                   aria-label={`删除图标「${icon.name}」`}
-                  onClick={() => {
-                    void askConfirm({
-                      title: '删除自定义图标？',
-                      description: `「${icon.name}」将从图标库移除，正在使用它的模型与分组会恢复为默认图标。`,
-                      confirmLabel: '删除',
-                      tone: 'danger',
-                    }).then((ok) => {
-                      if (ok) remove.mutate(icon.id)
-                    })
-                  }}
-                  className="absolute -right-1 -top-1 hidden h-4 w-4 items-center justify-center rounded-full bg-neutral-700 text-white shadow group-hover/icon:flex dark:bg-neutral-200 dark:text-neutral-900"
+                  onClick={() => requestRemove(icon)}
+                  className="absolute -right-1 -top-1 hidden h-5 w-5 items-center justify-center rounded-full bg-neutral-700 text-white shadow transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 sm:group-hover/icon:flex sm:group-focus-within/icon:flex dark:bg-neutral-200 dark:text-neutral-900"
                 >
-                  <Trash2 className="h-2.5 w-2.5" />
+                  <Trash2 className="h-3 w-3" />
                 </button>
               </div>
             )
           })}
         </div>
+      )}
+      {selectedCustomIcon && (
+        <button
+          type="button"
+          onClick={() => requestRemove(selectedCustomIcon)}
+          className="flex h-10 w-full items-center justify-center gap-1.5 rounded-lg text-xs text-red-600 transition hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 sm:hidden dark:text-red-400 dark:hover:bg-red-950/30"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+          删除当前图标「{selectedCustomIcon.name}」
+        </button>
       )}
       <button
         type="button"
@@ -351,7 +367,12 @@ export function IconPicker({
           </div>
 
           {tab === 'lobe' && <LobeIconGrid value={value} onChange={select} />}
-          {tab === 'custom' && <CustomIconGrid value={value} onChange={select} />}
+          {tab === 'custom' && (
+            <CustomIconGrid
+              value={value}
+              onChange={(icon) => (icon ? select(icon) : onChange(null))}
+            />
+          )}
           {tab === 'emoji' && (
             <div className="h-56">
               <Suspense
