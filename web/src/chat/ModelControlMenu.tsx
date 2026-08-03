@@ -790,7 +790,7 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
             ref={desktopPanelRef}
             role="dialog"
             aria-label="模型与参数"
-            className="hc-pop-in hc-scrollbar flex max-h-[min(70vh,32rem)] w-80 max-w-[calc(100vw-1.5rem)] flex-col overflow-y-auto rounded-2xl border border-neutral-200 bg-white text-neutral-700 shadow-[0_12px_40px_rgb(0_0_0/0.14)] dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:shadow-[0_12px_40px_rgb(0_0_0/0.45)]"
+            className="hc-pop-in hc-scrollbar flex max-h-[min(70vh,32rem)] w-fit min-w-80 max-w-[min(24rem,calc(100vw-1.5rem))] flex-col overflow-y-auto rounded-2xl border border-neutral-200 bg-white text-neutral-700 shadow-[0_12px_40px_rgb(0_0_0/0.14)] dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:shadow-[0_12px_40px_rgb(0_0_0/0.45)]"
             style={{
               ...(menuMaxHeight !== null ? { maxHeight: menuMaxHeight } : null),
               // 缩放动画从贴近触发器的一侧展开：向上弹用 bottom、侧向弹用 right，其余用 top。
