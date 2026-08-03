@@ -3,8 +3,8 @@ import { LOBE_ICON_SLUG_PATTERN } from './modelIcon'
 /**
  * 按上游模型 ID 自动识别品牌图标。
  *
- * 规则**按顺序**匹配，先具体后宽泛（例如 `gpt-image` 必须排在 `gpt` 之前，否则生图模型会被
- * 认成普通 GPT）。匹配对象是小写化的 modelId，未命中时再退一步匹配 displayName——
+ * 规则**按顺序**匹配，先具体后宽泛（例如 GPT Image 与 DALL·E 必须先分开识别，
+ * 不能因为都能生图就共用 DALL·E 品牌图标）。匹配对象是小写化的 modelId，未命中时再退一步匹配 displayName——
  * 网关常把上游 id 改成 `xxx/claude-sonnet-5` 之类，而管理员填的外显名往往更干净。
  *
  * 取色原则：**有官方彩色版就用彩色版**（品牌辨识度是图标存在的意义），
@@ -20,8 +20,10 @@ interface IconGuessRule {
 }
 
 const RULES: readonly IconGuessRule[] = [
-  // —— OpenAI 家族（生图/视频等专用标识优先于通用 gpt）——
-  { test: /gpt-image|dall[\s._-]?e/, slug: 'dalle-color' },
+  // —— OpenAI 家族（产品专属标识优先于通用品牌）——
+  // GPT Image 与 DALL·E 是不同模型家族；图标包暂无 GPT Image 专属标识，因此使用 OpenAI 通用图标。
+  { test: /gpt[\s._-]?image/, slug: 'openai' },
+  { test: /dall[\s._-]?e/, slug: 'dalle-color' },
   { test: /\bsora\b/, slug: 'sora-color' },
   { test: /\bcodex\b/, slug: 'codex-color' },
   { test: /\bwhisper\b|text-embedding|\btts-|gpt|chatgpt|\bo[1-9](?:-|$)/, slug: 'openai' },

@@ -11,7 +11,7 @@ describe('guessModelIconSlug', () => {
     ['o3-mini', 'openai'],
     ['chatgpt-4o-latest', 'openai'],
     ['text-embedding-3-large', 'openai'],
-    ['gpt-image-2', 'dalle-color'],
+    ['gpt-image-2', 'openai'],
     ['dall-e-3', 'dalle-color'],
     ['sora-2', 'sora-color'],
     ['claude-sonnet-5', 'claude-color'],
@@ -67,9 +67,10 @@ describe('guessModelIconSlug', () => {
     expect(guessModelIconSlug('')).toBeNull()
   })
 
-  it('prefers the more specific rule when several could match', () => {
-    // gpt-image 必须先于通用 gpt 命中，否则生图模型会拿到 OpenAI 通用标识。
-    expect(guessModelIconSlug('gpt-image-2')).toBe('dalle-color')
+  it('keeps GPT Image separate from DALL·E branding', () => {
+    expect(guessModelIconSlug('gpt-image-2')).toBe('openai')
+    expect(guessModelIconSlug('openai/gpt-image-2-2026-04-21')).toBe('openai')
+    expect(guessModelIconSlug('dall-e-3')).toBe('dalle-color')
   })
 
   /**
