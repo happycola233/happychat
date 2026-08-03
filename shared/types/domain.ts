@@ -60,6 +60,21 @@ export interface ModelTag {
 export type StoredModelTag = string | ModelTag
 
 /**
+ * 模型 / 模型分组的图标。三种来源收敛到同一个 JSON 字段与同一个选择器：
+ * - lobe：自托管的 @lobehub/icons-static-svg 内置库，slug 即文件名（不含 .svg）。
+ *   单色图标内部是 fill="currentColor"，前端用 CSS mask 渲染以随主题变色。
+ * - custom：管理员上传的自定义图标（model_icons.id）。
+ * - emoji：单个字素簇，与聊天文件夹的 Emoji 图标同一套输入规则。
+ */
+export type ModelIcon =
+  | { type: 'lobe'; slug: string }
+  | { type: 'custom'; id: string }
+  | { type: 'emoji'; char: string }
+
+/** models.icon / model_groups.icon JSON 列的存储形态；null=未配置（模型会回退到自动识别）。 */
+export type StoredModelIcon = ModelIcon | null
+
+/**
  * 原样发送给上游的 reasoning.effort 值。
  *
  * 不再使用封闭联合类型：不同模型、OpenAI 兼容上游以及未来模型可能提供不同档位，
@@ -219,6 +234,9 @@ export type MessageTimeFormat = 'time' | 'datetime'
 /** ChatGPT 风重点色：驱动用户消息气泡与发送按钮。 */
 export type AccentColor = 'default' | 'blue' | 'green' | 'yellow' | 'pink' | 'orange' | 'purple'
 
+/** 模型选择器列表视图：平铺（分组标题可折叠）/ 二级目录（先选分组再钻取模型）。 */
+export type ModelPickerView = 'flat' | 'tree'
+
 /**
  * 账户级用户偏好：服务端为源（持久化到 user_settings.preferences），
  * 前端以 localStorage 作首屏缓存避免闪烁。注意区别于 store/chat.ts 里的
@@ -240,6 +258,8 @@ export interface UserPreferences {
   sendOnEnterMobile: boolean
   /** 默认展开推理摘要（关闭则推理摘要默认保持折叠，不随生成自动展开） */
   defaultExpandReasoning: boolean
+  /** 模型选择器的列表视图：平铺（分组标题可折叠）/ 二级目录（先选分组再选模型） */
+  modelPickerView: ModelPickerView
   // —— 消息显示 ——
   /** 重点色：用户消息气泡、设置菜单色点与发送按钮 */
   accentColor: AccentColor

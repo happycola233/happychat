@@ -1,4 +1,4 @@
-import type { AccentColor, UserPreferences } from '../types/domain'
+import type { AccentColor, ModelPickerView, UserPreferences } from '../types/domain'
 
 export const ACCENT_COLORS = [
   'default',
@@ -10,6 +10,8 @@ export const ACCENT_COLORS = [
   'purple',
 ] as const satisfies readonly AccentColor[]
 
+export const MODEL_PICKER_VIEWS = ['flat', 'tree'] as const satisfies readonly ModelPickerView[]
+
 /** 账户级偏好的默认值，前后端共用以保证一致。 */
 export const DEFAULT_PREFERENCES: UserPreferences = {
   autoScrollOnOpen: true,
@@ -19,6 +21,7 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   sendOnEnterDesktop: true,
   sendOnEnterMobile: false,
   defaultExpandReasoning: true,
+  modelPickerView: 'flat',
   accentColor: 'default',
   messageFontSize: 'medium',
   showMessageTime: true,
@@ -29,6 +32,10 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
 
 function isAccentColor(value: unknown): value is AccentColor {
   return typeof value === 'string' && (ACCENT_COLORS as readonly string[]).includes(value)
+}
+
+function isModelPickerView(value: unknown): value is ModelPickerView {
+  return typeof value === 'string' && (MODEL_PICKER_VIEWS as readonly string[]).includes(value)
 }
 
 /**
@@ -56,6 +63,9 @@ export function mergePreferences(
     sendOnEnterMobile: partial?.sendOnEnterMobile ?? DEFAULT_PREFERENCES.sendOnEnterMobile,
     defaultExpandReasoning:
       partial?.defaultExpandReasoning ?? DEFAULT_PREFERENCES.defaultExpandReasoning,
+    modelPickerView: isModelPickerView(partial?.modelPickerView)
+      ? partial.modelPickerView
+      : DEFAULT_PREFERENCES.modelPickerView,
     accentColor: isAccentColor(partial?.accentColor)
       ? partial.accentColor
       : DEFAULT_PREFERENCES.accentColor,

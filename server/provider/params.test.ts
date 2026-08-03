@@ -12,6 +12,8 @@ function model(overrides: Partial<ModelForBuild> = {}): ModelForBuild {
     displayName: 'GPT Test',
     description: null,
     tags: null,
+    icon: null,
+    groupId: null,
     kind: 'responses',
     enabled: true,
     accessMode: 'all',

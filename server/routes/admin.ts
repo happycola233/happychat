@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import type { Context } from 'hono'
-import { eq } from 'drizzle-orm'
+import { desc, eq } from 'drizzle-orm'
 import {
   modelCreateSchema,
   modelAccessUpdateSchema,
@@ -10,6 +10,15 @@ import {
   providerCreateSchema,
   providerUpdateSchema,
 } from '@shared/schemas/model-config'
+import {
+  customIconNameSchema,
+  modelGroupAssignSchema,
+  modelGroupCreateSchema,
+  modelGroupReorderSchema,
+  modelGroupUpdateSchema,
+  modelIconBatchSchema,
+} from '@shared/schemas/model-group'
+import { MAX_CUSTOM_ICON_BYTES } from '@shared/util/modelIcon'
 import { inviteCreateSchema, statsFilterSchema, userUpdateSchema } from '@shared/schemas/admin'
 import { appConfigUpdateSchema } from '@shared/schemas/app-config'
 import {
@@ -20,8 +29,16 @@ import { normalizeReasoningEffortOptions } from '@shared/util/reasoning'
 import { providerProtocolSupportsModelKind } from '@shared/util/providerProtocol'
 import { announcementCreateSchema, announcementUpdateSchema } from '@shared/schemas/announcement'
 import { db } from '../db/client'
-import { attachments, inviteCodes, models, providers, usageLogs, users } from '../db/schema'
-import { genInviteCode } from '../lib/id'
+import {
+  attachments,
+  inviteCodes,
+  modelIcons,
+  models,
+  providers,
+  usageLogs,
+  users,
+} from '../db/schema'
+import { genInviteCode, newId } from '../lib/id'
 import { providerClientFromRow } from '../provider/client'
 import { requireAdmin } from '../auth/middleware'
 import { destroyAllUserSessions } from '../auth/session'
@@ -47,6 +64,17 @@ import {
 } from '../services/announcements'
 import { listAllShares, revokeShare } from '../services/shares'
 import {
+  applyModelIcons,
+  assignModelsToGroup,
+  clearCustomIconReferences,
+  createModelGroup,
+  deleteModelGroup,
+  getModelGroup,
+  listAdminModelGroups,
+  reorderModelGroups,
+  updateModelGroup,
+} from '../services/model-groups'
+import {
   createModel,
   getModelAccess,
   getProviderDetail,
@@ -61,7 +89,7 @@ import {
   ProviderConnectionChangedError,
   syncProviderModels,
 } from '../services/providers'
-import { removeUpload } from '../storage/files'
+import { removeUpload, saveUpload } from '../storage/files'
 import type { AppEnv } from '../http/types'
 
 export const adminRoutes = new Hono<AppEnv>()
@@ -265,6 +293,7 @@ adminRoutes.post('/models', jsonValidator(modelCreateSchema), async (c) => {
     const errorMessages = {
       provider_missing: '所属供应商不存在',
       provider_protocol_mismatch: '模型类型与所属供应商协议不匹配',
+      group_missing: '所选分组不存在，请刷新后重试',
       anthropic_max_output_tokens_required:
         'Anthropic Messages API 必须配置正整数 max_output_tokens',
       anthropic_thinking_budget_conflict:
@@ -382,12 +411,25 @@ adminRoutes.patch('/models/:id', jsonValidator(modelUpdateSchema), async (c) => 
     }
   }
 
+  // 分组存在性显式校验：外键违例会抛成 500，这里换成可读的 400（并发删除分组时可复现）。
+  if (input.groupId) {
+    const group = await getModelGroup(input.groupId)
+    if (!group) {
+      return c.json(
+        { error: { message: '所选分组不存在，请刷新后重试', code: 'group_missing' } },
+        400,
+      )
+    }
+  }
+
   const patch: Partial<typeof models.$inferInsert> = {}
   // 同 id 多实例：修改 modelId 不再检查供应商内是否重复。
   if (input.modelId !== undefined) patch.modelId = input.modelId
   if (input.displayName !== undefined) patch.displayName = input.displayName
   if (input.description !== undefined) patch.description = input.description
   if (input.tags !== undefined) patch.tags = input.tags
+  if (input.icon !== undefined) patch.icon = input.icon
+  if (input.groupId !== undefined) patch.groupId = input.groupId
   if (input.enabled !== undefined) patch.enabled = input.enabled
   if (input.kind !== undefined) patch.kind = input.kind
   if (input.capabilities !== undefined) patch.capabilities = input.capabilities
@@ -414,6 +456,165 @@ adminRoutes.patch('/models/:id', jsonValidator(modelUpdateSchema), async (c) => 
 
 adminRoutes.delete('/models/:id', async (c) => {
   await db.delete(models).where(eq(models.id, c.req.param('id')))
+  return c.json({ ok: true })
+})
+
+/** 批量套用图标（管理端「批量识别图标」）。任一模型不存在则整批失败。 */
+adminRoutes.post('/models/icons/batch', jsonValidator(modelIconBatchSchema), async (c) => {
+  const result = await applyModelIcons(c.req.valid('json').items)
+  if (!result.ok) {
+    return c.json(
+      {
+        error: {
+          message: '部分模型已不存在，请刷新后重试',
+          code: result.code,
+          detail: { modelIds: result.invalidIds },
+        },
+      },
+      400,
+    )
+  }
+  return c.json({ ok: true, updated: result.updated })
+})
+
+// ---------------- 模型分组 ----------------
+
+adminRoutes.get('/model-groups', async (c) => {
+  return c.json({ groups: await listAdminModelGroups() })
+})
+
+adminRoutes.post('/model-groups', jsonValidator(modelGroupCreateSchema), async (c) => {
+  return c.json({ group: await createModelGroup(c.req.valid('json')) })
+})
+
+adminRoutes.patch('/model-groups/:id', jsonValidator(modelGroupUpdateSchema), async (c) => {
+  const group = await updateModelGroup(c.req.param('id'), c.req.valid('json'))
+  if (!group) return c.json({ error: { message: '分组不存在', code: 'not_found' } }, 404)
+  return c.json({ group })
+})
+
+/** 删除分组：组内模型回到未分组，不会被删除。 */
+adminRoutes.delete('/model-groups/:id', async (c) => {
+  const removed = await deleteModelGroup(c.req.param('id'))
+  if (!removed) return c.json({ error: { message: '分组不存在', code: 'not_found' } }, 404)
+  return c.json({ ok: true })
+})
+
+adminRoutes.post('/model-groups/reorder', jsonValidator(modelGroupReorderSchema), async (c) => {
+  const result = await reorderModelGroups(c.req.valid('json').groupIds)
+  if (!result.ok) {
+    return c.json(
+      {
+        error: {
+          message: '分组列表已变化，请刷新后重试',
+          code: result.code,
+          detail: { invalidIds: result.invalidIds },
+        },
+      },
+      400,
+    )
+  }
+  return c.json({ ok: true })
+})
+
+/** 批量把模型移入分组（groupId=null 为移出分组）。 */
+adminRoutes.post('/model-groups/assign', jsonValidator(modelGroupAssignSchema), async (c) => {
+  const { groupId, modelIds } = c.req.valid('json')
+  const result = await assignModelsToGroup(groupId, modelIds)
+  if (!result.ok) {
+    if (result.code === 'group_missing') {
+      return c.json({ error: { message: '分组不存在，请刷新后重试', code: 'not_found' } }, 404)
+    }
+    return c.json(
+      {
+        error: {
+          message: '部分模型已不存在，请刷新后重试',
+          code: result.code,
+          detail: { modelIds: result.invalidIds },
+        },
+      },
+      400,
+    )
+  }
+  return c.json({ ok: true, moved: result.moved })
+})
+
+// ---------------- 自定义图标库 ----------------
+
+/** 图标是小图；1MB 足以容纳任何合理的 SVG/PNG，也能挡住误传的大图。 */
+const CUSTOM_ICON_MIMES = new Set([
+  'image/svg+xml',
+  'image/png',
+  'image/webp',
+  'image/jpeg',
+  'image/gif',
+])
+
+adminRoutes.get('/model-icons/custom', async (c) => {
+  const rows = await db.select().from(modelIcons).orderBy(desc(modelIcons.createdAt))
+  return c.json({
+    icons: rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      createdAt: row.createdAt.getTime(),
+    })),
+  })
+})
+
+adminRoutes.post('/model-icons/custom', async (c) => {
+  const body = await c.req.parseBody()
+  const file = body['file']
+  if (!(file instanceof File)) {
+    return c.json({ error: { message: '未收到文件', code: 'no_file' } }, 400)
+  }
+  const mime = (file.type.split(';')[0] ?? '').trim().toLowerCase()
+  if (!CUSTOM_ICON_MIMES.has(mime)) {
+    return c.json(
+      { error: { message: '图标需为 SVG/PNG/WebP/JPEG/GIF', code: 'bad_type' } },
+      400,
+    )
+  }
+  if (file.size === 0) return c.json({ error: { message: '文件为空', code: 'empty' } }, 400)
+  if (file.size > MAX_CUSTOM_ICON_BYTES) {
+    return c.json({ error: { message: '图标最大 1MB', code: 'too_large' } }, 400)
+  }
+  const nameField = typeof body['name'] === 'string' ? body['name'] : file.name
+  const parsedName = customIconNameSchema.safeParse(nameField.replace(/\.[^.]+$/, ''))
+  if (!parsedName.success) {
+    return c.json(
+      { error: { message: parsedName.error.issues[0]?.message ?? '图标名称不合法', code: 'invalid_request' } },
+      400,
+    )
+  }
+
+  const id = newId()
+  const buf = Buffer.from(await file.arrayBuffer())
+  // 复用附件落盘层：第一个参数是子目录名，图标不属于任何用户，统一放 uploads/model-icons/。
+  // 走这一层的好处是文件必然落在受管上传目录内，removeUpload 的越界删除防护同样生效。
+  const storagePath = saveUpload('model-icons', id, file.name || `${id}.svg`, mime, buf)
+  try {
+    await db.insert(modelIcons).values({ id, name: parsedName.data, storagePath, mime })
+  } catch (error) {
+    // 落盘成功但写库失败：回滚磁盘文件，避免留下无人引用的孤儿。
+    removeUpload(storagePath)
+    throw error
+  }
+  return c.json({ icon: { id, name: parsedName.data, createdAt: Date.now() } })
+})
+
+/** 删除自定义图标：同时把引用它的模型/分组图标置空（JSON 列无法靠 FK 级联）。 */
+adminRoutes.delete('/model-icons/custom/:id', async (c) => {
+  const id = c.req.param('id')
+  const [icon] = await db.select().from(modelIcons).where(eq(modelIcons.id, id)).limit(1)
+  if (!icon) return c.json({ error: { message: '图标不存在', code: 'not_found' } }, 404)
+  db.transaction(
+    (tx) => {
+      clearCustomIconReferences(tx, id)
+      tx.delete(modelIcons).where(eq(modelIcons.id, id)).run()
+    },
+    { behavior: 'immediate' },
+  )
+  removeUpload(icon.storagePath)
   return c.json({ ok: true })
 })
 

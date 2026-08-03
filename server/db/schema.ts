@@ -20,6 +20,7 @@ import type {
   Role,
   RunState,
   SearchAction,
+  StoredModelIcon,
   StoredModelTag,
   UrlCitation,
   UserPreferences,
@@ -196,6 +197,32 @@ export const providers = sqliteTable('providers', {
   updatedAt: updatedAt(),
 })
 
+/**
+ * 模型分组（管理员定义的全站结构，非用户私有）：驱动用户端模型选择器的
+ * 「平铺分组标题」与「二级目录」两种视图。排序沿用 models.sort 的稀疏步长约定，
+ * 不用 folders 的 createdAt 排序——分组顺序需要管理员显式拖拽控制。
+ */
+export const modelGroups = sqliteTable('model_groups', {
+  id: pk(),
+  name: text('name').notNull(),
+  // 图标（lobe 内置 / 自定义上传 / Emoji 三选一）；null=默认文件夹图形。
+  icon: text('icon', { mode: 'json' }).$type<StoredModelIcon>(),
+  // 主题色（#RRGGBB）；null=默认中性色。与聊天文件夹同一套 color-mix 派生规则。
+  color: text('color'),
+  sort: integer('sort').notNull().default(0),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+})
+
+/** 管理员上传的自定义图标库：上传一次，可被多个模型/分组引用。 */
+export const modelIcons = sqliteTable('model_icons', {
+  id: pk(),
+  name: text('name').notNull(),
+  storagePath: text('storage_path').notNull(),
+  mime: text('mime').notNull(),
+  createdAt: createdAt(),
+})
+
 export const models = sqliteTable(
   'models',
   {
@@ -211,6 +238,10 @@ export const models = sqliteTable(
     description: text('description'),
     // 旧记录为 string[]，新记录写 {label,color}[]；读取时由共享 helper 统一归一化。
     tags: text('tags', { mode: 'json' }).$type<StoredModelTag[]>(),
+    // 用户可见图标；null=未配置，渲染时回退到按 modelId 自动识别的品牌图标。
+    icon: text('icon', { mode: 'json' }).$type<StoredModelIcon>(),
+    // 所属分组；null=未分组。删除分组时置 null（组内模型不跟着被删）。
+    groupId: text('group_id').references(() => modelGroups.id, { onDelete: 'set null' }),
     kind: text('kind').$type<ModelKind>().notNull().default('responses'),
     enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
     // 用户端开放范围；与 enabled（全局总开关）正交。selected 即使名单为空也保持拒绝。
@@ -237,7 +268,7 @@ export const models = sqliteTable(
     updatedAt: updatedAt(),
   },
   // 同 id 多实例：不再有 (provider_id, model_id) 唯一约束，仅保留供应商查询索引。
-  (t) => [index('models_provider_idx').on(t.providerId)],
+  (t) => [index('models_provider_idx').on(t.providerId), index('models_group_idx').on(t.groupId)],
 )
 
 /**

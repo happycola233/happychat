@@ -1538,6 +1538,35 @@ html.hc-ios .hc-chat-scroll {
   color: color-mix(in srgb, var(--hc-model-tag-color) 45%, white);
 }
 
+/* ===================== 模型 / 分组图标 ===================== */
+
+/* 单色内置图标（SVG 内部是 fill="currentColor"）用 CSS mask 渲染。
+   不能用 <img>：<img> 里的 currentColor 会落回 SVG 自带的黑色，深色模式下直接看不见。
+   mask 方案让图标随文字颜色走，浅/深色与 hover 态全部自动跟随，且不必把外部 SVG
+   注入 DOM（零 XSS 面），浏览器仍能正常缓存这张图。彩色品牌图标则照常走 <img>。 */
+.hc-icon-mask {
+  background-color: currentColor;
+  -webkit-mask-image: var(--hc-icon-url);
+  mask-image: var(--hc-icon-url);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+
+/* 分组图标芯片：与聊天文件夹 .hc-folder-glyph 同一套 color-mix 派生规则
+   （浅色淡底 + 主题色前景，深色加浓底色并向白色提亮前景）。 */
+.hc-icon-chip {
+  background: color-mix(in srgb, var(--hc-icon-color) 15%, transparent);
+  color: var(--hc-icon-color);
+}
+.dark .hc-icon-chip {
+  background: color-mix(in srgb, var(--hc-icon-color) 24%, transparent);
+  color: color-mix(in srgb, var(--hc-icon-color) 78%, white);
+}
+
 /* ===================== 登录 / 注册 ===================== */
 
 /* 氛围光晕：与新对话 hero 光晕同一套视觉语言（重点色染色 + 多段渐变近似高斯衰减、

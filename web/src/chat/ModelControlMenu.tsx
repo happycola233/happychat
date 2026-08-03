@@ -1,8 +1,9 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { clsx } from 'clsx'
-import { Check, ChevronDown, Globe, Info, Pin } from 'lucide-react'
-import type { ModelDTO } from '@shared/types/api'
+import { Check, ChevronDown, FolderTree, Globe, List, Pin } from 'lucide-react'
+import type { ModelDTO, ModelGroupDTO } from '@shared/types/api'
+import type { ModelPickerView } from '@shared/types/domain'
 import {
   effectiveReasoningEffort,
   findReasoningEffortOption,
@@ -15,14 +16,15 @@ import {
   parseImageSize,
   validateGptImage2Size,
 } from '@shared/util/imageSize'
-import { ModelTagList } from '../components/ModelTags'
 import { XLogo } from '../components/XLogo'
 import { useHeightTransition } from '../hooks/useHeightTransition'
 import { useTriggerLabelWidth } from '../hooks/useTriggerLabelWidth'
-import { useModels } from '../hooks/useModels'
+import { useModelGroups, useModels } from '../hooks/useModels'
 import { useChatPrefs } from '../store/chat'
+import { useSettings } from '../store/settings'
 import { useIsMobile } from '../store/sidebar'
 import { ReasoningEffortIcon } from './icons'
+import { ModelListSection } from './ModelListViews'
 
 /**
  * 桌面弹层方向：输入框内向上、顶栏向下（移动端为底部弹层，不用此参数）。
@@ -430,139 +432,45 @@ function ImageParamsSection({ sheet }: { sheet: boolean }) {
 }
 
 /**
- * 桌面端模型描述提示：ⓘ 悬停/聚焦时经 portal 显示浮动气泡
- * （列表内部滚动会裁剪 absolute 子元素，必须用 fixed + portal 逃逸）。
+ * 桌面端模型描述提示与模型列表已抽到 `ModelListViews.tsx`
+ * （两种视图 + 搜索让这部分独立成文件，本文件专注弹层外壳与参数分区）。
  */
-function ModelInfoTip({ name, description }: { name: string; description: string }) {
-  const buttonRef = useRef<HTMLButtonElement>(null)
-  const [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null)
 
-  const show = () => {
-    const rect = buttonRef.current?.getBoundingClientRect()
-    if (rect) setAnchor({ x: rect.left + rect.width / 2, y: rect.top - 6 })
-  }
-  const hide = () => setAnchor(null)
-
-  // 气泡 max-w-64（256px）：水平方向按半宽夹取，避免贴边溢出。
-  const clampedX = anchor
-    ? Math.min(Math.max(anchor.x, 8 + 128), window.innerWidth - 8 - 128)
-    : 0
-
+/** 视图切换：平铺 ⇄ 二级目录。偏好是账户级的，切换即写服务端。 */
+function ModelViewToggle({ view }: { view: ModelPickerView }) {
+  const setPreference = useSettings((s) => s.setPreference)
+  const options = [
+    { value: 'flat' as const, icon: List, label: '平铺视图' },
+    { value: 'tree' as const, icon: FolderTree, label: '分组视图' },
+  ]
   return (
-    <>
-      <button
-        ref={buttonRef}
-        type="button"
-        aria-label={`查看模型「${name}」的描述`}
-        onMouseEnter={show}
-        onMouseLeave={hide}
-        onFocus={show}
-        onBlur={hide}
-        className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-neutral-400 transition hover:text-neutral-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 dark:text-neutral-500 dark:hover:text-neutral-300"
-      >
-        <Info className="h-3.5 w-3.5" />
-      </button>
-      {anchor &&
-        createPortal(
-          <div
-            role="tooltip"
-            style={{ left: clampedX, top: anchor.y }}
-            className="hc-pop-in fixed z-[70] max-w-64 -translate-x-1/2 -translate-y-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs leading-5 text-neutral-600 shadow-lg dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300"
+    <div
+      role="group"
+      aria-label="模型列表视图"
+      className="flex items-center gap-0.5 rounded-md bg-neutral-100 p-0.5 dark:bg-neutral-800"
+    >
+      {options.map((option) => {
+        const Icon = option.icon
+        const active = view === option.value
+        return (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => setPreference('modelPickerView', option.value)}
+            aria-pressed={active}
+            aria-label={option.label}
+            title={option.label}
+            className={clsx(
+              'flex h-5 w-6 items-center justify-center rounded transition',
+              active
+                ? 'bg-white text-neutral-700 shadow-sm dark:bg-neutral-600 dark:text-neutral-100'
+                : 'text-neutral-400 hover:text-neutral-600 dark:text-neutral-500 dark:hover:text-neutral-300',
+            )}
           >
-            {description}
-          </div>,
-          document.body,
-        )}
-    </>
-  )
-}
-
-/** 模型列表：唯一允许内部滚动的分区，打开时自动把选中项滚进可视区。 */
-function ModelListSection({
-  models,
-  activeModelId,
-  onSelectModel,
-  sheet,
-}: {
-  models: ModelDTO[]
-  activeModelId: string | null
-  onSelectModel: (id: string) => void
-  sheet: boolean
-}) {
-  const listRef = useRef<HTMLDivElement>(null)
-  // 移动端点按 ⓘ 展开的模型描述（一次只展开一条）。
-  const [openDescriptionId, setOpenDescriptionId] = useState<string | null>(null)
-
-  // 菜单打开即挂载本组件：首帧把选中模型滚进列表可视区，长列表不用找。
-  useLayoutEffect(() => {
-    listRef.current?.querySelector('[data-active]')?.scrollIntoView({ block: 'nearest' })
-  }, [])
-
-  return (
-    <div className="flex min-h-[9.5rem] min-w-0 flex-col p-1.5 pb-1">
-      <SectionLabel>模型</SectionLabel>
-      <div ref={listRef} className="hc-scrollbar min-h-0 flex-1 overflow-y-auto">
-        {models.map((m) => {
-          const selected = m.id === activeModelId
-          const descriptionOpen = sheet && openDescriptionId === m.id
-          return (
-            <div key={m.id} data-active={selected || undefined}>
-              <div
-                className={clsx(
-                  'flex items-center rounded-lg transition hover:bg-neutral-100 dark:hover:bg-neutral-800',
-                  selected && 'bg-neutral-100 dark:bg-neutral-800',
-                )}
-              >
-                <button
-                  type="button"
-                  onClick={() => onSelectModel(m.id)}
-                  className={clsx(
-                    'flex min-w-0 flex-1 items-center gap-2 rounded-lg px-3 text-left text-sm',
-                    sheet ? 'py-2.5' : 'py-2',
-                  )}
-                >
-                  <span className="min-w-0 shrink truncate text-neutral-800 dark:text-neutral-100">
-                    {m.displayName}
-                  </span>
-                  <ModelTagList tags={m.tags} />
-                  {m.kind === 'image' && (
-                    <span className="shrink-0 text-xs text-neutral-400">生图</span>
-                  )}
-                  {selected && (
-                    <Check className="ml-auto h-4 w-4 shrink-0 text-neutral-500 dark:text-neutral-400" />
-                  )}
-                </button>
-                {m.description &&
-                  (sheet ? (
-                    <button
-                      type="button"
-                      aria-expanded={descriptionOpen}
-                      aria-label={`查看模型「${m.displayName}」的描述`}
-                      onClick={() =>
-                        setOpenDescriptionId(descriptionOpen ? null : m.id)
-                      }
-                      className={clsx(
-                        'mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition',
-                        descriptionOpen
-                          ? 'text-neutral-700 dark:text-neutral-200'
-                          : 'text-neutral-400 dark:text-neutral-500',
-                      )}
-                    >
-                      <Info className="h-4 w-4" />
-                    </button>
-                  ) : (
-                    <ModelInfoTip name={m.displayName} description={m.description} />
-                  ))}
-              </div>
-              {descriptionOpen && m.description && (
-                <div className="px-3 pb-2 pt-1 text-xs leading-5 text-neutral-500 dark:text-neutral-400">
-                  {m.description}
-                </div>
-              )}
-            </div>
-          )
-        })}
-      </div>
+            <Icon aria-hidden className="h-3 w-3" />
+          </button>
+        )
+      })}
     </div>
   )
 }
@@ -573,15 +481,18 @@ function ModelListSection({
  */
 function MenuSections({
   models,
+  groups,
   model,
   sheet,
 }: {
   models: ModelDTO[]
+  groups: ModelGroupDTO[]
   model: ModelDTO | undefined
   sheet: boolean
 }) {
   const activeModelId = useChatPrefs((s) => s.activeModelId)
   const setActiveModel = useChatPrefs((s) => s.setActiveModel)
+  const view = useSettings((s) => s.preferences.modelPickerView)
   const isImage = model?.kind === 'image'
   const showReasoning = Boolean(
     model && !isImage && model.capabilities.reasoning && model.allowedEfforts.length > 0,
@@ -593,8 +504,11 @@ function MenuSections({
     <>
       <ModelListSection
         models={models}
+        groups={groups}
         activeModelId={activeModelId}
         sheet={sheet}
+        view={view}
+        viewToggle={<ModelViewToggle view={view} />}
         onSelectModel={setActiveModel}
       />
       {showReasoning && (
@@ -631,6 +545,7 @@ function MenuSections({
  */
 export function ModelControlMenu({ placement, align, variant }: Props) {
   const { data: models } = useModels()
+  const { data: groups } = useModelGroups()
   const activeModelId = useChatPrefs((s) => s.activeModelId)
   const setActiveModel = useChatPrefs((s) => s.setActiveModel)
   const activeEffort = useChatPrefs((s) => s.activeEffort)
@@ -885,7 +800,7 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
                     : 'top',
             }}
           >
-            <MenuSections models={models} model={model} sheet={false} />
+            <MenuSections models={models} groups={groups ?? []} model={model} sheet={false} />
           </div>
         </div>
       )}
@@ -912,7 +827,7 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
               <div className="flex shrink-0 justify-center pb-0.5 pt-2.5">
                 <span className="h-1 w-9 rounded-full bg-neutral-300 dark:bg-neutral-600" />
               </div>
-              <MenuSections models={models} model={model} sheet />
+              <MenuSections models={models} groups={groups ?? []} model={model} sheet />
             </div>
           </div>,
           document.body,

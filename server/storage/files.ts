@@ -293,6 +293,7 @@ function extFromName(name: string, mime: string): string {
   if (mime === 'image/jpeg') return '.jpg'
   if (mime === 'image/gif') return '.gif'
   if (mime === 'image/webp') return '.webp'
+  if (mime === 'image/svg+xml') return '.svg'
   if (mime === 'application/pdf') return '.pdf'
   return ''
 }

@@ -13,6 +13,8 @@ function model(overrides: Partial<ModelRow> = {}): ModelRow {
     displayName: 'Claude Sonnet 5',
     description: null,
     tags: null,
+    icon: null,
+    groupId: null,
     kind: 'anthropic',
     enabled: true,
     accessMode: 'all',

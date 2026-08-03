@@ -6,6 +6,7 @@ import {
   MODEL_TAG_MAX_LABEL_LENGTH,
 } from '../util/modelTags'
 import { isSafeReasoningEffortValue } from '../util/reasoning'
+import { modelIconSchema } from './model-group'
 
 export const providerCreateSchema = z.object({
   name: z.string().trim().min(1, '请填写名称').max(60),
@@ -146,6 +147,8 @@ export const modelUpdateSchema = z.object({
   displayName: z.string().trim().min(1).max(80).optional(),
   description: modelDescriptionSchema.nullable().optional(),
   tags: modelTagsSchema.optional(),
+  icon: modelIconSchema.nullable().optional(),
+  groupId: z.string().min(1).nullable().optional(),
   enabled: z.boolean().optional(),
   kind: z.enum(['responses', 'chat', 'anthropic', 'image']).optional(),
   capabilities: capabilitiesSchema.optional(),
@@ -177,6 +180,8 @@ export const modelCreateSchema = z.object({
   displayName: z.string().trim().min(1, '请填写显示名称').max(80),
   description: modelDescriptionSchema.nullable().optional(),
   tags: modelTagsSchema.default([]),
+  icon: modelIconSchema.nullable().default(null),
+  groupId: z.string().min(1).nullable().default(null),
   kind: z.enum(['responses', 'chat', 'anthropic', 'image']).default('responses'),
   enabled: z.boolean().default(true),
   capabilities: capabilitiesSchema.default(defaultCapabilities),

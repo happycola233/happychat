@@ -8,6 +8,8 @@ const baseModel: ModelDTO = {
   displayName: 'GPT Test',
   description: null,
   tags: [],
+  icon: null,
+  groupId: null,
   kind: 'responses',
   capabilities: {
     reasoning: true,

@@ -12,6 +12,7 @@ import { modelRoutes } from './routes/models'
 import { conversationRoutes } from './routes/conversations'
 import { folderRoutes } from './routes/folders'
 import { emojiDataRoutes } from './routes/emoji-data'
+import { modelIconRoutes } from './routes/model-icons'
 import { runRoutes } from './routes/runs'
 import { attachmentRoutes } from './routes/attachments'
 import { shareRoutes } from './routes/shares'
@@ -44,6 +45,7 @@ app.route('/api/models', modelRoutes)
 app.route('/api/conversations', conversationRoutes)
 app.route('/api/folders', folderRoutes)
 app.route('/api/emoji-data', emojiDataRoutes)
+app.route('/api/model-icons', modelIconRoutes)
 app.route('/api/runs', runRoutes)
 app.route('/api/attachments', attachmentRoutes)
 app.route('/api/shares', shareRoutes)

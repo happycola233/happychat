@@ -11,6 +11,7 @@ describe('mergePreferences', () => {
       sendOnEnterDesktop: true,
       sendOnEnterMobile: false,
       defaultExpandReasoning: true,
+      modelPickerView: 'flat',
       accentColor: 'default',
       messageFontSize: 'medium',
       showMessageTime: true,

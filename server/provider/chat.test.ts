@@ -12,6 +12,8 @@ function model(overrides: Partial<ModelRow> = {}): ModelRow {
     displayName: 'GPT Test',
     description: null,
     tags: null,
+    icon: null,
+    groupId: null,
     kind: 'chat',
     enabled: true,
     accessMode: 'all',

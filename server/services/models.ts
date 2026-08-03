@@ -12,11 +12,12 @@ import {
   hasAnthropicThinkingBudgetConflict,
 } from '@shared/util/anthropic'
 import { normalizeModelCapabilities } from '@shared/util/modelCapabilities'
+import { normalizeModelIcon } from '@shared/util/modelIcon'
 import { normalizeModelTags } from '@shared/util/modelTags'
 import { normalizeReasoningEffortOptions } from '@shared/util/reasoning'
 import { providerProtocolSupportsModelKind } from '@shared/util/providerProtocol'
 import { db } from '../db/client'
-import { models, modelUserAccess, providers, users } from '../db/schema'
+import { models, modelGroups, modelUserAccess, providers, users } from '../db/schema'
 import { must } from '../lib/assert'
 import { maskSecret } from '../lib/mask'
 
@@ -35,6 +36,9 @@ export function toModelDTO(m: ModelRow): ModelDTO {
     description: m.description ?? null,
     // 旧记录的 string[] 与新对象数组在 API 边界统一升级，非法颜色安全回退为自动配色。
     tags: normalizeModelTags(m.tags),
+    // 图标要拼进 URL 与 CSS mask，出参前统一归一化，非法值降级为 null（前端回退自动识别）。
+    icon: normalizeModelIcon(m.icon),
+    groupId: m.groupId ?? null,
     // API 只公开规范对象；旧 string[] 记录在这里无损升级，保留原顺序和子集。
     allowedEfforts: normalizeReasoningEffortOptions(m.allowedEfforts),
     defaultEffort: m.defaultEffort ?? null,
@@ -109,11 +113,15 @@ export async function getProviderDetail(id: string): Promise<ProviderDetailDTO |
 /**
  * 用户级可用性的关联与谓词。管理员没有隐式绕过：控制面能配置全部模型，
  * 但用户端模型列表和生成请求都服从同一条件。
+ *
+ * 导出供 `services/model-groups.ts` 复用——分组的可见性必须与模型列表**逐字一致**，
+ * 各写一份迟早会漂移，进而让用户看到点进去是空的分组。
  */
-const accessJoinForUser = (userId: string) =>
+export const accessJoinForUser = (userId: string) =>
   and(eq(modelUserAccess.modelId, models.id), eq(modelUserAccess.userId, userId))
 
-const accessibleToUser = () => or(eq(models.accessMode, 'all'), isNotNull(modelUserAccess.userId))
+export const accessibleToUser = () =>
+  or(eq(models.accessMode, 'all'), isNotNull(modelUserAccess.userId))
 
 export async function listEnabledModels(userId: string): Promise<ModelDTO[]> {
   const rows = await db
@@ -273,6 +281,7 @@ export type CreateModelResult =
       code:
         | 'provider_missing'
         | 'provider_protocol_mismatch'
+        | 'group_missing'
         | 'anthropic_max_output_tokens_required'
         | 'anthropic_thinking_budget_conflict'
     }
@@ -306,6 +315,16 @@ export async function createModel(input: ModelCreateInput): Promise<CreateModelR
       ) {
         return { ok: false, code: 'anthropic_thinking_budget_conflict' } as const
       }
+      // 分组存在性显式校验：FK 违例会抛成 500，这里换成可读的 400。
+      if (input.groupId) {
+        const group = tx
+          .select({ id: modelGroups.id })
+          .from(modelGroups)
+          .where(eq(modelGroups.id, input.groupId))
+          .limit(1)
+          .get()
+        if (!group) return { ok: false, code: 'group_missing' } as const
+      }
 
       const row = must(
         tx
@@ -316,6 +335,8 @@ export async function createModel(input: ModelCreateInput): Promise<CreateModelR
             displayName: input.displayName,
             description: input.description ?? null,
             tags: input.tags,
+            icon: input.icon ?? null,
+            groupId: input.groupId ?? null,
             kind: input.kind,
             enabled: input.enabled,
             capabilities: input.capabilities,

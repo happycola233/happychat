@@ -10,6 +10,7 @@ import type {
   ModelCapabilities,
   ModelAccessMode,
   ModelHardParams,
+  ModelIcon,
   ModelKind,
   ModelParams,
   ModelPricing,
@@ -91,6 +92,10 @@ export interface ModelDTO {
   description: string | null
   /** 用户可见的模型标签；可自定义主题色，null 时按文字自动配色。 */
   tags: ModelTag[]
+  /** 用户可见的模型图标；null=未配置，前端回退到按 modelId 自动识别的品牌图标。 */
+  icon: ModelIcon | null
+  /** 所属分组 id；null=未分组。 */
+  groupId: string | null
   allowedEfforts: ReasoningEffortOption[]
   defaultEffort: ReasoningEffort | null
   defaultWebSearch: boolean
@@ -120,6 +125,45 @@ export interface ModelAccessDTO {
   accessMode: ModelAccessMode
   /** selected 模式下的完整用户 ID 名单；all 模式下为空数组。 */
   userIds: string[]
+}
+
+/**
+ * 模型分组（管理员定义的全站结构）。用户端据此渲染模型选择器的
+ * 「平铺分组标题」与「二级目录」两种视图；不含任何管理员专属字段。
+ */
+export interface ModelGroupDTO {
+  id: string
+  name: string
+  /** 分组图标；null=默认文件夹图形 */
+  icon: ModelIcon | null
+  /** 主题色（#RRGGBB）；null=默认中性色 */
+  color: string | null
+  sort: number
+}
+
+/** 管理端分组列表：额外带组内模型数（含未上架/受限模型）与时间戳。 */
+export interface AdminModelGroupDTO extends ModelGroupDTO {
+  modelCount: number
+  createdAt: number
+  updatedAt: number
+}
+
+/** 管理员上传的自定义图标库条目。 */
+export interface CustomIconDTO {
+  id: string
+  name: string
+  createdAt: number
+}
+
+/** 内置图标目录条目；mono=SVG 内部使用 currentColor，可随主题变色（前端用 CSS mask 渲染）。 */
+export interface LobeIconEntry {
+  slug: string
+  mono: boolean
+}
+
+export interface LobeIconCatalogDTO {
+  version: string
+  icons: LobeIconEntry[]
 }
 
 export interface SyncModelsResult {

@@ -12,6 +12,7 @@ import {
   AuthCenterPage,
   ErrorEventsPage,
   ModelsPage,
+  ModelGroupsPage,
   OverviewPage,
   ProvidersPage,
   RequestEventsPage,
@@ -50,6 +51,7 @@ export const router = createBrowserRouter([
           { path: 'users/:id', element: <UserDetailPage /> },
           { path: 'providers', element: <ProvidersPage /> },
           { path: 'models', element: <ModelsPage /> },
+          { path: 'model-groups', element: <ModelGroupsPage /> },
           { path: 'announcements', element: <AnnouncementsPage /> },
           { path: 'settings', element: <SettingsPage /> },
           // 旧路径兼容重定向

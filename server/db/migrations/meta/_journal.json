@@ -169,6 +169,13 @@
       "when": 1785739833395,
       "tag": "0023_anthropic_messages_protocol",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1785762243873,
+      "tag": "0024_model_groups_and_icons",
+      "breakpoints": true
     }
   ]
 }

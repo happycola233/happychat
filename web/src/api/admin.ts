@@ -1,6 +1,9 @@
 import type {
   AdminModelDTO,
+  AdminModelGroupDTO,
+  CustomIconDTO,
   ModelAccessDTO,
+  ModelGroupDTO,
   AdminSessionDTO,
   AdminUserDTO,
   AnalyticsDTO,
@@ -27,8 +30,15 @@ import type {
   ProviderCreateInput,
   ProviderUpdateInput,
 } from '@shared/schemas/model-config'
+import type {
+  ModelGroupAssignInput,
+  ModelGroupCreateInput,
+  ModelGroupReorderInput,
+  ModelGroupUpdateInput,
+  ModelIconBatchInput,
+} from '@shared/schemas/model-group'
 import type { InviteCreateInput, UserUpdateInput } from '@shared/schemas/admin'
-import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from './client'
+import { apiDelete, apiGet, apiPatch, apiPost, apiPut, apiUpload } from './client'
 
 /** 统计/事件查询参数（与后端 statsFilterSchema 对应）。 */
 export interface StatsQuery {
@@ -85,6 +95,36 @@ export const deleteModel = (id: string) => apiDelete<{ ok: true }>(`/admin/model
 export const getModelAccess = (id: string) => apiGet<ModelAccessDTO>(`/admin/models/${id}/access`)
 export const updateModelAccess = (id: string, input: ModelAccessUpdateInput) =>
   apiPut<{ ok: true }>(`/admin/models/${id}/access`, input)
+export const applyModelIcons = (input: ModelIconBatchInput) =>
+  apiPost<{ ok: true; updated: number }>('/admin/models/icons/batch', input)
+
+// 模型分组
+export const listAdminModelGroups = () =>
+  apiGet<{ groups: AdminModelGroupDTO[] }>('/admin/model-groups').then((r) => r.groups)
+export const createModelGroup = (input: ModelGroupCreateInput) =>
+  apiPost<{ group: AdminModelGroupDTO }>('/admin/model-groups', input).then((r) => r.group)
+export const updateModelGroup = (id: string, input: ModelGroupUpdateInput) =>
+  apiPatch<{ group: ModelGroupDTO }>(`/admin/model-groups/${id}`, input).then((r) => r.group)
+export const deleteModelGroup = (id: string) =>
+  apiDelete<{ ok: true }>(`/admin/model-groups/${id}`)
+export const reorderModelGroups = (input: ModelGroupReorderInput) =>
+  apiPost<{ ok: true }>('/admin/model-groups/reorder', input)
+export const assignModelsToGroup = (input: ModelGroupAssignInput) =>
+  apiPost<{ ok: true; moved: number }>('/admin/model-groups/assign', input)
+
+// 自定义图标库
+export const listCustomIcons = () =>
+  apiGet<{ icons: CustomIconDTO[] }>('/admin/model-icons/custom').then((r) => r.icons)
+export const uploadCustomIcon = (file: File, name: string) => {
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('name', name)
+  return apiUpload<{ icon: CustomIconDTO }>('/admin/model-icons/custom', formData).then(
+    (r) => r.icon,
+  )
+}
+export const deleteCustomIcon = (id: string) =>
+  apiDelete<{ ok: true }>(`/admin/model-icons/custom/${id}`)
 
 // 邀请码
 export const listInvites = () =>

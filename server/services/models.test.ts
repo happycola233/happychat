@@ -118,6 +118,8 @@ describe('model user access', () => {
       modelId: `created-upstream-${fixtureSeq}`,
       displayName: 'Created replay model',
       tags: [],
+      icon: null,
+      groupId: null,
       kind: 'responses',
       enabled: true,
       capabilities: {
@@ -152,6 +154,8 @@ describe('model user access', () => {
       modelId: 'claude-sonnet-5',
       displayName: 'Mismatched Claude',
       tags: [],
+      icon: null,
+      groupId: null,
       kind: 'anthropic',
       enabled: true,
       capabilities: {
@@ -184,6 +188,8 @@ describe('model user access', () => {
       modelId: 'claude-sonnet-5',
       displayName: 'Claude without max tokens',
       tags: [],
+      icon: null,
+      groupId: null,
       kind: 'anthropic',
       enabled: true,
       capabilities: {
@@ -216,6 +222,8 @@ describe('model user access', () => {
       modelId: 'claude-haiku-4-5',
       displayName: 'Claude with invalid thinking budget',
       tags: [],
+      icon: null,
+      groupId: null,
       kind: 'anthropic',
       enabled: true,
       capabilities: {

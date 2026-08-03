@@ -13,12 +13,16 @@ import {
 import type { AdminModelDTO } from '@shared/types/api'
 import type {
   ModelCapabilities,
+  ModelIcon,
   ModelKind,
   ModelParams,
   ModelPricing,
   ModelTag,
 } from '@shared/types/domain'
+import { guessModelIconSlug } from '@shared/util/modelIconGuess'
 import * as adminApi from '../../api/admin'
+import { IconPicker } from '../../components/IconPicker'
+import { ModelIconMark } from '../../components/ModelIcon'
 import { Button } from '../../components/ui/Button'
 import { Modal } from '../../components/ui/Modal'
 import { Toggle } from '../../components/ui/Toggle'
@@ -149,11 +153,21 @@ export function ModelEditor({
     enabled: isCreate,
   })
 
+  // 分组下拉在新建和编辑时都要用（编辑时也允许直接改归属）。
+  const { data: modelGroups } = useQuery({
+    queryKey: ['admin', 'model-groups'],
+    queryFn: adminApi.listAdminModelGroups,
+  })
+
   const [providerId, setProviderId] = useState(model?.providerId ?? '')
   const [modelId, setModelId] = useState(model?.modelId ?? '')
   const [displayName, setDisplayName] = useState(model?.displayName ?? '')
   const [description, setDescription] = useState(model?.description ?? '')
   const [tags, setTags] = useState<ModelTag[]>(model?.tags ?? [])
+  const [icon, setIcon] = useState<ModelIcon | null>(model?.icon ?? null)
+  const [groupId, setGroupId] = useState(model?.groupId ?? '')
+  // 未显式设置图标时，用户端会按模型 ID 自动识别品牌图标；这里把结果预告给管理员。
+  const autoIconSlug = guessModelIconSlug(modelId, displayName)
   const [kind, setKind] = useState(model?.kind ?? 'responses')
   const [caps, setCaps] = useState<ModelCapabilities>(model?.capabilities ?? BLANK_CAPS)
   const [systemPrompt, setSystemPrompt] = useState(model?.defaultSystemPrompt ?? '')
@@ -327,6 +341,8 @@ export function ModelEditor({
         displayName,
         description: description.trim() || null,
         tags,
+        icon,
+        groupId: groupId || null,
         kind,
         capabilities,
         defaultSystemPrompt: systemPrompt.trim() ? systemPrompt : null,
@@ -512,6 +528,41 @@ export function ModelEditor({
           </Field>
 
           <TagsInput tags={tags} onChange={setTags} />
+
+          <IconPicker
+            value={icon}
+            onChange={setIcon}
+            emptyHint={
+              autoIconSlug ? (
+                <span className="inline-flex items-center gap-1.5">
+                  自动识别：
+                  <ModelIconMark
+                    icon={{ type: 'lobe', slug: autoIconSlug }}
+                    size="sm"
+                    className="text-neutral-600 dark:text-neutral-300"
+                  />
+                  <span className="text-neutral-400">{autoIconSlug}</span>
+                </span>
+              ) : (
+                '未设置图标，且无法从模型 ID 自动识别，将显示名称首字母'
+              )
+            }
+          />
+
+          <Field label="所属分组（可选）">
+            <select
+              className={fieldClass}
+              value={groupId}
+              onChange={(e) => setGroupId(e.target.value)}
+            >
+              <option value="">未分组</option>
+              {modelGroups?.map((group) => (
+                <option key={group.id} value={group.id}>
+                  {group.name}
+                </option>
+              ))}
+            </select>
+          </Field>
         </FormSection>
 
         {/* ============ 能力 ============ */}
