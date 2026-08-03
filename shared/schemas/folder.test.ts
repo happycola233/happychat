@@ -50,7 +50,7 @@ describe('updateFolderSchema', () => {
     expect(updateFolderSchema.safeParse({}).success).toBe(false)
   })
 
-  it('accepts partial updates including explicit null to clear', () => {
+  it('accepts partial updates including explicit null reset signals', () => {
     expect(updateFolderSchema.parse({ pinned: true })).toEqual({ pinned: true })
     expect(updateFolderSchema.parse({ color: null, emoji: null })).toEqual({
       color: null,

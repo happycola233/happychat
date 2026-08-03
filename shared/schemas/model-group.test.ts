@@ -66,7 +66,7 @@ describe('modelGroupCreateSchema', () => {
 })
 
 describe('modelGroupUpdateSchema', () => {
-  it('allows clearing icon and color with null', () => {
+  it('allows restoring the folder glyph and default color with null', () => {
     expect(modelGroupUpdateSchema.parse({ icon: null, color: null })).toEqual({
       icon: null,
       color: null,

@@ -26,7 +26,7 @@ export const createFolderSchema = z.object({
   emoji: folderEmojiSchema.nullish(),
 })
 
-/** 更新文件夹：字段全部可选，传 null 表示清除颜色/图标。 */
+/** 更新文件夹：字段全部可选；颜色传 null 恢复默认黄色，图标传 null 恢复默认图形。 */
 export const updateFolderSchema = z
   .object({
     name: folderNameSchema.optional(),

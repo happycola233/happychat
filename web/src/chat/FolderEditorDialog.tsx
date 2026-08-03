@@ -2,6 +2,7 @@ import { Suspense, lazy, useEffect, useState } from 'react'
 import { clsx } from 'clsx'
 import { Check, Pipette } from 'lucide-react'
 import { HexColorInput, HexColorPicker } from 'react-colorful'
+import { DEFAULT_FOLDER_COLOR } from '@shared/constants'
 import type { FolderDTO } from '@shared/types/api'
 import {
   FOLDER_COLOR_PRESETS,
@@ -32,15 +33,14 @@ function FolderEditorDialogInner({
   const isEdit = folder !== null
   const { create, update } = useFolderActions()
   const [name, setName] = useState(folder?.name ?? '')
-  const [color, setColor] = useState<string | null>(folder?.color ?? null)
+  const [color, setColor] = useState<string>(folder?.color ?? DEFAULT_FOLDER_COLOR)
   const [emoji, setEmoji] = useState<string | null>(folder?.emoji ?? null)
   const [panel, setPanel] = useState<ExpandedPanel>(null)
   const isMobile = useIsMobile()
 
   const saving = create.isPending || update.isPending
   const canSubmit = name.trim().length > 0 && !saving
-  const isCustomColor =
-    color !== null && !(FOLDER_COLOR_PRESETS as readonly string[]).includes(color)
+  const isCustomColor = !(FOLDER_COLOR_PRESETS as readonly string[]).includes(color)
 
   // Escape：先收起展开的面板，再关闭弹窗（与嵌套弹层的直觉一致）。
   useEffect(() => {
@@ -153,25 +153,6 @@ function FolderEditorDialogInner({
             文件夹颜色
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            {/* 默认（无颜色） */}
-            <ColorSwatch
-              onClick={() => {
-                setColor(null)
-                if (panel === 'color') setPanel(null)
-              }}
-              aria-label="默认颜色"
-              selected={color === null}
-              showSelectedRing={false}
-              title="默认"
-              className="bg-neutral-300 dark:bg-neutral-600"
-            >
-              {color === null && (
-                <Check
-                  className="h-3.5 w-3.5 text-neutral-700 dark:text-neutral-100"
-                  strokeWidth={3}
-                />
-              )}
-            </ColorSwatch>
             {FOLDER_COLOR_PRESETS.map((preset) => (
               <ColorSwatch
                 key={preset}
@@ -196,7 +177,7 @@ function FolderEditorDialogInner({
             <ColorSwatch
               onClick={() => {
                 if (panel !== 'color') {
-                  if (!isCustomColor) setColor(color ?? FOLDER_CUSTOM_COLOR_SEED)
+                  if (!isCustomColor) setColor(FOLDER_CUSTOM_COLOR_SEED)
                   setPanel('color')
                 } else {
                   setPanel(null)
@@ -233,19 +214,19 @@ function FolderEditorDialogInner({
         {/* 自定义取色面板（react-colorful，内联展开） */}
         {panel === 'color' && (
           <div className="hc-color-picker mt-3 rounded-xl border border-neutral-200 p-3 dark:border-neutral-800">
-            <HexColorPicker color={color ?? FOLDER_CUSTOM_COLOR_SEED} onChange={setColor} />
+            <HexColorPicker color={color} onChange={setColor} />
             <div className="mt-2.5 flex items-center gap-2">
               <span
                 aria-hidden
                 className="h-8 w-8 shrink-0 rounded-lg border border-black/5 dark:border-white/10"
-                style={{ backgroundColor: color ?? FOLDER_CUSTOM_COLOR_SEED }}
+                style={{ backgroundColor: color }}
               />
               <div className="relative flex-1">
                 <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-sm text-neutral-400">
                   #
                 </span>
                 <HexColorInput
-                  color={color ?? FOLDER_CUSTOM_COLOR_SEED}
+                  color={color}
                   onChange={setColor}
                   aria-label="十六进制颜色值"
                   className="w-full rounded-lg border border-neutral-200 bg-white py-1.5 pl-6 pr-2.5 font-mono text-sm text-neutral-900 outline-none transition focus:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:focus:border-neutral-500"

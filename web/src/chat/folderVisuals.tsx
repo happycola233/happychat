@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react'
 import { clsx } from 'clsx'
 import { Folder } from 'lucide-react'
+import { DEFAULT_FOLDER_COLOR } from '@shared/constants'
 import type { FolderDTO } from '@shared/types/api'
 import { ICON_EMOJI_CLASS, ICON_SIZE_CLASS, type IconSize } from '../components/iconSizing'
 
@@ -16,7 +17,8 @@ export function FolderGlyph({
   size?: FolderGlyphSize
   className?: string
 }) {
-  const style = folder.color ? ({ '--hc-glyph-color': folder.color } as CSSProperties) : undefined
+  const effectiveColor = folder.color ?? DEFAULT_FOLDER_COLOR
+  const style = { '--hc-glyph-color': effectiveColor } as CSSProperties
   return (
     <span
       aria-hidden
@@ -24,7 +26,7 @@ export function FolderGlyph({
         'inline-flex shrink-0 items-center justify-center leading-none',
         ICON_SIZE_CLASS[size],
         folder.emoji && ICON_EMOJI_CLASS[size],
-        folder.color ? 'hc-colored-glyph' : 'text-neutral-500 dark:text-neutral-300',
+        'hc-colored-glyph',
         className,
       )}
       style={style}

@@ -58,7 +58,7 @@ export const modelGroupCreateSchema = z.object({
   color: modelGroupColorSchema.nullish(),
 })
 
-/** 更新分组：字段全部可选，传 null 表示清除图标/颜色。 */
+/** 更新分组：字段全部可选；图标传 null 恢复文件夹图形，颜色传 null 恢复默认黄色。 */
 export const modelGroupUpdateSchema = z
   .object({
     name: modelGroupNameSchema.optional(),

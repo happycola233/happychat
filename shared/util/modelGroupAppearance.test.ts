@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
+import { DEFAULT_FOLDER_COLOR } from '../constants'
 import { resolveModelGroupColor } from './modelGroupAppearance'
 
 describe('resolveModelGroupColor', () => {
-  it('keeps the chosen color only for the default folder glyph', () => {
+  it('keeps a chosen color and falls back to the default yellow for the folder glyph', () => {
     expect(resolveModelGroupColor(null, '#ef4444')).toBe('#ef4444')
-    expect(resolveModelGroupColor(undefined, undefined)).toBeNull()
+    expect(resolveModelGroupColor(undefined, undefined)).toBe(DEFAULT_FOLDER_COLOR)
   })
 
   it.each([

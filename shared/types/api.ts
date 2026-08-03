@@ -136,7 +136,7 @@ export interface ModelGroupDTO {
   name: string
   /** 分组图标；null=默认文件夹图形 */
   icon: ModelIcon | null
-  /** 默认文件夹图形颜色（#RRGGBB）；显式图标存在或使用默认中性色时为 null */
+  /** 默认文件夹图形颜色（#RRGGBB）；显式图标存在时为 null */
   color: string | null
   sort: number
 }
@@ -230,7 +230,7 @@ export interface ConversationDTO {
 export interface FolderDTO {
   id: string
   name: string
-  /** 主题色（#RRGGBB）；null=默认中性色 */
+  /** 主题色（#RRGGBB）；旧数据中的 null 按默认黄色显示 */
   color: string | null
   /** 图标 Emoji；null=默认文件夹图标 */
   emoji: string | null

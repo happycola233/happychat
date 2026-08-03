@@ -1,4 +1,5 @@
 import type { ModelIcon } from '../types/domain'
+import { DEFAULT_FOLDER_COLOR } from '../constants'
 
 /**
  * 模型分组只有默认文件夹图形接受自定义颜色；选择显式图标后由图标自身决定外观。
@@ -8,5 +9,5 @@ export function resolveModelGroupColor(
   icon: ModelIcon | null | undefined,
   color: string | null | undefined,
 ): string | null {
-  return icon ? null : (color ?? null)
+  return icon ? null : (color ?? DEFAULT_FOLDER_COLOR)
 }

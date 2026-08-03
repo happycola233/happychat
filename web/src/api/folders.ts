@@ -7,7 +7,7 @@ export const listFolders = () => apiGet<{ folders: FolderDTO[] }>('/folders').th
 export const createFolder = (input: CreateFolderInput) =>
   apiPost<{ folder: FolderDTO }>('/folders', input).then((r) => r.folder)
 
-/** color / emoji 传 null 表示恢复默认；pinned 控制置顶。 */
+/** color 传 null 表示恢复默认黄色，emoji 传 null 表示恢复默认图标；pinned 控制置顶。 */
 export const updateFolder = (id: string, patch: UpdateFolderInput) =>
   apiPatch<{ folder: FolderDTO }>(`/folders/${id}`, patch).then((r) => r.folder)
 

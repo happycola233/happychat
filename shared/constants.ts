@@ -6,6 +6,9 @@ export const SESSION_COOKIE = 'hc_session'
 /** 会话有效期（毫秒）：30 天 */
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000
 
+/** 聊天文件夹与模型分组默认文件夹图形使用的柔和黄色。 */
+export const DEFAULT_FOLDER_COLOR = '#ffd96f'
+
 /**
  * 新建/同步模型时可复用的 OpenAI 常用推理档位预设。
  * 这只是便捷模板，并非运行时白名单；每个模型都可保存完全自定义的值与描述。

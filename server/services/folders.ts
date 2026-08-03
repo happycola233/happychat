@@ -1,4 +1,5 @@
 import { and, asc, eq } from 'drizzle-orm'
+import { DEFAULT_FOLDER_COLOR } from '@shared/constants'
 import type { FolderDTO } from '@shared/types/api'
 import type { CreateFolderInput, UpdateFolderInput } from '@shared/schemas/folder'
 import { db } from '../db/client'
@@ -11,7 +12,7 @@ export function toFolderDTO(f: FolderRow): FolderDTO {
   return {
     id: f.id,
     name: f.name,
-    color: f.color,
+    color: f.color ?? DEFAULT_FOLDER_COLOR,
     emoji: f.emoji,
     pinnedAt: f.pinnedAt?.getTime() ?? null,
     createdAt: f.createdAt.getTime(),
@@ -44,7 +45,7 @@ export async function createFolder(userId: string, input: CreateFolderInput): Pr
     .values({
       userId,
       name: input.name,
-      color: input.color ?? null,
+      color: input.color ?? DEFAULT_FOLDER_COLOR,
       emoji: input.emoji ?? null,
     })
     .returning()
@@ -61,7 +62,7 @@ export async function updateFolder(
 
   const patch: Partial<typeof folders.$inferInsert> = {}
   if (input.name !== undefined) patch.name = input.name
-  if (input.color !== undefined) patch.color = input.color
+  if (input.color !== undefined) patch.color = input.color ?? DEFAULT_FOLDER_COLOR
   if (input.emoji !== undefined) patch.emoji = input.emoji
   if (input.pinned !== undefined) patch.pinnedAt = input.pinned ? new Date() : null
 

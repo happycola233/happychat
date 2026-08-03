@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { DEFAULT_FOLDER_COLOR } from '@shared/constants'
 
 let tmpDir: string
 let dbClient: typeof import('../db/client')
@@ -90,6 +91,7 @@ describe('model group CRUD', () => {
     expect(second.sort).toBeGreaterThan(first.sort)
     expect(second.sort - first.sort).toBe(100)
     expect(second.modelCount).toBe(0)
+    expect(first.color).toBe(DEFAULT_FOLDER_COLOR)
   })
 
   it('normalizes a corrupted icon column instead of leaking it to the DTO', async () => {
@@ -123,7 +125,7 @@ describe('model group CRUD', () => {
     })
     expect((await groupServices.getModelGroup(group.id))?.color).toBeNull()
 
-    // 模拟旧版本留下的 icon+color 脏组合：只移除图标时，隐藏颜色也必须一并清空。
+    // 模拟旧版本留下的 icon+color 脏组合：移除图标时不能让隐藏颜色意外复活。
     await dbClient.db
       .update(schema.modelGroups)
       .set({ color: '#112233' })
@@ -132,9 +134,9 @@ describe('model group CRUD', () => {
     const cleared = await groupServices.updateModelGroup(group.id, { icon: null })
     expect(cleared).toMatchObject({
       ok: true,
-      group: { name: '新名', icon: null, color: null },
+      group: { name: '新名', icon: null, color: DEFAULT_FOLDER_COLOR },
     })
-    expect((await groupServices.getModelGroup(group.id))?.color).toBeNull()
+    expect((await groupServices.getModelGroup(group.id))?.color).toBe(DEFAULT_FOLDER_COLOR)
   })
 
   it('returns null / false for unknown groups', async () => {

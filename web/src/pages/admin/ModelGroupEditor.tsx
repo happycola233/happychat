@@ -1,6 +1,6 @@
 import { useId, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Check, Pipette, Sparkles } from 'lucide-react'
+import { Check, Pipette } from 'lucide-react'
 import { HexColorInput, HexColorPicker } from 'react-colorful'
 import type { AdminModelGroupDTO } from '@shared/types/api'
 import type { ModelIcon } from '@shared/types/domain'
@@ -15,14 +15,14 @@ import {
   FOLDER_CUSTOM_COLOR_SWATCH_ICON_COLOR,
 } from '../../components/colorPresets'
 import { Button } from '../../components/ui/Button'
-import { ColorModeButton, ColorSwatch } from '../../components/ui/ColorSwatch'
+import { ColorSwatch } from '../../components/ui/ColorSwatch'
 import { Modal } from '../../components/ui/Modal'
 import { toast } from '../../store/toast'
 import { Field } from './FormField'
 
 /**
  * 模型分组的新建 / 编辑弹窗。
- * 颜色区与聊天文件夹共用柔和浅色色板，并保留「默认 + 预设 + 自定义」三段式交互。
+ * 颜色区与聊天文件夹共用柔和浅色色板，并保留「预设 + 自定义」交互。
  */
 export function ModelGroupEditor({
   group,
@@ -66,10 +66,8 @@ export function ModelGroupEditor({
 
   const changeIcon = (nextIcon: ModelIcon | null) => {
     setIcon(nextIcon)
-    if (nextIcon) {
-      setColor(null)
-      setCustomPickerOpen(false)
-    }
+    setColor(resolveModelGroupColor(nextIcon, color))
+    if (nextIcon) setCustomPickerOpen(false)
   }
 
   return (
@@ -122,22 +120,9 @@ export function ModelGroupEditor({
         {!icon && (
           <fieldset>
             <legend className="mb-1.5 block text-sm font-medium text-neutral-700 dark:text-neutral-300">
-              颜色（可选）
+              颜色
             </legend>
             <div className="flex flex-wrap items-center gap-2">
-              <ColorModeButton
-                onClick={() => {
-                  setColor(null)
-                  setCustomPickerOpen(false)
-                }}
-                aria-label="默认颜色"
-                selected={color === null}
-                title="使用默认颜色"
-              >
-                <Sparkles className="h-3.5 w-3.5" />
-                默认
-              </ColorModeButton>
-              <span aria-hidden className="h-5 w-px bg-neutral-300 dark:bg-neutral-600" />
               {FOLDER_COLOR_PRESETS.map((preset) => (
                 <ColorSwatch
                   key={preset}

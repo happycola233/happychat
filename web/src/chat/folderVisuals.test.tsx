@@ -1,5 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
+import { DEFAULT_FOLDER_COLOR } from '@shared/constants'
 import { FolderGlyph } from './folderVisuals'
 
 describe('FolderGlyph', () => {
@@ -13,6 +14,8 @@ describe('FolderGlyph', () => {
     const emojiRootTag = emojiFolder.match(/^<span\b[^>]*>/)?.[0] ?? ''
     expect(defaultFolder).toContain('lucide-folder')
     expect(defaultFolder).toContain('h-full w-full')
+    expect(defaultFolder).toContain('hc-colored-glyph')
+    expect(defaultFolder).toContain(`--hc-glyph-color:${DEFAULT_FOLDER_COLOR}`)
     expect(defaultRootTag).toContain('h-4 w-4')
     expect(emojiFolder).toContain('📚')
     expect(emojiRootTag).toContain('h-4 w-4')

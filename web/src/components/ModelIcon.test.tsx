@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
+import { DEFAULT_FOLDER_COLOR } from '@shared/constants'
 import { buildLobeIconCatalog } from '../hooks/useModels'
 import { ModelGroupGlyph, ModelIconMark } from './ModelIcon'
 
@@ -77,8 +78,8 @@ describe('ModelGroupGlyph', () => {
     expect(emojiGroup).toContain('text-[18px]')
     expect(coloredDefaultGroup).toContain('style="color:#8b5cf6"')
     expect(emojiGroup).not.toContain('#8b5cf6')
-    expect(defaultGroup).toContain('text-neutral-700')
-    expect(defaultGroup).toContain('dark:text-neutral-300')
+    expect(defaultGroup).toContain(`style="color:${DEFAULT_FOLDER_COLOR}"`)
+    expect(defaultGroup).not.toContain('text-neutral-700')
     expect(emojiGroup).toContain('text-neutral-700')
     for (const html of [defaultGroup, coloredDefaultGroup, emojiGroup]) {
       const rootTag = html.match(/^<span\b[^>]*>/)?.[0] ?? ''

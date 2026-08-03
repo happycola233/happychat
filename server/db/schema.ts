@@ -303,7 +303,7 @@ export const folders = sqliteTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
-    // 主题色（#RRGGBB）；null=默认中性色
+    // 主题色（#RRGGBB）；旧记录的 null 在读取时归一为默认黄色
     color: text('color'),
     // 图标 Emoji（可能是多码点序列，如 ZWJ 组合）；null=默认文件夹图标
     emoji: text('emoji'),

@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
+import { DEFAULT_FOLDER_COLOR } from '@shared/constants'
 import type { AdminModelGroupDTO } from '@shared/types/api'
 import { ModelGroupEditor } from './ModelGroupEditor'
 
@@ -65,10 +66,18 @@ describe('ModelGroupEditor appearance semantics', () => {
   it('shows the color field for the default folder and keeps its exact chosen color', () => {
     const html = renderEditor(groupFixture({ color: '#ef4444' }))
 
-    expect(html).toContain('颜色（可选）')
-    expect(html).toContain('aria-label="默认颜色"')
+    expect(html).toContain('<legend')
+    expect(html).not.toContain('aria-label="默认颜色"')
     expect(html).toContain('data-icon-state="default"')
     expect(html).toContain('data-preview-color="#ef4444"')
+  })
+
+  it('uses the yellow preset when a legacy default folder has no stored color', () => {
+    const html = renderEditor(groupFixture({ color: null }))
+
+    expect(html).toContain(`data-preview-color="${DEFAULT_FOLDER_COLOR}"`)
+    expect(html).toContain(`aria-label="使用颜色 ${DEFAULT_FOLDER_COLOR}"`)
+    expect(html).not.toContain('aria-label="默认颜色"')
   })
 
   it('hides and discards a legacy color whenever an explicit icon is selected', () => {

@@ -117,7 +117,7 @@ export async function createModelGroup(
   )
 }
 
-/** 更新分组：undefined=不改动，null=清除图标/颜色。 */
+/** 更新分组：undefined=不改动；图标 null=恢复文件夹图形，颜色 null=恢复默认黄色。 */
 export async function updateModelGroup(
   id: string,
   input: ModelGroupUpdateInput,
