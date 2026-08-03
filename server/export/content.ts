@@ -146,7 +146,7 @@ export function searchLines(m: MessageDTO): string[] {
     const quoted = a.queries?.length ? a.queries.map((q) => `「${q}」`).join(' ') : ''
     switch (a.type) {
       case 'search':
-        lines.push(quoted ? `搜索：${quoted}` : '搜索')
+        lines.push(a.error ? `搜索失败（${a.error}）` : quoted ? `搜索：${quoted}` : '搜索')
         break
       case 'open_page':
         lines.push(a.url ? `打开页面：${a.url}` : '打开页面')

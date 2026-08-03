@@ -4,7 +4,6 @@ import {
   migrateDefaultParamsToAnthropic,
   migrateHardParamsToAnthropic,
   modelKindForProviderProtocol,
-  syncAnthropicThinkingHardParams,
 } from './modelProtocolMigration'
 
 describe('modelProtocolMigration', () => {
@@ -47,6 +46,20 @@ describe('modelProtocolMigration', () => {
     expect(JSON.stringify(migrated)).not.toContain('web_search_20250305')
   })
 
+  it('迁移到 Anthropic 时保留管理员自定义 thinking 模板', () => {
+    const thinking = {
+      type: 'vendor_managed',
+      budget_tokens: 4096,
+      display: 'omitted',
+      gateway_option: true,
+    }
+    const migrated = JSON.parse(
+      migrateHardParamsToAnthropic(JSON.stringify({ thinking }), 'vendor-claude-alias'),
+    ) as Record<string, unknown>
+
+    expect(migrated.thinking).toEqual(thinking)
+  })
+
   it('离开 Anthropic 时移除本次切换自动填入的 max_output_tokens', () => {
     const entered = migrateDefaultParamsToAnthropic({ temperature: 0.6 }, 16_000)
 
@@ -68,68 +81,5 @@ describe('modelProtocolMigration', () => {
       max_output_tokens: 4096,
     })
     expect(migrateDefaultParamsFromAnthropic(edited, false)).toEqual({ max_output_tokens: 8192 })
-  })
-
-  it('Anthropic 思考开关同步更新高级 JSON，并保留其他硬参数', () => {
-    const enabled = syncAnthropicThinkingHardParams(
-      JSON.stringify({ cache_control: { type: 'ephemeral' }, gateway_option: true }),
-      'claude-sonnet-5',
-      true,
-    )
-    expect(JSON.parse(enabled)).toEqual({
-      cache_control: { type: 'ephemeral' },
-      gateway_option: true,
-      thinking: { type: 'adaptive', display: 'summarized' },
-    })
-
-    expect(JSON.parse(syncAnthropicThinkingHardParams(enabled, 'claude-sonnet-5', false))).toEqual({
-      cache_control: { type: 'ephemeral' },
-      gateway_option: true,
-      thinking: { type: 'disabled' },
-    })
-  })
-
-  it('关闭默认不思考的 Anthropic 型号时移除 thinking 模板', () => {
-    const disabled = syncAnthropicThinkingHardParams(
-      JSON.stringify({
-        cache_control: { type: 'ephemeral' },
-        thinking: { type: 'adaptive', display: 'summarized' },
-      }),
-      'claude-sonnet-4-6',
-      false,
-    )
-
-    expect(JSON.parse(disabled)).toEqual({ cache_control: { type: 'ephemeral' } })
-  })
-
-  it('切换模型 ID 时自动选择 thinking.type，并保留兼容的自定义字段', () => {
-    const manual = syncAnthropicThinkingHardParams(
-      JSON.stringify({
-        cache_control: { type: 'ephemeral' },
-        gateway_option: true,
-        thinking: { type: 'adaptive', display: 'omitted' },
-      }),
-      'claude-haiku-4-5',
-      true,
-    )
-    expect(JSON.parse(manual)).toEqual({
-      cache_control: { type: 'ephemeral' },
-      gateway_option: true,
-      thinking: { type: 'enabled', budget_tokens: 8192, display: 'omitted' },
-    })
-
-    const adaptive = syncAnthropicThinkingHardParams(manual, 'claude-opus-4-8', true)
-    expect(JSON.parse(adaptive)).toEqual({
-      cache_control: { type: 'ephemeral' },
-      gateway_option: true,
-      thinking: { type: 'adaptive', display: 'omitted' },
-    })
-  })
-
-  it('未知网关模型保留管理员显式配置的 thinking.type', () => {
-    const current = JSON.stringify({
-      thinking: { type: 'vendor_managed', display: 'summarized' },
-    })
-    expect(syncAnthropicThinkingHardParams(current, 'vendor-claude-alias', true)).toBe(current)
   })
 })

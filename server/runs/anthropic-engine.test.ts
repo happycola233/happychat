@@ -318,6 +318,344 @@ describe('runAnthropicEngine', () => {
     )
   })
 
+  it('refusal 作为失败终结，丢弃全部部分输出但保留 usage', async () => {
+    const fixture = await createFixture()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(
+        sseResponse([
+          {
+            type: 'message_start',
+            message: { id: 'msg_refusal', usage: { input_tokens: 7, output_tokens: 0 } },
+          },
+          {
+            type: 'content_block_start',
+            index: 0,
+            content_block: { type: 'thinking', thinking: '', signature: '' },
+          },
+          {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'thinking_delta', thinking: '作废思考' },
+          },
+          {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'signature_delta', signature: 'discarded-signature' },
+          },
+          { type: 'content_block_stop', index: 0 },
+          {
+            type: 'content_block_start',
+            index: 1,
+            content_block: {
+              type: 'server_tool_use',
+              id: 'srv_refusal',
+              name: 'web_search',
+              input: {},
+            },
+          },
+          {
+            type: 'content_block_delta',
+            index: 1,
+            delta: { type: 'input_json_delta', partial_json: '{"query":"discarded query"}' },
+          },
+          { type: 'content_block_stop', index: 1 },
+          {
+            type: 'content_block_start',
+            index: 2,
+            content_block: {
+              type: 'web_search_tool_result',
+              tool_use_id: 'srv_refusal',
+              content: [],
+            },
+          },
+          { type: 'content_block_stop', index: 2 },
+          {
+            type: 'content_block_start',
+            index: 3,
+            content_block: { type: 'text', text: '' },
+          },
+          {
+            type: 'content_block_delta',
+            index: 3,
+            delta: { type: 'text_delta', text: '作废正文' },
+          },
+          {
+            type: 'content_block_delta',
+            index: 3,
+            delta: {
+              type: 'citations_delta',
+              citation: {
+                type: 'web_search_result_location',
+                url: 'https://example.com/discarded',
+                title: 'Discarded',
+              },
+            },
+          },
+          { type: 'content_block_stop', index: 3 },
+          {
+            type: 'message_delta',
+            delta: { stop_reason: 'refusal' },
+            usage: { output_tokens: 9, output_tokens_details: { thinking_tokens: 3 } },
+          },
+          { type: 'message_stop' },
+        ]),
+      ),
+    )
+
+    await anthropicEngine.runAnthropicEngine(fixture)
+
+    const storedMessage = await dbClient.db.query.messages.findFirst({
+      where: eq(schema.messages.id, fixture.assistantMessage.id),
+    })
+    const storedRun = await dbClient.db.query.runs.findFirst({
+      where: eq(schema.runs.id, fixture.run.id),
+    })
+    const usageLog = await dbClient.db.query.usageLogs.findFirst({
+      where: eq(schema.usageLogs.runId, fixture.run.id),
+    })
+    const errorLog = await dbClient.db.query.errorLogs.findFirst({
+      where: eq(schema.errorLogs.runId, fixture.run.id),
+    })
+    const runError = await dbClient.db.query.runEvents.findFirst({
+      where: eq(schema.runEvents.runId, fixture.run.id),
+      orderBy: (events, { desc }) => [desc(events.sequenceNumber)],
+    })
+
+    expect(storedMessage).toMatchObject({
+      status: 'error',
+      content: [],
+      reasoningSummary: null,
+      annotations: null,
+      searchActions: null,
+      providerReplayContext: null,
+      inputTokens: 7,
+      outputTokens: 9,
+      reasoningTokens: 3,
+      totalTokens: 16,
+      errorMessage: '模型拒绝了此请求，请调整内容后重试。',
+    })
+    expect(storedRun).toMatchObject({
+      state: 'failed',
+      incompleteReason: null,
+      errorMessage: '模型拒绝了此请求，请调整内容后重试。',
+    })
+    expect(usageLog).toMatchObject({ success: false, errorType: 'refusal' })
+    expect(errorLog).toMatchObject({ errorType: 'refusal', httpStatus: null })
+    expect(runError).toMatchObject({
+      type: 'run.error',
+      data: {
+        state: 'failed',
+        message: '模型拒绝了此请求，请调整内容后重试。',
+        discardPartialOutput: true,
+      },
+    })
+  })
+
+  it('tool_use 在无客户端工具执行器时作为明确失败', async () => {
+    const fixture = await createFixture()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(
+        sseResponse([
+          {
+            type: 'message_start',
+            message: { id: 'msg_tool_use', usage: { input_tokens: 4, output_tokens: 0 } },
+          },
+          {
+            type: 'content_block_start',
+            index: 0,
+            content_block: { type: 'tool_use', id: 'tool_1', name: 'get_weather', input: {} },
+          },
+          {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'input_json_delta', partial_json: '{"city":"Shanghai"}' },
+          },
+          { type: 'content_block_stop', index: 0 },
+          {
+            type: 'message_delta',
+            delta: { stop_reason: 'tool_use' },
+            usage: { output_tokens: 6 },
+          },
+          { type: 'message_stop' },
+        ]),
+      ),
+    )
+
+    await anthropicEngine.runAnthropicEngine(fixture)
+
+    const storedMessage = await dbClient.db.query.messages.findFirst({
+      where: eq(schema.messages.id, fixture.assistantMessage.id),
+    })
+    const storedRun = await dbClient.db.query.runs.findFirst({
+      where: eq(schema.runs.id, fixture.run.id),
+    })
+    const usageLog = await dbClient.db.query.usageLogs.findFirst({
+      where: eq(schema.usageLogs.runId, fixture.run.id),
+    })
+    const errorLog = await dbClient.db.query.errorLogs.findFirst({
+      where: eq(schema.errorLogs.runId, fixture.run.id),
+    })
+    const eventTypes = await dbClient.db
+      .select({ type: schema.runEvents.type, data: schema.runEvents.data })
+      .from(schema.runEvents)
+      .where(eq(schema.runEvents.runId, fixture.run.id))
+
+    expect(storedMessage).toMatchObject({
+      status: 'error',
+      providerReplayContext: null,
+      inputTokens: 4,
+      outputTokens: 6,
+      totalTokens: 10,
+      errorMessage: '模型请求了本站不支持的客户端工具，生成已停止。',
+    })
+    expect(storedRun).toMatchObject({
+      state: 'failed',
+      incompleteReason: null,
+      errorMessage: '模型请求了本站不支持的客户端工具，生成已停止。',
+    })
+    expect(usageLog).toMatchObject({ success: false, errorType: 'tool_use' })
+    expect(errorLog).toMatchObject({ errorType: 'tool_use' })
+    expect(eventTypes.at(-1)).toMatchObject({
+      type: 'run.error',
+      data: {
+        state: 'failed',
+        message: '模型请求了本站不支持的客户端工具，生成已停止。',
+      },
+    })
+    expect(eventTypes.at(-1)?.data).not.toHaveProperty('discardPartialOutput')
+  })
+
+  it('仅对含未解决客户端或服务端工具调用的截断响应丢弃 replay', async () => {
+    const resolvedFixture = await createFixture()
+    const unresolvedServerFixture = await createFixture()
+    const unresolvedClientFixture = await createFixture()
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: 'message_start',
+            message: { id: 'msg_resolved_server_tool', usage: { input_tokens: 2 } },
+          },
+          {
+            type: 'content_block_start',
+            index: 0,
+            content_block: {
+              type: 'server_tool_use',
+              id: 'srv_resolved',
+              name: 'web_search',
+              input: { query: 'resolved' },
+            },
+          },
+          { type: 'content_block_stop', index: 0 },
+          {
+            type: 'content_block_start',
+            index: 1,
+            content_block: {
+              type: 'web_search_tool_result',
+              tool_use_id: 'srv_resolved',
+              content: [],
+            },
+          },
+          { type: 'content_block_stop', index: 1 },
+          {
+            type: 'message_delta',
+            delta: { stop_reason: 'max_tokens' },
+            usage: { output_tokens: 3 },
+          },
+          { type: 'message_stop' },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: 'message_start',
+            message: { id: 'msg_unresolved_server_tool', usage: { input_tokens: 2 } },
+          },
+          {
+            type: 'content_block_start',
+            index: 0,
+            content_block: {
+              type: 'server_tool_use',
+              id: 'srv_unresolved',
+              name: 'web_search',
+              input: { query: 'unresolved' },
+            },
+          },
+          { type: 'content_block_stop', index: 0 },
+          {
+            type: 'message_delta',
+            delta: { stop_reason: 'model_context_window_exceeded' },
+            usage: { output_tokens: 3 },
+          },
+          { type: 'message_stop' },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: 'message_start',
+            message: { id: 'msg_unresolved_client_tool', usage: { input_tokens: 2 } },
+          },
+          {
+            type: 'content_block_start',
+            index: 0,
+            content_block: {
+              type: 'tool_use',
+              id: 'tool_unresolved',
+              name: 'get_weather',
+              input: { city: 'Shanghai' },
+            },
+          },
+          { type: 'content_block_stop', index: 0 },
+          {
+            type: 'message_delta',
+            delta: { stop_reason: 'max_tokens' },
+            usage: { output_tokens: 3 },
+          },
+          { type: 'message_stop' },
+        ]),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await anthropicEngine.runAnthropicEngine(resolvedFixture)
+    await anthropicEngine.runAnthropicEngine(unresolvedServerFixture)
+    await anthropicEngine.runAnthropicEngine(unresolvedClientFixture)
+
+    const [resolvedMessage, unresolvedServerMessage, unresolvedClientMessage] = await Promise.all([
+      dbClient.db.query.messages.findFirst({
+        where: eq(schema.messages.id, resolvedFixture.assistantMessage.id),
+      }),
+      dbClient.db.query.messages.findFirst({
+        where: eq(schema.messages.id, unresolvedServerFixture.assistantMessage.id),
+      }),
+      dbClient.db.query.messages.findFirst({
+        where: eq(schema.messages.id, unresolvedClientFixture.assistantMessage.id),
+      }),
+    ])
+
+    expect(resolvedMessage).toMatchObject({
+      status: 'interrupted',
+      providerReplayContext: {
+        protocol: 'anthropic_messages',
+        content: [
+          { type: 'server_tool_use', id: 'srv_resolved' },
+          { type: 'web_search_tool_result', tool_use_id: 'srv_resolved' },
+        ],
+      },
+    })
+    expect(unresolvedServerMessage).toMatchObject({
+      status: 'interrupted',
+      providerReplayContext: null,
+    })
+    expect(unresolvedClientMessage).toMatchObject({
+      status: 'interrupted',
+      providerReplayContext: null,
+    })
+  })
+
   it('接受完整 message_delta 后直接 EOF 的 Anthropic 兼容网关', async () => {
     const fixture = await createFixture()
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
@@ -420,5 +758,11 @@ describe('runAnthropicEngine', () => {
       opaqueSignature,
     )
     expect(storedMessage?.errorMessage).toContain('[provider opaque content omitted]')
+    expect(storedErrors).toEqual([
+      expect.objectContaining({
+        errorType: 'invalid_request_error',
+        httpStatus: 400,
+      }),
+    ])
   })
 })

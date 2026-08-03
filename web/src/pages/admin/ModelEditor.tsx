@@ -36,7 +36,6 @@ import {
   migrateHardParamsFromAnthropic,
   migrateHardParamsToAnthropic,
   modelKindForProviderProtocol,
-  syncAnthropicThinkingHardParams,
 } from './modelProtocolMigration'
 import { TagsInput } from './TagsInput'
 
@@ -383,15 +382,6 @@ export function ModelEditor({
       return
     }
     setCaps((current) => ({ ...current, [k]: enabled }))
-    if (kind !== 'anthropic' || k !== 'reasoning') return
-
-    const presetModelId = modelId.trim() || MODEL_INPUT_EXAMPLES.anthropic.modelId
-    const presetIsManaged = managedAnthropicHardParamsPresetRef.current !== null
-    setHardParamsText((current) => {
-      const next = syncAnthropicThinkingHardParams(current, presetModelId, enabled)
-      if (presetIsManaged) managedAnthropicHardParamsPresetRef.current = next
-      return next
-    })
   }
 
   /** 把 {{变量}} 插入系统提示词光标处（无焦点时追加到末尾）。 */
@@ -784,9 +774,9 @@ export function ModelEditor({
                 分钟；首次写入产生缓存写入费用，命中后可降低延迟与输入成本。
               </p>
               <p>
-                <code className="font-mono">thinking.type</code>{' '}
-                的默认模板会按模型 ID 自动选择：支持时优先使用{' '}
-                <code className="font-mono">adaptive</code>，仅支持手动扩展思考的型号使用{' '}
+                <code className="font-mono">thinking.type</code> 的默认模板会按模型 ID
+                自动选择：支持时优先使用 <code className="font-mono">adaptive</code>
+                ，仅支持手动扩展思考的型号使用{' '}
                 <code className="font-mono">enabled + budget_tokens</code>。
               </p>
               <p>

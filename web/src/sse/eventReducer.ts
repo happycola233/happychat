@@ -55,9 +55,7 @@ export const hasActiveSearch = (calls: readonly LiveSearchCall[]): boolean =>
   calls.some((call) => call.status !== 'completed')
 
 /** 持久化消息（含分享快照）没有流式调用，把动作序列适配成已完成调用供同一 UI 渲染。 */
-export function persistedSearchCalls(
-  actions: SearchAction[] | null | undefined,
-): LiveSearchCall[] {
+export function persistedSearchCalls(actions: SearchAction[] | null | undefined): LiveSearchCall[] {
   return (actions ?? []).map((action, index) => ({
     id: `saved-search-${index}`,
     status: 'completed' as const,
@@ -202,8 +200,7 @@ function upsertSearchCall(s: LiveMessage, id: string, patch: SearchCallPatch): L
   const next: LiveSearchCall = {
     ...existing,
     // completed 不允许回退（防御事件乱序与续传重放）。
-    status:
-      existing.status === 'completed' ? 'completed' : (patch.status ?? existing.status),
+    status: existing.status === 'completed' ? 'completed' : (patch.status ?? existing.status),
     // 同一次调用会被上报多次，只接受信息量不减少的动作覆盖。
     action: mergeSearchAction(existing.action, patch.action ?? null),
   }
@@ -280,8 +277,7 @@ function finishReasoning(s: LiveMessage): LiveMessage {
   return { ...s, reasoningDurationMs: Math.max(0, Date.now() - s.upstreamStartedAt) }
 }
 
-const num = (v: unknown): number | null =>
-  typeof v === 'number' && Number.isFinite(v) ? v : null
+const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)
 
 function imageGenerationEventId(
   data: Record<string, unknown>,
@@ -349,8 +345,7 @@ function upsertImageGeneration(
     status: existing?.status ?? 'generating',
     previewIndex: existing?.previewIndex ?? null,
     previewUpdatedAt: existing?.previewUpdatedAt ?? null,
-    startedAt:
-      existing?.startedAt ?? (s.imageGenerations.length ? now : (s.imageStartedAt ?? now)),
+    startedAt: existing?.startedAt ?? (s.imageGenerations.length ? now : (s.imageStartedAt ?? now)),
     completedAt: existing?.completedAt ?? null,
     ...patch,
   }
@@ -419,9 +414,7 @@ export function reduceEvent(s: LiveMessage, ev: WireEvent): LiveMessage {
         return upsertImageGeneration(s, ev.data, { status: 'generating' })
       }
       const partialIndex =
-        typeof ev.data.partialIndex === 'number'
-          ? ev.data.partialIndex
-          : s.imagePreviewIndex
+        typeof ev.data.partialIndex === 'number' ? ev.data.partialIndex : s.imagePreviewIndex
       return upsertImageGeneration(s, ev.data, {
         status: 'generating',
         previewAttachmentId: attachmentId,
@@ -449,7 +442,7 @@ export function reduceEvent(s: LiveMessage, ev: WireEvent): LiveMessage {
         // 最终正文、思考、引用和终态一次提交；不经过空内容，避免视觉闪烁。
         text: finalText,
         reasoning: hasFinalReasoning
-          ? (ev.data.reasoningSummary as string | null) ?? ''
+          ? ((ev.data.reasoningSummary as string | null) ?? '')
           : completed.reasoning,
         reasoningPartKey: hasFinalReasoning ? null : completed.reasoningPartKey,
         annotations: finalAnnotations(ev.data.annotations, completed.annotations),
@@ -457,13 +450,23 @@ export function reduceEvent(s: LiveMessage, ev: WireEvent): LiveMessage {
         searchCalls: finalSearchCalls(completed.searchCalls, ev.data.searchActions),
       }
     }
-    case 'run.error':
-      return {
+    case 'run.error': {
+      const failed: LiveMessage = {
         ...finishReasoning(s),
         status: 'failed',
         error: str(ev.data.message) || '生成失败',
         searchCalls: settleSearchCalls(s.searchCalls),
       }
+      if (ev.data.discardPartialOutput !== true) return failed
+      return {
+        ...failed,
+        text: '',
+        reasoning: '',
+        reasoningPartKey: null,
+        annotations: [],
+        searchCalls: [],
+      }
+    }
     case 'run.canceled':
       return {
         ...finishReasoning(s),

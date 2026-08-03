@@ -34,6 +34,36 @@ function objectField(data: Record<string, unknown>, field: string): Record<strin
   return value
 }
 
+/** Anthropic 流内 error 没有 HTTP 终态，按官方 error.type 还原等价状态码。 */
+function anthropicStreamErrorStatus(type: string): number {
+  switch (type) {
+    case 'invalid_request_error':
+      return 400
+    case 'authentication_error':
+      return 401
+    case 'billing_error':
+      return 402
+    case 'permission_error':
+      return 403
+    case 'not_found_error':
+      return 404
+    case 'conflict_error':
+      return 409
+    case 'request_too_large':
+      return 413
+    case 'rate_limit_error':
+      return 429
+    case 'api_error':
+      return 500
+    case 'timeout_error':
+      return 504
+    case 'overloaded_error':
+      return 529
+    default:
+      return 500
+  }
+}
+
 /**
  * 单个 Messages HTTP 流的确定性聚合器。它按官方 index 保存 block 边界，同时只把可展示的
  * 文本、推理摘要、引用和搜索状态作为 effect 交给浏览器事件层。
@@ -159,7 +189,7 @@ export class AnthropicStreamAccumulator {
         const type = typeof error.type === 'string' ? error.type : 'stream_error'
         const rawMessage =
           typeof error.message === 'string' ? error.message : 'Anthropic 流式响应失败'
-        const status = type === 'overloaded_error' ? 529 : 500
+        const status = anthropicStreamErrorStatus(type)
         throw new UpstreamError({
           message: friendlyUpstreamMessage(type, rawMessage, status),
           status,

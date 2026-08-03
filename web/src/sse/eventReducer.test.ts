@@ -400,7 +400,11 @@ describe('search call tracking', () => {
       }),
     ])
     expect(done.searchCalls).toEqual([
-      { id: 'ws_1', status: 'completed', action: { type: 'search', queries: ['react 19 发布时间'] } },
+      {
+        id: 'ws_1',
+        status: 'completed',
+        action: { type: 'search', queries: ['react 19 发布时间'] },
+      },
     ])
     expect(hasActiveSearch(done.searchCalls)).toBe(false)
   })
@@ -610,5 +614,63 @@ describe('search call tracking', () => {
     )
     // 未解析出动作的占位调用在终态被丢弃，与持久化口径一致
     expect(canceled.searchCalls).toEqual([{ id: 'ws_1', status: 'completed', action: doneAction }])
+  })
+
+  it('仅在 run.error 明确作废部分输出时清空流式内容', () => {
+    const streamed = reduceEvents(initialLive(), [
+      event('response.reasoning_summary_text.delta', {
+        delta: '部分思考',
+        item_id: 'thinking-1',
+        summary_index: 0,
+      }),
+      event('response.output_text.delta', { delta: '部分正文' }),
+      event('response.output_text.annotation.added', {
+        annotation: {
+          type: 'url_citation',
+          url: 'https://example.com/',
+          title: 'Example',
+          start_index: 0,
+          end_index: 4,
+        },
+      }),
+      event('response.output_item.done', {
+        item: {
+          type: 'web_search_call',
+          id: 'ws_1',
+          status: 'completed',
+          action: { type: 'search', queries: ['example'] },
+        },
+      }),
+    ])
+
+    const regularFailure = reduceEvent(
+      streamed,
+      event('run.error', { state: 'failed', message: '上游失败' }),
+    )
+    expect(regularFailure).toMatchObject({
+      text: '部分正文',
+      reasoning: '部分思考',
+      status: 'failed',
+    })
+    expect(regularFailure.annotations).toHaveLength(1)
+    expect(regularFailure.searchCalls).toHaveLength(1)
+
+    const refusal = reduceEvent(
+      streamed,
+      event('run.error', {
+        state: 'failed',
+        message: '模型拒绝了此请求',
+        discardPartialOutput: true,
+      }),
+    )
+    expect(refusal).toMatchObject({
+      text: '',
+      reasoning: '',
+      reasoningPartKey: null,
+      annotations: [],
+      searchCalls: [],
+      status: 'failed',
+      error: '模型拒绝了此请求',
+    })
   })
 })

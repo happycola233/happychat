@@ -358,6 +358,83 @@ describe('prepareRun active leaf', () => {
     expect(result.body.system).toEqual(expect.stringContaining('<runtime_context_protocol>'))
   })
 
+  it('Anthropic 请求体校验失败时不创建 assistant、run 或改动 active leaf', async () => {
+    const runnable = await createRunnableModel()
+    await dbClient.db
+      .update(schema.providers)
+      .set({ protocol: 'anthropic', baseUrl: 'https://api.anthropic.com' })
+      .where(eq(schema.providers.id, runnable.providerId))
+    await dbClient.db
+      .update(schema.models)
+      .set({
+        modelId: 'claude-sonnet-5',
+        kind: 'anthropic',
+        capabilities: {
+          vision: false,
+          file_input: false,
+          web_search: false,
+          x_search: false,
+          image_generation: false,
+          reasoning: true,
+        },
+        allowedEfforts: ['enabled'],
+        defaultEffort: 'enabled',
+        defaultParams: { max_output_tokens: 16000 },
+        hardParams: { thinking: { type: 'enabled', budget_tokens: 8192 } },
+      })
+      .where(eq(schema.models.id, runnable.modelId))
+
+    const first = assertPrepared(
+      await prepare.prepareRun({
+        userId: runnable.userId,
+        modelId: runnable.modelId,
+        text: 'first',
+      }),
+    )
+    const messagesBefore = await dbClient.db
+      .select()
+      .from(schema.messages)
+      .where(eq(schema.messages.conversationId, first.conversation.id))
+    const runsBefore = await dbClient.db
+      .select()
+      .from(schema.runs)
+      .where(eq(schema.runs.conversationId, first.conversation.id))
+
+    await expect(
+      prepare.prepareRun({
+        userId: runnable.userId,
+        modelId: runnable.modelId,
+        conversationId: first.conversation.id,
+        text: 'conflicting turn',
+        params: { max_output_tokens: 8192 },
+      }),
+    ).rejects.toThrow('budget_tokens')
+
+    const messagesAfter = await dbClient.db
+      .select()
+      .from(schema.messages)
+      .where(eq(schema.messages.conversationId, first.conversation.id))
+    const runsAfter = await dbClient.db
+      .select()
+      .from(schema.runs)
+      .where(eq(schema.runs.conversationId, first.conversation.id))
+    const [conversationAfter] = await dbClient.db
+      .select()
+      .from(schema.conversations)
+      .where(eq(schema.conversations.id, first.conversation.id))
+      .limit(1)
+
+    expect(messagesAfter.filter((message) => message.role === 'assistant')).toHaveLength(
+      messagesBefore.filter((message) => message.role === 'assistant').length,
+    )
+    // 用户消息仍遵循既有事务边界持久化；失败只阻止 worker 状态进入队列。
+    expect(messagesAfter.filter((message) => message.role === 'user')).toHaveLength(
+      messagesBefore.filter((message) => message.role === 'user').length + 1,
+    )
+    expect(runsAfter).toHaveLength(runsBefore.length)
+    expect(conversationAfter?.activeLeafId).toBe(first.assistantMessage.id)
+  })
+
   it('在持久化消息前拒绝 Anthropic 不支持的 Office 文件', async () => {
     const runnable = await createRunnableFileModel()
     await dbClient.db

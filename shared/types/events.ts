@@ -61,6 +61,8 @@ export interface RunErrorData {
   state: 'failed'
   message: string
   code?: string
+  /** true 表示流中先前展示的部分输出已被上游明确作废。 */
+  discardPartialOutput?: boolean
 }
 
 export interface RunSimpleTerminalData {

@@ -393,51 +393,12 @@ async function createAssistantAndRun(opts: {
   const requestParams: Record<string, unknown> = { ...(userParams ?? {}) }
   if (clientLocale) requestParams.clientLocale = clientLocale
 
-  const assistantMessage = must(
-    await db
-      .insert(messages)
-      .values({
-        conversationId: conv.id,
-        parentId: parentMessageId,
-        role: 'assistant',
-        status: 'streaming',
-        modelId: model.id,
-        content: [],
-      })
-      .returning()
-      .then((r) => r[0]),
-  )
-
-  const run = must(
-    await db
-      .insert(runs)
-      .values({
-        conversationId: conv.id,
-        assistantMessageId: assistantMessage.id,
-        userId: conv.userId,
-        modelId: model.id,
-        state: 'queued',
-        requestParams,
-        idempotencyKey,
-      })
-      .returning()
-      .then((r) => r[0]),
-  )
-
-  const updatedConversation = must(
-    await db
-      .update(conversations)
-      .set({ activeLeafId: assistantMessage.id, modelId: model.id, updatedAt: new Date() })
-      .where(eq(conversations.id, conv.id))
-      .returning()
-      .then((r) => r[0]),
-  )
-
   const all = await getConversationMessages(conv.id)
   const path = buildPath(all, parentMessageId)
 
   let body: Record<string, unknown>
   let imageOperation: ImageOperation | undefined
+  let instructions: string | null = null
   if (model.kind === 'image') {
     const userMsg = path[path.length - 1]
     const prompt = (userMsg?.content ?? [])
@@ -486,7 +447,7 @@ async function createAssistantAndRun(opts: {
     const input = buildInput(pathMessages, attMap)
     // 始终读取模型当前提示词：管理员更新后，旧会话的下一次请求立即生效。
     // runs.instructions 仅保存本次最终值，不参与后续请求选择。
-    let instructions = model.defaultSystemPrompt
+    instructions = model.defaultSystemPrompt
     // 系统提示词含 {{变量}} 时按当前用户/模型/时间渲染
     if (instructions && instructions.includes('{{')) {
       const [userRow] = await db
@@ -500,8 +461,6 @@ async function createAssistantAndRun(opts: {
       )
     }
     instructions = appendRuntimeContextInstructions(instructions)
-    // 持久化最终 instructions（启用 runs.instructions 列，便于审计）
-    await db.update(runs).set({ instructions }).where(eq(runs.id, run.id))
     // 文本会话始终使用稳定路由 key；其他上游参数仅由通用 hardParams 显式提供。
     const promptCacheKey = promptCacheKeyForConversation(conv.id)
     if (model.kind === 'chat') {
@@ -532,6 +491,48 @@ async function createAssistantAndRun(opts: {
       })
     }
   }
+
+  // 请求体构建可能因模型参数或附件内容无效而失败，必须在创建 worker 状态前完成。
+  const assistantMessage = must(
+    await db
+      .insert(messages)
+      .values({
+        conversationId: conv.id,
+        parentId: parentMessageId,
+        role: 'assistant',
+        status: 'streaming',
+        modelId: model.id,
+        content: [],
+      })
+      .returning()
+      .then((r) => r[0]),
+  )
+
+  const run = must(
+    await db
+      .insert(runs)
+      .values({
+        conversationId: conv.id,
+        assistantMessageId: assistantMessage.id,
+        userId: conv.userId,
+        modelId: model.id,
+        state: 'queued',
+        requestParams,
+        instructions,
+        idempotencyKey,
+      })
+      .returning()
+      .then((r) => r[0]),
+  )
+
+  const updatedConversation = must(
+    await db
+      .update(conversations)
+      .set({ activeLeafId: assistantMessage.id, modelId: model.id, updatedAt: new Date() })
+      .where(eq(conversations.id, conv.id))
+      .returning()
+      .then((r) => r[0]),
+  )
 
   return { conversation: updatedConversation, assistantMessage, run, body, imageOperation }
 }

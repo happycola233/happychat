@@ -445,6 +445,38 @@ describe('其他格式', () => {
     expect(text).toContain('[示例来源](https://example.com/a)')
   })
 
+  it.each(['markdown', 'html', 'txt'] as const)(
+    '%s：检索过程明确标注搜索失败及业务错误码',
+    async (format) => {
+      const user = await createUser()
+      const model = await createModel()
+      const conv = await createConversation(user.id)
+      const question = await addMessage({
+        conversationId: conv.id,
+        role: 'user',
+        createdAt: new Date('2025-03-28T15:00:00Z'),
+        content: [{ type: 'input_text', text: '查询最新资料' }],
+      })
+      const answer = await addMessage({
+        conversationId: conv.id,
+        parentId: question.id,
+        role: 'assistant',
+        modelId: model.id,
+        createdAt: new Date('2025-03-28T15:00:01Z'),
+        searchActions: [{ type: 'search', queries: ['会失败的查询'], error: 'too_many_requests' }],
+        content: [{ type: 'output_text', text: '暂时无法取得搜索结果。' }],
+      })
+      await setActiveLeaf(conv.id, answer.id)
+
+      const result = await exporter.exportConversation(user.id, conv.id, opts({ format }))
+      if (!result.ok) throw new Error('导出失败')
+      const text = new TextDecoder().decode(result.file.data)
+
+      expect(text).toContain('搜索失败（too_many_requests）')
+      expect(text).not.toContain('搜索：「会失败的查询」')
+    },
+  )
+
   it('txt：时间戳前缀与模型名标注', async () => {
     const { user, conv } = await createExportTree()
     const result = await exporter.exportConversation(

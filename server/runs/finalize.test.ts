@@ -202,6 +202,7 @@ describe('finalizeRun terminal snapshots', () => {
       .returning()
     if (!failedRun) throw new Error('Failed to create failed run fixture')
 
+    const failedEvents: Array<{ type: string; data: Record<string, unknown> }> = []
     await finalize.finalizeRun({
       run: failedRun,
       assistantMessage: failedMessage,
@@ -223,10 +224,14 @@ describe('finalizeRun terminal snapshots', () => {
       },
       incompleteReason: null,
       errorMessage: 'upstream failed',
+      discardPartialOutput: true,
       upstreamResponseId: null,
       providerReplayContext,
       startedAt,
-      persistEmit: () => 0,
+      persistEmit: (type, data) => {
+        failedEvents.push({ type, data })
+        return 0
+      },
     })
 
     const persistedFailedMessage = await dbClient.db.query.messages.findFirst({
@@ -235,5 +240,15 @@ describe('finalizeRun terminal snapshots', () => {
     expect(persistedFailedMessage?.providerReplayContext).toBeNull()
     // 空数组表示本轮没有任何搜索动作，列保持 null 而不是存 []。
     expect(persistedFailedMessage?.searchActions).toBeNull()
+    expect(failedEvents).toEqual([
+      {
+        type: 'run.error',
+        data: {
+          state: 'failed',
+          message: 'upstream failed',
+          discardPartialOutput: true,
+        },
+      },
+    ])
   })
 })

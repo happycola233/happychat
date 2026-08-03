@@ -37,6 +37,8 @@ export interface FinalizeArgs {
   errorType?: string | null
   errorCode?: string | null
   httpStatus?: number | null
+  /** refusal 使之前已推送的流式内容失效，需要前端同步清空。 */
+  discardPartialOutput?: boolean
   upstreamResponseId: string | null
   providerReplayContext?: ProviderReplayContext | null
   startedAt: Date
@@ -142,7 +144,11 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
   }
 
   if (a.state === 'failed') {
-    a.persistEmit(RUN_EVENT_TYPE.error, { state: 'failed', message: a.errorMessage ?? '生成失败' })
+    a.persistEmit(RUN_EVENT_TYPE.error, {
+      state: 'failed',
+      message: a.errorMessage ?? '生成失败',
+      ...(a.discardPartialOutput ? { discardPartialOutput: true } : {}),
+    })
   } else if (a.state === 'canceled') {
     a.persistEmit(RUN_EVENT_TYPE.canceled, { state: 'canceled' })
   } else {

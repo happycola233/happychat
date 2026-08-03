@@ -1,8 +1,5 @@
 import type { ModelKind, ModelParams, ProviderProtocol } from '@shared/types/domain'
-import {
-  anthropicModelProfile,
-  createAnthropicDefaultHardParams,
-} from '@shared/util/anthropic'
+import { createAnthropicDefaultHardParams } from '@shared/util/anthropic'
 
 function parseHardParams(text: string): Record<string, unknown> | null {
   const trimmed = text.trim()
@@ -15,10 +12,6 @@ function parseHardParams(text: string): Record<string, unknown> | null {
   } catch {
     return null
   }
-}
-
-function isJsonObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function isToolWithType(tool: unknown, types: Set<string>): boolean {
@@ -77,38 +70,6 @@ export function migrateHardParamsFromAnthropic(text: string, nextKind: ModelKind
     else delete migrated.tools
   }
   return Object.keys(migrated).length ? JSON.stringify(migrated, null, 2) : ''
-}
-
-/** 根据模型支持情况同步 thinking.type，同时保留兼容的管理员自定义字段。 */
-export function syncAnthropicThinkingHardParams(
-  text: string,
-  modelId: string,
-  enabled: boolean,
-): string {
-  const current = parseHardParams(text)
-  if (!current) return text
-
-  const next = { ...current }
-  const profile = anthropicModelProfile(modelId)
-  if (!enabled && !profile.canDisableThinking) return text
-  if (enabled) {
-    const presetThinking = createAnthropicDefaultHardParams(modelId).thinking
-    // 未知网关别名无法可靠推断协议能力，保留管理员显式填写的 thinking。
-    if (!isJsonObject(presetThinking)) return text
-    const currentThinking = isJsonObject(next.thinking) ? next.thinking : {}
-    const thinking: Record<string, unknown> = {
-      ...presetThinking,
-      ...currentThinking,
-      type: presetThinking.type,
-    }
-    if (presetThinking.type === 'adaptive') delete thinking.budget_tokens
-    next.thinking = thinking
-  } else if (profile.thinkingDefaultsOn) {
-    next.thinking = { type: 'disabled' }
-  } else {
-    delete next.thinking
-  }
-  return Object.keys(next).length ? JSON.stringify(next, null, 2) : ''
 }
 
 export function migrateDefaultParamsToAnthropic(

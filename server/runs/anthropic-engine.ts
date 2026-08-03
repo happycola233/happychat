@@ -56,6 +56,25 @@ function replayContext(
   }
 }
 
+function hasUnresolvedToolUse(content: AnthropicContentBlock[]): boolean {
+  const resolvedServerToolIds = new Set(
+    content.flatMap((block) =>
+      typeof block.type === 'string' &&
+      block.type.endsWith('_tool_result') &&
+      typeof block.tool_use_id === 'string'
+        ? [block.tool_use_id]
+        : [],
+    ),
+  )
+  return content.some(
+    (block) =>
+      block.type === 'tool_use' ||
+      (block.type === 'server_tool_use' &&
+        typeof block.id === 'string' &&
+        !resolvedServerToolIds.has(block.id)),
+  )
+}
+
 /** Anthropic Messages 引擎：原生消费 block SSE，并翻译成本站统一事件协议。 */
 export async function runAnthropicEngine(ctx: EngineContext): Promise<void> {
   const sensitiveProviderContent = new Set(collectProviderOpaqueStrings(ctx.body))
@@ -211,10 +230,20 @@ export async function runAnthropicEngine(ctx: EngineContext): Promise<void> {
     if (finalStopReason === 'max_tokens' || finalStopReason === 'model_context_window_exceeded') {
       state = 'incomplete'
       incompleteReason = finalStopReason
+    } else if (finalStopReason === 'refusal') {
+      // 官方要求 refusal 丢弃拒绝前的部分输出；usage 仍保留上游实际计量。
+      text = ''
+      reasoning = ''
+      annotations.length = 0
+      searchActions = []
+      rawContent.length = 0
+      state = 'failed'
+      errorMessage = '模型拒绝了此请求，请调整内容后重试。'
+      errorType = 'refusal'
     } else if (finalStopReason === 'tool_use') {
-      state = 'incomplete'
-      incompleteReason = 'tool_use'
-      errorMessage = '模型请求了本站未配置的客户端工具，生成已停止。'
+      state = 'failed'
+      errorMessage = '模型请求了本站不支持的客户端工具，生成已停止。'
+      errorType = 'tool_use'
     } else if (!finalStopReason) {
       throw new Error('Anthropic 流未返回 stop_reason')
     }
@@ -240,6 +269,10 @@ export async function runAnthropicEngine(ctx: EngineContext): Promise<void> {
     }
   }
 
+  const truncatedWithUnresolvedToolUse =
+    (finalStopReason === 'max_tokens' || finalStopReason === 'model_context_window_exceeded') &&
+    hasUnresolvedToolUse(rawContent)
+
   await finalizeRun({
     run: ctx.run,
     assistantMessage: ctx.assistantMessage,
@@ -248,6 +281,7 @@ export async function runAnthropicEngine(ctx: EngineContext): Promise<void> {
     provider: ctx.provider,
     state,
     text,
+    ...(finalStopReason === 'refusal' ? { content: [] } : {}),
     reasoningSummary: reasoning || null,
     annotations,
     usage,
@@ -258,7 +292,8 @@ export async function runAnthropicEngine(ctx: EngineContext): Promise<void> {
     errorCode,
     httpStatus,
     upstreamResponseId,
-    providerReplayContext: finalStopReason === 'tool_use' ? null : replayContext(ctx, rawContent),
+    providerReplayContext: truncatedWithUnresolvedToolUse ? null : replayContext(ctx, rawContent),
+    discardPartialOutput: finalStopReason === 'refusal',
     startedAt,
     persistEmit,
   })

@@ -268,4 +268,34 @@ describe('AnthropicStreamAccumulator', () => {
       rawMessage: 'Overloaded',
     })
   })
+
+  it.each([
+    ['invalid_request_error', 400],
+    ['authentication_error', 401],
+    ['billing_error', 402],
+    ['permission_error', 403],
+    ['not_found_error', 404],
+    ['conflict_error', 409],
+    ['request_too_large', 413],
+    ['rate_limit_error', 429],
+    ['api_error', 500],
+    ['timeout_error', 504],
+    ['overloaded_error', 529],
+    ['future_error_type', 500],
+  ])('流内 %s 映射为 HTTP %i', (type, expectedStatus) => {
+    const accumulator = new AnthropicStreamAccumulator()
+    let thrown: unknown
+    try {
+      accumulator.accept(
+        event('error', {
+          error: { type, message: 'raw upstream message' },
+        }),
+      )
+    } catch (error) {
+      thrown = error
+    }
+
+    expect(thrown).toBeInstanceOf(UpstreamError)
+    expect(thrown).toMatchObject({ type, status: expectedStatus })
+  })
 })
