@@ -1515,14 +1515,11 @@ html.hc-ios .hc-chat-scroll {
 
 /* ===================== 聊天文件夹 ===================== */
 
-/* 聊天文件夹与模型分组的主题色只作用于图形前景，不绘制底板或边界。
-   文件夹在浅色模式保留用户原始选色；分组沿用既有的向黑色混合规则，确保极浅色可辨认；
-   深色模式共享向白色提亮规则。 */
+/* 聊天文件夹颜色只作用于图形前景，不绘制底板或边界。
+   文件夹在浅色模式保留用户原始选色，深色模式向白色提亮；模型分组的默认文件夹
+   直接用行内 color 呈现所选原色，显式图标则使用自身外观。 */
 .hc-colored-glyph {
   color: var(--hc-glyph-color);
-}
-.hc-colored-glyph.hc-contrasted-glyph {
-  color: color-mix(in srgb, var(--hc-glyph-color) 55%, black);
 }
 .dark .hc-colored-glyph {
   color: color-mix(in srgb, var(--hc-glyph-color) 78%, white);

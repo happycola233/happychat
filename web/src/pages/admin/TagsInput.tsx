@@ -6,21 +6,15 @@ import type { ModelTag } from '@shared/types/domain'
 import { MODEL_TAG_MAX_COUNT, MODEL_TAG_MAX_LABEL_LENGTH } from '@shared/util/modelTags'
 import { COLOR_PRESETS } from '../../components/colorPresets'
 import { ModelTagBadge } from '../../components/ModelTags'
+import {
+  ColorModeButton,
+  ColorSwatch,
+  CUSTOM_COLOR_SWATCH_BACKGROUND,
+} from '../../components/ui/ColorSwatch'
 import { Field } from './FormField'
 
 /** 不在预设色中，打开自定义取色器时可明确进入“自定义”状态。 */
 const CUSTOM_COLOR_SEED = '#6366f1'
-
-/**
- * 与文件夹色板保持无边框：conic-gradient 默认按 padding-box 定位并允许平铺，
- * 半透明边框会在四边露出渐变对侧的颜色。
- */
-const swatchClass =
-  'relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-neutral-50 dark:focus-visible:ring-offset-neutral-800'
-
-/** 选中态：品牌色细描边 + 与面板同色的留白，避免灰色粗环显脏。 */
-const selectedSwatchClass =
-  'ring-2 ring-sky-500 ring-offset-2 ring-offset-neutral-50 dark:ring-sky-400 dark:ring-offset-neutral-800'
 
 function isPresetColor(color: string): boolean {
   return (COLOR_PRESETS as readonly string[]).includes(color)
@@ -200,34 +194,27 @@ export function TagsInput({
 
           <div className="mt-2.5 flex flex-wrap items-center gap-2">
             {/* 「自动」不是一种颜色，用带文字的胶囊而非彩虹球，语义比色块更直白。 */}
-            <button
-              type="button"
+            <ColorModeButton
               onClick={() => chooseColor(null)}
               aria-label="自动配色"
-              aria-pressed={activeTag.color === null}
+              selected={activeTag.color === null}
+              surface="panel"
               title="自动配色（按标签文字）"
-              className={clsx(
-                'flex h-7 shrink-0 items-center gap-1 rounded-full border px-2.5 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-neutral-50 dark:focus-visible:ring-offset-neutral-800',
-                activeTag.color === null
-                  ? 'border-sky-500 bg-sky-50 text-sky-600 dark:border-sky-400 dark:bg-sky-400/15 dark:text-sky-300'
-                  : 'border-neutral-300 bg-white text-neutral-500 hover:border-neutral-400 hover:text-neutral-700 dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:border-neutral-500 dark:hover:text-neutral-200',
-              )}
             >
               <Sparkles className="h-3.5 w-3.5" />
               自动
-            </button>
+            </ColorModeButton>
 
             {/* 自动配色与固定色分组，视觉上区分“跟随文字”与“指定颜色”。 */}
             <span aria-hidden className="h-5 w-px bg-neutral-300 dark:bg-neutral-600" />
 
             {COLOR_PRESETS.map((preset) => (
-              <button
+              <ColorSwatch
                 key={preset}
-                type="button"
                 onClick={() => chooseColor(preset)}
                 aria-label={`使用颜色 ${preset}`}
-                aria-pressed={activeTag.color === preset}
-                className={clsx(swatchClass, activeTag.color === preset && selectedSwatchClass)}
+                selected={activeTag.color === preset}
+                surface="panel"
                 style={{ backgroundColor: preset }}
               >
                 {activeTag.color === preset && (
@@ -236,23 +223,21 @@ export function TagsInput({
                     strokeWidth={3}
                   />
                 )}
-              </button>
+              </ColorSwatch>
             ))}
 
             <span aria-hidden className="h-5 w-px bg-neutral-300 dark:bg-neutral-600" />
 
-            <button
-              type="button"
+            <ColorSwatch
               onClick={toggleCustomPicker}
               aria-label="自定义标签颜色"
               aria-expanded={customPickerOpen}
-              aria-pressed={activeCustomColor !== null}
+              selected={activeCustomColor !== null}
+              surface="panel"
               title="自定义颜色"
-              className={clsx(swatchClass, 'text-white', activeCustomColor && selectedSwatchClass)}
+              className="text-white"
               style={{
-                background:
-                  activeCustomColor ??
-                  'conic-gradient(#ef4444, #f59e0b, #22c55e, #0ea5e9, #8b5cf6, #ec4899, #ef4444)',
+                background: activeCustomColor ?? CUSTOM_COLOR_SWATCH_BACKGROUND,
               }}
             >
               {activeCustomColor && !customPickerOpen ? (
@@ -260,7 +245,7 @@ export function TagsInput({
               ) : (
                 <Pipette className="h-3.5 w-3.5 drop-shadow" />
               )}
-            </button>
+            </ColorSwatch>
           </div>
 
           {customPickerOpen && (

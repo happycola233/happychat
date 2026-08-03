@@ -5,6 +5,7 @@ import type {
   ModelGroupUpdateInput,
   ModelIconBatchInput,
 } from '@shared/schemas/model-group'
+import { resolveModelGroupColor } from '@shared/util/modelGroupAppearance'
 import { normalizeModelIcon } from '@shared/util/modelIcon'
 import { db } from '../db/client'
 import { modelGroups, models, modelUserAccess, providers } from '../db/schema'
@@ -17,12 +18,13 @@ type ModelGroupRow = typeof modelGroups.$inferSelect
 type ModelGroupFields = Pick<ModelGroupRow, 'id' | 'name' | 'icon' | 'color' | 'sort'>
 
 export function toModelGroupDTO(g: ModelGroupFields): ModelGroupDTO {
+  const icon = normalizeModelIcon(g.icon)
   return {
     id: g.id,
     name: g.name,
     // 图标会被拼进 URL 与 CSS mask，与模型同样在 DTO 边界统一归一化。
-    icon: normalizeModelIcon(g.icon),
-    color: g.color ?? null,
+    icon,
+    color: resolveModelGroupColor(icon, g.color),
     sort: g.sort,
   }
 }
@@ -95,7 +97,7 @@ export async function createModelGroup(
           .values({
             name: input.name,
             icon: input.icon ?? null,
-            color: input.color ?? null,
+            color: resolveModelGroupColor(input.icon, input.color),
             sort: (maxRow?.max ?? 0) + 100,
           })
           .returning()
@@ -123,7 +125,7 @@ export async function updateModelGroup(
   return db.transaction(
     (tx) => {
       const existing = tx
-        .select({ id: modelGroups.id })
+        .select({ id: modelGroups.id, icon: modelGroups.icon, color: modelGroups.color })
         .from(modelGroups)
         .where(eq(modelGroups.id, id))
         .limit(1)
@@ -133,16 +135,22 @@ export async function updateModelGroup(
         return { ok: false, code: 'icon_missing' } as const
       }
 
+      const currentIcon = normalizeModelIcon(existing.icon)
+      // 历史 icon+color 组合里的颜色从未真正可见；移除图标时也不能让它意外复活。
+      const currentColor = resolveModelGroupColor(currentIcon, existing.color)
+      const nextIcon = input.icon !== undefined ? input.icon : currentIcon
+      const nextColor = resolveModelGroupColor(
+        nextIcon,
+        input.color !== undefined ? input.color : currentColor,
+      )
+
       const patch: Partial<typeof modelGroups.$inferInsert> = {}
       if (input.name !== undefined) patch.name = input.name
       if (input.icon !== undefined) patch.icon = input.icon
-      if (input.color !== undefined) patch.color = input.color
-      const row = tx
-        .update(modelGroups)
-        .set(patch)
-        .where(eq(modelGroups.id, id))
-        .returning()
-        .get()
+      if (input.color !== undefined || nextColor !== (existing.color ?? null)) {
+        patch.color = nextColor
+      }
+      const row = tx.update(modelGroups).set(patch).where(eq(modelGroups.id, id)).returning().get()
       return row
         ? ({ ok: true, group: toModelGroupDTO(row) } as const)
         : ({ ok: false, code: 'group_missing' } as const)
@@ -308,7 +316,7 @@ export function clearCustomIconReferences(tx: DbTransaction, iconId: string): vo
     const icon = normalizeModelIcon(row.icon)
     if (icon?.type === 'custom' && icon.id === iconId) {
       tx.update(modelGroups)
-        .set({ icon: null, updatedAt: row.updatedAt })
+        .set({ icon: null, color: null, updatedAt: row.updatedAt })
         .where(eq(modelGroups.id, row.id))
         .run()
     }

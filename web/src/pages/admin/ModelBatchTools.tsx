@@ -9,6 +9,7 @@ import { guessModelIconSlug } from '@shared/util/modelIconGuess'
 import * as adminApi from '../../api/admin'
 import { ModelGroupGlyph, ModelIconMark } from '../../components/ModelIcon'
 import { Button } from '../../components/ui/Button'
+import { Checkbox } from '../../components/ui/Checkbox'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { Modal } from '../../components/ui/Modal'
 import { toast } from '../../store/toast'
@@ -175,11 +176,10 @@ export function BatchIconDialog({
     >
       <div className="space-y-3">
         <label className="flex items-start gap-2 rounded-lg bg-neutral-50 px-3 py-2.5 text-sm dark:bg-neutral-900/60">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={overwriteExisting}
-            onChange={(event) => setOverwriteExisting(event.target.checked)}
-            className="mt-0.5 h-4 w-4 shrink-0 accent-sky-500"
+            onChange={setOverwriteExisting}
+            className="mt-0.5"
           />
           <span className="min-w-0">
             <span className="text-neutral-700 dark:text-neutral-200">覆盖已设置的图标</span>

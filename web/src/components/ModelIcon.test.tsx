@@ -57,6 +57,9 @@ describe('ModelGroupGlyph', () => {
     const defaultGroup = renderWithCatalog(
       <ModelGroupGlyph group={{ icon: null, color: null }} size="md" />,
     )
+    const coloredDefaultGroup = renderWithCatalog(
+      <ModelGroupGlyph group={{ icon: null, color: '#8b5cf6' }} size="md" />,
+    )
     const emojiGroup = renderWithCatalog(
       <ModelGroupGlyph
         group={{ icon: { type: 'emoji', char: '🧠' }, color: '#8b5cf6' }}
@@ -72,12 +75,13 @@ describe('ModelGroupGlyph', () => {
     expect(emojiGroup).toContain('🧠')
     expect(emojiRootTag).toContain('h-5 w-5')
     expect(emojiGroup).toContain('text-[18px]')
-    expect(emojiGroup).toContain('hc-colored-glyph')
-    expect(emojiGroup).toContain('hc-contrasted-glyph')
-    expect(emojiGroup).toContain('--hc-glyph-color:#8b5cf6')
-    for (const html of [defaultGroup, emojiGroup]) {
+    expect(coloredDefaultGroup).toContain('style="color:#8b5cf6"')
+    expect(emojiGroup).not.toContain('#8b5cf6')
+    expect(emojiGroup).toContain('text-neutral-500')
+    for (const html of [defaultGroup, coloredDefaultGroup, emojiGroup]) {
       const rootTag = html.match(/^<span\b[^>]*>/)?.[0] ?? ''
       expect(html).not.toContain('hc-icon-chip')
+      expect(html).not.toContain('hc-contrasted-glyph')
       expect(html).not.toContain('bg-neutral-200/70')
       expect(html).not.toContain('dark:bg-neutral-700/60')
       expect(rootTag).not.toMatch(/\b(?:(?:dark:)?bg-|rounded|border|shadow|ring)/)

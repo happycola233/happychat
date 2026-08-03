@@ -15,26 +15,23 @@ function ruleBody(selector: string): string {
 }
 
 describe('bare folder and model-group glyph styles', () => {
-  it.each([
-    '.hc-colored-glyph',
-    '.hc-colored-glyph.hc-contrasted-glyph',
-    '.dark .hc-colored-glyph',
-  ])('%s only sets the foreground color', (selector) => {
-    const declarations = ruleBody(selector)
+  it.each(['.hc-colored-glyph', '.dark .hc-colored-glyph'])(
+    '%s only sets the foreground color',
+    (selector) => {
+      const declarations = ruleBody(selector)
 
-    expect(declarations).toMatch(/\bcolor\s*:/)
-    expect(declarations).not.toMatch(
-      /\b(?:background(?:-[a-z-]+)?|border(?:-[a-z-]+)?|box-shadow|outline(?:-[a-z-]+)?)\s*:/,
-    )
-  })
+      expect(declarations).toMatch(/\bcolor\s*:/)
+      expect(declarations).not.toMatch(
+        /\b(?:background(?:-[a-z-]+)?|border(?:-[a-z-]+)?|box-shadow|outline(?:-[a-z-]+)?)\s*:/,
+      )
+    },
+  )
 
-  it('preserves the existing light and dark foreground-color rules', () => {
+  it('keeps folder colors exact in light mode and readable in dark mode', () => {
     expect(ruleBody('.hc-colored-glyph')).toContain('color: var(--hc-glyph-color)')
-    expect(ruleBody('.hc-colored-glyph.hc-contrasted-glyph')).toContain(
-      'color: color-mix(in srgb, var(--hc-glyph-color) 55%, black)',
-    )
     expect(ruleBody('.dark .hc-colored-glyph')).toContain(
       'color: color-mix(in srgb, var(--hc-glyph-color) 78%, white)',
     )
+    expect(css).not.toContain('hc-contrasted-glyph')
   })
 })

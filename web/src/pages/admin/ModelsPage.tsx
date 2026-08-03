@@ -37,7 +37,7 @@ import { Button } from '../../components/ui/Button'
 import { cardSurface } from '../../components/ui/Card'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { IconButton } from '../../components/ui/IconButton'
-import { IndeterminateCheckbox } from '../../components/ui/IndeterminateCheckbox'
+import { Checkbox } from '../../components/ui/Checkbox'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { Select, type SelectOption } from '../../components/ui/Select'
 import { Spinner } from '../../components/ui/Spinner'
@@ -130,7 +130,7 @@ function ModelRow({
           className="flex h-8 w-6 shrink-0 items-center justify-center"
           onClick={(event) => event.stopPropagation()}
         >
-          <IndeterminateCheckbox
+          <Checkbox
             checked={selected}
             onChange={onToggleSelected}
             ariaLabel={`选择 ${model.displayName}`}
@@ -470,12 +470,7 @@ export default function ModelsPage() {
           onChange={(e) => setProviderFilter(e.target.value)}
         />
         <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
-          <input
-            type="checkbox"
-            checked={groupView}
-            onChange={(e) => setGroupView(e.target.checked)}
-            className="h-3.5 w-3.5 accent-sky-500"
-          />
+          <Checkbox checked={groupView} onChange={setGroupView} />
           按分组显示
         </label>
         <Button

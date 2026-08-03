@@ -1,24 +1,26 @@
 import { useId, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { clsx } from 'clsx'
-import { Check, Sparkles } from 'lucide-react'
+import { Check, Pipette, Sparkles } from 'lucide-react'
 import { HexColorInput, HexColorPicker } from 'react-colorful'
 import type { AdminModelGroupDTO } from '@shared/types/api'
 import type { ModelIcon } from '@shared/types/domain'
+import { resolveModelGroupColor } from '@shared/util/modelGroupAppearance'
 import * as adminApi from '../../api/admin'
 import { IconPicker } from '../../components/IconPicker'
 import { ModelGroupGlyph } from '../../components/ModelIcon'
 import { COLOR_PRESETS } from '../../components/colorPresets'
 import { Button } from '../../components/ui/Button'
+import {
+  ColorModeButton,
+  ColorSwatch,
+  CUSTOM_COLOR_SWATCH_BACKGROUND,
+} from '../../components/ui/ColorSwatch'
 import { Modal } from '../../components/ui/Modal'
 import { toast } from '../../store/toast'
 import { Field } from './FormField'
 
 /** 打开自定义取色时的种子色，让状态明确是「自定义」而不是空。 */
 const CUSTOM_COLOR_SEED = '#6366f1'
-
-const swatchClass = 'h-6 w-6 rounded-full border border-black/10 transition dark:border-white/15'
-const selectedSwatchClass = 'ring-2 ring-sky-500 ring-offset-2 ring-offset-white dark:ring-offset-neutral-900'
 
 /**
  * 模型分组的新建 / 编辑弹窗。
@@ -36,7 +38,10 @@ export function ModelGroupEditor({
   const nameId = useId()
   const [name, setName] = useState(group?.name ?? '')
   const [icon, setIcon] = useState<ModelIcon | null>(group?.icon ?? null)
-  const [color, setColor] = useState<string | null>(group?.color ?? null)
+  // 选择了显式图标后由图标自身决定外观；旧数据即使同时存了颜色，也不把无效值带回表单。
+  const [color, setColor] = useState<string | null>(
+    resolveModelGroupColor(group?.icon, group?.color),
+  )
   const [customPickerOpen, setCustomPickerOpen] = useState(false)
 
   const isPresetColor = color !== null && (COLOR_PRESETS as readonly string[]).includes(color)
@@ -44,7 +49,7 @@ export function ModelGroupEditor({
 
   const save = useMutation({
     mutationFn: async () => {
-      const payload = { name: name.trim(), icon, color }
+      const payload = { name: name.trim(), icon, color: resolveModelGroupColor(icon, color) }
       if (isCreate) await adminApi.createModelGroup(payload)
       else await adminApi.updateModelGroup(group.id, payload)
     },
@@ -59,6 +64,14 @@ export function ModelGroupEditor({
   })
 
   const canSave = name.trim().length > 0 && !save.isPending
+
+  const changeIcon = (nextIcon: ModelIcon | null) => {
+    setIcon(nextIcon)
+    if (nextIcon) {
+      setColor(null)
+      setCustomPickerOpen(false)
+    }
+  }
 
   return (
     <Modal
@@ -101,92 +114,96 @@ export function ModelGroupEditor({
           />
         </Field>
 
-        <IconPicker value={icon} onChange={setIcon} emptyHint="未设置图标，将显示默认文件夹图形" />
+        <IconPicker
+          value={icon}
+          onChange={changeIcon}
+          emptyHint="未设置图标，将显示可自定义颜色的默认文件夹图形"
+        />
 
-        <Field label="主题色（可选）" htmlFor={`${nameId}-color`}>
-          <div className="flex flex-wrap items-center gap-1.5" id={`${nameId}-color`}>
-            <button
-              type="button"
-              onClick={() => {
-                setColor(null)
-                setCustomPickerOpen(false)
-              }}
-              aria-pressed={color === null}
-              className={clsx(
-                'inline-flex items-center gap-1 rounded-full border border-neutral-200 px-2 py-1 text-xs text-neutral-500 transition hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800',
-                color === null && selectedSwatchClass,
-              )}
-            >
-              <Sparkles className="h-3 w-3" />
-              默认
-            </button>
-            <span aria-hidden className="h-5 w-px bg-neutral-200 dark:bg-neutral-700" />
-            {COLOR_PRESETS.map((preset) => (
-              <button
-                key={preset}
-                type="button"
+        {!icon && (
+          <fieldset>
+            <legend className="mb-1.5 block text-sm font-medium text-neutral-700 dark:text-neutral-300">
+              颜色（可选）
+            </legend>
+            <div className="flex flex-wrap items-center gap-2">
+              <ColorModeButton
                 onClick={() => {
-                  setColor(preset)
+                  setColor(null)
                   setCustomPickerOpen(false)
                 }}
-                aria-label={`使用颜色 ${preset}`}
-                aria-pressed={color === preset}
-                style={{ backgroundColor: preset }}
-                className={clsx(
-                  swatchClass,
-                  'flex items-center justify-center',
-                  color === preset && selectedSwatchClass,
-                )}
+                aria-label="默认颜色"
+                selected={color === null}
+                title="使用默认颜色"
               >
-                {color === preset && (
-                  <Check className="h-3 w-3 text-white [filter:drop-shadow(0_1px_1px_rgb(0_0_0/0.4))]" />
+                <Sparkles className="h-3.5 w-3.5" />
+                默认
+              </ColorModeButton>
+              <span aria-hidden className="h-5 w-px bg-neutral-300 dark:bg-neutral-600" />
+              {COLOR_PRESETS.map((preset) => (
+                <ColorSwatch
+                  key={preset}
+                  onClick={() => {
+                    setColor(preset)
+                    setCustomPickerOpen(false)
+                  }}
+                  aria-label={`使用颜色 ${preset}`}
+                  selected={color === preset}
+                  style={{ backgroundColor: preset }}
+                >
+                  {color === preset && (
+                    <Check
+                      className="h-3.5 w-3.5 text-white [filter:drop-shadow(0_1px_1.5px_rgb(0_0_0/0.55))]"
+                      strokeWidth={3}
+                    />
+                  )}
+                </ColorSwatch>
+              ))}
+              <span aria-hidden className="h-5 w-px bg-neutral-300 dark:bg-neutral-600" />
+              <ColorSwatch
+                onClick={() => {
+                  const opening = !customPickerOpen
+                  if (opening && !customColor) setColor(CUSTOM_COLOR_SEED)
+                  setCustomPickerOpen(opening)
+                }}
+                aria-label="自定义颜色"
+                aria-expanded={customPickerOpen}
+                selected={customColor !== null}
+                title="自定义颜色"
+                className="text-white"
+                style={{ background: customColor ?? CUSTOM_COLOR_SWATCH_BACKGROUND }}
+              >
+                {customColor && !customPickerOpen ? (
+                  <Check className="h-3.5 w-3.5 drop-shadow" strokeWidth={3} />
+                ) : (
+                  <Pipette className="h-3.5 w-3.5 drop-shadow" />
                 )}
-              </button>
-            ))}
-            <span aria-hidden className="h-5 w-px bg-neutral-200 dark:bg-neutral-700" />
-            <button
-              type="button"
-              onClick={() => {
-                if (!customColor) setColor(CUSTOM_COLOR_SEED)
-                setCustomPickerOpen((v) => !v)
-              }}
-              aria-label="自定义颜色"
-              aria-pressed={customColor !== null}
-              style={
-                customColor
-                  ? { backgroundColor: customColor }
-                  : {
-                      background:
-                        'conic-gradient(#ef4444,#f59e0b,#22c55e,#0ea5e9,#8b5cf6,#ec4899,#ef4444)',
-                    }
-              }
-              className={clsx(
-                swatchClass,
-                'flex items-center justify-center',
-                customColor !== null && selectedSwatchClass,
-              )}
-            >
-              {customColor && (
-                <Check className="h-3 w-3 text-white [filter:drop-shadow(0_1px_1px_rgb(0_0_0/0.4))]" />
-              )}
-            </button>
-          </div>
-          {customPickerOpen && (
-            <div className="hc-color-picker mt-2 space-y-2">
-              <HexColorPicker color={color ?? CUSTOM_COLOR_SEED} onChange={setColor} />
-              <div className="relative w-28">
-                <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-neutral-400">
-                  #
-                </span>
-                <HexColorInput
-                  color={color ?? CUSTOM_COLOR_SEED}
-                  onChange={setColor}
-                  className="h-8 w-full rounded-lg border border-neutral-200 bg-white pl-5 pr-2 text-sm uppercase outline-none focus:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-900 dark:focus:border-neutral-500"
-                />
-              </div>
+              </ColorSwatch>
             </div>
-          )}
-        </Field>
+            {customPickerOpen && (
+              <div className="hc-color-picker mt-3 rounded-xl border border-neutral-200 bg-white p-3 dark:border-neutral-700 dark:bg-neutral-900">
+                <HexColorPicker color={color ?? CUSTOM_COLOR_SEED} onChange={setColor} />
+                <div className="mt-2.5 flex items-center gap-2">
+                  <span
+                    aria-hidden
+                    className="h-8 w-8 shrink-0 rounded-lg border border-black/5 dark:border-white/10"
+                    style={{ backgroundColor: color ?? CUSTOM_COLOR_SEED }}
+                  />
+                  <div className="relative flex-1">
+                    <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-sm text-neutral-400">
+                      #
+                    </span>
+                    <HexColorInput
+                      color={color ?? CUSTOM_COLOR_SEED}
+                      onChange={setColor}
+                      aria-label="分组十六进制颜色值"
+                      className="w-full rounded-lg border border-neutral-200 bg-white py-1.5 pl-6 pr-2.5 font-mono text-sm text-neutral-900 outline-none transition focus:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:focus:border-neutral-500"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+          </fieldset>
+        )}
       </div>
     </Modal>
   )

@@ -136,7 +136,7 @@ export interface ModelGroupDTO {
   name: string
   /** 分组图标；null=默认文件夹图形 */
   icon: ModelIcon | null
-  /** 主题色（#RRGGBB）；null=默认中性色 */
+  /** 默认文件夹图形颜色（#RRGGBB）；显式图标存在或使用默认中性色时为 null */
   color: string | null
   sort: number
 }

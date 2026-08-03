@@ -3,6 +3,7 @@ import { clsx } from 'clsx'
 import { Check, Pipette } from 'lucide-react'
 import { HexColorInput, HexColorPicker } from 'react-colorful'
 import type { FolderDTO } from '@shared/types/api'
+import { ColorSwatch, CUSTOM_COLOR_SWATCH_BACKGROUND } from '../components/ui/ColorSwatch'
 import { useFolderActions } from '../hooks/useFolders'
 import { useFolderEditor } from '../store/folderEditor'
 import { useIsMobile } from '../store/sidebar'
@@ -67,9 +68,6 @@ function FolderEditorDialogInner({
       // 错误已由 mutation onError 弹 toast，保持弹窗打开供用户重试。
     }
   }
-
-  const swatchBase =
-    'relative flex h-7 w-7 items-center justify-center rounded-full transition hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400'
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
@@ -154,15 +152,16 @@ function FolderEditorDialogInner({
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             {/* 默认（无颜色） */}
-            <button
-              type="button"
+            <ColorSwatch
               onClick={() => {
                 setColor(null)
                 if (panel === 'color') setPanel(null)
               }}
               aria-label="默认颜色"
+              selected={color === null}
+              showSelectedRing={false}
               title="默认"
-              className={clsx(swatchBase, 'bg-neutral-300 dark:bg-neutral-600')}
+              className="bg-neutral-300 dark:bg-neutral-600"
             >
               {color === null && (
                 <Check
@@ -170,25 +169,24 @@ function FolderEditorDialogInner({
                   strokeWidth={3}
                 />
               )}
-            </button>
+            </ColorSwatch>
             {FOLDER_COLOR_PRESETS.map((preset) => (
-              <button
+              <ColorSwatch
                 key={preset}
-                type="button"
                 onClick={() => {
                   setColor(preset)
                   if (panel === 'color') setPanel(null)
                 }}
                 aria-label={`颜色 ${preset}`}
-                className={swatchBase}
+                selected={color === preset}
+                showSelectedRing={false}
                 style={{ backgroundColor: preset }}
               >
                 {color === preset && <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />}
-              </button>
+              </ColorSwatch>
             ))}
             {/* 自定义取色 */}
-            <button
-              type="button"
+            <ColorSwatch
               onClick={() => {
                 if (panel !== 'color') {
                   if (!isCustomColor) setColor(color ?? CUSTOM_COLOR_SEED)
@@ -200,11 +198,11 @@ function FolderEditorDialogInner({
               aria-label="自定义颜色"
               title="自定义颜色"
               aria-expanded={panel === 'color'}
-              className={clsx(swatchBase, 'text-white')}
+              selected={isCustomColor}
+              showSelectedRing={false}
+              className="text-white"
               style={{
-                background: isCustomColor
-                  ? color
-                  : 'conic-gradient(#ef4444, #f59e0b, #22c55e, #0ea5e9, #8b5cf6, #ec4899, #ef4444)',
+                background: isCustomColor ? color : CUSTOM_COLOR_SWATCH_BACKGROUND,
               }}
             >
               {isCustomColor && panel !== 'color' ? (
@@ -212,7 +210,7 @@ function FolderEditorDialogInner({
               ) : (
                 <Pipette className="h-3.5 w-3.5 drop-shadow" />
               )}
-            </button>
+            </ColorSwatch>
           </div>
         </div>
 

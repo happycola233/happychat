@@ -8,7 +8,7 @@ import type { AdminModelDTO, AdminUserDTO, ModelAccessDTO } from '@shared/types/
 import * as adminApi from '../../api/admin'
 import { ApiRequestError } from '../../api/client'
 import { Button } from '../../components/ui/Button'
-import { IndeterminateCheckbox } from '../../components/ui/IndeterminateCheckbox'
+import { Checkbox } from '../../components/ui/Checkbox'
 import { Modal } from '../../components/ui/Modal'
 import { Spinner } from '../../components/ui/Spinner'
 import { useMe } from '../../hooks/useAuth'
@@ -472,7 +472,7 @@ function ModelAccessEditor({
                   return (
                     <section key={group.role} aria-labelledby={`model-access-${group.role}`}>
                       <div className="sticky top-0 z-10 flex items-center gap-2.5 border-b border-neutral-100 bg-white/95 px-3 py-2 backdrop-blur-sm dark:border-neutral-800 dark:bg-neutral-900/95">
-                        <IndeterminateCheckbox
+                        <Checkbox
                           checked={allGroupSelected}
                           indeterminate={selectedVisibleCount > 0 && !allGroupSelected}
                           onChange={() => toggleUsers(groupIds, !allGroupSelected)}
@@ -506,7 +506,7 @@ function ModelAccessEditor({
                                   : 'hover:bg-neutral-50 dark:hover:bg-neutral-800/50',
                               )}
                             >
-                              <IndeterminateCheckbox
+                              <Checkbox
                                 checked={checked}
                                 onChange={() => toggleUser(user.id)}
                               />

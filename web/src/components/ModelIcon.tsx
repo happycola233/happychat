@@ -3,6 +3,7 @@ import { clsx } from 'clsx'
 import { Folder } from 'lucide-react'
 import type { ModelIcon as ModelIconValue } from '@shared/types/domain'
 import { LOBE_ICON_SLUG_PATTERN } from '@shared/util/modelIcon'
+import { resolveModelGroupColor } from '@shared/util/modelGroupAppearance'
 import { guessModelIconSlug } from '@shared/util/modelIconGuess'
 import { useLobeIconCatalog } from '../hooks/useModels'
 import { ICON_EMOJI_CLASS, ICON_SIZE_CLASS, type IconSize } from './iconSizing'
@@ -154,7 +155,7 @@ export function ModelIconMark({
 
 /**
  * 分组裸图标：按管理员图标或默认文件夹图形本身的尺寸占位。
- * 自定义主题色只作用于图形前景，深色模式会自动提亮。
+ * 颜色只属于默认文件夹图形，并直接使用管理员选中的原色；显式图标使用自身外观。
  */
 export function ModelGroupGlyph({
   group,
@@ -165,19 +166,17 @@ export function ModelGroupGlyph({
   size?: IconSize
   className?: string
 }) {
-  const style = group.color ? ({ '--hc-glyph-color': group.color } as CSSProperties) : undefined
+  const effectiveColor = resolveModelGroupColor(group.icon, group.color)
   return (
     <span
       aria-hidden
       className={clsx(
         'inline-flex shrink-0 items-center justify-center leading-none',
         ICON_SIZE_CLASS[size],
-        group.color
-          ? 'hc-colored-glyph hc-contrasted-glyph'
-          : 'text-neutral-500 dark:text-neutral-300',
+        effectiveColor ? undefined : 'text-neutral-500 dark:text-neutral-300',
         className,
       )}
-      style={style}
+      style={effectiveColor ? { color: effectiveColor } : undefined}
     >
       {group.icon ? (
         <ModelIconMark icon={group.icon} size={size} />

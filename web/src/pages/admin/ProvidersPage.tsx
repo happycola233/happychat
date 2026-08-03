@@ -10,7 +10,7 @@ import * as adminApi from '../../api/admin'
 import { Button } from '../../components/ui/Button'
 import { cardSurface } from '../../components/ui/Card'
 import { EmptyState } from '../../components/ui/EmptyState'
-import { IndeterminateCheckbox } from '../../components/ui/IndeterminateCheckbox'
+import { Checkbox } from '../../components/ui/Checkbox'
 import { Modal } from '../../components/ui/Modal'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { TextField } from '../../components/ui/TextField'
@@ -339,7 +339,7 @@ function PickModelsModal({ provider, onClose }: { provider: ProviderDTO; onClose
                       checked && 'bg-sky-50/60 dark:bg-sky-500/5',
                     )}
                   >
-                    <IndeterminateCheckbox
+                    <Checkbox
                       checked={checked}
                       onChange={() => toggleOne(m.modelId)}
                     />

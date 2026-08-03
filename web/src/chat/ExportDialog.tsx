@@ -21,7 +21,7 @@ import { Button } from '../components/ui/Button'
 import { Select } from '../components/ui/Select'
 import { Toggle } from '../components/ui/Toggle'
 import { Spinner } from '../components/ui/Spinner'
-import { IndeterminateCheckbox } from '../components/ui/IndeterminateCheckbox'
+import { Checkbox } from '../components/ui/Checkbox'
 import { toast } from '../store/toast'
 import { buildPath } from './buildPath'
 import { textFromContent } from './contentText'
@@ -462,7 +462,7 @@ export function ExportDialog({
                       )}
                     >
                       <span onClick={(e) => e.stopPropagation()} className="flex">
-                        <IndeterminateCheckbox
+                        <Checkbox
                           checked={isSelected}
                           onChange={() => toggleOne(m.id)}
                           ariaLabel={m.role === 'user' ? '选择这条用户消息' : '选择这条 AI 回复'}

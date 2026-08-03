@@ -25,4 +25,19 @@ export default tseslint.config(
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
     },
   },
+  // 交互复选框必须经过共享组件统一浏览器/系统外观；Markdown 运行时生成的任务框不受源码规则影响。
+  {
+    files: ['web/**/*.tsx'],
+    ignores: ['web/src/components/ui/Checkbox.tsx'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            "JSXOpeningElement[name.name='input'] > JSXAttribute[name.name='type'][value.value='checkbox']",
+          message: '请使用 components/ui/Checkbox，避免浏览器原生复选框样式回归。',
+        },
+      ],
+    },
+  },
 )

@@ -13,7 +13,7 @@ import {
   revokeConversationShare,
 } from '../api/shares'
 import { Button } from '../components/ui/Button'
-import { IndeterminateCheckbox } from '../components/ui/IndeterminateCheckbox'
+import { Checkbox } from '../components/ui/Checkbox'
 import { Modal } from '../components/ui/Modal'
 import { Select } from '../components/ui/Select'
 import { Spinner } from '../components/ui/Spinner'
@@ -333,7 +333,7 @@ export function ShareDialog({
                       )}
                     >
                       <span onClick={(e) => e.stopPropagation()} className="flex">
-                        <IndeterminateCheckbox
+                        <Checkbox
                           checked={isSelected}
                           onChange={() => toggleOne(m.id)}
                           ariaLabel={m.role === 'user' ? '选择这条用户消息' : '选择这条 AI 回复'}

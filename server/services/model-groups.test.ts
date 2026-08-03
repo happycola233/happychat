@@ -104,22 +104,37 @@ describe('model group CRUD', () => {
     expect(listed?.icon).toBeNull()
   })
 
-  it('updates only the provided fields and clears with null', async () => {
+  it('updates only provided fields and never revives a hidden color after choosing an icon', async () => {
     const group = await createGroup({
       name: '原名',
-      icon: { type: 'emoji', char: '🚀' },
       color: '#aabbcc',
     })
     const renamed = await groupServices.updateModelGroup(group.id, { name: '新名' })
     expect(renamed).toMatchObject({ ok: true, group: { name: '新名', color: '#aabbcc' } })
     if (!renamed.ok) return
-    expect(renamed.group.icon).toEqual({ type: 'emoji', char: '🚀' })
+    expect(renamed.group.icon).toBeNull()
 
-    const cleared = await groupServices.updateModelGroup(group.id, { icon: null, color: null })
+    const withIcon = await groupServices.updateModelGroup(group.id, {
+      icon: { type: 'emoji', char: '🚀' },
+    })
+    expect(withIcon).toMatchObject({
+      ok: true,
+      group: { name: '新名', icon: { type: 'emoji', char: '🚀' }, color: null },
+    })
+    expect((await groupServices.getModelGroup(group.id))?.color).toBeNull()
+
+    // 模拟旧版本留下的 icon+color 脏组合：只移除图标时，隐藏颜色也必须一并清空。
+    await dbClient.db
+      .update(schema.modelGroups)
+      .set({ color: '#112233' })
+      .where(eq(schema.modelGroups.id, group.id))
+
+    const cleared = await groupServices.updateModelGroup(group.id, { icon: null })
     expect(cleared).toMatchObject({
       ok: true,
       group: { name: '新名', icon: null, color: null },
     })
+    expect((await groupServices.getModelGroup(group.id))?.color).toBeNull()
   })
 
   it('returns null / false for unknown groups', async () => {
@@ -145,7 +160,7 @@ describe('model group CRUD', () => {
     ).resolves.toEqual({ ok: false, code: 'icon_missing' })
   })
 
-  it('accepts a custom icon that exists in the icon library', async () => {
+  it('accepts an existing custom icon and clears the inapplicable folder color', async () => {
     const iconId = `12345678-${fixtureSeq++}`
     await dbClient.db.insert(schema.modelIcons).values({
       id: iconId,
@@ -157,11 +172,37 @@ describe('model group CRUD', () => {
     const result = await groupServices.createModelGroup({
       name: '有效自定义图标',
       icon: { type: 'custom', id: iconId },
+      color: '#ef4444',
     })
     expect(result).toMatchObject({
       ok: true,
-      group: { icon: { type: 'custom', id: iconId } },
+      group: { icon: { type: 'custom', id: iconId }, color: null },
     })
+    if (!result.ok) return
+    expect((await groupServices.getModelGroup(result.group.id))?.color).toBeNull()
+  })
+
+  it('clears both the custom icon and hidden legacy color when an icon is removed', async () => {
+    const iconId = `12345678-${fixtureSeq++}`
+    const groupId = `custom-icon-group-${fixtureSeq++}`
+    await dbClient.db.insert(schema.modelIcons).values({
+      id: iconId,
+      name: '待删除图标',
+      storagePath: 'data/uploads/model-icons/delete-me.svg',
+      mime: 'image/svg+xml',
+    })
+    await dbClient.db.insert(schema.modelGroups).values({
+      id: groupId,
+      name: '历史脏组合',
+      icon: { type: 'custom', id: iconId },
+      color: '#ef4444',
+    })
+
+    dbClient.db.transaction((tx) => {
+      groupServices.clearCustomIconReferences(tx, iconId)
+    })
+
+    expect(await groupServices.getModelGroup(groupId)).toMatchObject({ icon: null, color: null })
   })
 
   it('keeps the previous icon when an update references a missing icon', async () => {

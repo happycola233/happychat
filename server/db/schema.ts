@@ -207,7 +207,7 @@ export const modelGroups = sqliteTable('model_groups', {
   name: text('name').notNull(),
   // 图标（lobe 内置 / 自定义上传 / Emoji 三选一）；null=默认文件夹图形。
   icon: text('icon', { mode: 'json' }).$type<StoredModelIcon>(),
-  // 主题色（#RRGGBB）；null=默认中性色。与聊天文件夹同一套 color-mix 派生规则。
+  // 默认文件夹图形颜色（#RRGGBB）；显式图标存在时服务层固定归一为 null。
   color: text('color'),
   sort: integer('sort').notNull().default(0),
   createdAt: createdAt(),

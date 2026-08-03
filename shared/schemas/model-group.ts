@@ -40,7 +40,7 @@ export const modelIconSchema = z.discriminatedUnion('type', [
   }),
 ])
 
-/** 分组主题色：仅接受 #RRGGBB。 */
+/** 默认分组文件夹图形的颜色：仅接受 #RRGGBB。 */
 export const modelGroupColorSchema = z
   .string()
   .regex(/^#[0-9a-fA-F]{6}$/, '颜色格式不正确')
