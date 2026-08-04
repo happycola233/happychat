@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Check, Pipette } from 'lucide-react'
 import { HexColorInput, HexColorPicker } from 'react-colorful'
 import type { AdminModelGroupDTO } from '@shared/types/api'
-import type { ModelIconAsset } from '@shared/types/domain'
+import type { ModelGroupIcon } from '@shared/types/domain'
 import { resolveModelGroupColor } from '@shared/util/modelGroupAppearance'
 import * as adminApi from '../../api/admin'
 import { IconPicker } from '../../components/IconPicker'
@@ -35,7 +35,7 @@ export function ModelGroupEditor({
   const qc = useQueryClient()
   const nameId = useId()
   const [name, setName] = useState(group?.name ?? '')
-  const [icon, setIcon] = useState<ModelIconAsset | null>(group?.icon ?? null)
+  const [icon, setIcon] = useState<ModelGroupIcon | null>(group?.icon ?? null)
   // 选择了显式图标后由图标自身决定外观；旧数据即使同时存了颜色，也不把无效值带回表单。
   const [color, setColor] = useState<string | null>(
     resolveModelGroupColor(group?.icon, group?.color),
@@ -64,7 +64,7 @@ export function ModelGroupEditor({
 
   const canSave = name.trim().length > 0 && !save.isPending
 
-  const changeIcon = (nextIcon: ModelIconAsset | null) => {
+  const changeIcon = (nextIcon: ModelGroupIcon | null) => {
     setIcon(nextIcon)
     setColor(resolveModelGroupColor(nextIcon, color))
     if (nextIcon) setCustomPickerOpen(false)
@@ -103,6 +103,11 @@ export function ModelGroupEditor({
         <IconPicker
           value={icon}
           onChange={changeIcon}
+          noneOption={{
+            title: '无图标',
+            description: '像“未分组”一样直接左对齐，不保留图标位置',
+            showDefaultShortcut: true,
+          }}
           emptyState={{
             preview: <ModelGroupGlyph group={{ icon: null, color }} size="md" />,
             title: '默认文件夹图标',
@@ -110,7 +115,7 @@ export function ModelGroupEditor({
           }}
         />
 
-        {!icon && (
+        {icon === null && (
           <fieldset>
             <legend className="mb-1.5 block text-sm font-medium text-neutral-700 dark:text-neutral-300">
               颜色

@@ -33,6 +33,14 @@ export const modelIconAssetSchema = z.discriminatedUnion('type', [
   emojiIconSchema,
 ])
 
+/** 分组在三种资源图标之外还可显式选择完全不显示图标。 */
+export const modelGroupIconSchema = z.discriminatedUnion('type', [
+  lobeIconSchema,
+  customIconSchema,
+  emojiIconSchema,
+  z.object({ type: z.literal('none') }),
+])
+
 /**
  * 模型图标额外接受显式首字母模式；`null` 才表示自动识别品牌。
  * 校验规则与 `shared/util/modelIcon.ts` 共用同一组常量，避免写入与读取漂移。
@@ -58,15 +66,15 @@ export const modelGroupNameSchema = z
 
 export const modelGroupCreateSchema = z.object({
   name: modelGroupNameSchema,
-  icon: modelIconAssetSchema.nullish(),
+  icon: modelGroupIconSchema.nullish(),
   color: modelGroupColorSchema.nullish(),
 })
 
-/** 更新分组：字段全部可选；图标传 null 恢复文件夹图形，颜色传 null 恢复默认黄色。 */
+/** 更新分组：字段全部可选；图标传 null 恢复文件夹图形，none 表示完全不显示图标。 */
 export const modelGroupUpdateSchema = z
   .object({
     name: modelGroupNameSchema.optional(),
-    icon: modelIconAssetSchema.nullable().optional(),
+    icon: modelGroupIconSchema.nullable().optional(),
     color: modelGroupColorSchema.nullable().optional(),
   })
   .refine((v) => Object.keys(v).length > 0, { message: '没有需要更新的内容' })

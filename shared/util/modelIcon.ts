@@ -1,4 +1,4 @@
-import type { ModelIcon, ModelIconAsset } from '../types/domain'
+import type { ModelGroupIcon, ModelIcon, ModelIconAsset } from '../types/domain'
 
 /**
  * lobe 内置图标 slug 的字符白名单。
@@ -63,6 +63,22 @@ export function normalizeModelIcon(value: unknown): ModelIcon | null {
     (value as { type?: unknown }).type === 'initial'
   ) {
     return { type: 'initial' }
+  }
+  return normalizeModelIconAsset(value)
+}
+
+/**
+ * 分组图标在资源图标之外允许显式无图标模式；`null` 仍保留为默认文件夹图形。
+ * 模型专用的 initial 模式会继续按脏数据降级为 null，避免跨领域状态串用。
+ */
+export function normalizeModelGroupIcon(value: unknown): ModelGroupIcon | null {
+  if (
+    value &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    (value as { type?: unknown }).type === 'none'
+  ) {
+    return { type: 'none' }
   }
   return normalizeModelIconAsset(value)
 }

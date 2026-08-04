@@ -1,5 +1,5 @@
 import { inArray } from 'drizzle-orm'
-import type { ModelIcon } from '@shared/types/domain'
+import type { ModelGroupIcon, ModelIcon } from '@shared/types/domain'
 import type { DB } from '../db/client'
 import { modelIcons } from '../db/schema'
 import { isKnownLobeIconSlug } from './lobe-icons'
@@ -12,17 +12,17 @@ export type DbTransaction = Parameters<Parameters<DB['transaction']>[0]>[0]
  */
 export function modelIconReferencesExist(
   tx: DbTransaction,
-  icons: readonly (ModelIcon | null | undefined)[],
+  icons: readonly (ModelGroupIcon | ModelIcon | null | undefined)[],
 ): boolean {
-  const configured = icons.filter((icon): icon is ModelIcon => icon !== null && icon !== undefined)
+  const configured = icons.filter(
+    (icon): icon is ModelGroupIcon | ModelIcon => icon !== null && icon !== undefined,
+  )
   if (configured.some((icon) => icon.type === 'lobe' && !isKnownLobeIconSlug(icon.slug))) {
     return false
   }
 
   const customIds = [
-    ...new Set(
-      configured.filter((icon) => icon.type === 'custom').map((icon) => icon.id),
-    ),
+    ...new Set(configured.filter((icon) => icon.type === 'custom').map((icon) => icon.id)),
   ]
   if (customIds.length === 0) return true
 

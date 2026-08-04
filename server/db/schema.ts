@@ -206,9 +206,9 @@ export const providers = sqliteTable('providers', {
 export const modelGroups = sqliteTable('model_groups', {
   id: pk(),
   name: text('name').notNull(),
-  // 图标（lobe 内置 / 自定义上传 / Emoji 三选一）；null=默认文件夹图形。
+  // 图标（lobe / 自定义 / Emoji / 显式无图标）；null=默认文件夹图形。
   icon: text('icon', { mode: 'json' }).$type<StoredModelGroupIcon>(),
-  // 默认文件夹图形颜色（#RRGGBB）；显式图标存在时服务层固定归一为 null。
+  // 默认文件夹图形颜色（#RRGGBB）；显式图标或无图标模式下服务层固定归一为 null。
   color: text('color'),
   sort: integer('sort').notNull().default(0),
   createdAt: createdAt(),

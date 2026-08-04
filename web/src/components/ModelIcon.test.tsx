@@ -93,6 +93,14 @@ describe('ModelIconMark', () => {
 })
 
 describe('ModelGroupGlyph', () => {
+  it('renders no node or transparent placeholder for the explicit none mode', () => {
+    const html = renderWithCatalog(
+      <ModelGroupGlyph group={{ icon: { type: 'none' }, color: '#8b5cf6' }} size="md" />,
+    )
+
+    expect(html).toBe('')
+  })
+
   it('normalizes default and Emoji group icons to the same unpadded size', () => {
     const defaultGroup = renderWithCatalog(
       <ModelGroupGlyph group={{ icon: null, color: null }} size="md" />,

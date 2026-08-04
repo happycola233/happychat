@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   modelGroupAssignSchema,
   modelGroupCreateSchema,
+  modelGroupIconSchema,
   modelGroupReorderSchema,
   modelGroupUpdateSchema,
   modelIconBatchSchema,
@@ -24,6 +25,9 @@ describe('modelIconSchema', () => {
     })
     expect(modelIconSchema.parse({ type: 'initial' })).toEqual({ type: 'initial' })
     expect(modelIconAssetSchema.safeParse({ type: 'initial' }).success).toBe(false)
+    expect(modelGroupIconSchema.parse({ type: 'none' })).toEqual({ type: 'none' })
+    expect(modelIconAssetSchema.safeParse({ type: 'none' }).success).toBe(false)
+    expect(modelIconSchema.safeParse({ type: 'none' }).success).toBe(false)
   })
 
   it('trims and lowercases slugs', () => {
@@ -65,6 +69,13 @@ describe('modelGroupCreateSchema', () => {
     )
   })
 
+  it('accepts the group-only explicit none mode', () => {
+    expect(modelGroupCreateSchema.parse({ name: 'A', icon: { type: 'none' } })).toEqual({
+      name: 'A',
+      icon: { type: 'none' },
+    })
+  })
+
   it.each([
     ['empty name', { name: '   ' }],
     ['overlong name', { name: 'x'.repeat(41) }],
@@ -80,6 +91,12 @@ describe('modelGroupUpdateSchema', () => {
     expect(modelGroupUpdateSchema.parse({ icon: null, color: null })).toEqual({
       icon: null,
       color: null,
+    })
+  })
+
+  it('accepts explicit none without conflating it with the default folder', () => {
+    expect(modelGroupUpdateSchema.parse({ icon: { type: 'none' } })).toEqual({
+      icon: { type: 'none' },
     })
   })
 

@@ -6,7 +6,7 @@ import type {
   ModelIconBatchInput,
 } from '@shared/schemas/model-group'
 import { resolveModelGroupColor } from '@shared/util/modelGroupAppearance'
-import { normalizeModelIcon, normalizeModelIconAsset } from '@shared/util/modelIcon'
+import { normalizeModelGroupIcon, normalizeModelIcon } from '@shared/util/modelIcon'
 import { db } from '../db/client'
 import { modelGroups, models, modelUserAccess, providers } from '../db/schema'
 import { must } from '../lib/assert'
@@ -18,7 +18,7 @@ type ModelGroupRow = typeof modelGroups.$inferSelect
 type ModelGroupFields = Pick<ModelGroupRow, 'id' | 'name' | 'icon' | 'color' | 'sort'>
 
 export function toModelGroupDTO(g: ModelGroupFields): ModelGroupDTO {
-  const icon = normalizeModelIconAsset(g.icon)
+  const icon = normalizeModelGroupIcon(g.icon)
   return {
     id: g.id,
     name: g.name,
@@ -120,7 +120,7 @@ export async function createModelGroup(
   )
 }
 
-/** 更新分组：undefined=不改动；图标 null=恢复文件夹图形，颜色 null=恢复默认黄色。 */
+/** 更新分组：undefined=不改动；图标 null=恢复文件夹图形，none=完全不显示图标。 */
 export async function updateModelGroup(
   id: string,
   input: ModelGroupUpdateInput,
@@ -138,7 +138,7 @@ export async function updateModelGroup(
         return { ok: false, code: 'icon_missing' } as const
       }
 
-      const currentIcon = normalizeModelIconAsset(existing.icon)
+      const currentIcon = normalizeModelGroupIcon(existing.icon)
       // 历史 icon+color 组合里的颜色从未真正可见；移除图标时也不能让它意外复活。
       const currentColor = resolveModelGroupColor(currentIcon, existing.color)
       const nextIcon = input.icon !== undefined ? input.icon : currentIcon
@@ -330,7 +330,7 @@ export function clearCustomIconReferences(tx: DbTransaction, iconId: string): vo
     .from(modelGroups)
     .all()
   for (const row of groupRows) {
-    const icon = normalizeModelIconAsset(row.icon)
+    const icon = normalizeModelGroupIcon(row.icon)
     if (icon?.type === 'custom' && icon.id === iconId) {
       tx.update(modelGroups)
         .set({ icon: null, color: null, updatedAt: row.updatedAt })

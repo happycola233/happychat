@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ModelIcon } from '@shared/types/domain'
+import type { ModelGroupIcon, ModelIcon } from '@shared/types/domain'
 
 interface CapturedMutationOptions {
   onSuccess?: (...args: unknown[]) => void
@@ -59,6 +59,26 @@ describe('IconPicker summary field', () => {
     expect(html).toContain('aria-label="恢复默认图标"')
     expect(html).toContain('h-9')
     expect(html).toContain('恢复默认')
+  })
+
+  it('把分组无图标作为显式状态，并从默认文件夹提供快捷入口', () => {
+    const onChange = vi.fn<(icon: ModelGroupIcon | null) => void>()
+    const noneOption = {
+      title: '无图标',
+      description: '像“未分组”一样直接左对齐，不保留图标位置',
+      showDefaultShortcut: true,
+    }
+    const defaultFolder = renderToStaticMarkup(
+      <IconPicker value={null} onChange={onChange} noneOption={noneOption} />,
+    )
+    const withoutIcon = renderToStaticMarkup(
+      <IconPicker value={{ type: 'none' }} onChange={onChange} noneOption={noneOption} />,
+    )
+
+    expect(defaultFolder).toContain('aria-label="不显示分组图标"')
+    expect(defaultFolder).toContain('无图标')
+    expect(withoutIcon).toContain('像“未分组”一样直接左对齐，不保留图标位置')
+    expect(withoutIcon).toContain('aria-label="恢复默认图标"')
   })
 
   it('自动识别成功时可直接改用首字母，并能恢复自动识别', () => {

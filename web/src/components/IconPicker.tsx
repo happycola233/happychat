@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { clsx } from 'clsx'
 import {
   ChevronDown,
+  ImageOff,
   ImagePlus,
   Loader2,
   RotateCcw,
@@ -12,7 +13,7 @@ import {
   Type,
   Upload,
 } from 'lucide-react'
-import type { ModelIcon, ModelIconAsset } from '@shared/types/domain'
+import type { ModelGroupIcon, ModelIcon, ModelIconAsset } from '@shared/types/domain'
 import { MAX_CUSTOM_ICON_BYTES } from '@shared/util/modelIcon'
 import * as adminApi from '../api/admin'
 import { useLobeIconCatalog } from '../hooks/useModels'
@@ -26,6 +27,7 @@ import { searchIconSlugs } from './iconSearch'
 const EmojiPickerPanel = lazy(() => import('../chat/EmojiPickerPanel'))
 
 type PickerTab = 'lobe' | 'custom' | 'emoji'
+type IconPickerValue = ModelGroupIcon | ModelIcon
 
 const TABS: readonly { value: PickerTab; label: string }[] = [
   { value: 'lobe', label: '内置图标' },
@@ -60,6 +62,54 @@ export interface IconPickerInitialOption {
   showDefaultShortcut?: boolean
 }
 
+export interface IconPickerNoneOption {
+  /** 无图标模式在选择项与摘要字段中的预览；默认使用 ImageOff。 */
+  preview?: ReactNode
+  title?: ReactNode
+  description?: ReactNode
+  /** 默认文件夹状态下，在摘要右侧直接提供“无图标”捷径。 */
+  showDefaultShortcut?: boolean
+}
+
+/** 资源列表上方的显式外观模式；与网格图标一样使用稳定标签的 toggle button。 */
+function PickerModeOption({
+  selected,
+  onSelect,
+  preview,
+  title,
+  description,
+}: {
+  selected: boolean
+  onSelect: () => void
+  preview: ReactNode
+  title: ReactNode
+  description: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={selected}
+      className={clsx(
+        'flex min-h-12 w-full items-center gap-3 rounded-lg border px-3 py-2 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400',
+        selected
+          ? cellSelectedClass
+          : 'border-neutral-200 bg-white hover:border-neutral-300 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:border-neutral-600 dark:hover:bg-neutral-800/70',
+      )}
+    >
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center">{preview}</span>
+      <span className="min-w-0">
+        <span className="block text-xs font-medium text-neutral-800 dark:text-neutral-100">
+          {title}
+        </span>
+        <span className="mt-0.5 block text-[11px] leading-4 text-neutral-500 dark:text-neutral-400">
+          {description}
+        </span>
+      </span>
+    </button>
+  )
+}
+
 /** 内置图标网格：默认策展列表，有搜索词则从完整目录过滤（结果有数量上限）。 */
 function LobeIconGrid({
   value,
@@ -67,8 +117,8 @@ function LobeIconGrid({
   search,
   initialOption,
 }: {
-  value: ModelIcon | null
-  onChange: (icon: ModelIcon) => void
+  value: IconPickerValue | null
+  onChange: (icon: IconPickerValue) => void
   search: string
   initialOption?: IconPickerInitialOption
 }) {
@@ -89,29 +139,13 @@ function LobeIconGrid({
   return (
     <div className="space-y-2">
       {initialAvailable && (
-        <button
-          type="button"
-          onClick={() => onChange({ type: 'initial' })}
-          aria-pressed={value?.type === 'initial'}
-          className={clsx(
-            'flex min-h-12 w-full items-center gap-3 rounded-lg border px-3 py-2 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400',
-            value?.type === 'initial'
-              ? cellSelectedClass
-              : 'border-neutral-200 bg-white hover:border-neutral-300 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:border-neutral-600 dark:hover:bg-neutral-800/70',
-          )}
-        >
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center">
-            {initialOption.preview}
-          </span>
-          <span className="min-w-0">
-            <span className="block text-xs font-medium text-neutral-800 dark:text-neutral-100">
-              名称首字母
-            </span>
-            <span className="mt-0.5 block text-[11px] leading-4 text-neutral-500 dark:text-neutral-400">
-              跳过自动品牌识别，始终使用名称首字母
-            </span>
-          </span>
-        </button>
+        <PickerModeOption
+          selected={value?.type === 'initial'}
+          onSelect={() => onChange({ type: 'initial' })}
+          preview={initialOption.preview}
+          title="名称首字母"
+          description="跳过自动品牌识别，始终使用名称首字母"
+        />
       )}
       {searching && isPending ? (
         <div className="flex items-center justify-center py-6 text-xs text-neutral-400">
@@ -155,8 +189,8 @@ export function CustomIconGrid({
   value,
   onChange,
 }: {
-  value: ModelIcon | null
-  onChange: (icon: ModelIcon | null) => void
+  value: IconPickerValue | null
+  onChange: (icon: ModelIconAsset | null) => void
 }) {
   const qc = useQueryClient()
   const fileRef = useRef<HTMLInputElement>(null)
@@ -294,7 +328,10 @@ export function CustomIconGrid({
   )
 }
 
-function selectedIconCopy(icon: ModelIcon): { title: string; description: string } {
+function selectedIconCopy(
+  icon: IconPickerValue,
+  noneOption?: IconPickerNoneOption,
+): { title: ReactNode; description: ReactNode } {
   if (icon.type === 'lobe') {
     return { title: icon.slug, description: '内置品牌图标' }
   }
@@ -303,6 +340,12 @@ function selectedIconCopy(icon: ModelIcon): { title: string; description: string
   }
   if (icon.type === 'initial') {
     return { title: '名称首字母', description: '已关闭自动品牌识别' }
+  }
+  if (icon.type === 'none') {
+    return {
+      title: noneOption?.title ?? '无图标',
+      description: noneOption?.description ?? '不显示图标，也不保留图标位置',
+    }
   }
   return { title: '自定义图标', description: '已从共享图标库选择' }
 }
@@ -398,21 +441,31 @@ interface IconPickerAssetProps extends IconPickerBaseProps {
   value: ModelIconAsset | null
   onChange: (icon: ModelIconAsset | null) => void
   initialOption?: never
+  noneOption?: never
+}
+
+interface IconPickerGroupProps extends IconPickerBaseProps {
+  value: ModelGroupIcon | null
+  onChange: (icon: ModelGroupIcon | null) => void
+  noneOption: IconPickerNoneOption
+  initialOption?: never
 }
 
 interface IconPickerModelProps extends IconPickerBaseProps {
   value: ModelIcon | null
   onChange: (icon: ModelIcon | null) => void
   initialOption: IconPickerInitialOption
+  noneOption?: never
 }
 
-type IconPickerProps = IconPickerAssetProps | IconPickerModelProps
+type IconPickerProps = IconPickerAssetProps | IconPickerGroupProps | IconPickerModelProps
 
 /**
  * 图标选择器：摘要字段负责展示当前有效外观与显式恢复默认，展开面板只负责选择来源。
  * 内置图标与 Emoji 的搜索都位于分页右侧；选择即时写入表单草稿，最终由宿主表单保存。
  */
 export function IconPicker(props: IconPickerAssetProps): ReactElement
+export function IconPicker(props: IconPickerGroupProps): ReactElement
 export function IconPicker(props: IconPickerModelProps): ReactElement
 export function IconPicker({
   label = '图标（可选）',
@@ -420,6 +473,7 @@ export function IconPicker({
   onChange,
   emptyState,
   initialOption,
+  noneOption,
 }: IconPickerProps): ReactElement {
   const buttonId = useId()
   const descriptionId = useId()
@@ -432,16 +486,23 @@ export function IconPicker({
   const [tabFocusTarget, setTabFocusTarget] = useState<PickerTab | null>(null)
 
   const initialAvailable = initialOption && initialOption.available !== false
-  const selectedCopy = value ? selectedIconCopy(value) : null
+  const selectedCopy = value ? selectedIconCopy(value, noneOption) : null
   const showInitialShortcut =
     !value && Boolean(initialAvailable && initialOption.showDefaultShortcut)
+  const showNoneShortcut = !value && Boolean(noneOption?.showDefaultShortcut)
+  const defaultShortcut: IconPickerValue | null = showInitialShortcut
+    ? { type: 'initial' }
+    : showNoneShortcut
+      ? { type: 'none' }
+      : null
   const activeTabId = `${tabsId}-tab-${tab}`
   const activeTabPanelId = `${tabsId}-panel-${tab}`
 
-  const emitChange = (nextIcon: ModelIcon | null) => {
-    // 模型分组等资源图标调用方没有 initialOption，运行时也拒绝意外写入首字母模式。
+  const emitChange = (nextIcon: IconPickerValue | null) => {
+    // 不同宿主只接受属于自身领域的显式模式，运行时也拒绝意外串写。
     if (nextIcon?.type === 'initial' && !initialOption) return
-    ;(onChange as (icon: ModelIcon | null) => void)(nextIcon)
+    if (nextIcon?.type === 'none' && !noneOption) return
+    ;(onChange as (icon: IconPickerValue | null) => void)(nextIcon)
   }
 
   const changeTab = (nextTab: PickerTab) => {
@@ -471,6 +532,21 @@ export function IconPicker({
     />
   )
 
+  const summaryActionLabel = defaultShortcut
+    ? defaultShortcut.type === 'initial'
+      ? '使用名称首字母图标'
+      : '不显示分组图标'
+    : value?.type === 'initial'
+      ? '恢复自动识别图标'
+      : '恢复默认图标'
+  const summaryActionText = defaultShortcut
+    ? defaultShortcut.type === 'initial'
+      ? '使用首字母'
+      : '无图标'
+    : value?.type === 'initial'
+      ? '恢复自动'
+      : '恢复默认'
+
   return (
     <Field label={label} htmlFor={buttonId}>
       <div
@@ -497,6 +573,8 @@ export function IconPicker({
           >
             {value?.type === 'initial' ? (
               initialOption?.preview
+            ) : value?.type === 'none' ? (
+              (noneOption?.preview ?? <ImageOff className="h-5 w-5" strokeWidth={1.7} />)
             ) : value ? (
               <ModelIconMark icon={value} size="lg" className={DEFAULT_MODEL_ICON_TONE_CLASS} />
             ) : (
@@ -525,42 +603,26 @@ export function IconPicker({
             />
           </span>
         </button>
-        {(value || showInitialShortcut) && (
+        {(value || defaultShortcut) && (
           <div className="flex shrink-0 items-center border-l border-neutral-200 px-1.5 dark:border-neutral-700">
             <button
               type="button"
               onClick={() => {
-                emitChange(showInitialShortcut ? { type: 'initial' } : null)
+                emitChange(defaultShortcut)
                 closePicker()
               }}
-              aria-label={
-                showInitialShortcut
-                  ? '使用名称首字母图标'
-                  : value?.type === 'initial'
-                    ? '恢复自动识别图标'
-                    : '恢复默认图标'
-              }
-              title={
-                showInitialShortcut
-                  ? '使用名称首字母图标'
-                  : value?.type === 'initial'
-                    ? '恢复自动识别图标'
-                    : '恢复默认图标'
-              }
+              aria-label={summaryActionLabel}
+              title={summaryActionLabel}
               className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg px-2 text-xs text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
             >
-              {showInitialShortcut ? (
+              {defaultShortcut?.type === 'initial' ? (
                 <Type className="h-3.5 w-3.5" strokeWidth={1.8} />
+              ) : defaultShortcut?.type === 'none' ? (
+                <ImageOff className="h-3.5 w-3.5" strokeWidth={1.8} />
               ) : (
                 <RotateCcw className="h-3.5 w-3.5" strokeWidth={1.8} />
               )}
-              <span className="hidden sm:inline">
-                {showInitialShortcut
-                  ? '使用首字母'
-                  : value?.type === 'initial'
-                    ? '恢复自动'
-                    : '恢复默认'}
-              </span>
+              <span className="hidden sm:inline">{summaryActionText}</span>
             </button>
           </div>
         )}
@@ -578,6 +640,22 @@ export function IconPicker({
           }}
           className="mt-2 overflow-hidden rounded-xl border border-neutral-200 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900/60"
         >
+          {noneOption && (
+            <div className="border-b border-neutral-200/80 p-2.5 dark:border-neutral-800">
+              {/* “无图标”不是资源来源，固定在分页外，切到自定义或 Emoji 时也始终可达。 */}
+              <PickerModeOption
+                selected={value?.type === 'none'}
+                onSelect={() => emitChange({ type: 'none' })}
+                preview={
+                  noneOption.preview ?? (
+                    <ImageOff className="h-5 w-5 text-neutral-500 dark:text-neutral-400" />
+                  )
+                }
+                title={noneOption.title ?? '无图标'}
+                description={noneOption.description ?? '不显示图标，也不保留图标位置'}
+              />
+            </div>
+          )}
           {tab === 'emoji' ? (
             <div className="h-64">
               <Suspense fallback={<EmojiPanelFallback />}>

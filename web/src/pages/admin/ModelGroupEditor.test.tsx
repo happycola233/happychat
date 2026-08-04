@@ -27,10 +27,19 @@ vi.mock('../../components/IconPicker', () => ({
   IconPicker: ({
     value,
     emptyState,
+    noneOption,
   }: {
     value: AdminModelGroupDTO['icon']
     emptyState?: { preview?: ReactNode }
-  }) => <div data-icon-state={value ? 'explicit' : 'default'}>{!value && emptyState?.preview}</div>,
+    noneOption?: { description?: ReactNode }
+  }) => (
+    <div
+      data-icon-state={value?.type === 'none' ? 'none' : value ? 'explicit' : 'default'}
+      data-none-option={typeof noneOption?.description === 'string' ? noneOption.description : ''}
+    >
+      {!value && emptyState?.preview}
+    </div>
+  ),
 }))
 
 vi.mock('../../components/ModelIcon', () => ({
@@ -88,5 +97,14 @@ describe('ModelGroupEditor appearance semantics', () => {
     expect(html).toContain('data-icon-state="explicit"')
     expect(html).not.toContain('颜色（可选）')
     expect(html).not.toContain('#ef4444')
+  })
+
+  it('offers and preserves the explicit no-icon mode without showing color controls', () => {
+    const html = renderEditor(groupFixture({ icon: { type: 'none' }, color: null }))
+
+    expect(html).toContain('data-icon-state="none"')
+    expect(html).toContain('像“未分组”一样直接左对齐，不保留图标位置')
+    expect(html).not.toContain('<legend')
+    expect(html).not.toContain('aria-label="使用颜色')
   })
 })

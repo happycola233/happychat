@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeModelIcon, normalizeModelIconAsset, sameModelIcon } from './modelIcon'
+import {
+  normalizeModelGroupIcon,
+  normalizeModelIcon,
+  normalizeModelIconAsset,
+  sameModelIcon,
+} from './modelIcon'
 
 describe('normalizeModelIcon', () => {
   it('accepts the three asset shapes and the explicit initial mode', () => {
@@ -54,6 +59,15 @@ describe('normalizeModelIcon', () => {
     expect(normalizeModelIcon({ type: 'emoji', char: '🚀🚀' })).toBeNull()
     expect(normalizeModelIcon({ type: 'emoji', char: '一段文字' })).toBeNull()
     expect(normalizeModelIcon({ type: 'emoji', char: '   ' })).toBeNull()
+  })
+})
+
+describe('normalizeModelGroupIcon', () => {
+  it('keeps the explicit none mode isolated to model groups', () => {
+    expect(normalizeModelGroupIcon({ type: 'none' })).toEqual({ type: 'none' })
+    expect(normalizeModelIconAsset({ type: 'none' })).toBeNull()
+    expect(normalizeModelIcon({ type: 'none' })).toBeNull()
+    expect(normalizeModelGroupIcon({ type: 'initial' })).toBeNull()
   })
 })
 

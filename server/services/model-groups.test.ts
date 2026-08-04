@@ -94,6 +94,26 @@ describe('model group CRUD', () => {
     expect(first.color).toBe(DEFAULT_FOLDER_COLOR)
   })
 
+  it('persists explicit none separately from the default folder and discards color', async () => {
+    const group = await createGroup({
+      name: '无图标分组',
+      icon: { type: 'none' },
+      color: '#ef4444',
+    })
+
+    expect(group).toMatchObject({ icon: { type: 'none' }, color: null })
+    expect(await groupServices.getModelGroup(group.id)).toMatchObject({
+      icon: { type: 'none' },
+      color: null,
+    })
+
+    const restored = await groupServices.updateModelGroup(group.id, { icon: null })
+    expect(restored).toMatchObject({
+      ok: true,
+      group: { icon: null, color: DEFAULT_FOLDER_COLOR },
+    })
+  })
+
   it('normalizes a corrupted icon column instead of leaking it to the DTO', async () => {
     const group = await createGroup({ name: '脏图标分组' })
     await dbClient.db
@@ -442,9 +462,7 @@ describe('model DTO icon/group passthrough', () => {
     const { userId, modelIds } = await createFixture(2)
     const group = await createGroup({ name: 'DTO 分组' })
     await groupServices.assignModelsToGroup(group.id, [modelIds[0]!])
-    await groupServices.applyModelIcons([
-      { id: modelIds[0]!, icon: { type: 'emoji', char: '🚀' } },
-    ])
+    await groupServices.applyModelIcons([{ id: modelIds[0]!, icon: { type: 'emoji', char: '🚀' } }])
 
     const models = await modelServices.listEnabledModels(userId)
     const configured = models.find((m) => m.id === modelIds[0]!)
@@ -462,9 +480,7 @@ describe('model DTO icon/group passthrough', () => {
       .set({ icon: { type: 'lobe', slug: 'a");background:url(evil' } as never })
       .where(eq(schema.models.id, modelIds[0]!))
 
-    const model = (await modelServices.listEnabledModels(userId)).find(
-      (m) => m.id === modelIds[0]!,
-    )
+    const model = (await modelServices.listEnabledModels(userId)).find((m) => m.id === modelIds[0]!)
     expect(model?.icon).toBeNull()
   })
 })

@@ -12,6 +12,7 @@ describe('resolveModelGroupColor', () => {
     { type: 'lobe', slug: 'openai' } as const,
     { type: 'custom', id: '12345678' } as const,
     { type: 'emoji', char: '🧠' } as const,
+    { type: 'none' } as const,
   ])('ignores hidden colors for $type icons', (icon) => {
     expect(resolveModelGroupColor(icon, '#ef4444')).toBeNull()
   })

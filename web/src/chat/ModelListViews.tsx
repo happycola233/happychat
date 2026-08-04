@@ -29,7 +29,7 @@ import {
  * 列对齐约定（工具栏 / 模型行 / 分组标题共用，保证同类元素纵向成列）：
  *
  * - 左侧图标列：有图标的一级元素（模型、真实分组、搜索、返回）都在 `pl-3` 处起始，
- *   紧跟的文字落在同一名称列；没有图标的「未分组」直接从 `pl-3` 起排文字，不保留空槽；
+ *   紧跟的文字落在同一名称列；「未分组」与显式无图标分组直接从 `pl-3` 起排文字，不保留空槽；
  *   分组成员**不再缩进**——层级由分组标题的字号与吸顶底色表达；
  * - 右侧操作列：统一 28px 槽位（`pr-2` + `w-7`），ⓘ / 折叠箭头 / 钻取箭头共用同一中心线；
  * - 选中勾：有描述时在 ⓘ 左侧独立占位；无描述时直接落进最右操作列，与其他行的 ⓘ 共用中心线；
@@ -322,7 +322,7 @@ function FlatList({
                 'group/heading hover:bg-neutral-50 dark:hover:bg-neutral-800/60',
               )}
             >
-              {/* 「未分组」没有图标时直接左对齐，不制造一个看不见的空槽。 */}
+              {/* 「未分组」与显式无图标分组都直接左对齐，不制造透明空槽。 */}
               {section.group && <ModelGroupGlyph group={section.group} size="sm" />}
               <span className={HEADING_TEXT_CLASS}>{sectionName(section)}</span>
               <span className={HEADING_COUNT_CLASS}>{section.models.length}</span>

@@ -82,8 +82,16 @@ export type ModelIcon = ModelIconAsset | { type: 'initial' }
 /** models.icon JSON 列的存储形态。 */
 export type StoredModelIcon = ModelIcon | null
 
-/** model_groups.icon JSON 列只接受真实图形资源；首字母模式没有分组语义。 */
-export type StoredModelGroupIcon = ModelIconAsset | null
+/**
+ * 模型分组图标额外支持显式无图标模式。
+ *
+ * `null` 保留为默认文件夹图形，以兼容所有既有分组；`{type:'none'}` 才表示标题行
+ * 完全不渲染图标，也不保留空白图标槽。模型专用的首字母模式没有分组语义。
+ */
+export type ModelGroupIcon = ModelIconAsset | { type: 'none' }
+
+/** model_groups.icon JSON 列的存储形态。 */
+export type StoredModelGroupIcon = ModelGroupIcon | null
 
 /**
  * 原样发送给上游的 reasoning.effort 值。

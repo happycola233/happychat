@@ -10,8 +10,8 @@ import type {
   ModelCapabilities,
   ModelAccessMode,
   ModelHardParams,
+  ModelGroupIcon,
   ModelIcon,
-  ModelIconAsset,
   ModelKind,
   ModelParams,
   ModelPricing,
@@ -135,9 +135,9 @@ export interface ModelAccessDTO {
 export interface ModelGroupDTO {
   id: string
   name: string
-  /** 分组图标；null=默认文件夹图形 */
-  icon: ModelIconAsset | null
-  /** 默认文件夹图形颜色（#RRGGBB）；显式图标存在时为 null */
+  /** 分组图标；null=默认文件夹图形，none=完全不显示图标 */
+  icon: ModelGroupIcon | null
+  /** 默认文件夹图形颜色（#RRGGBB）；显式图标或无图标模式下为 null */
   color: string | null
   sort: number
 }

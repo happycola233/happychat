@@ -1,7 +1,11 @@
 import type { CSSProperties } from 'react'
 import { clsx } from 'clsx'
 import { Folder } from 'lucide-react'
-import type { ModelIcon as ModelIconValue, ModelIconAsset } from '@shared/types/domain'
+import type {
+  ModelGroupIcon,
+  ModelIcon as ModelIconValue,
+  ModelIconAsset,
+} from '@shared/types/domain'
 import { LOBE_ICON_SLUG_PATTERN } from '@shared/util/modelIcon'
 import { resolveModelGroupColor } from '@shared/util/modelGroupAppearance'
 import { guessModelIconSlug } from '@shared/util/modelIconGuess'
@@ -183,17 +187,18 @@ export function ModelIconMark({
 
 /**
  * 分组裸图标：按管理员图标或默认文件夹图形本身的尺寸占位。
- * 颜色只属于默认文件夹图形，并直接使用管理员选中的原色；显式图标使用自身外观。
+ * 显式 none 直接返回 null，不制造透明占位；颜色只属于默认文件夹图形。
  */
 export function ModelGroupGlyph({
   group,
   size = 'sm',
   className,
 }: {
-  group: { name?: string; icon: ModelIconAsset | null; color: string | null }
+  group: { name?: string; icon: ModelGroupIcon | null; color: string | null }
   size?: IconSize
   className?: string
 }) {
+  if (group.icon?.type === 'none') return null
   const effectiveColor = resolveModelGroupColor(group.icon, group.color)
   return (
     <span
