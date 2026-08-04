@@ -15,6 +15,7 @@ const EMOJI_CELL_IDEAL_PX = 40
 const VIEWPORT_CHROME_PX = 22
 
 export type EmojiPickerSurface = 'base' | 'muted'
+export type EmojiPickerToolbarLayout = 'responsive' | 'inline'
 
 const SURFACE_CLASS: Record<EmojiPickerSurface, string> = {
   base: '[--hc-emoji-surface:white] dark:[--hc-emoji-surface:var(--color-neutral-900)]',
@@ -71,6 +72,7 @@ export default function EmojiPickerPanel({
   onSelect,
   surface = 'base',
   toolbar,
+  toolbarLayout = 'responsive',
   panelId,
   panelLabelledBy,
 }: {
@@ -81,6 +83,8 @@ export default function EmojiPickerPanel({
   surface?: EmojiPickerSurface
   /** 复合图标选择器可把来源分页放进同一工具栏，搜索框会自动排列在其右侧。 */
   toolbar?: ReactNode
+  /** responsive 在窄屏上下排列；inline 始终与搜索框共用一行。 */
+  toolbarLayout?: EmojiPickerToolbarLayout
   /** 传入后把 Emoji viewport 暴露为对应 tab 的面板。 */
   panelId?: string
   panelLabelledBy?: string
@@ -123,7 +127,12 @@ export default function EmojiPickerPanel({
             className={clsx(
               'relative z-10 shrink-0 bg-[var(--hc-emoji-surface)]',
               toolbar
-                ? 'flex flex-col gap-2 border-b border-neutral-200/80 p-2.5 sm:flex-row sm:items-center dark:border-neutral-800'
+                ? clsx(
+                    'flex gap-2 border-b border-neutral-200/80 p-2.5 dark:border-neutral-800',
+                    toolbarLayout === 'inline'
+                      ? 'items-center'
+                      : 'flex-col sm:flex-row sm:items-center',
+                  )
                 : 'px-2.5 pb-2 pt-2.5',
             )}
           >

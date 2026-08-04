@@ -112,23 +112,6 @@ function FolderEditorDialogInner({
             aria-label="选择文件夹图标"
             className="mt-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-neutral-200 dark:border-neutral-800"
           >
-            <div className="flex h-10 shrink-0 items-center justify-between border-b border-neutral-100 px-3 dark:border-neutral-800">
-              <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">
-                选择文件夹图标
-              </span>
-              {emoji && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEmoji(null)
-                    setPanel(null)
-                  }}
-                  className="rounded-md px-1.5 py-0.5 text-xs text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
-                >
-                  恢复默认图标
-                </button>
-              )}
-            </div>
             <Suspense
               fallback={
                 <div className="flex h-full min-h-0 items-center justify-center text-[13px] text-neutral-400">
@@ -138,6 +121,26 @@ function FolderEditorDialogInner({
             >
               <EmojiPickerPanel
                 autoFocusSearch={!isMobile}
+                toolbarLayout="inline"
+                toolbar={
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">
+                      选择图标
+                    </span>
+                    {emoji && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEmoji(null)
+                          setPanel(null)
+                        }}
+                        className="rounded-md px-1.5 py-0.5 text-xs text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+                      >
+                        恢复默认图标
+                      </button>
+                    )}
+                  </div>
+                }
                 onSelect={(selected) => {
                   setEmoji(selected)
                   setPanel(null)
