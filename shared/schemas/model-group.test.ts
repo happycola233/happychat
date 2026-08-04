@@ -5,21 +5,25 @@ import {
   modelGroupReorderSchema,
   modelGroupUpdateSchema,
   modelIconBatchSchema,
+  modelIconAssetSchema,
   modelIconSchema,
 } from './model-group'
 
 describe('modelIconSchema', () => {
-  it('accepts the three sources', () => {
+  it('accepts the three resources and the model-only initial mode', () => {
     expect(modelIconSchema.parse({ type: 'lobe', slug: 'claude-color' })).toEqual({
       type: 'lobe',
       slug: 'claude-color',
     })
-    expect(modelIconSchema.parse({ type: 'custom', id: '0199a0f1-2b3c-7def-8123-456789abcdef' }))
-      .toEqual({ type: 'custom', id: '0199a0f1-2b3c-7def-8123-456789abcdef' })
+    expect(
+      modelIconSchema.parse({ type: 'custom', id: '0199a0f1-2b3c-7def-8123-456789abcdef' }),
+    ).toEqual({ type: 'custom', id: '0199a0f1-2b3c-7def-8123-456789abcdef' })
     expect(modelIconSchema.parse({ type: 'emoji', char: '🚀' })).toEqual({
       type: 'emoji',
       char: '🚀',
     })
+    expect(modelIconSchema.parse({ type: 'initial' })).toEqual({ type: 'initial' })
+    expect(modelIconAssetSchema.safeParse({ type: 'initial' }).success).toBe(false)
   })
 
   it('trims and lowercases slugs', () => {
@@ -53,6 +57,12 @@ describe('modelGroupCreateSchema', () => {
 
   it('lowercases hex colors', () => {
     expect(modelGroupCreateSchema.parse({ name: 'A', color: '#AABBCC' }).color).toBe('#aabbcc')
+  })
+
+  it('rejects the model-only initial mode', () => {
+    expect(modelGroupCreateSchema.safeParse({ name: 'A', icon: { type: 'initial' } }).success).toBe(
+      false,
+    )
   })
 
   it.each([
@@ -103,7 +113,10 @@ describe('modelGroupAssignSchema', () => {
     ['empty model list', { groupId: 'g', modelIds: [] }],
     ['duplicate models', { groupId: 'g', modelIds: ['m', 'm'] }],
     ['empty group id string', { groupId: '', modelIds: ['m'] }],
-    ['over the batch limit', { groupId: 'g', modelIds: Array.from({ length: 1001 }, (_, i) => `m${i}`) }],
+    [
+      'over the batch limit',
+      { groupId: 'g', modelIds: Array.from({ length: 1001 }, (_, i) => `m${i}`) },
+    ],
   ])('rejects %s', (_label, value) => {
     expect(modelGroupAssignSchema.safeParse(value).success).toBe(false)
   })
@@ -114,10 +127,11 @@ describe('modelIconBatchSchema', () => {
     const parsed = modelIconBatchSchema.parse({
       items: [
         { id: 'm1', icon: { type: 'lobe', slug: 'openai' } },
-        { id: 'm2', icon: null },
+        { id: 'm2', icon: { type: 'initial' } },
+        { id: 'm3', icon: null },
       ],
     })
-    expect(parsed.items).toHaveLength(2)
+    expect(parsed.items).toHaveLength(3)
   })
 
   it('rejects duplicate model ids', () => {

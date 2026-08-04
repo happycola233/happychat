@@ -6,7 +6,7 @@ import type {
   ModelIconBatchInput,
 } from '@shared/schemas/model-group'
 import { resolveModelGroupColor } from '@shared/util/modelGroupAppearance'
-import { normalizeModelIcon } from '@shared/util/modelIcon'
+import { normalizeModelIcon, normalizeModelIconAsset } from '@shared/util/modelIcon'
 import { db } from '../db/client'
 import { modelGroups, models, modelUserAccess, providers } from '../db/schema'
 import { must } from '../lib/assert'
@@ -18,7 +18,7 @@ type ModelGroupRow = typeof modelGroups.$inferSelect
 type ModelGroupFields = Pick<ModelGroupRow, 'id' | 'name' | 'icon' | 'color' | 'sort'>
 
 export function toModelGroupDTO(g: ModelGroupFields): ModelGroupDTO {
-  const icon = normalizeModelIcon(g.icon)
+  const icon = normalizeModelIconAsset(g.icon)
   return {
     id: g.id,
     name: g.name,
@@ -31,7 +31,10 @@ export function toModelGroupDTO(g: ModelGroupFields): ModelGroupDTO {
 
 /** 管理端分组列表：按 sort 排序，附带组内模型数（含未上架/受限模型）。 */
 export async function listAdminModelGroups(): Promise<AdminModelGroupDTO[]> {
-  const rows = await db.select().from(modelGroups).orderBy(asc(modelGroups.sort), asc(modelGroups.createdAt))
+  const rows = await db
+    .select()
+    .from(modelGroups)
+    .orderBy(asc(modelGroups.sort), asc(modelGroups.createdAt))
   const counts = await db
     .select({ groupId: models.groupId, count: sql<number>`count(*)` })
     .from(models)
@@ -135,7 +138,7 @@ export async function updateModelGroup(
         return { ok: false, code: 'icon_missing' } as const
       }
 
-      const currentIcon = normalizeModelIcon(existing.icon)
+      const currentIcon = normalizeModelIconAsset(existing.icon)
       // 历史 icon+color 组合里的颜色从未真正可见；移除图标时也不能让它意外复活。
       const currentColor = resolveModelGroupColor(currentIcon, existing.color)
       const nextIcon = input.icon !== undefined ? input.icon : currentIcon
@@ -180,7 +183,10 @@ export async function deleteModelGroup(id: string): Promise<boolean> {
       .where(eq(models.groupId, id))
       .all()
     for (const row of affected) {
-      tx.update(models).set({ groupId: null, updatedAt: row.updatedAt }).where(eq(models.id, row.id)).run()
+      tx.update(models)
+        .set({ groupId: null, updatedAt: row.updatedAt })
+        .where(eq(models.id, row.id))
+        .run()
     }
     tx.delete(modelGroups).where(eq(modelGroups.id, id)).run()
   })
@@ -249,7 +255,10 @@ export async function assignModelsToGroup(
       if (invalidIds.length) return { ok: false, code: 'unknown_models', invalidIds } as const
 
       for (const row of found) {
-        tx.update(models).set({ groupId, updatedAt: row.updatedAt }).where(eq(models.id, row.id)).run()
+        tx.update(models)
+          .set({ groupId, updatedAt: row.updatedAt })
+          .where(eq(models.id, row.id))
+          .run()
       }
       return { ok: true, moved: found.length } as const
     },
@@ -277,7 +286,12 @@ export async function applyModelIcons(
       const updatedAtById = new Map(found.map((row) => [row.id, row.updatedAt]))
       const invalidIds = ids.filter((id) => !updatedAtById.has(id))
       if (invalidIds.length) return { ok: false, code: 'unknown_models', invalidIds } as const
-      if (!modelIconReferencesExist(tx, items.map((item) => item.icon))) {
+      if (
+        !modelIconReferencesExist(
+          tx,
+          items.map((item) => item.icon),
+        )
+      ) {
         return { ok: false, code: 'icon_missing' } as const
       }
 
@@ -305,7 +319,10 @@ export function clearCustomIconReferences(tx: DbTransaction, iconId: string): vo
   for (const row of modelRows) {
     const icon = normalizeModelIcon(row.icon)
     if (icon?.type === 'custom' && icon.id === iconId) {
-      tx.update(models).set({ icon: null, updatedAt: row.updatedAt }).where(eq(models.id, row.id)).run()
+      tx.update(models)
+        .set({ icon: null, updatedAt: row.updatedAt })
+        .where(eq(models.id, row.id))
+        .run()
     }
   }
   const groupRows = tx
@@ -313,7 +330,7 @@ export function clearCustomIconReferences(tx: DbTransaction, iconId: string): vo
     .from(modelGroups)
     .all()
   for (const row of groupRows) {
-    const icon = normalizeModelIcon(row.icon)
+    const icon = normalizeModelIconAsset(row.icon)
     if (icon?.type === 'custom' && icon.id === iconId) {
       tx.update(modelGroups)
         .set({ icon: null, color: null, updatedAt: row.updatedAt })

@@ -60,19 +60,30 @@ export interface ModelTag {
 export type StoredModelTag = string | ModelTag
 
 /**
- * 模型 / 模型分组的图标。三种来源收敛到同一个 JSON 字段与同一个选择器：
+ * 模型 / 模型分组都能使用的图形资源。三种来源收敛到同一个 JSON 结构：
  * - lobe：自托管的 @lobehub/icons-static-svg 内置库，slug 即文件名（不含 .svg）。
  *   单色图标内部是 fill="currentColor"，前端用 CSS mask 渲染以随主题变色。
  * - custom：管理员上传的自定义图标（model_icons.id）。
  * - emoji：单个字素簇，与聊天文件夹的 Emoji 图标同一套输入规则。
  */
-export type ModelIcon =
+export type ModelIconAsset =
   | { type: 'lobe'; slug: string }
   | { type: 'custom'; id: string }
   | { type: 'emoji'; char: string }
 
-/** models.icon / model_groups.icon JSON 列的存储形态；null=未配置（模型会回退到自动识别）。 */
+/**
+ * 模型图标比模型分组多一个显式的首字母模式。
+ *
+ * `null` 仍表示自动模式：先按模型 ID / 外显名识别品牌，认不出时才回退首字母；
+ * `{type:'initial'}` 则表示管理员明确关闭自动品牌识别，始终使用名称首字母。
+ */
+export type ModelIcon = ModelIconAsset | { type: 'initial' }
+
+/** models.icon JSON 列的存储形态。 */
 export type StoredModelIcon = ModelIcon | null
+
+/** model_groups.icon JSON 列只接受真实图形资源；首字母模式没有分组语义。 */
+export type StoredModelGroupIcon = ModelIconAsset | null
 
 /**
  * 原样发送给上游的 reasoning.effort 值。

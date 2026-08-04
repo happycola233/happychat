@@ -20,6 +20,7 @@ import type {
   Role,
   RunState,
   SearchAction,
+  StoredModelGroupIcon,
   StoredModelIcon,
   StoredModelTag,
   UrlCitation,
@@ -206,7 +207,7 @@ export const modelGroups = sqliteTable('model_groups', {
   id: pk(),
   name: text('name').notNull(),
   // 图标（lobe 内置 / 自定义上传 / Emoji 三选一）；null=默认文件夹图形。
-  icon: text('icon', { mode: 'json' }).$type<StoredModelIcon>(),
+  icon: text('icon', { mode: 'json' }).$type<StoredModelGroupIcon>(),
   // 默认文件夹图形颜色（#RRGGBB）；显式图标存在时服务层固定归一为 null。
   color: text('color'),
   sort: integer('sort').notNull().default(0),
@@ -238,7 +239,7 @@ export const models = sqliteTable(
     description: text('description'),
     // 旧记录为 string[]，新记录写 {label,color}[]；读取时由共享 helper 统一归一化。
     tags: text('tags', { mode: 'json' }).$type<StoredModelTag[]>(),
-    // 用户可见图标；null=未配置，渲染时回退到按 modelId 自动识别的品牌图标。
+    // 用户可见图标；null=自动识别品牌，{type:'initial'}=显式使用名称首字母。
     icon: text('icon', { mode: 'json' }).$type<StoredModelIcon>(),
     // 所属分组；null=未分组。删除分组时置 null（组内模型不跟着被删）。
     groupId: text('group_id').references(() => modelGroups.id, { onDelete: 'set null' }),

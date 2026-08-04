@@ -51,6 +51,45 @@ describe('ModelIconMark', () => {
 
     expect(html).toContain('/api/model-icons/lobe/openai')
   })
+
+  it('lets an explicit initial override a successful automatic brand match', () => {
+    const automatic = renderWithCatalog(
+      <ModelIconMark icon={null} modelId="gpt-5.6" displayName="GPT 5.6" />,
+      [{ slug: 'openai', mono: true }],
+    )
+    const forcedInitial = renderWithCatalog(
+      <ModelIconMark icon={{ type: 'initial' }} modelId="gpt-5.6" displayName="GPT 5.6" />,
+      [{ slug: 'openai', mono: true }],
+    )
+
+    expect(automatic).toContain('/api/model-icons/lobe/openai')
+    expect(forcedInitial).toContain('>G</span>')
+    expect(forcedInitial).not.toContain('/api/model-icons/lobe/openai')
+  })
+
+  it('optically enlarges the initial tile without widening the shared icon slot', () => {
+    const html = renderWithCatalog(
+      <ModelIconMark
+        icon={{ type: 'initial' }}
+        modelId="gpt-5.6-terra"
+        displayName="GPT-5.6-Terra"
+        size="md"
+      />,
+    )
+    const rootTag = html.match(/^<span\b[^>]*>/)?.[0] ?? ''
+
+    expect(rootTag).toContain('h-5 w-5')
+    expect(html).toContain('h-6 w-6')
+    expect(html).toContain('text-sm')
+    expect(html).toContain('bg-neutral-200')
+  })
+
+  it('does not invent a dot placeholder for an empty model draft', () => {
+    const html = renderWithCatalog(<ModelIconMark icon={null} modelId="" displayName="" />)
+
+    expect(html).toBe('')
+    expect(html).not.toContain('·')
+  })
 })
 
 describe('ModelGroupGlyph', () => {

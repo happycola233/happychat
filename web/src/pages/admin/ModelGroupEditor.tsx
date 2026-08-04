@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Check, Pipette } from 'lucide-react'
 import { HexColorInput, HexColorPicker } from 'react-colorful'
 import type { AdminModelGroupDTO } from '@shared/types/api'
-import type { ModelIcon } from '@shared/types/domain'
+import type { ModelIconAsset } from '@shared/types/domain'
 import { resolveModelGroupColor } from '@shared/util/modelGroupAppearance'
 import * as adminApi from '../../api/admin'
 import { IconPicker } from '../../components/IconPicker'
@@ -35,7 +35,7 @@ export function ModelGroupEditor({
   const qc = useQueryClient()
   const nameId = useId()
   const [name, setName] = useState(group?.name ?? '')
-  const [icon, setIcon] = useState<ModelIcon | null>(group?.icon ?? null)
+  const [icon, setIcon] = useState<ModelIconAsset | null>(group?.icon ?? null)
   // 选择了显式图标后由图标自身决定外观；旧数据即使同时存了颜色，也不把无效值带回表单。
   const [color, setColor] = useState<string | null>(
     resolveModelGroupColor(group?.icon, group?.color),
@@ -64,7 +64,7 @@ export function ModelGroupEditor({
 
   const canSave = name.trim().length > 0 && !save.isPending
 
-  const changeIcon = (nextIcon: ModelIcon | null) => {
+  const changeIcon = (nextIcon: ModelIconAsset | null) => {
     setIcon(nextIcon)
     setColor(resolveModelGroupColor(nextIcon, color))
     if (nextIcon) setCustomPickerOpen(false)
@@ -88,17 +88,6 @@ export function ModelGroupEditor({
       }
     >
       <div className="space-y-4">
-        {/* 实时预览：与用户端选择器里渲染的是同一个组件 */}
-        <div className="flex items-center gap-3 rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2.5 dark:border-neutral-700 dark:bg-neutral-900/60">
-          <ModelGroupGlyph group={{ icon, color }} size="md" />
-          <div className="min-w-0">
-            <div className="truncate text-sm font-medium text-neutral-800 dark:text-neutral-100">
-              {name.trim() || '未命名分组'}
-            </div>
-            <div className="text-xs text-neutral-400 dark:text-neutral-500">用户端显示效果</div>
-          </div>
-        </div>
-
         <Field label="分组名称" htmlFor={nameId}>
           <input
             id={nameId}
@@ -114,7 +103,11 @@ export function ModelGroupEditor({
         <IconPicker
           value={icon}
           onChange={changeIcon}
-          emptyHint="未设置图标，将显示可自定义颜色的默认文件夹图形"
+          emptyState={{
+            preview: <ModelGroupGlyph group={{ icon: null, color }} size="md" />,
+            title: '默认文件夹图标',
+            description: '未选择图标时使用下方颜色',
+          }}
         />
 
         {!icon && (

@@ -1,16 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeModelIcon, sameModelIcon } from './modelIcon'
+import { normalizeModelIcon, normalizeModelIconAsset, sameModelIcon } from './modelIcon'
 
 describe('normalizeModelIcon', () => {
-  it('accepts the three valid icon shapes', () => {
+  it('accepts the three asset shapes and the explicit initial mode', () => {
     expect(normalizeModelIcon({ type: 'lobe', slug: 'anthropic' })).toEqual({
       type: 'lobe',
       slug: 'anthropic',
     })
-    expect(normalizeModelIcon({ type: 'custom', id: '0199a0f1-2b3c-7def-8123-456789abcdef' })).toEqual(
-      { type: 'custom', id: '0199a0f1-2b3c-7def-8123-456789abcdef' },
-    )
+    expect(
+      normalizeModelIcon({ type: 'custom', id: '0199a0f1-2b3c-7def-8123-456789abcdef' }),
+    ).toEqual({ type: 'custom', id: '0199a0f1-2b3c-7def-8123-456789abcdef' })
     expect(normalizeModelIcon({ type: 'emoji', char: '🚀' })).toEqual({ type: 'emoji', char: '🚀' })
+    expect(normalizeModelIcon({ type: 'initial' })).toEqual({ type: 'initial' })
+    expect(normalizeModelIconAsset({ type: 'initial' })).toBeNull()
   })
 
   it('trims and lowercases lobe slugs', () => {
@@ -68,8 +70,10 @@ describe('sameModelIcon', () => {
     expect(sameModelIcon({ type: 'lobe', slug: 'openai' }, { type: 'emoji', char: '🚀' })).toBe(
       false,
     )
-    expect(sameModelIcon({ type: 'custom', id: 'aabbccdd' }, { type: 'custom', id: 'aabbccdd' })).toBe(
-      true,
-    )
+    expect(
+      sameModelIcon({ type: 'custom', id: 'aabbccdd' }, { type: 'custom', id: 'aabbccdd' }),
+    ).toBe(true)
+    expect(sameModelIcon({ type: 'initial' }, { type: 'initial' })).toBe(true)
+    expect(sameModelIcon({ type: 'initial' }, { type: 'lobe', slug: 'openai' })).toBe(false)
   })
 })

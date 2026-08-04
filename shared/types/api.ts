@@ -11,6 +11,7 @@ import type {
   ModelAccessMode,
   ModelHardParams,
   ModelIcon,
+  ModelIconAsset,
   ModelKind,
   ModelParams,
   ModelPricing,
@@ -92,7 +93,7 @@ export interface ModelDTO {
   description: string | null
   /** 用户可见的模型标签；可自定义主题色，null 时按文字自动配色。 */
   tags: ModelTag[]
-  /** 用户可见的模型图标；null=未配置，前端回退到按 modelId 自动识别的品牌图标。 */
+  /** 用户可见的模型图标；null=自动识别品牌，initial=显式使用名称首字母。 */
   icon: ModelIcon | null
   /** 所属分组 id；null=未分组。 */
   groupId: string | null
@@ -135,7 +136,7 @@ export interface ModelGroupDTO {
   id: string
   name: string
   /** 分组图标；null=默认文件夹图形 */
-  icon: ModelIcon | null
+  icon: ModelIconAsset | null
   /** 默认文件夹图形颜色（#RRGGBB）；显式图标存在时为 null */
   color: string | null
   sort: number

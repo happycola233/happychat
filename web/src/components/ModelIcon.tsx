@@ -1,7 +1,7 @@
 import type { CSSProperties } from 'react'
 import { clsx } from 'clsx'
 import { Folder } from 'lucide-react'
-import type { ModelIcon as ModelIconValue } from '@shared/types/domain'
+import type { ModelIcon as ModelIconValue, ModelIconAsset } from '@shared/types/domain'
 import { LOBE_ICON_SLUG_PATTERN } from '@shared/util/modelIcon'
 import { resolveModelGroupColor } from '@shared/util/modelGroupAppearance'
 import { guessModelIconSlug } from '@shared/util/modelIconGuess'
@@ -13,12 +13,24 @@ export type { IconSize } from './iconSizing'
 /** 单色品牌图标的默认前景色：小尺寸下保持足够对比，同时避免纯黑抢过名称。 */
 export const DEFAULT_MODEL_ICON_TONE_CLASS = 'text-neutral-700 dark:text-neutral-300'
 
-/** 无图标时的文字兜底：字号要比图标本身小一档才不会显得挤。 */
-const FALLBACK_TEXT_CLASS: Record<IconSize, string> = {
-  xs: 'text-[8px]',
-  sm: 'text-[9px]',
-  md: 'text-[10px]',
-  lg: 'text-[11px]',
+/**
+ * 首字母是低细节图形，需要比同档 SVG 略大的视觉面积才显得等重。
+ * 外层仍占标准图标槽位，内层只做光学放大，因此列表名称不会左右错位。
+ */
+const INITIAL_VISUAL_CLASS: Record<IconSize, string> = {
+  xs: 'h-4 w-4 rounded-[4px] text-[10px]',
+  sm: 'h-5 w-5 rounded-[5px] text-xs',
+  md: 'h-6 w-6 rounded-md text-sm',
+  lg: 'h-7 w-7 rounded-lg text-base',
+}
+
+const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+
+/** 外显名优先、模型 ID 兜底；空草稿没有首字母，不能再显示含义不明的点号。 */
+function modelInitial(modelId?: string, displayName?: string): string | null {
+  const source = displayName?.trim() || modelId?.trim() || ''
+  const first = graphemeSegmenter.segment(source)[Symbol.iterator]().next().value?.segment
+  return first ? first.toLocaleUpperCase() : null
 }
 
 function lobeIconUrl(slug: string, version?: string, theme?: 'light' | 'dark'): string {
@@ -45,12 +57,13 @@ function guessMono(slug: string): boolean {
 /**
  * 模型 / 分组图标的裸图形（不带芯片底色）。
  *
- * 三条渲染路径：
+ * 五条渲染路径：
  * - 内置单色图标 → CSS mask + currentColor，随主题与 hover 态自动变色；
  * - 内置彩色图标 → 按明暗主题请求服务端着色后的 background image；
  * - 自定义上传 → `<img>`；
  * - Emoji → 直接渲染字符。
- * 都没有时按 modelId 自动识别品牌图标，仍认不出才退到首字母色块。
+ * - 显式 initial → 跳过自动品牌识别，直接使用名称首字母。
+ * 都没有时按 modelId 自动识别品牌图标，仍认不出才退到首字母色块；空草稿不渲染伪首字母。
  */
 export function ModelIconMark({
   icon,
@@ -72,8 +85,12 @@ export function ModelIconMark({
   // 未显式配置图标时按 modelId 猜一个品牌图标：管理员什么都不配也能开箱即用地看到品牌标识，
   // 管理端的「批量识别图标」只是把同一份猜测固化成可编辑的显式值。
   const guessedSlug = icon ? null : modelId ? guessModelIconSlug(modelId, displayName) : null
-  const resolved: ModelIconValue | null =
-    icon ?? (guessedSlug ? { type: 'lobe', slug: guessedSlug } : null)
+  const resolved: ModelIconAsset | null =
+    icon && icon.type !== 'initial'
+      ? icon
+      : !icon && guessedSlug
+        ? { type: 'lobe', slug: guessedSlug }
+        : null
 
   if (resolved?.type === 'emoji') {
     return (
@@ -139,20 +156,27 @@ export function ModelIconMark({
     )
   }
 
-  const initial = displayName?.trim().charAt(0).toUpperCase() || '·'
+  const initial = modelInitial(modelId, displayName)
+  if (!initial) return null
   return (
     <span
       aria-hidden
       className={clsx(
-        'flex shrink-0 items-center justify-center rounded-[4px] font-semibold leading-none',
-        'bg-neutral-200/70 dark:bg-neutral-700/60',
+        'relative shrink-0',
         DEFAULT_MODEL_ICON_TONE_CLASS,
         ICON_SIZE_CLASS[size],
-        FALLBACK_TEXT_CLASS[size],
         className,
       )}
     >
-      {initial}
+      <span
+        className={clsx(
+          'absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center font-semibold leading-none',
+          'bg-neutral-200 dark:bg-neutral-700',
+          INITIAL_VISUAL_CLASS[size],
+        )}
+      >
+        {initial}
+      </span>
     </span>
   )
 }
@@ -166,7 +190,7 @@ export function ModelGroupGlyph({
   size = 'sm',
   className,
 }: {
-  group: { name?: string; icon: ModelIconValue | null; color: string | null }
+  group: { name?: string; icon: ModelIconAsset | null; color: string | null }
   size?: IconSize
   className?: string
 }) {

@@ -167,6 +167,7 @@ export function ModelEditor({
   const [icon, setIcon] = useState<ModelIcon | null>(model?.icon ?? null)
   const [groupId, setGroupId] = useState(model?.groupId ?? '')
   // 未显式设置图标时，用户端会按模型 ID 自动识别品牌图标；这里把结果预告给管理员。
+  const hasModelIdentity = Boolean(displayName.trim() || modelId.trim())
   const autoIconSlug = guessModelIconSlug(modelId, displayName)
   const [kind, setKind] = useState(model?.kind ?? 'responses')
   const [caps, setCaps] = useState<ModelCapabilities>(model?.capabilities ?? BLANK_CAPS)
@@ -535,21 +536,39 @@ export function ModelEditor({
           <IconPicker
             value={icon}
             onChange={setIcon}
-            emptyHint={
-              autoIconSlug ? (
-                <span className="inline-flex items-center gap-1.5">
-                  自动识别：
-                  <ModelIconMark
-                    icon={{ type: 'lobe', slug: autoIconSlug }}
-                    size="sm"
-                    className={DEFAULT_MODEL_ICON_TONE_CLASS}
-                  />
-                  <span className="text-neutral-400">{autoIconSlug}</span>
-                </span>
-              ) : (
-                '未设置图标，且无法从模型 ID 自动识别，将显示名称首字母'
-              )
-            }
+            emptyState={{
+              preview: hasModelIdentity ? (
+                <ModelIconMark
+                  icon={null}
+                  modelId={modelId}
+                  displayName={displayName}
+                  size="md"
+                  className={DEFAULT_MODEL_ICON_TONE_CLASS}
+                />
+              ) : undefined,
+              title: !hasModelIdentity
+                ? '尚未生成图标预览'
+                : autoIconSlug
+                  ? '自动识别品牌图标'
+                  : '名称首字母',
+              description: !hasModelIdentity
+                ? '填写模型 ID 或外显名称后自动识别，也可以直接手动选择'
+                : autoIconSlug
+                  ? `未显式设置 · ${autoIconSlug}`
+                  : '未识别到品牌，当前使用模型名称首字母',
+            }}
+            initialOption={{
+              preview: hasModelIdentity ? (
+                <ModelIconMark
+                  icon={{ type: 'initial' }}
+                  modelId={modelId}
+                  displayName={displayName}
+                  size="md"
+                />
+              ) : null,
+              available: hasModelIdentity,
+              showDefaultShortcut: Boolean(autoIconSlug),
+            }}
           />
 
           <Field label="所属分组（可选）">
@@ -854,7 +873,7 @@ export function ModelEditor({
               <code className="font-mono">web_search</code> /{' '}
               <code className="font-mono">x_search</code>{' '}
               只作为参数模板：开关开启时与生成的工具合并（如{' '}
-              <code className="font-mono">
+              <code className="break-all font-mono">
                 {'{"tools":[{"type":"web_search","enable_image_search":false}]}'}
               </code>
               ），关闭时整条丢弃，不会反过来把工具塞进请求。其他工具仍可在这里直接追加。

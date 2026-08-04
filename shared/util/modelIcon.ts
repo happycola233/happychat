@@ -1,4 +1,4 @@
-import type { ModelIcon } from '../types/domain'
+import type { ModelIcon, ModelIconAsset } from '../types/domain'
 
 /**
  * lobe 内置图标 slug 的字符白名单。
@@ -30,9 +30,9 @@ function isSingleGrapheme(value: string): boolean {
  * 契约与 `normalizeModelTags` 完全一致：入参 `unknown`、绝不抛错、非法输入静默降级为 null。
  * 数据库里可能存着旧版本或被手工改坏的值，渲染层拿到的必须已经是可安全拼进 URL 的形态。
  */
-export function normalizeModelIcon(value: unknown): ModelIcon | null {
+export function normalizeModelIconAsset(value: unknown): ModelIconAsset | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  const icon = value as Partial<ModelIcon> & { type?: unknown }
+  const icon = value as Partial<ModelIconAsset> & { type?: unknown }
   switch (icon.type) {
     case 'lobe': {
       const slug = typeof icon.slug === 'string' ? icon.slug.trim().toLowerCase() : ''
@@ -51,6 +51,22 @@ export function normalizeModelIcon(value: unknown): ModelIcon | null {
   }
 }
 
+/**
+ * 模型图标在三种资源图标之外允许显式首字母模式；模型分组应调用
+ * `normalizeModelIconAsset`，避免脏数据把这个仅属于模型的状态带进分组。
+ */
+export function normalizeModelIcon(value: unknown): ModelIcon | null {
+  if (
+    value &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    (value as { type?: unknown }).type === 'initial'
+  ) {
+    return { type: 'initial' }
+  }
+  return normalizeModelIconAsset(value)
+}
+
 /** 两个图标是否等价（批量识别时用来跳过无变化项）。 */
 export function sameModelIcon(left: ModelIcon | null, right: ModelIcon | null): boolean {
   if (left === null || right === null) return left === right
@@ -62,5 +78,7 @@ export function sameModelIcon(left: ModelIcon | null, right: ModelIcon | null): 
       return left.id === (right as { id: string }).id
     case 'emoji':
       return left.char === (right as { char: string }).char
+    case 'initial':
+      return true
   }
 }

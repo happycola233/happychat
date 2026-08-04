@@ -24,17 +24,19 @@ vi.mock('../../components/ui/Modal', () => ({
 }))
 
 vi.mock('../../components/IconPicker', () => ({
-  IconPicker: ({ value }: { value: AdminModelGroupDTO['icon'] }) => (
-    <div data-icon-state={value ? 'explicit' : 'default'} />
-  ),
+  IconPicker: ({
+    value,
+    emptyState,
+  }: {
+    value: AdminModelGroupDTO['icon']
+    emptyState?: { preview?: ReactNode }
+  }) => <div data-icon-state={value ? 'explicit' : 'default'}>{!value && emptyState?.preview}</div>,
 }))
 
 vi.mock('../../components/ModelIcon', () => ({
-  ModelGroupGlyph: ({
-    group,
-  }: {
-    group: Pick<AdminModelGroupDTO, 'icon' | 'color'>
-  }) => <span data-preview-color={group.color ?? ''}>{group.icon ? 'icon' : 'folder'}</span>,
+  ModelGroupGlyph: ({ group }: { group: Pick<AdminModelGroupDTO, 'icon' | 'color'> }) => (
+    <span data-preview-color={group.color ?? ''}>{group.icon ? 'icon' : 'folder'}</span>
+  ),
 }))
 
 function renderEditor(group: AdminModelGroupDTO): string {
@@ -46,9 +48,7 @@ function renderEditor(group: AdminModelGroupDTO): string {
   )
 }
 
-function groupFixture(
-  overrides: Partial<AdminModelGroupDTO> = {},
-): AdminModelGroupDTO {
+function groupFixture(overrides: Partial<AdminModelGroupDTO> = {}): AdminModelGroupDTO {
   return {
     id: 'group-1',
     name: '测试分组',
@@ -86,7 +86,6 @@ describe('ModelGroupEditor appearance semantics', () => {
     )
 
     expect(html).toContain('data-icon-state="explicit"')
-    expect(html).toContain('data-preview-color=""')
     expect(html).not.toContain('颜色（可选）')
     expect(html).not.toContain('#ef4444')
   })

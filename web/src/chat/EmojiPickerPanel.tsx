@@ -1,7 +1,8 @@
 import { useLayoutEffect, useRef, useState } from 'react'
-import type { CSSProperties } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import { clsx } from 'clsx'
 import { EmojiPicker } from 'frimousse'
+import { Search } from 'lucide-react'
 import type {
   EmojiPickerListCategoryHeaderProps,
   EmojiPickerListEmojiProps,
@@ -69,12 +70,20 @@ export default function EmojiPickerPanel({
   autoFocusSearch,
   onSelect,
   surface = 'base',
+  toolbar,
+  panelId,
+  panelLabelledBy,
 }: {
   /** 桌面端可直接搜索；移动端关闭，避免点开图标面板时再次唤起软键盘。 */
   autoFocusSearch: boolean
   onSelect: (emoji: string) => void
   /** 与宿主面板一致的表面色，供搜索区和粘性分类标题遮住滚动内容。 */
   surface?: EmojiPickerSurface
+  /** 复合图标选择器可把来源分页放进同一工具栏，搜索框会自动排列在其右侧。 */
+  toolbar?: ReactNode
+  /** 传入后把 Emoji viewport 暴露为对应 tab 的面板。 */
+  panelId?: string
+  panelLabelledBy?: string
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   // 网格参数在首次布局时按容器宽度计算：虚拟化要求单元格尺寸固定（不能 flex 拉伸，
@@ -98,10 +107,7 @@ export default function EmojiPickerPanel({
   return (
     <div
       ref={containerRef}
-      className={clsx(
-        'h-full min-h-0 w-full bg-[var(--hc-emoji-surface)]',
-        SURFACE_CLASS[surface],
-      )}
+      className={clsx('h-full min-h-0 w-full bg-[var(--hc-emoji-surface)]', SURFACE_CLASS[surface])}
       style={grid ? ({ '--hc-emoji-cell': `${grid.cellPx}px` } as CSSProperties) : undefined}
     >
       {grid !== null && (
@@ -112,15 +118,42 @@ export default function EmojiPickerPanel({
           onEmojiSelect={({ emoji }) => onSelect(emoji)}
           className="flex h-full w-full flex-col"
         >
-          {/* 抬高层级并带背景：粘性分类头等 viewport 内元素在任何浏览器/缩放下都不会盖到搜索框 */}
-          <div className="relative z-10 bg-[var(--hc-emoji-surface)] px-2.5 pb-2 pt-2.5">
-            <EmojiPicker.Search
-              autoFocus={autoFocusSearch}
-              placeholder="搜索表情…"
-              className="w-full rounded-lg bg-neutral-100 px-2.5 py-1.5 text-[13px] text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:ring-1 focus:ring-neutral-300 dark:bg-neutral-800 dark:text-neutral-100 dark:placeholder:text-neutral-500 dark:focus:ring-neutral-600"
-            />
+          {/* 抬高层级并带背景：粘性分类头等 viewport 内元素在任何浏览器/缩放下都不会盖到搜索框。 */}
+          <div
+            className={clsx(
+              'relative z-10 shrink-0 bg-[var(--hc-emoji-surface)]',
+              toolbar
+                ? 'flex flex-col gap-2 border-b border-neutral-200/80 p-2.5 sm:flex-row sm:items-center dark:border-neutral-800'
+                : 'px-2.5 pb-2 pt-2.5',
+            )}
+          >
+            {toolbar}
+            <div className={clsx(toolbar && 'relative min-w-0 flex-1')}>
+              {toolbar && (
+                <Search
+                  aria-hidden
+                  className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400"
+                />
+              )}
+              <EmojiPicker.Search
+                autoFocus={autoFocusSearch}
+                aria-label="搜索 Emoji"
+                placeholder="搜索表情…"
+                className={clsx(
+                  'w-full text-[13px] text-neutral-900 outline-none transition placeholder:text-neutral-400 dark:text-neutral-100 dark:placeholder:text-neutral-500',
+                  toolbar
+                    ? 'h-8 rounded-lg border border-neutral-200 bg-white pl-8 pr-2.5 focus:border-sky-300 focus:ring-2 focus:ring-sky-100 dark:border-neutral-700 dark:bg-neutral-900 dark:focus:border-sky-700 dark:focus:ring-sky-950/70'
+                    : 'rounded-lg bg-neutral-100 px-2.5 py-1.5 focus:ring-1 focus:ring-neutral-300 dark:bg-neutral-800 dark:focus:ring-neutral-600',
+                )}
+              />
+            </div>
           </div>
-          <EmojiPicker.Viewport className="hc-scrollbar relative flex-1 overflow-y-auto px-1.5 pb-1.5 outline-none">
+          <EmojiPicker.Viewport
+            id={panelId}
+            role={panelId ? 'tabpanel' : undefined}
+            aria-labelledby={panelLabelledBy}
+            className="hc-scrollbar relative flex-1 overflow-y-auto px-1.5 pb-1.5 outline-none"
+          >
             <EmojiPicker.Loading className="absolute inset-0 flex items-center justify-center text-[13px] text-neutral-400">
               表情加载中…
             </EmojiPicker.Loading>
