@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { clsx } from 'clsx'
 import { Check, ChevronDown, ChevronLeft, ChevronRight, Info, Search, X } from 'lucide-react'
@@ -24,6 +24,34 @@ import {
   type ModelListView,
   type ModelSection,
 } from './modelGroups'
+
+/**
+ * 列对齐约定（工具栏 / 模型行 / 分组标题共用，保证同类元素纵向成列）：
+ *
+ * - 左侧图标列：有图标的一级元素（模型、真实分组、搜索、返回）都在 `pl-3` 处起始，
+ *   紧跟的文字落在同一名称列；没有图标的「未分组」直接从 `pl-3` 起排文字，不保留空槽；
+ *   分组成员**不再缩进**——层级由分组标题的字号与吸顶底色表达；
+ * - 右侧操作列：统一 28px 槽位（`pr-2` + `w-7`），ⓘ / 折叠箭头 / 钻取箭头共用同一中心线；
+ * - 选中勾：有描述时在 ⓘ 左侧独立占位；无描述时直接落进最右操作列，与其他行的 ⓘ 共用中心线；
+ * - 分组标题的数量紧跟组名，不再吊在最右边与操作列抢位置。
+ */
+const TRAILING_SLOT_CLASS = 'flex w-7 shrink-0 items-center justify-center'
+/** 覆盖在行上方的 ⓘ 按钮：绝对定位让整行保持可点，同时精确落在操作列中心。 */
+const OVERLAY_INFO_BUTTON_CLASS =
+  'absolute top-1/2 flex shrink-0 -translate-y-1/2 items-center justify-center rounded-md transition'
+/**
+ * 分组 / 返回标题条：吸顶且带面板底色，长列表滚动时始终知道当前在哪一组；
+ * 字号与颜色明显轻于模型行，避免被误读成可选项（此前它与选中行同底色，最易混淆）。
+ */
+const HEADING_BAR_CLASS =
+  'sticky top-0 z-10 flex w-full items-center gap-2 rounded-lg bg-white/90 py-1 pl-3 pr-2 text-left backdrop-blur-sm transition dark:bg-neutral-900/90'
+const HEADING_TEXT_CLASS =
+  'min-w-0 truncate text-[11px] font-semibold tracking-wide text-neutral-400 dark:text-neutral-500'
+const HEADING_COUNT_CLASS =
+  'shrink-0 text-[11px] tabular-nums text-neutral-300 dark:text-neutral-600'
+/** 顶部工具栏上的图标按钮（搜索），与视图切换同规格。 */
+const TOOLBAR_ICON_BUTTON_CLASS =
+  'flex shrink-0 items-center justify-center rounded-lg text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-600 dark:text-neutral-500 dark:hover:bg-neutral-800 dark:hover:text-neutral-300'
 
 /**
  * 桌面端模型描述提示：ⓘ 悬停/聚焦时经 portal 显示浮动气泡
@@ -52,7 +80,10 @@ function ModelInfoTip({ name, description }: { name: string; description: string
         onMouseLeave={hide}
         onFocus={show}
         onBlur={hide}
-        className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-neutral-400 transition hover:text-neutral-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 dark:text-neutral-500 dark:hover:text-neutral-300"
+        className={clsx(
+          OVERLAY_INFO_BUTTON_CLASS,
+          'right-2 h-7 w-7 text-neutral-400 hover:text-neutral-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 dark:text-neutral-500 dark:hover:text-neutral-300',
+        )}
       >
         <Info className="h-3.5 w-3.5" />
       </button>
@@ -79,7 +110,6 @@ function ModelRow({
   sheet,
   descriptionOpen,
   onToggleDescription,
-  indented,
 }: {
   model: ModelDTO
   selected: boolean
@@ -87,23 +117,18 @@ function ModelRow({
   sheet: boolean
   descriptionOpen: boolean
   onToggleDescription: () => void
-  /** 平铺视图里分组下的成员缩进，与分组标题形成层级 */
-  indented?: boolean
 }) {
   return (
     <div data-active={selected || undefined}>
-      <div
-        className={clsx(
-          'flex items-center rounded-lg transition hover:bg-neutral-100 dark:hover:bg-neutral-800',
-          selected && 'bg-neutral-100 dark:bg-neutral-800',
-        )}
-      >
+      {/* relative 只包住行本身：ⓘ 覆盖在行上方，不受展开的描述影响垂直居中；
+          group 让指针移到 ⓘ 上时整行底色不闪断 */}
+      <div className="group relative">
         <button
           type="button"
           onClick={() => onSelect(model.id)}
           className={clsx(
-            'flex min-w-0 flex-1 items-center gap-2 rounded-lg pr-3 text-left text-sm',
-            indented ? 'pl-6' : 'pl-3',
+            'flex w-full min-w-0 items-center gap-2 rounded-lg pl-3 pr-11 text-left text-sm transition group-hover:bg-neutral-100 dark:group-hover:bg-neutral-800',
+            selected && 'bg-neutral-100 dark:bg-neutral-800',
             sheet ? 'py-2.5' : 'py-2',
           )}
         >
@@ -121,8 +146,24 @@ function ModelRow({
           {model.kind === 'image' && (
             <span className="shrink-0 text-xs text-neutral-400">生图</span>
           )}
-          {selected && (
-            <Check className="ml-auto h-4 w-4 shrink-0 text-neutral-500 dark:text-neutral-400" />
+          {model.description && (
+            // 有 ⓘ 时勾选列留在它左侧；未选中仍占位，避免同类行的名称和标签左右跳动。
+            <Check
+              aria-hidden
+              className={clsx(
+                'ml-auto h-4 w-4 shrink-0',
+                selected ? 'text-neutral-500 dark:text-neutral-400' : 'invisible',
+              )}
+            />
+          )}
+          {!model.description && selected && (
+            // 没有描述时无需保留空的 ⓘ 槽，勾直接复用最右操作列的中心线。
+            <span
+              aria-hidden
+              className={clsx(TRAILING_SLOT_CLASS, 'absolute right-2 top-1/2 h-7 -translate-y-1/2')}
+            >
+              <Check className="h-4 w-4 text-neutral-500 dark:text-neutral-400" />
+            </span>
           )}
         </button>
         {model.description &&
@@ -133,7 +174,8 @@ function ModelRow({
               aria-label={`查看模型「${model.displayName}」的描述`}
               onClick={onToggleDescription}
               className={clsx(
-                'mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition',
+                OVERLAY_INFO_BUTTON_CLASS,
+                'right-1.5 h-8 w-8',
                 descriptionOpen
                   ? 'text-neutral-700 dark:text-neutral-200'
                   : 'text-neutral-400 dark:text-neutral-500',
@@ -146,12 +188,7 @@ function ModelRow({
           ))}
       </div>
       {descriptionOpen && model.description && (
-        <div
-          className={clsx(
-            'pb-2 pr-3 pt-1 text-xs leading-5 text-neutral-500 dark:text-neutral-400',
-            indented ? 'pl-6' : 'pl-3',
-          )}
-        >
+        <div className="pb-2 pl-3 pr-3 pt-1 text-xs leading-5 text-neutral-500 dark:text-neutral-400">
           {model.description}
         </div>
       )}
@@ -159,42 +196,63 @@ function ModelRow({
   )
 }
 
-/** 搜索框：两种视图共用，有输入时都退化为扁平结果列表。 */
+/**
+ * 展开态搜索框：与视图切换同处一条 28px 工具栏（自身 flex-1），无边框浅填充。
+ * 放大镜与占位文字分别落在图标列与名称列上；`size={1}` 掩掉 input 的固有宽度，
+ * 否则 `w-fit` 的面板会在展开搜索时被撑宽而跳变。
+ * 尾部按钮有内容时清空、已空时收起，Escape / 失焦为空同样收起。
+ */
 function ModelSearchBox({
   value,
   onChange,
+  onClose,
   sheet,
 }: {
   value: string
   onChange: (value: string) => void
+  onClose: () => void
   sheet: boolean
 }) {
+  const inputRef = useRef<HTMLInputElement>(null)
   return (
-    <div className="relative mb-1.5 shrink-0 px-1.5">
+    <div className="relative min-w-0 flex-1">
       <Search
         aria-hidden
-        className="pointer-events-none absolute left-4 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400 dark:text-neutral-500"
+        className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400 dark:text-neutral-500"
       />
       <input
+        ref={inputRef}
+        size={1}
+        autoFocus
         value={value}
         onChange={(event) => onChange(event.target.value)}
+        onBlur={() => {
+          if (!value) onClose()
+        }}
         placeholder="搜索模型"
         aria-label="搜索模型"
         className={clsx(
-          'w-full rounded-lg border border-neutral-200 bg-white pl-8 pr-7 text-sm text-neutral-800 outline-none transition placeholder:text-neutral-400 focus:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:focus:border-neutral-500',
-          sheet ? 'h-9' : 'h-8',
+          'w-full rounded-lg bg-neutral-100/70 pl-9 pr-8 text-sm text-neutral-800 outline-none ring-inset transition placeholder:text-neutral-400 focus:bg-neutral-100 focus-visible:ring-1 focus-visible:ring-black/5 dark:bg-neutral-800/50 dark:text-neutral-100 dark:placeholder:text-neutral-500 dark:focus:bg-neutral-800 dark:focus-visible:ring-white/10',
+          sheet ? 'h-8' : 'h-7',
         )}
       />
-      {value && (
-        <button
-          type="button"
-          onClick={() => onChange('')}
-          aria-label="清空搜索"
-          className="absolute right-3 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-neutral-400 transition hover:text-neutral-600 dark:hover:text-neutral-300"
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
-      )}
+      <button
+        type="button"
+        // 先 preventDefault 保住输入焦点，否则 blur 会先把搜索框收掉、这次点击落空
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => {
+          if (!value) {
+            onClose()
+            return
+          }
+          onChange('')
+          inputRef.current?.focus()
+        }}
+        aria-label={value ? '清空搜索' : '收起搜索框'}
+        className="absolute right-0.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-neutral-400 transition hover:text-neutral-600 dark:hover:text-neutral-300"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
     </div>
   )
 }
@@ -250,47 +308,67 @@ function FlatList({
         const collapsed = collapsedGroups[key] ?? false
         const containsActive = section.models.some((model) => model.id === activeModelId)
         return (
-          <div key={key} data-active={collapsed && containsActive ? true : undefined}>
+          <div
+            key={key}
+            data-active={collapsed && containsActive ? true : undefined}
+            className="mt-1 first:mt-0"
+          >
             <button
               type="button"
               onClick={() => toggleGroupCollapsed(key)}
               aria-expanded={!collapsed}
-              className="flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left transition hover:bg-neutral-100 dark:hover:bg-neutral-800"
+              className={clsx(
+                HEADING_BAR_CLASS,
+                'group/heading hover:bg-neutral-50 dark:hover:bg-neutral-800/60',
+              )}
             >
-              <ChevronDown
-                aria-hidden
-                className={clsx(
-                  'h-3 w-3 shrink-0 text-neutral-400 transition-transform',
-                  collapsed && '-rotate-90',
-                )}
-              />
-              {section.group && <ModelGroupGlyph group={section.group} size="xs" />}
-              <span className="min-w-0 flex-1 truncate text-xs font-medium text-neutral-500 dark:text-neutral-400">
-                {sectionName(section)}
-              </span>
-              <span className="shrink-0 text-[11px] tabular-nums text-neutral-400 dark:text-neutral-500">
-                {section.models.length}
-              </span>
-              {/* 折叠时若当前选中模型在组内，标题行给一个小圆点提示 */}
+              {/* 「未分组」没有图标时直接左对齐，不制造一个看不见的空槽。 */}
+              {section.group && <ModelGroupGlyph group={section.group} size="sm" />}
+              <span className={HEADING_TEXT_CLASS}>{sectionName(section)}</span>
+              <span className={HEADING_COUNT_CLASS}>{section.models.length}</span>
+              {/* 折叠时若当前选中模型在组内，标题条给一个小圆点提示 */}
               {collapsed && containsActive && (
                 <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" />
               )}
-            </button>
-            {!collapsed &&
-              section.models.map((model) => (
-                <ModelRow
-                  key={model.id}
-                  model={model}
-                  selected={model.id === activeModelId}
-                  onSelect={onSelectModel}
-                  sheet={sheet}
-                  indented
-                  descriptionOpen={sheet && openDescriptionId === model.id}
-                  onToggleDescription={() =>
-                    setOpenDescriptionId(openDescriptionId === model.id ? null : model.id)
-                  }
+              {/* 折叠箭头占用操作列，与模型行的 ⓘ 同列 */}
+              <span aria-hidden className={clsx(TRAILING_SLOT_CLASS, 'ml-auto')}>
+                <ChevronDown
+                  className={clsx(
+                    'h-3.5 w-3.5 text-neutral-400 transition-transform duration-200 ease-out group-hover/heading:text-neutral-500 motion-reduce:transition-none dark:group-hover/heading:text-neutral-300',
+                    collapsed && '-rotate-90',
+                  )}
                 />
-              ))}
+              </span>
+            </button>
+            {/*
+              0fr ⇄ 1fr 让内容按真实高度展开；折叠态 inert，避免不可见模型仍能被键盘聚焦。
+              内层必须用 overflow-clip 而非 overflow-hidden：hidden 会把 Grid item 的横向自动最小尺寸降为 0，
+              令外层 w-fit 面板忽略模型名与标签的固有宽度，最终把本来放得下的模型名截断。
+            */}
+            <div
+              aria-hidden={collapsed}
+              inert={collapsed ? true : undefined}
+              className={clsx(
+                'grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none',
+                collapsed ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100',
+              )}
+            >
+              <div className="min-h-0 overflow-clip">
+                {section.models.map((model) => (
+                  <ModelRow
+                    key={model.id}
+                    model={model}
+                    selected={model.id === activeModelId}
+                    onSelect={onSelectModel}
+                    sheet={sheet}
+                    descriptionOpen={sheet && openDescriptionId === model.id}
+                    onToggleDescription={() =>
+                      setOpenDescriptionId(openDescriptionId === model.id ? null : model.id)
+                    }
+                  />
+                ))}
+              </div>
+            </div>
           </div>
         )
       })}
@@ -310,10 +388,28 @@ function TreeList({
   onOpenSection,
 }: ListProps & { openedKey: string | null; onOpenSection: (key: string | null) => void }) {
   const opened = sections.find((section) => sectionKey(section) === openedKey) ?? null
+  const [navigationTransition, setNavigationTransition] = useState<{
+    targetKey: string | null
+    direction: 'deeper' | 'parent'
+  } | null>(null)
+  const transitionDirection =
+    navigationTransition?.targetKey === openedKey ? navigationTransition.direction : null
+  const levelAnimationClass =
+    transitionDirection === 'deeper'
+      ? 'hc-model-level-deeper-in'
+      : transitionDirection === 'parent'
+        ? 'hc-model-level-parent-in'
+        : undefined
+
+  const navigateTo = (targetKey: string | null, direction: 'deeper' | 'parent') => {
+    // 记录目标而非只记方向：若分组数据刷新导致 openedKey 被外部校正，不应误播旧方向的动画。
+    setNavigationTransition({ targetKey, direction })
+    onOpenSection(targetKey)
+  }
 
   if (!opened) {
     return (
-      <>
+      <div key="root" className={levelAnimationClass}>
         {sections.map((section) => {
           const containsActive = section.models.some((model) => model.id === activeModelId)
           return (
@@ -321,17 +417,13 @@ function TreeList({
               key={sectionKey(section)}
               type="button"
               data-active={containsActive || undefined}
-              onClick={() => onOpenSection(sectionKey(section))}
+              onClick={() => navigateTo(sectionKey(section), 'deeper')}
               className={clsx(
-                'flex w-full items-center gap-2 rounded-lg px-3 text-left text-sm transition hover:bg-neutral-100 dark:hover:bg-neutral-800',
+                'flex w-full items-center gap-2 rounded-lg pl-3 pr-2 text-left text-sm transition hover:bg-neutral-100 dark:hover:bg-neutral-800',
                 sheet ? 'py-2.5' : 'py-2',
               )}
             >
-              {section.group ? (
-                <ModelGroupGlyph group={section.group} size="xs" />
-              ) : (
-                <span aria-hidden className="h-5 w-5 shrink-0" />
-              )}
+              {section.group && <ModelGroupGlyph group={section.group} size="sm" />}
               <span className="min-w-0 flex-1 truncate text-neutral-800 dark:text-neutral-100">
                 {sectionName(section)}
               </span>
@@ -345,28 +437,31 @@ function TreeList({
               <span className="shrink-0 text-[11px] tabular-nums text-neutral-400 dark:text-neutral-500">
                 {section.models.length}
               </span>
-              <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
+              {/* 钻取箭头占用操作列，与组内列表的 ⓘ 同列 */}
+              <span aria-hidden className={TRAILING_SLOT_CLASS}>
+                <ChevronRight className="h-3.5 w-3.5 text-neutral-400" />
+              </span>
             </button>
           )
         })}
-      </>
+      </div>
     )
   }
 
   return (
-    <>
+    <div key={sectionKey(opened)} className={levelAnimationClass}>
       <button
         type="button"
-        onClick={() => onOpenSection(null)}
-        className="mb-0.5 flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left transition hover:bg-neutral-100 dark:hover:bg-neutral-800"
+        onClick={() => navigateTo(null, 'parent')}
+        className={clsx(
+          HEADING_BAR_CLASS,
+          'mb-0.5 hover:bg-neutral-50 dark:hover:bg-neutral-800/60',
+        )}
       >
-        <ChevronLeft aria-hidden className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
-        <span className="min-w-0 flex-1 truncate text-xs font-medium text-neutral-500 dark:text-neutral-400">
-          {sectionName(opened)}
-        </span>
-        <span className="shrink-0 text-[11px] tabular-nums text-neutral-400 dark:text-neutral-500">
-          {opened.models.length}
-        </span>
+        {/* 返回箭头落在图标列、组名落在名称列，与下方模型行同列 */}
+        <ChevronLeft aria-hidden className="h-4 w-4 shrink-0 text-neutral-400" />
+        <span className={HEADING_TEXT_CLASS}>{sectionName(opened)}</span>
+        <span className={HEADING_COUNT_CLASS}>{opened.models.length}</span>
       </button>
       {opened.models.map((model) => (
         <ModelRow
@@ -381,7 +476,7 @@ function TreeList({
           }
         />
       ))}
-    </>
+    </div>
   )
 }
 
@@ -417,11 +512,15 @@ export function ModelListSection({
   const listRef = useRef<HTMLDivElement>(null)
   const [openDescriptionId, setOpenDescriptionId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  // 搜索框默认收成一个图标：多数时候用户是来挑模型的，输入框常驻会把顶部压得很重。
+  const [searchOpen, setSearchOpen] = useState(false)
 
   const allSections = useMemo(() => buildModelSections(models, groups), [models, groups])
   const sections = useMemo(() => filterModelSections(allSections, search), [allSections, search])
   const searching = search.trim().length > 0
   const grouped = hasGroupStructure(allSections)
+  // 模型不多时搜索框纯属占地方，够多了才出现
+  const showSearch = models.length > 8
   const effectiveView = resolveModelListView(view, allSections)
 
   // 二级目录：打开时直接定位到当前选中模型所在的分组，长列表不用逐级找。
@@ -457,16 +556,67 @@ export function ModelListSection({
     listRef.current?.querySelector('[data-active]')?.scrollIntoView({ block: 'nearest' })
   }, [effectiveView, openedKey, searching])
 
+  // Escape 先收起搜索框、再交给菜单去关闭：捕获阶段抢在菜单那个 window 监听之前。
+  useEffect(() => {
+    if (!searchOpen) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.stopPropagation()
+      setSearch('')
+      setSearchOpen(false)
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [searchOpen])
+
   return (
     <>
-      <div className="flex min-h-[9.5rem] min-w-0 flex-col p-1.5 pb-1">
-        <div className="flex items-center justify-between gap-2 px-3 pb-1.5 pt-2">
-          <div className="text-xs font-medium text-neutral-400 dark:text-neutral-500">模型</div>
+      <div
+        className={clsx(
+          'flex min-w-0 flex-col p-1.5 pb-1',
+          // 参数区出现时保证模型列表仍有可操作空间；分组根层没有参数区，应按分组数量自然收高。
+          showModelParameters && 'min-h-[9.5rem]',
+        )}
+      >
+        {/*
+          顶部工具栏：一条 28px 的窄带，左侧是分区名、右侧是「搜索 + 视图切换」两枚同规格图标控件。
+          点搜索图标才就地展开输入框（顶掉分区名），避免常驻输入框把面板顶部压出第二条横带。
+        */}
+        <div className={clsx('mb-1.5 flex shrink-0 items-center gap-1.5', sheet ? 'h-8' : 'h-7')}>
+          {searchOpen ? (
+            <ModelSearchBox
+              value={search}
+              onChange={setSearch}
+              onClose={() => {
+                setSearch('')
+                setSearchOpen(false)
+              }}
+              sheet={sheet}
+            />
+          ) : (
+            <>
+              <div className="min-w-0 flex-1 truncate pl-3 text-xs font-medium text-neutral-400 dark:text-neutral-500">
+                模型
+              </div>
+              {showSearch && (
+                <button
+                  type="button"
+                  onClick={() => setSearchOpen(true)}
+                  aria-label="搜索模型"
+                  title="搜索模型"
+                  className={clsx(TOOLBAR_ICON_BUTTON_CLASS, sheet ? 'h-8 w-8' : 'h-7 w-7')}
+                >
+                  <Search aria-hidden className="h-4 w-4" />
+                </button>
+              )}
+            </>
+          )}
           {grouped && viewToggle}
         </div>
-        {/* 模型不多时搜索框纯属占地方，够多了才出现 */}
-        {models.length > 8 && <ModelSearchBox value={search} onChange={setSearch} sheet={sheet} />}
-        <div ref={listRef} className="hc-scrollbar min-h-0 flex-1 overflow-y-auto">
+        <div
+          ref={listRef}
+          className="hc-scrollbar hc-size-transition-scroll-region min-h-0 flex-1 overflow-y-auto"
+        >
           {sections.length === 0 ? (
             <div className="px-3 py-6 text-center text-xs text-neutral-400 dark:text-neutral-500">
               没有匹配的模型

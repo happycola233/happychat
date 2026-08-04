@@ -435,8 +435,11 @@ function ImageParamsSection({ sheet }: { sheet: boolean }) {
  * （两种视图 + 搜索让这部分独立成文件，本文件专注弹层外壳与参数分区）。
  */
 
-/** 视图切换：平铺 ⇄ 二级目录。偏好是账户级的，切换即写服务端。 */
-function ModelViewToggle({ view }: { view: ModelPickerView }) {
+/**
+ * 视图切换：平铺 ⇄ 二级目录。偏好是账户级的，切换即写服务端。
+ * 与模型列表顶部工具栏的搜索图标同规格（桌面 28px / 移动 32px 高）。
+ */
+function ModelViewToggle({ view, sheet }: { view: ModelPickerView; sheet: boolean }) {
   const setPreference = useSettings((s) => s.setPreference)
   const options = [
     { value: 'flat' as const, icon: List, label: '平铺视图' },
@@ -446,7 +449,10 @@ function ModelViewToggle({ view }: { view: ModelPickerView }) {
     <div
       role="group"
       aria-label="模型列表视图"
-      className="flex items-center gap-0.5 rounded-md bg-neutral-100 p-0.5 dark:bg-neutral-800"
+      className={clsx(
+        'flex shrink-0 items-center gap-0.5 rounded-lg bg-neutral-100 p-0.5 dark:bg-neutral-800',
+        sheet ? 'h-8' : 'h-7',
+      )}
     >
       {options.map((option) => {
         const Icon = option.icon
@@ -460,13 +466,14 @@ function ModelViewToggle({ view }: { view: ModelPickerView }) {
             aria-label={option.label}
             title={option.label}
             className={clsx(
-              'flex h-5 w-6 items-center justify-center rounded transition',
+              'flex items-center justify-center rounded-md transition',
+              sheet ? 'h-7 w-7' : 'h-6 w-6',
               active
                 ? 'bg-white text-neutral-700 shadow-sm dark:bg-neutral-600 dark:text-neutral-100'
                 : 'text-neutral-400 hover:text-neutral-600 dark:text-neutral-500 dark:hover:text-neutral-300',
             )}
           >
-            <Icon aria-hidden className="h-3 w-3" />
+            <Icon aria-hidden className="h-3.5 w-3.5" />
           </button>
         )
       })}
@@ -507,7 +514,7 @@ function MenuSections({
         activeModelId={activeModelId}
         sheet={sheet}
         view={view}
-        viewToggle={<ModelViewToggle view={view} />}
+        viewToggle={<ModelViewToggle view={view} sheet={sheet} />}
         onSelectModel={setActiveModel}
         modelParameterSections={
           <>

@@ -252,6 +252,18 @@ html.dark.hc-accent-purple {
   display: none;
 }
 
+/*
+ * 模型面板做高度 FLIP 时，新参数区会先占位，列表可能只在 220ms 过渡期内溢出。
+ * Hook 仅在目标自然布局确认不溢出时挂此标记；真正需要滚动的目标态不会隐藏滚动条。
+ */
+[data-hc-hide-transient-scrollbars] .hc-size-transition-scroll-region {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+[data-hc-hide-transient-scrollbars] .hc-size-transition-scroll-region::-webkit-scrollbar {
+  display: none;
+}
+
 /* 聊天滚动区的统一底部安全区；Composer 悬浮在滚动内容上方，需要动态让位。 */
 .hc-chat-scroll {
   --hc-chat-bottom-gap: calc(
@@ -1197,6 +1209,34 @@ html.hc-ios .hc-chat-scroll {
   transform-origin: top;
 }
 
+/* 模型二级目录：进入子级顺着阅读方向推进，返回父级反向回退。 */
+@keyframes hc-model-level-deeper-in {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes hc-model-level-parent-in {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.hc-model-level-deeper-in {
+  animation: hc-model-level-deeper-in 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.hc-model-level-parent-in {
+  animation: hc-model-level-parent-in 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 /* 移动端聚合选择器的底部弹层：轻快滑入，遮罩同步淡入（克制、快出）。 */
 @keyframes hc-sheet-in {
   from {
@@ -1472,6 +1512,8 @@ html.hc-ios .hc-chat-scroll {
   .hc-auth-glow-in,
   .hc-auth-in,
   .hc-pop-in,
+  .hc-model-level-deeper-in,
+  .hc-model-level-parent-in,
   .hc-sheet-in,
   .hc-sheet-backdrop,
   .hc-sidebar-panel-in,

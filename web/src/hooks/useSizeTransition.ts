@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react'
 
 const TRANSITION_MS = 220
 const EASING = 'cubic-bezier(0.22, 1, 0.36, 1)'
+const TRANSIENT_SCROLL_REGION_SELECTOR = '.hc-size-transition-scroll-region'
+const HIDE_TRANSIENT_SCROLLBARS_ATTRIBUTE = 'data-hc-hide-transient-scrollbars'
 
 interface SizeTransitionOptions {
   /** 是否接管并过渡元素宽度。 */
@@ -21,6 +23,28 @@ function measureElement(element: HTMLElement): ElementSize {
     width: element.offsetWidth,
     height: element.offsetHeight,
   }
+}
+
+function hasInlineSizeLock(
+  element: HTMLElement,
+  transitionWidth: boolean,
+  transitionHeight: boolean,
+): boolean {
+  return (
+    (transitionWidth && Boolean(element.style.width)) ||
+    (transitionHeight && Boolean(element.style.height))
+  )
+}
+
+/** 目标自然布局不溢出时，尺寸动画中短暂出现的滚动条没有交互价值，可以安全隐藏。 */
+function shouldHideTransientScrollbars(element: HTMLElement): boolean {
+  const scrollRegions = Array.from(
+    element.querySelectorAll<HTMLElement>(TRANSIENT_SCROLL_REGION_SELECTOR),
+  )
+  return (
+    scrollRegions.length > 0 &&
+    scrollRegions.every((region) => region.scrollHeight <= region.clientHeight + 1)
+  )
 }
 
 /**
@@ -53,9 +77,7 @@ export function useSizeTransition(
       return
     }
 
-    const transitionInProgress =
-      (transitionWidth && Boolean(element.style.width)) ||
-      (transitionHeight && Boolean(element.style.height))
+    const transitionInProgress = hasInlineSizeLock(element, transitionWidth, transitionHeight)
 
     if (lastSignature.current === signature) {
       // 非锁定期持续吸收字体加载、视口约束等非交互性重排，作为下次过渡起点。
@@ -69,11 +91,13 @@ export function useSizeTransition(
 
     // 解除上一轮锁定，测出新内容在 fit-content / flex 约束下的真实目标尺寸。
     window.clearTimeout(cleanupTimer.current)
+    element.removeAttribute(HIDE_TRANSIENT_SCROLLBARS_ATTRIBUTE)
     element.style.transition = 'none'
     if (transitionWidth) element.style.width = ''
     if (transitionHeight) element.style.height = ''
     element.style.overflow = ''
     const targetSize = measureElement(element)
+    const hideTransientScrollbars = shouldHideTransientScrollbars(element)
     lastNaturalSize.current = targetSize
 
     const widthChanged =
@@ -93,6 +117,9 @@ export function useSizeTransition(
     // 即使某一轴数值未变，也在另一轴运动期间锁住它，避免内容重排制造额外跳动。
     if (transitionWidth) element.style.width = `${currentSize.width}px`
     if (transitionHeight) element.style.height = `${currentSize.height}px`
+    if (hideTransientScrollbars) {
+      element.setAttribute(HIDE_TRANSIENT_SCROLLBARS_ATTRIBUTE, '')
+    }
     element.style.overflow = 'hidden'
     void element.offsetWidth
 
@@ -107,9 +134,30 @@ export function useSizeTransition(
       element.style.transition = ''
       if (transitionWidth) element.style.width = ''
       if (transitionHeight) element.style.height = ''
+      element.removeAttribute(HIDE_TRANSIENT_SCROLLBARS_ATTRIBUTE)
       element.style.overflow = ''
       lastNaturalSize.current = measureElement(element)
     }, TRANSITION_MS + 30)
+  })
+
+  useLayoutEffect(() => {
+    const element = ref.current
+    if (!element || typeof ResizeObserver === 'undefined') return
+
+    /**
+     * 折叠分组、二级目录钻取等状态属于面板子组件，更新时不会重渲染调用本 Hook 的父组件。
+     * 因此不能只在 React 提交后记录自然尺寸，否则下次切模型会拿折叠前的旧高度作为起点，
+     * 先把面板撑回旧高度再收缩。ResizeObserver 会在这些子级布局变化后持续刷新静止基线。
+     */
+    const observer = new ResizeObserver(() => {
+      if (lastElement.current !== element) return
+      // Hook 自己接管尺寸时，观察到的是动画插值而非自然尺寸；目标基线由清理定时器写入。
+      if (!hasInlineSizeLock(element, transitionWidth, transitionHeight)) {
+        lastNaturalSize.current = measureElement(element)
+      }
+    })
+    observer.observe(element)
+    return () => observer.disconnect()
   })
 
   useEffect(() => () => window.clearTimeout(cleanupTimer.current), [])
