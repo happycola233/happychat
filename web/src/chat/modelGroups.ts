@@ -32,10 +32,7 @@ export function sectionName(section: ModelSection): string {
  *   这里再兜一次是为了应对「分组可见但组内模型恰好都被筛掉」的情况；
  * - 引用了未知分组 id 的模型（分组刚被删、缓存还没刷新）归入未分组，绝不凭空丢模型。
  */
-export function buildModelSections(
-  models: ModelDTO[],
-  groups: ModelGroupDTO[],
-): ModelSection[] {
+export function buildModelSections(models: ModelDTO[], groups: ModelGroupDTO[]): ModelSection[] {
   const byGroup = new Map<string, ModelDTO[]>()
   const ungrouped: ModelDTO[] = []
   const known = new Set(groups.map((group) => group.id))
@@ -62,6 +59,17 @@ export function buildModelSections(
 /** 是否存在真正的分组结构（只有未分组时，UI 退化为无标题平铺列表）。 */
 export function hasGroupStructure(sections: ModelSection[]): boolean {
   return sections.some((section) => section.group !== null)
+}
+
+/**
+ * 没有真实分组时彻底退化成普通平铺列表。
+ * 账户中可能仍保留之前的 tree 偏好，但此时不能向用户暴露「未分组」伪目录。
+ */
+export function resolveModelListView(
+  preferredView: ModelListView,
+  sections: ModelSection[],
+): ModelListView {
+  return hasGroupStructure(sections) ? preferredView : 'flat'
 }
 
 function matches(model: ModelDTO, keyword: string): boolean {
@@ -116,4 +124,17 @@ export function openedSectionOnViewChange(
   return previousView !== 'tree' && nextView === 'tree'
     ? findSectionKeyOfModel(sections, activeModelId)
     : currentOpenedKey
+}
+
+/**
+ * 模型参数只应出现在用户已经能看到具体模型的层级。
+ * 二级目录根层只负责选择分组；即使已有选中模型，也不在分组列表下方展示其参数，
+ * 避免参数看起来像属于某个分组。搜索结果会直接展示模型，因此仍显示参数。
+ */
+export function shouldShowModelParameters(
+  view: ModelListView,
+  searching: boolean,
+  openedSectionExists: boolean,
+): boolean {
+  return view !== 'tree' || searching || openedSectionExists
 }

@@ -17,8 +17,10 @@ import {
   flattenSections,
   hasGroupStructure,
   openedSectionOnViewChange,
+  resolveModelListView,
   sectionKey,
   sectionName,
+  shouldShowModelParameters,
   type ModelListView,
   type ModelSection,
 } from './modelGroups'
@@ -399,6 +401,7 @@ export function ModelListSection({
   sheet,
   view,
   viewToggle,
+  modelParameterSections,
 }: {
   models: ModelDTO[]
   groups: ModelGroupDTO[]
@@ -408,6 +411,8 @@ export function ModelListSection({
   view: ModelListView
   /** 视图切换控件，渲染在分区标题右侧 */
   viewToggle: React.ReactNode
+  /** 当前模型的全部参数分区；二级目录根层会统一隐藏，进入分组后再显示。 */
+  modelParameterSections: React.ReactNode
 }) {
   const listRef = useRef<HTMLDivElement>(null)
   const [openDescriptionId, setOpenDescriptionId] = useState<string | null>(null)
@@ -417,64 +422,81 @@ export function ModelListSection({
   const sections = useMemo(() => filterModelSections(allSections, search), [allSections, search])
   const searching = search.trim().length > 0
   const grouped = hasGroupStructure(allSections)
+  const effectiveView = resolveModelListView(view, allSections)
 
   // 二级目录：打开时直接定位到当前选中模型所在的分组，长列表不用逐级找。
   const [openedKey, setOpenedKey] = useState<string | null>(() =>
     findSectionKeyOfModel(allSections, activeModelId),
   )
-  const previousViewRef = useRef<ModelListView>(view)
+  const previousViewRef = useRef<ModelListView>(effectiveView)
+  const openedSectionExists =
+    openedKey !== null && sections.some((section) => sectionKey(section) === openedKey)
+  const showModelParameters = shouldShowModelParameters(
+    effectiveView,
+    searching,
+    openedSectionExists,
+  )
 
   useLayoutEffect(() => {
     const previousView = previousViewRef.current
-    previousViewRef.current = view
+    previousViewRef.current = effectiveView
     setOpenedKey((currentOpenedKey) =>
-      openedSectionOnViewChange(previousView, view, currentOpenedKey, allSections, activeModelId),
+      openedSectionOnViewChange(
+        previousView,
+        effectiveView,
+        currentOpenedKey,
+        allSections,
+        activeModelId,
+      ),
     )
-  }, [view, allSections, activeModelId])
+  }, [effectiveView, allSections, activeModelId])
 
   // 菜单打开即挂载本组件：首帧把选中模型滚进列表可视区。
-  // 依赖 view/openedKey/search 是因为切换视图或钻取后可见内容整体换过，需要重新定位。
+  // 依赖 effectiveView/openedKey/search 是因为切换视图或钻取后可见内容整体换过，需要重新定位。
   useLayoutEffect(() => {
     listRef.current?.querySelector('[data-active]')?.scrollIntoView({ block: 'nearest' })
-  }, [view, openedKey, searching])
+  }, [effectiveView, openedKey, searching])
 
   return (
-    <div className="flex min-h-[9.5rem] min-w-0 flex-col p-1.5 pb-1">
-      <div className="flex items-center justify-between gap-2 px-3 pb-1.5 pt-2">
-        <div className="text-xs font-medium text-neutral-400 dark:text-neutral-500">模型</div>
-        {grouped && viewToggle}
+    <>
+      <div className="flex min-h-[9.5rem] min-w-0 flex-col p-1.5 pb-1">
+        <div className="flex items-center justify-between gap-2 px-3 pb-1.5 pt-2">
+          <div className="text-xs font-medium text-neutral-400 dark:text-neutral-500">模型</div>
+          {grouped && viewToggle}
+        </div>
+        {/* 模型不多时搜索框纯属占地方，够多了才出现 */}
+        {models.length > 8 && <ModelSearchBox value={search} onChange={setSearch} sheet={sheet} />}
+        <div ref={listRef} className="hc-scrollbar min-h-0 flex-1 overflow-y-auto">
+          {sections.length === 0 ? (
+            <div className="px-3 py-6 text-center text-xs text-neutral-400 dark:text-neutral-500">
+              没有匹配的模型
+            </div>
+          ) : effectiveView === 'tree' && !searching ? (
+            <TreeList
+              sections={sections}
+              activeModelId={activeModelId}
+              onSelectModel={onSelectModel}
+              sheet={sheet}
+              openDescriptionId={openDescriptionId}
+              setOpenDescriptionId={setOpenDescriptionId}
+              openedKey={openedKey}
+              onOpenSection={setOpenedKey}
+            />
+          ) : (
+            <FlatList
+              sections={sections}
+              activeModelId={activeModelId}
+              onSelectModel={onSelectModel}
+              sheet={sheet}
+              openDescriptionId={openDescriptionId}
+              setOpenDescriptionId={setOpenDescriptionId}
+              // 搜索结果按扁平列表呈现：此时用户要的是具体模型，分组标题只会碍事。
+              collapsible={!searching}
+            />
+          )}
+        </div>
       </div>
-      {/* 模型不多时搜索框纯属占地方，够多了才出现 */}
-      {models.length > 8 && <ModelSearchBox value={search} onChange={setSearch} sheet={sheet} />}
-      <div ref={listRef} className="hc-scrollbar min-h-0 flex-1 overflow-y-auto">
-        {sections.length === 0 ? (
-          <div className="px-3 py-6 text-center text-xs text-neutral-400 dark:text-neutral-500">
-            没有匹配的模型
-          </div>
-        ) : view === 'tree' && !searching ? (
-          <TreeList
-            sections={sections}
-            activeModelId={activeModelId}
-            onSelectModel={onSelectModel}
-            sheet={sheet}
-            openDescriptionId={openDescriptionId}
-            setOpenDescriptionId={setOpenDescriptionId}
-            openedKey={openedKey}
-            onOpenSection={setOpenedKey}
-          />
-        ) : (
-          <FlatList
-            sections={sections}
-            activeModelId={activeModelId}
-            onSelectModel={onSelectModel}
-            sheet={sheet}
-            openDescriptionId={openDescriptionId}
-            setOpenDescriptionId={setOpenDescriptionId}
-            // 搜索结果按扁平列表呈现：此时用户要的是具体模型，分组标题只会碍事。
-            collapsible={!searching}
-          />
-        )}
-      </div>
-    </div>
+      {showModelParameters && modelParameterSections}
+    </>
   )
 }

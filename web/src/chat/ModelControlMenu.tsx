@@ -118,10 +118,7 @@ function ReasoningSection({ model }: { model: ModelDTO }) {
         }
       >
         <span className="inline-flex items-center gap-1.5">
-          <ReasoningEffortIcon
-            effort={effectiveEffort}
-            className="h-3.5 w-3.5 shrink-0"
-          />
+          <ReasoningEffortIcon effort={effectiveEffort} className="h-3.5 w-3.5 shrink-0" />
           思考深度
         </span>
       </SectionLabel>
@@ -407,7 +404,9 @@ function ImageParamsSection({ sheet }: { sheet: boolean }) {
       </div>
       {error && <div className="mt-1 pl-[3.375rem] pr-1.5 text-xs text-red-500">{error}</div>}
       <div className="mt-1.5 flex items-center gap-1.5 px-1.5 pb-0.5">
-        <span className={clsx(inlineLabelClass, 'text-neutral-400 dark:text-neutral-500')}>画质</span>
+        <span className={clsx(inlineLabelClass, 'text-neutral-400 dark:text-neutral-500')}>
+          画质
+        </span>
         <div className="inline-flex min-w-0 flex-1 rounded-lg bg-neutral-100 p-0.5 dark:bg-neutral-800">
           {qualityOptions.map((option) => (
             <button
@@ -510,30 +509,34 @@ function MenuSections({
         view={view}
         viewToggle={<ModelViewToggle view={view} />}
         onSelectModel={setActiveModel}
+        modelParameterSections={
+          <>
+            {showReasoning && (
+              <>
+                <Divider />
+                <ReasoningSection model={model!} />
+              </>
+            )}
+            {(showWebSearch || showXSearch) && (
+              <>
+                <Divider />
+                <SearchToolsSection
+                  model={model!}
+                  sheet={sheet}
+                  showWebSearch={showWebSearch}
+                  showXSearch={showXSearch}
+                />
+              </>
+            )}
+            {isImage && (
+              <>
+                <Divider />
+                <ImageParamsSection sheet={sheet} />
+              </>
+            )}
+          </>
+        }
       />
-      {showReasoning && (
-        <>
-          <Divider />
-          <ReasoningSection model={model!} />
-        </>
-      )}
-      {(showWebSearch || showXSearch) && (
-        <>
-          <Divider />
-          <SearchToolsSection
-            model={model!}
-            sheet={sheet}
-            showWebSearch={showWebSearch}
-            showXSearch={showXSearch}
-          />
-        </>
-      )}
-      {isImage && (
-        <>
-          <Divider />
-          <ImageParamsSection sheet={sheet} />
-        </>
-      )}
     </>
   )
 }

@@ -7,8 +7,10 @@ import {
   flattenSections,
   hasGroupStructure,
   openedSectionOnViewChange,
+  resolveModelListView,
   sectionKey,
   sectionName,
+  shouldShowModelParameters,
 } from './modelGroups'
 
 function model(id: string, overrides: Partial<ModelDTO> = {}): ModelDTO {
@@ -97,6 +99,19 @@ describe('hasGroupStructure', () => {
   })
 })
 
+describe('resolveModelListView', () => {
+  it('fully falls back to a plain list when every model is ungrouped', () => {
+    const sections = buildModelSections([model('a'), model('b')], [])
+    expect(resolveModelListView('tree', sections)).toBe('flat')
+  })
+
+  it('keeps the preferred view when a real group exists', () => {
+    const sections = buildModelSections([model('gpt', { groupId: openai.id })], [openai])
+    expect(resolveModelListView('tree', sections)).toBe('tree')
+    expect(resolveModelListView('flat', sections)).toBe('flat')
+  })
+})
+
 describe('filterModelSections', () => {
   const sections = buildModelSections(
     [
@@ -173,5 +188,21 @@ describe('openedSectionOnViewChange', () => {
     expect(openedSectionOnViewChange('tree', 'tree', openai.id, sections, 'model-b')).toBe(
       openai.id,
     )
+  })
+})
+
+describe('shouldShowModelParameters', () => {
+  it('hides selected-model parameters at the tree root', () => {
+    // 是否已有选中模型不参与判断：根层只展示分组，不应泄露文本或画图模型参数。
+    expect(shouldShowModelParameters('tree', false, false)).toBe(false)
+  })
+
+  it('shows parameters after entering a group', () => {
+    expect(shouldShowModelParameters('tree', false, true)).toBe(true)
+  })
+
+  it('keeps parameters visible in flat and search result lists', () => {
+    expect(shouldShowModelParameters('flat', false, false)).toBe(true)
+    expect(shouldShowModelParameters('tree', true, false)).toBe(true)
   })
 })
