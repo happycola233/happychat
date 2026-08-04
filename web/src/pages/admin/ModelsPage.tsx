@@ -21,7 +21,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { clsx } from 'clsx'
 import {
   Boxes,
-  FolderTree,
+  Layers3,
   GripVertical,
   ListChecks,
   Plus,
@@ -503,7 +503,7 @@ export default function ModelsPage() {
             className="h-9 !px-3 !py-0 text-xs"
             onClick={() => setGroupView((v) => !v)}
           >
-            <FolderTree className="h-3.5 w-3.5" /> 分组显示
+            <Layers3 className="h-3.5 w-3.5" /> 分组显示
           </Button>
           <Button
             variant={batchMode ? 'primary' : 'secondary'}

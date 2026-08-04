@@ -1,7 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { clsx } from 'clsx'
-import { Check, ChevronDown, FolderTree, Globe, List, Pin } from 'lucide-react'
+import { Check, ChevronDown, Globe, Layers3, List, Pin } from 'lucide-react'
 import type { ModelDTO, ModelGroupDTO } from '@shared/types/api'
 import type { ModelPickerView } from '@shared/types/domain'
 import {
@@ -443,7 +443,7 @@ function ModelViewToggle({ view, sheet }: { view: ModelPickerView; sheet: boolea
   const setPreference = useSettings((s) => s.setPreference)
   const options = [
     { value: 'flat' as const, icon: List, label: '平铺视图' },
-    { value: 'tree' as const, icon: FolderTree, label: '分组视图' },
+    { value: 'tree' as const, icon: Layers3, label: '分组视图' },
   ]
   return (
     <div

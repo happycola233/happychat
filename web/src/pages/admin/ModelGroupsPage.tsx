@@ -19,7 +19,7 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { clsx } from 'clsx'
-import { FolderTree, GripVertical, Plus, SlidersHorizontal, Trash2 } from 'lucide-react'
+import { GripVertical, Layers3, Plus, SlidersHorizontal, Trash2 } from 'lucide-react'
 import type { AdminModelGroupDTO } from '@shared/types/api'
 import * as adminApi from '../../api/admin'
 import { ModelGroupGlyph } from '../../components/ModelIcon'
@@ -187,7 +187,7 @@ export default function ModelGroupsPage() {
           </div>
         ) : !groups?.length ? (
           <EmptyState
-            icon={FolderTree}
+            icon={Layers3}
             title="还没有模型分组"
             action={
               <Button variant="secondary" onClick={openCreate}>

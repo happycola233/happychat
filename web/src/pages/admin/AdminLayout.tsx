@@ -5,8 +5,8 @@ import {
   AlertTriangle,
   ArrowLeft,
   Boxes,
-  FolderTree,
   LayoutDashboard,
+  Layers3,
   Megaphone,
   Server,
   Settings,
@@ -46,7 +46,7 @@ const navGroups = [
     items: [
       { to: 'providers', label: '提供商', icon: Server },
       { to: 'models', label: '模型', icon: Boxes },
-      { to: 'model-groups', label: '模型分组', icon: FolderTree },
+      { to: 'model-groups', label: '模型分组', icon: Layers3 },
     ],
   },
   {
