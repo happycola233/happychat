@@ -87,11 +87,12 @@ export function AssignGroupDialog({
           onClick={() => assign.mutate(null)}
           className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left transition hover:bg-neutral-100 disabled:opacity-60 dark:hover:bg-neutral-800"
         >
+          {/* 与上方分组行共用同一图标槽位尺寸，避免「移出分组」的名称左右错位。 */}
           <span
             aria-hidden
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-neutral-200/70 text-neutral-500 dark:bg-neutral-700/60 dark:text-neutral-300"
+            className="inline-flex h-4 w-4 shrink-0 items-center justify-center leading-none text-neutral-400 dark:text-neutral-500"
           >
-            <FolderInput className="h-3.5 w-3.5" />
+            <FolderInput className="h-full w-full" strokeWidth={1.75} />
           </span>
           <span className="min-w-0 flex-1 truncate text-sm text-neutral-500 dark:text-neutral-400">
             移出分组（未分组）
