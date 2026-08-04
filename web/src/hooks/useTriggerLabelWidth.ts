@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react'
 
-/** 宽度过渡时长与曲线，与选择器面板高度过渡（useHeightTransition）保持一致的运动语言。 */
+/** 宽度过渡时长与曲线，与选择器面板尺寸过渡（useSizeTransition）保持一致的运动语言。 */
 const TRANSITION_MS = 220
 const EASING = 'cubic-bezier(0.22, 1, 0.36, 1)'
 /** 宽度差小于此像素视为无变化，避免子像素抖动触发无意义的过渡。 */

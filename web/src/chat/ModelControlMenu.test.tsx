@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
-  heightTransition: vi.fn(),
+  sizeTransition: vi.fn(),
   model: {
     id: 'model-a',
     modelId: 'gpt-test',
@@ -28,8 +28,8 @@ const mocks = vi.hoisted(() => ({
   },
 }))
 
-vi.mock('../hooks/useHeightTransition', () => ({
-  useHeightTransition: mocks.heightTransition,
+vi.mock('../hooks/useSizeTransition', () => ({
+  useSizeTransition: mocks.sizeTransition,
 }))
 vi.mock('../hooks/useTriggerLabelWidth', () => ({ useTriggerLabelWidth: vi.fn() }))
 vi.mock('../hooks/useModels', () => ({
@@ -54,16 +54,16 @@ vi.mock('../store/sidebar', () => ({ useIsMobile: () => false }))
 
 import { ModelControlMenu } from './ModelControlMenu'
 
-describe('ModelControlMenu height transition', () => {
-  beforeEach(() => mocks.heightTransition.mockClear())
+describe('ModelControlMenu size transition', () => {
+  beforeEach(() => mocks.sizeTransition.mockClear())
 
-  it('uses model id and picker view in both desktop and mobile signatures', () => {
+  it('transitions desktop width and height while keeping the mobile sheet height-only', () => {
     renderToStaticMarkup(<ModelControlMenu placement="up" align="end" variant="composer" />)
 
-    expect(mocks.heightTransition).toHaveBeenCalledTimes(2)
-    expect(mocks.heightTransition.mock.calls.map((call) => call[1])).toEqual([
-      'model-a␟tree',
-      'model-a␟tree',
+    expect(mocks.sizeTransition).toHaveBeenCalledTimes(2)
+    expect(mocks.sizeTransition.mock.calls.map((call) => [call[1], call[2]])).toEqual([
+      ['model-a␟tree', { width: true, height: true }],
+      ['model-a␟tree', { width: false, height: true }],
     ])
   })
 })

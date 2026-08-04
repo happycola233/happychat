@@ -17,7 +17,7 @@ import {
   validateGptImage2Size,
 } from '@shared/util/imageSize'
 import { XLogo } from '../components/XLogo'
-import { useHeightTransition } from '../hooks/useHeightTransition'
+import { useSizeTransition } from '../hooks/useSizeTransition'
 import { useTriggerLabelWidth } from '../hooks/useTriggerLabelWidth'
 import { useModelGroups, useModels } from '../hooks/useModels'
 import { useChatPrefs } from '../store/chat'
@@ -574,10 +574,11 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
   const menuId = useId()
 
   const model = models?.find((m) => m.id === activeModelId)
-  // 切换模型或列表视图都会改变面板尺寸，两类提交共用同一份高度过渡签名。
-  const heightSignature = `${model?.id ?? ''}␟${modelPickerView}`
-  useHeightTransition(desktopPanelRef, heightSignature)
-  useHeightTransition(mobileDialogRef, heightSignature)
+  // 切换模型或列表视图都会改变面板尺寸：桌面端平滑过渡自适应宽高，
+  // 移动端宽度始终铺满视口，只需沿用高度过渡。
+  const panelSizeSignature = `${model?.id ?? ''}␟${modelPickerView}`
+  useSizeTransition(desktopPanelRef, panelSizeSignature, { width: true, height: true })
+  useSizeTransition(mobileDialogRef, panelSizeSignature, { width: false, height: true })
 
   // —— 触发器上直接反映本次请求会用到的思考深度与检索开关状态（下方渲染与宽度过渡共用）——
   const isImage = model?.kind === 'image'
