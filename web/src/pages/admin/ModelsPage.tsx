@@ -21,6 +21,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { clsx } from 'clsx'
 import {
   Boxes,
+  FolderTree,
   GripVertical,
   ListChecks,
   Plus,
@@ -60,6 +61,15 @@ const CAP_BADGE: Partial<Record<keyof ModelCapabilities, string>> = {
   x_search: 'X 搜索',
   reasoning: '思考',
 }
+
+/**
+ * 列表行的共享横向度量：模型行、分组标题、空分组占位共用同一套内边距、列间距与图标列宽度，
+ * 保证「分组名 / 模型名 / 提示文案」三者的左基线严格对齐。
+ */
+const ROW_INSET_X = 'px-2 sm:px-3'
+const ROW_GAP_X = 'gap-2 sm:gap-3'
+/** 与模型行 ModelIconMark size="md" 等宽的图标列，无图标时用同尺寸占位。 */
+const ROW_ICON_COLUMN = 'h-5 w-5 shrink-0'
 
 function kindLabel(m: AdminModelDTO): string {
   if (m.kind === 'image') return '图片模型'
@@ -118,7 +128,9 @@ function ModelRow({
       style={{ transform: CSS.Transform.toString(transform), transition }}
       onClick={batchMode ? onToggleSelected : undefined}
       className={clsx(
-        'flex items-center gap-2 px-2 py-2.5 sm:gap-3 sm:px-3',
+        'flex items-center py-2.5',
+        ROW_INSET_X,
+        ROW_GAP_X,
         batchMode
           ? clsx(
               'cursor-pointer',
@@ -237,13 +249,19 @@ function ModelRow({
 /** 分组视图下的分区标题（分组视图不支持拖拽，标题纯展示）。 */
 function GroupHeading({ group, count }: { group: AdminModelGroupDTO | null; count: number }) {
   return (
-    <div className="flex items-center gap-2 bg-neutral-50 px-3 py-1.5 dark:bg-neutral-800/50">
-      {group ? (
-        <ModelGroupGlyph group={group} size="xs" />
-      ) : (
-        <span aria-hidden className="h-5 w-5" />
+    <div
+      className={clsx(
+        'flex items-center border-b border-neutral-100 bg-neutral-50/80 py-2 dark:border-neutral-800 dark:bg-neutral-800/40',
+        ROW_INSET_X,
+        ROW_GAP_X,
       )}
-      <span className="min-w-0 flex-1 truncate text-xs font-medium text-neutral-500 dark:text-neutral-400">
+    >
+      {group ? (
+        <ModelGroupGlyph group={group} size="md" />
+      ) : (
+        <span aria-hidden className={ROW_ICON_COLUMN} />
+      )}
+      <span className="min-w-0 flex-1 truncate text-xs font-semibold text-neutral-500 dark:text-neutral-400">
         {group?.name ?? '未分组'}
       </span>
       <span className="shrink-0 text-[11px] tabular-nums text-neutral-400">{count}</span>
@@ -458,36 +476,48 @@ export default function ModelsPage() {
         }
       />
 
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-[200px] flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="搜索名称或模型 ID"
-            className="w-full rounded-lg border border-neutral-300 bg-white py-1.5 pl-9 pr-3 text-sm outline-none transition placeholder:text-neutral-400 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:focus:border-sky-400"
+      {/*
+        工具栏统一控件高度（h-9）；「分组显示 / 批量管理」用同规格的开关按钮，
+        排序提示单独占一行，避免它出现/消失时把搜索框挤窄导致布局跳动。
+      */}
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-[200px] flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="搜索名称或模型 ID"
+              className="h-9 w-full rounded-lg border border-neutral-300 bg-white pl-9 pr-3 text-sm outline-none transition placeholder:text-neutral-400 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:focus:border-sky-400"
+            />
+          </div>
+          <Select
+            className="h-9 !py-0"
+            options={providerOptions}
+            value={providerFilter}
+            onChange={(e) => setProviderFilter(e.target.value)}
           />
+          <Button
+            variant={groupView ? 'primary' : 'secondary'}
+            aria-pressed={groupView}
+            className="h-9 !px-3 !py-0 text-xs"
+            onClick={() => setGroupView((v) => !v)}
+          >
+            <FolderTree className="h-3.5 w-3.5" /> 分组显示
+          </Button>
+          <Button
+            variant={batchMode ? 'primary' : 'secondary'}
+            aria-pressed={batchMode}
+            className="h-9 !px-3 !py-0 text-xs"
+            onClick={() => (batchMode ? exitBatch() : setBatchMode(true))}
+          >
+            <ListChecks className="h-3.5 w-3.5" /> 批量管理
+          </Button>
         </div>
-        <Select
-          options={providerOptions}
-          value={providerFilter}
-          onChange={(e) => setProviderFilter(e.target.value)}
-        />
-        <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
-          <Checkbox checked={groupView} onChange={setGroupView} />
-          按分组显示
-        </label>
-        <Button
-          variant={batchMode ? 'primary' : 'secondary'}
-          className="!px-3 !py-1.5 text-xs"
-          onClick={() => (batchMode ? exitBatch() : setBatchMode(true))}
-        >
-          <ListChecks className="h-3.5 w-3.5" /> 批量管理
-        </Button>
         {!sortable && !batchMode && (
-          <span className="text-xs text-neutral-400">
+          <p className="text-xs text-neutral-400">
             {groupView ? '分组视图下不可拖拽排序' : '筛选中不可拖拽排序'}
-          </span>
+          </p>
         )}
       </div>
 
@@ -513,8 +543,17 @@ export default function ModelsPage() {
             <div key={section.group?.id ?? '__ungrouped__'}>
               <GroupHeading group={section.group} count={section.models.length} />
               {section.models.length === 0 ? (
-                <div className="px-3 py-3 text-xs text-neutral-400">
-                  该分组下暂无模型，可用「批量管理」把模型移进来
+                <div
+                  className={clsx(
+                    'flex items-center py-3 text-xs text-neutral-400',
+                    ROW_INSET_X,
+                    ROW_GAP_X,
+                  )}
+                >
+                  <span aria-hidden className={ROW_ICON_COLUMN} />
+                  <span className="min-w-0 flex-1 truncate">
+                    该分组下暂无模型，可用「批量管理」把模型移进来
+                  </span>
                 </div>
               ) : (
                 <div className="divide-y divide-neutral-100 dark:divide-neutral-800">

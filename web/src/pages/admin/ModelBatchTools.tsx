@@ -228,7 +228,7 @@ export function BatchIconDialog({
   )
 }
 
-/** 批量模式底部工具栏：与侧边栏批量管理的信息层级一致（计数 + 全选 + 完成 / 操作行）。 */
+/** 批量模式底部悬浮条：一行放下「选择状态 + 批量操作 + 退出」，不遮挡列表信息。 */
 export function ModelBatchToolbar({
   selectedCount,
   totalCount,
@@ -248,55 +248,71 @@ export function ModelBatchToolbar({
 }) {
   const hasSelection = selectedCount > 0
   const allSelected = selectedCount === totalCount && totalCount > 0
+  /** 批量操作按钮：无选中时保持可见但明确失效，避免用户以为功能消失。 */
+  const actionClass = (enabled: boolean) =>
+    clsx(
+      'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-medium transition',
+      enabled
+        ? 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700'
+        : 'cursor-not-allowed bg-neutral-50 text-neutral-300 dark:bg-neutral-800/50 dark:text-neutral-600',
+    )
+
   return (
-    <div
-      data-testid="model-batch-toolbar"
-      className="sticky bottom-4 z-20 rounded-xl border border-neutral-200 bg-white/95 p-2.5 shadow-lg backdrop-blur dark:border-neutral-700 dark:bg-neutral-900/95"
-    >
-      <div className="mb-2 flex items-center gap-2 px-1">
-        <span className="min-w-0 flex-1 truncate text-sm text-neutral-600 dark:text-neutral-300">
-          {hasSelection ? `已选择 ${selectedCount} 个模型` : '选择要批量处理的模型'}
+    <div data-testid="model-batch-toolbar" className="sticky bottom-4 z-20 flex justify-center">
+      {/* 不透明底色 + 阴影：悬浮在列表之上时不能透出下方行，否则文字互相干扰。 */}
+      <div className="flex w-full max-w-2xl flex-wrap items-center gap-2 rounded-full border border-neutral-200 bg-white py-1.5 pl-3.5 pr-1.5 shadow-xl shadow-black/10 dark:border-neutral-700 dark:bg-neutral-900 dark:shadow-black/50">
+        <label
+          className="flex shrink-0 cursor-pointer items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400"
+          title={allSelected ? '取消全选' : '全选'}
+        >
+          <Checkbox
+            checked={allSelected}
+            indeterminate={hasSelection && !allSelected}
+            onChange={() => (allSelected ? onClear() : onSelectAll())}
+            ariaLabel={allSelected ? '取消全选' : '全选'}
+          />
+          <span className="tabular-nums">
+            {hasSelection ? (
+              <>
+                已选{' '}
+                <span className="font-medium text-neutral-800 dark:text-neutral-100">
+                  {selectedCount}
+                </span>{' '}
+                / {totalCount}
+              </>
+            ) : (
+              '全选'
+            )}
+          </span>
+        </label>
+
+        <span className="ml-auto flex items-center gap-1.5">
+          <button
+            type="button"
+            disabled={!hasSelection}
+            onClick={onAssign}
+            className={actionClass(hasSelection)}
+          >
+            <FolderInput className="h-3.5 w-3.5" />
+            移动到分组
+          </button>
+          <button
+            type="button"
+            disabled={!hasSelection}
+            onClick={onDetectIcons}
+            className={actionClass(hasSelection)}
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            批量识别图标
+          </button>
+          <Button
+            variant="primary"
+            className="h-8 rounded-full !px-4 !py-0 text-xs"
+            onClick={onExit}
+          >
+            完成
+          </Button>
         </span>
-        <button
-          type="button"
-          onClick={allSelected ? onClear : onSelectAll}
-          className="shrink-0 rounded-md px-2 py-1 text-xs text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
-        >
-          {allSelected ? '取消全选' : '全选'}
-        </button>
-        <Button variant="secondary" className="!px-3 !py-1 text-xs" onClick={onExit}>
-          完成
-        </Button>
-      </div>
-      <div className="grid grid-cols-2 gap-1">
-        <button
-          type="button"
-          disabled={!hasSelection}
-          onClick={onAssign}
-          className={clsx(
-            'flex flex-col items-center gap-1 rounded-lg py-2 text-xs transition',
-            hasSelection
-              ? 'text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800'
-              : 'cursor-not-allowed text-neutral-300 dark:text-neutral-600',
-          )}
-        >
-          <FolderInput className="h-4 w-4" />
-          移动到分组
-        </button>
-        <button
-          type="button"
-          disabled={!hasSelection}
-          onClick={onDetectIcons}
-          className={clsx(
-            'flex flex-col items-center gap-1 rounded-lg py-2 text-xs transition',
-            hasSelection
-              ? 'text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800'
-              : 'cursor-not-allowed text-neutral-300 dark:text-neutral-600',
-          )}
-        >
-          <Sparkles className="h-4 w-4" />
-          批量识别图标
-        </button>
       </div>
     </div>
   )
