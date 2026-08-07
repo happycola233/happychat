@@ -127,7 +127,7 @@ function AccountMenu({
   onLogout: () => void
 }) {
   const itemBaseClass =
-    'flex w-full items-center gap-3 rounded-lg px-3 py-[7px] text-left text-[13.5px] leading-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-neutral-400/70 dark:focus-visible:ring-neutral-500'
+    'flex w-full items-center gap-3 rounded-lg px-3 py-[7px] text-left text-[14px] leading-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-neutral-400/70 dark:focus-visible:ring-neutral-500'
   const regularItemClass = clsx(
     itemBaseClass,
     'text-neutral-800 hover:bg-neutral-100 dark:text-neutral-100 dark:hover:bg-neutral-800',
@@ -155,7 +155,7 @@ function AccountMenu({
           {/* 保持胶囊内部左右等距，整体向左做 2px 光学补偿。 */}
           <span
             className={clsx(
-              '-ml-0.5 mt-0.5 inline-flex rounded-full px-2 py-px text-[10.5px] font-normal leading-[15px] ring-1 ring-inset',
+              '-ml-0.5 mt-0.5 inline-flex rounded-full px-2 py-px text-[11px] font-normal leading-[15px] ring-1 ring-inset',
               isAdmin
                 ? 'bg-amber-50/70 text-amber-700/80 ring-amber-100 dark:bg-amber-400/[0.06] dark:text-amber-200/80 dark:ring-amber-300/10'
                 : 'bg-neutral-100 text-neutral-600 ring-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:ring-neutral-700',
