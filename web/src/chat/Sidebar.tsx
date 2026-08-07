@@ -92,7 +92,7 @@ function Avatar({
         alt={`${label}的头像`}
         className={clsx(
           sizeClass,
-          'shrink-0 rounded-full object-cover shadow-sm ring-1 ring-black/5 dark:ring-white/10',
+          'shrink-0 rounded-full object-cover',
         )}
       />
     )
@@ -103,7 +103,7 @@ function Avatar({
       className={clsx(
         sizeClass,
         fallbackTextClass,
-        'flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-sky-300 via-indigo-300 to-fuchsia-300 font-semibold text-white shadow-sm ring-1 ring-black/5 dark:ring-white/10',
+        'flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-sky-300 via-indigo-300 to-fuchsia-300 font-semibold text-white',
       )}
     >
       {label.slice(0, 1).toLocaleUpperCase()}
@@ -145,20 +145,20 @@ function AccountMenu({
     >
       <div className="flex min-w-0 items-center gap-3 px-2 py-[9px]">
         <Avatar label={userLabel} src={avatarUrl} size="menu" />
-        <div className="min-w-0">
+        <div className="-translate-y-px min-w-0">
           <div
             className="truncate text-[14px] font-medium leading-5 text-neutral-900 dark:text-neutral-100"
             title={userLabel}
           >
             {userLabel}
           </div>
-          {/* 保持胶囊内部左右等距，整体向左做 2px 光学补偿。 */}
+          {/* 普通用户身份保持纯文字；管理员胶囊整体向左做 2px 光学补偿。 */}
           <span
             className={clsx(
-              '-ml-0.5 mt-0.5 inline-flex rounded-full px-2 py-px text-[11px] font-normal leading-[15px] ring-1 ring-inset',
+              'mt-0.5 text-[11px] font-normal leading-[15px]',
               isAdmin
-                ? 'bg-amber-50/70 text-amber-700/80 ring-amber-100 dark:bg-amber-400/[0.06] dark:text-amber-200/80 dark:ring-amber-300/10'
-                : 'bg-neutral-100 text-neutral-600 ring-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:ring-neutral-700',
+                ? '-ml-0.5 inline-flex rounded-full bg-amber-50/70 px-2 py-px text-amber-700/80 ring-1 ring-inset ring-amber-100 dark:bg-amber-400/[0.06] dark:text-amber-200/80 dark:ring-amber-300/10'
+                : 'block text-neutral-500 dark:text-neutral-400',
             )}
           >
             {roleLabel}
