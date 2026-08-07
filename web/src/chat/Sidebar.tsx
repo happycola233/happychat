@@ -168,7 +168,7 @@ function AccountMenu({
 
       <div className="mx-1 border-t border-neutral-100 dark:border-neutral-800" />
 
-      <div className="py-0.5">
+      <div className="flex flex-col gap-0.5 py-0.5">
         <button
           type="button"
           aria-label="设置"
