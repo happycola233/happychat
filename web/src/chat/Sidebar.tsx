@@ -1274,7 +1274,7 @@ export function Sidebar() {
                 <button
                   type="button"
                   onClick={cycleTheme}
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-neutral-700 transition group-hover:bg-neutral-300/70 hover:bg-neutral-300 hover:text-neutral-900 dark:text-neutral-300 dark:group-hover:bg-neutral-700 dark:hover:bg-neutral-700 dark:hover:text-neutral-100"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-neutral-700 transition hover:bg-neutral-300 hover:text-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-700 dark:hover:text-neutral-100"
                   title={`主题：${theme === 'system' ? '跟随系统' : theme === 'light' ? '浅色' : '深色'}`}
                   aria-label="切换主题"
                 >
