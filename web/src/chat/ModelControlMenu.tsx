@@ -9,7 +9,11 @@ import {
   findReasoningEffortOption,
   isReasoningEffortAllowed,
 } from '@shared/util/reasoning'
-import { effectiveWebSearchEnabled, effectiveXSearchEnabled } from '@shared/util/searchTools'
+import {
+  effectiveWebSearchEnabled,
+  effectiveXSearchEnabled,
+  modelKindSupportsSearchTools,
+} from '@shared/util/searchTools'
 import {
   GPT_IMAGE_2_SIZE_OPTIONS,
   formatImageSizeLabel,
@@ -500,11 +504,12 @@ function MenuSections({
   const setActiveModel = useChatPrefs((s) => s.setActiveModel)
   const view = useSettings((s) => s.preferences.modelPickerView)
   const isImage = model?.kind === 'image'
+  const supportsSearchTools = modelKindSupportsSearchTools(model?.kind)
   const showReasoning = Boolean(
     model && !isImage && model.capabilities.reasoning && model.allowedEfforts.length > 0,
   )
-  const showWebSearch = Boolean(model && !isImage && model.capabilities.web_search)
-  const showXSearch = Boolean(model && !isImage && model.capabilities.x_search)
+  const showWebSearch = Boolean(model && supportsSearchTools && model.capabilities.web_search)
+  const showXSearch = Boolean(model && supportsSearchTools && model.capabilities.x_search)
 
   return (
     <>
@@ -592,11 +597,12 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
 
   // —— 触发器上直接反映本次请求会用到的思考深度与检索开关状态（下方渲染与宽度过渡共用）——
   const isImage = model?.kind === 'image'
+  const supportsSearchTools = modelKindSupportsSearchTools(model?.kind)
   const showReasoning = Boolean(
     model && !isImage && model.capabilities.reasoning && model.allowedEfforts.length > 0,
   )
-  const showWebSearch = Boolean(model && !isImage && model.capabilities.web_search)
-  const showXSearch = Boolean(model && !isImage && model.capabilities.x_search)
+  const showWebSearch = Boolean(model && supportsSearchTools && model.capabilities.web_search)
+  const showXSearch = Boolean(model && supportsSearchTools && model.capabilities.x_search)
   const activeSupportedEffort = isReasoningEffortAllowed(model, activeEffort) ? activeEffort : null
   const effectiveEffort = model ? (activeSupportedEffort ?? effectiveReasoningEffort(model)) : null
   const webEnabled = model ? (activeWebSearch ?? effectiveWebSearchEnabled(model)) : false

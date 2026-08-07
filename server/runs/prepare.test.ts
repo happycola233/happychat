@@ -139,9 +139,10 @@ async function createImageAttachment(
   return { attachmentId, filename }
 }
 
-async function createRunnableFileModel() {
+async function createRunnableFileModel(kind: 'responses' | 'chat' = 'responses') {
   const runnable = await createRunnableModel()
-  dbClient.sqlite.prepare('update models set capabilities = ? where id = ?').run(
+  dbClient.sqlite.prepare('update models set kind = ?, capabilities = ? where id = ?').run(
+    kind,
     JSON.stringify({
       vision: false,
       file_input: true,
@@ -844,6 +845,54 @@ describe('prepareRun model user access', () => {
 })
 
 describe('prepareRun file inputs', () => {
+  it('builds an official Chat file content part and strips unsupported search preferences', async () => {
+    const { userId, modelId } = await createRunnableFileModel('chat')
+    const attachment = await createFileAttachment(userId, { filename: 'notes.txt' })
+
+    const result = assertPrepared(
+      await prepare.prepareRun({
+        userId,
+        modelId,
+        text: '',
+        attachments: [attachment],
+        params: { web_search: true, x_search: true },
+      }),
+    )
+
+    expect(result.body.messages).toEqual(
+      expect.arrayContaining([
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'file',
+              file: {
+                filename: 'notes.txt',
+                file_data: expect.stringMatching(/^data:text\/plain;base64,/),
+              },
+            },
+          ],
+        },
+      ]),
+    )
+    expect(result.run.requestParams).not.toHaveProperty('web_search')
+    expect(result.run.requestParams).not.toHaveProperty('x_search')
+  })
+
+  it('applies the exclusive 50 MB file limit to Chat models', async () => {
+    const { userId, modelId } = await createRunnableFileModel('chat')
+    const attachment = await createFileAttachment(userId, { byteSize: 50 * 1024 * 1024 })
+
+    const result = await prepare.prepareRun({
+      userId,
+      modelId,
+      text: '读取日志',
+      attachments: [attachment],
+    })
+
+    expect(result).toMatchObject({ ok: false, code: 'file_too_large' })
+  })
+
   it('repairs a historic application/octet-stream MIME using the .log extension', async () => {
     const { userId, modelId } = await createRunnableFileModel()
     const attachment = await createFileAttachment(userId)

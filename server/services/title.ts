@@ -42,7 +42,7 @@ async function callTitleModel(m: ModelRow, p: ProviderRow, prompt: string): Prom
     const resp = (await client.createChat({
       model: m.modelId,
       messages: [{ role: 'user', content: prompt }],
-      max_tokens: 512,
+      max_completion_tokens: 512,
       stream: false,
     })) as { choices?: { message?: { content?: string } }[] }
     return resp.choices?.[0]?.message?.content ?? ''

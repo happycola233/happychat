@@ -20,6 +20,7 @@ import type {
   ModelTag,
 } from '@shared/types/domain'
 import { guessModelIconSlug } from '@shared/util/modelIconGuess'
+import { normalizeModelCapabilitiesForKind } from '@shared/util/modelCapabilities'
 import * as adminApi from '../../api/admin'
 import { IconPicker } from '../../components/IconPicker'
 import { DEFAULT_MODEL_ICON_TONE_CLASS, ModelIconMark } from '../../components/ModelIcon'
@@ -269,6 +270,11 @@ export function ModelEditor({
       setReasoningEffortDrafts(createManualModelReasoningEffortDrafts())
       setDefaultEffortDraftId(null)
     }
+    if (nextKind === 'chat') {
+      setCaps((current) => ({ ...current, web_search: false, x_search: false }))
+      setDefaultWebSearch(false)
+      setDefaultXSearch(false)
+    }
     setKind(nextKind)
     if (nextKind === 'anthropic') applyAnthropicPreset(modelId.trim(), true)
   }
@@ -333,11 +339,11 @@ export function ModelEditor({
         throw new Error('Anthropic thinking.budget_tokens 必须小于最终 max_tokens')
       }
 
-      const capabilities: ModelCapabilities = {
+      const capabilities = normalizeModelCapabilitiesForKind(kind, {
         ...caps,
         x_search: kind === 'anthropic' ? false : caps.x_search,
         image_generation: kind === 'image',
-      }
+      })
       const shared = {
         displayName,
         description: description.trim() || null,
@@ -354,7 +360,7 @@ export function ModelEditor({
         })),
         defaultEffort: defaultEffort || null,
         replayProviderContext,
-        defaultWebSearch: caps.web_search ? defaultWebSearch : false,
+        defaultWebSearch: capabilities.web_search ? defaultWebSearch : false,
         defaultXSearch: capabilities.x_search ? defaultXSearch : false,
         defaultParams: {
           temperature: params.temperature,
@@ -591,15 +597,19 @@ export function ModelEditor({
         <FormSection title="能力">
           {/* 两列开关：四项能力收进两行，缩短长表单。 */}
           <div className="grid grid-cols-1 gap-x-8 gap-y-2.5 sm:grid-cols-2">
-            {EDITABLE_CAP_KEYS.filter((k) => kind !== 'anthropic' || k !== 'x_search').map((k) => (
-              <label key={k} className="flex items-center justify-between gap-3 text-sm">
-                <span className="text-neutral-600 dark:text-neutral-300">{CAP_LABELS[k]}</span>
+            {EDITABLE_CAP_KEYS.filter(
+              (key) =>
+                !(kind === 'chat' && (key === 'web_search' || key === 'x_search')) &&
+                !(kind === 'anthropic' && key === 'x_search'),
+            ).map((key) => (
+              <label key={key} className="flex items-center justify-between gap-3 text-sm">
+                <span className="text-neutral-600 dark:text-neutral-300">{CAP_LABELS[key]}</span>
                 <Toggle
-                  checked={caps[k]}
-                  onChange={() => toggleCap(k)}
+                  checked={caps[key]}
+                  onChange={() => toggleCap(key)}
                   disabled={
                     kind === 'anthropic' &&
-                    k === 'reasoning' &&
+                    key === 'reasoning' &&
                     caps.reasoning &&
                     !activeAnthropicProfile?.canDisableThinking
                   }
@@ -639,7 +649,7 @@ export function ModelEditor({
             </div>
           )}
 
-          {caps.web_search && (
+          {kind !== 'chat' && caps.web_search && (
             <ToggleRow
               label="默认开启联网搜索"
               checked={defaultWebSearch}
@@ -647,7 +657,7 @@ export function ModelEditor({
             />
           )}
 
-          {kind !== 'anthropic' && caps.x_search && (
+          {kind !== 'chat' && kind !== 'anthropic' && caps.x_search && (
             <ToggleRow
               label="默认开启 X 搜索"
               description="xAI Grok 专有的 X（原 Twitter）站内检索工具，与联网搜索相互独立、可同时开启。"
@@ -866,6 +876,10 @@ export function ModelEditor({
               删除模板后，即使打开联网也不会暗中补回。日期后缀是官方固定的工具协议版本，不是失效日期；默认不设置{' '}
               <code className="font-mono">max_uses</code>
               ，不人为限制单次搜索次数。其他自定义工具原样保留。
+            </p>
+          ) : kind === 'chat' ? (
+            <p className="text-xs leading-5 text-neutral-400">
+              Chat Completions 不提供站内的联网搜索或 X 搜索开关；其他上游支持的硬参数仍会原样合并。
             </p>
           ) : (
             <p className="text-xs leading-5 text-neutral-400">

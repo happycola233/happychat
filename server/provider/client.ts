@@ -2,7 +2,7 @@ import type { ProviderProtocol } from '@shared/types/domain'
 import type { AnthropicCatalogCapabilities } from '@shared/util/anthropic'
 import { joinAnthropicUrl, joinBaseUrl } from '@shared/util/url'
 import type { providers } from '../db/schema'
-import { type ChatChunk, parseChatStream } from './chat'
+import { type ChatStreamEvent, parseChatStream } from './chat'
 import { UpstreamError, networkError, toUpstreamError } from './errors'
 import { parseSSEStream, type StreamEvent } from './sse-parse'
 import type { UpstreamResponse } from './upstream-types'
@@ -156,7 +156,7 @@ export class ProviderClient {
   async *createChatStream(
     body: Record<string, unknown>,
     signal?: AbortSignal,
-  ): AsyncGenerator<ChatChunk> {
+  ): AsyncGenerator<ChatStreamEvent> {
     const res = await this.postJson('/chat/completions', { ...body, stream: true }, signal)
     if (!res.ok) throw await toUpstreamError(res)
     if (!res.body) throw new UpstreamError({ message: '上游未返回流式响应', status: res.status })

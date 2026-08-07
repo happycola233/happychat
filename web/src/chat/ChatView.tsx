@@ -581,8 +581,10 @@ export default function ChatView() {
       p.image = { size: imageSize, quality: imageQuality }
     }
     if (model?.kind !== 'image') {
-      if (activeWebSearch !== null) p.web_search = activeWebSearch
-      if (activeXSearch !== null) p.x_search = activeXSearch
+      if (model?.kind !== 'chat') {
+        if (activeWebSearch !== null) p.web_search = activeWebSearch
+        if (activeXSearch !== null) p.x_search = activeXSearch
+      }
       if (isReasoningEffortAllowed(model, activeEffort)) p.reasoning_effort = activeEffort
     }
     return p

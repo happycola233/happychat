@@ -17,7 +17,7 @@ const baseModel: ModelDTO = {
     file_input: false,
     image_generation: false,
     web_search: true,
-  x_search: false,
+    x_search: false,
   },
   allowedEfforts: [
     { value: 'none', description: '关闭' },
@@ -63,5 +63,20 @@ describe('getConversationRunPrefs', () => {
         { image: { size: 'auto', quality: 'auto' } },
       ),
     ).toBeNull()
+  })
+
+  it('does not restore stale Web/X Search params for Chat Completions models', () => {
+    expect(
+      getConversationRunPrefs(
+        {
+          ...baseModel,
+          kind: 'chat',
+          capabilities: { ...baseModel.capabilities, web_search: true, x_search: true },
+          defaultWebSearch: true,
+          defaultXSearch: true,
+        },
+        { web_search: true, x_search: true, reasoning_effort: 'high' },
+      ),
+    ).toEqual({ reasoning_effort: 'high' })
   })
 })

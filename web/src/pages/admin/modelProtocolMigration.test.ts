@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   migrateDefaultParamsFromAnthropic,
   migrateDefaultParamsToAnthropic,
+  migrateHardParamsFromAnthropic,
   migrateHardParamsToAnthropic,
   modelKindForProviderProtocol,
 } from './modelProtocolMigration'
@@ -58,6 +59,21 @@ describe('modelProtocolMigration', () => {
     ) as Record<string, unknown>
 
     expect(migrated.thinking).toEqual(thinking)
+  })
+
+  it('从 Anthropic 切换到 Chat 时迁移旧 max_tokens 字段', () => {
+    const migrated = JSON.parse(
+      migrateHardParamsFromAnthropic(
+        JSON.stringify({ max_tokens: 4096, custom_gateway_field: true }),
+        'chat',
+      ),
+    ) as Record<string, unknown>
+
+    expect(migrated).toMatchObject({
+      max_completion_tokens: 4096,
+      custom_gateway_field: true,
+    })
+    expect(migrated).not.toHaveProperty('max_tokens')
   })
 
   it('离开 Anthropic 时移除本次切换自动填入的 max_output_tokens', () => {

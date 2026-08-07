@@ -3,6 +3,7 @@ import type { ContentPart, ModelParams } from '@shared/types/domain'
 import { shouldValidateGptImage2Size, validateGptImage2Size } from '@shared/util/imageSize'
 import { renderPromptTemplate } from '@shared/util/promptTemplate'
 import { isReasoningEffortAllowed } from '@shared/util/reasoning'
+import { normalizeSearchParamsForModelKind } from '@shared/util/searchTools'
 import { db } from '../db/client'
 import { attachments, conversations, messages, runs, users } from '../db/schema'
 import { buildPromptVars } from './promptVars'
@@ -195,7 +196,8 @@ async function resolveAttachments(
 }
 
 /**
- * Responses API 会重放当前分支上的全部 input_file，因此预算必须覆盖历史文件和本轮文件，
+ * OpenAI Responses / Chat Completions 会重放当前分支上的全部 input_file，
+ * 因此预算必须覆盖历史文件和本轮文件，
  * 不能只在上传接口检查单个附件。
  */
 async function validateFileInputBudget(
@@ -390,7 +392,9 @@ async function createAssistantAndRun(opts: {
     clientLocale,
     idempotencyKey,
   } = opts
-  const requestParams: Record<string, unknown> = { ...(userParams ?? {}) }
+  // Chat 路径不提供应用托管的 Web/X Search，避免把无效开关写入运行记录或恢复到 UI。
+  const effectiveUserParams = normalizeSearchParamsForModelKind(model.kind, userParams) ?? undefined
+  const requestParams: Record<string, unknown> = { ...(effectiveUserParams ?? {}) }
   if (clientLocale) requestParams.clientLocale = clientLocale
 
   const all = await getConversationMessages(conv.id)
@@ -407,10 +411,10 @@ async function createAssistantAndRun(opts: {
       .trim()
     const imageUrls = await resolveImageUrls(userMsg?.content ?? [])
     if (imageUrls.length > 0) {
-      body = buildImageEditBody(model, prompt, imageUrls, userParams)
+      body = buildImageEditBody(model, prompt, imageUrls, effectiveUserParams)
       imageOperation = 'edit'
     } else {
-      body = buildImageBody(model, prompt, userParams)
+      body = buildImageBody(model, prompt, effectiveUserParams)
       imageOperation = 'generate'
     }
   } else {
@@ -468,7 +472,7 @@ async function createAssistantAndRun(opts: {
       body = buildChatBody({
         model,
         messages: chatMessages,
-        userParams,
+        userParams: effectiveUserParams,
         stream: true,
         promptCacheKey,
       })
@@ -477,7 +481,7 @@ async function createAssistantAndRun(opts: {
         model,
         messages: buildAnthropicMessages(pathMessages, attMap),
         instructions,
-        userParams,
+        userParams: effectiveUserParams,
         stream: true,
       })
     } else {
@@ -485,7 +489,7 @@ async function createAssistantAndRun(opts: {
         model,
         input,
         instructions,
-        userParams,
+        userParams: effectiveUserParams,
         stream: true,
         promptCacheKey,
       })
@@ -617,7 +621,7 @@ export async function prepareRun(args: PrepareArgs): Promise<PrepareResult> {
     return { ok: false, status: 404, message: '会话不存在', code: 'not_found' }
   }
   const parentId = args.parentId !== undefined ? args.parentId : (conv?.activeLeafId ?? null)
-  if (model.kind === 'responses' || model.kind === 'anthropic') {
+  if (model.kind === 'responses' || model.kind === 'chat' || model.kind === 'anthropic') {
     const allMessages = conv ? await getConversationMessages(conv.id) : []
     const parentPath = parentId ? buildPath(allMessages, parentId) : []
     const attachmentBudgetError =
@@ -828,7 +832,7 @@ export async function prepareRegenerate(args: RegenerateArgs): Promise<PrepareRe
   const normalizedParams = normalizeImageParamsForModel(model, reasoningParams)
   if (!normalizedParams.ok) return normalizedParams
 
-  if (model.kind === 'responses' || model.kind === 'anthropic') {
+  if (model.kind === 'responses' || model.kind === 'chat' || model.kind === 'anthropic') {
     const allMessages = await getConversationMessages(conv.id)
     const parentPath = buildPath(allMessages, oldAssistant.parentId)
     const attachmentBudgetError =

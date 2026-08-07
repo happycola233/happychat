@@ -4,7 +4,11 @@ import type { ModelParams, ReasoningEffort } from '@shared/types/domain'
 import { textFromContent } from '@shared/util/contentText'
 import { normalizeModelCapabilities } from '@shared/util/modelCapabilities'
 import { effectiveReasoningEffort, isReasoningEnabled } from '@shared/util/reasoning'
-import { effectiveWebSearchEnabled, effectiveXSearchEnabled } from '@shared/util/searchTools'
+import {
+  effectiveWebSearchEnabled,
+  effectiveXSearchEnabled,
+  modelKindSupportsSearchTools,
+} from '@shared/util/searchTools'
 import { db } from '../db/client'
 import { attachments, conversations, messages, models, runEvents, runs } from '../db/schema'
 import { removeUpload } from '../storage/files'
@@ -361,10 +365,11 @@ function toConversationRunPreferences(
       defaultWebSearch: row.modelDefaultWebSearch ?? false,
       defaultXSearch: row.modelDefaultXSearch ?? false,
     }
-    if (capabilities.web_search) {
+    const supportsSearchTools = modelKindSupportsSearchTools(row.modelKind ?? undefined)
+    if (supportsSearchTools && capabilities.web_search) {
       params.web_search = effectiveWebSearchEnabled(modelConfig, rp)
     }
-    if (capabilities.x_search) {
+    if (supportsSearchTools && capabilities.x_search) {
       params.x_search = effectiveXSearchEnabled(modelConfig, rp)
     }
     const effort = effectiveReasoningEffort(modelConfig, rp)

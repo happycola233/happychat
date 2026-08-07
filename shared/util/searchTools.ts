@@ -9,13 +9,32 @@ export interface SearchToolModelConfig {
   defaultXSearch?: boolean | null
 }
 
+/** Chat Completions 与图片生成路径都不接入站内的 Web/X Search 工具。 */
+export function modelKindSupportsSearchTools(kind: ModelKind | undefined): boolean {
+  return kind !== 'chat' && kind !== 'image'
+}
+
+/** 从 Chat Completions 参数中移除历史或客户端残留的站内检索开关。 */
+export function normalizeSearchParamsForModelKind(
+  kind: ModelKind | undefined,
+  params: ModelParams | null | undefined,
+): ModelParams | null | undefined {
+  if (kind !== 'chat' || !params) return params
+  const { web_search: _webSearch, x_search: _xSearch, ...rest } = params
+  return rest
+}
+
 /** 计算一次请求最终是否启用联网搜索，保持前后端与会话恢复口径一致。 */
 export function effectiveWebSearchEnabled(
   model: SearchToolModelConfig | null | undefined,
   requestParams?: ModelParams | null,
 ): boolean {
-  if (!model || model.kind === 'image' || !model.capabilities.web_search) return false
-  return requestParams?.web_search ?? model.defaultParams?.web_search ?? model.defaultWebSearch ?? false
+  if (!model || !modelKindSupportsSearchTools(model.kind) || !model.capabilities.web_search) {
+    return false
+  }
+  return (
+    requestParams?.web_search ?? model.defaultParams?.web_search ?? model.defaultWebSearch ?? false
+  )
 }
 
 /**
@@ -26,6 +45,8 @@ export function effectiveXSearchEnabled(
   model: SearchToolModelConfig | null | undefined,
   requestParams?: ModelParams | null,
 ): boolean {
-  if (!model || model.kind === 'image' || !model.capabilities.x_search) return false
+  if (!model || !modelKindSupportsSearchTools(model.kind) || !model.capabilities.x_search) {
+    return false
+  }
   return requestParams?.x_search ?? model.defaultParams?.x_search ?? model.defaultXSearch ?? false
 }

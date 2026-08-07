@@ -55,7 +55,14 @@ vi.mock('../store/sidebar', () => ({ useIsMobile: () => false }))
 import { ModelControlMenu } from './ModelControlMenu'
 
 describe('ModelControlMenu size transition', () => {
-  beforeEach(() => mocks.sizeTransition.mockClear())
+  beforeEach(() => {
+    mocks.sizeTransition.mockClear()
+    mocks.model.kind = 'responses'
+    mocks.model.capabilities.web_search = false
+    mocks.model.capabilities.x_search = false
+    mocks.model.defaultWebSearch = false
+    mocks.model.defaultXSearch = false
+  })
 
   it('transitions desktop width and height while keeping the mobile sheet height-only', () => {
     renderToStaticMarkup(<ModelControlMenu placement="up" align="end" variant="composer" />)
@@ -65,5 +72,34 @@ describe('ModelControlMenu size transition', () => {
       ['model-a␟tree', { width: true, height: true }],
       ['model-a␟tree', { width: false, height: true }],
     ])
+  })
+
+  it('hides stale Web/X Search capabilities from Chat Completions models', () => {
+    mocks.model.kind = 'chat'
+    mocks.model.capabilities.web_search = true
+    mocks.model.capabilities.x_search = true
+    mocks.model.defaultWebSearch = true
+    mocks.model.defaultXSearch = true
+
+    const html = renderToStaticMarkup(
+      <ModelControlMenu placement="up" align="end" variant="composer" />,
+    )
+
+    expect(html).not.toContain('aria-label="联网已开启"')
+    expect(html).not.toContain('aria-label="X 搜索已开启"')
+  })
+
+  it('keeps Web/X Search controls available for Responses models', () => {
+    mocks.model.capabilities.web_search = true
+    mocks.model.capabilities.x_search = true
+    mocks.model.defaultWebSearch = true
+    mocks.model.defaultXSearch = true
+
+    const html = renderToStaticMarkup(
+      <ModelControlMenu placement="up" align="end" variant="composer" />,
+    )
+
+    expect(html).toContain('aria-label="联网已开启"')
+    expect(html).toContain('aria-label="X 搜索已开启"')
   })
 })

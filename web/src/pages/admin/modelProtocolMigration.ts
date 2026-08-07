@@ -63,7 +63,14 @@ export function migrateHardParamsFromAnthropic(text: string, nextKind: ModelKind
   if (!current) return text
   const migrated = { ...current }
   for (const key of ['cache_control', 'thinking', 'output_config']) delete migrated[key]
-  if (nextKind !== 'chat') delete migrated.max_tokens
+  if (
+    nextKind === 'chat' &&
+    migrated.max_completion_tokens === undefined &&
+    migrated.max_tokens !== undefined
+  ) {
+    migrated.max_completion_tokens = migrated.max_tokens
+  }
+  delete migrated.max_tokens
   if (Array.isArray(migrated.tools)) {
     const remainingTools = migrated.tools.filter((tool) => !isAnthropicWebSearchTool(tool))
     if (remainingTools.length > 0) migrated.tools = remainingTools

@@ -11,11 +11,12 @@ import {
   hasAnthropicMaxOutputTokens,
   hasAnthropicThinkingBudgetConflict,
 } from '@shared/util/anthropic'
-import { normalizeModelCapabilities } from '@shared/util/modelCapabilities'
+import { normalizeModelCapabilitiesForKind } from '@shared/util/modelCapabilities'
 import { normalizeModelIcon } from '@shared/util/modelIcon'
 import { normalizeModelTags } from '@shared/util/modelTags'
 import { normalizeReasoningEffortOptions } from '@shared/util/reasoning'
 import { providerProtocolSupportsModelKind } from '@shared/util/providerProtocol'
+import { normalizeSearchParamsForModelKind } from '@shared/util/searchTools'
 import { db } from '../db/client'
 import { models, modelGroups, modelUserAccess, providers, users } from '../db/schema'
 import { must } from '../lib/assert'
@@ -27,13 +28,15 @@ type ProviderRow = typeof providers.$inferSelect
 const MODEL_ACCESS_INSERT_BATCH_SIZE = 250
 
 export function toModelDTO(m: ModelRow): ModelDTO {
+  const capabilities = normalizeModelCapabilitiesForKind(m.kind, m.capabilities)
+  const isChatCompletions = m.kind === 'chat'
   return {
     id: m.id,
     modelId: m.modelId,
     displayName: m.displayName,
     kind: m.kind,
     // 老记录可能缺少后加入的能力位，出参前统一补齐。
-    capabilities: normalizeModelCapabilities(m.capabilities),
+    capabilities,
     description: m.description ?? null,
     // 旧记录的 string[] 与新对象数组在 API 边界统一升级，非法颜色安全回退为自动配色。
     tags: normalizeModelTags(m.tags),
@@ -43,9 +46,9 @@ export function toModelDTO(m: ModelRow): ModelDTO {
     // API 只公开规范对象；旧 string[] 记录在这里无损升级，保留原顺序和子集。
     allowedEfforts: normalizeReasoningEffortOptions(m.allowedEfforts),
     defaultEffort: m.defaultEffort ?? null,
-    defaultWebSearch: m.defaultWebSearch,
-    defaultXSearch: m.defaultXSearch,
-    defaultParams: m.defaultParams ?? null,
+    defaultWebSearch: isChatCompletions ? false : m.defaultWebSearch,
+    defaultXSearch: isChatCompletions ? false : m.defaultXSearch,
+    defaultParams: normalizeSearchParamsForModelKind(m.kind, m.defaultParams) ?? null,
   }
 }
 
@@ -331,6 +334,10 @@ export async function createModel(input: ModelCreateInput): Promise<CreateModelR
         return { ok: false, code: 'icon_missing' } as const
       }
 
+      const capabilities = normalizeModelCapabilitiesForKind(input.kind, input.capabilities)
+      const isChatCompletions = input.kind === 'chat'
+      const defaultParams =
+        normalizeSearchParamsForModelKind(input.kind, input.defaultParams ?? null) ?? null
       const row = must(
         tx
           .insert(models)
@@ -344,16 +351,16 @@ export async function createModel(input: ModelCreateInput): Promise<CreateModelR
             groupId: input.groupId ?? null,
             kind: input.kind,
             enabled: input.enabled,
-            capabilities: input.capabilities,
+            capabilities,
             defaultSystemPrompt: input.defaultSystemPrompt ?? null,
-            defaultParams: input.defaultParams ?? null,
+            defaultParams,
             hardParams: input.hardParams ?? null,
             pricing: input.pricing ?? null,
             allowedEfforts: input.allowedEfforts,
             defaultEffort: input.defaultEffort ?? null,
             replayProviderContext: input.replayProviderContext,
-            defaultWebSearch: input.defaultWebSearch,
-            defaultXSearch: input.defaultXSearch,
+            defaultWebSearch: isChatCompletions ? false : input.defaultWebSearch,
+            defaultXSearch: isChatCompletions ? false : input.defaultXSearch,
             sort: input.sort,
           })
           .returning()

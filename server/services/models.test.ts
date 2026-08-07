@@ -147,6 +147,98 @@ describe('model user access', () => {
     expect(stored?.replayProviderContext).toBe(true)
   })
 
+  it('removes Web/X Search capability and defaults from newly created Chat models', async () => {
+    const fixture = await createFixture()
+    const result = await modelServices.createModel({
+      providerId: fixture.providerId,
+      modelId: `created-chat-${fixtureSeq}`,
+      displayName: 'Created Chat model',
+      tags: [],
+      icon: null,
+      groupId: null,
+      kind: 'chat',
+      enabled: true,
+      capabilities: {
+        vision: true,
+        file_input: true,
+        web_search: true,
+        x_search: true,
+        image_generation: false,
+        reasoning: true,
+      },
+      allowedEfforts: [{ value: 'medium', description: '中等' }],
+      replayProviderContext: false,
+      defaultWebSearch: true,
+      defaultXSearch: true,
+      defaultParams: { temperature: 0.4, web_search: true, x_search: true },
+      sort: 0,
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.model).toMatchObject({
+      capabilities: { web_search: false, x_search: false },
+      defaultWebSearch: false,
+      defaultXSearch: false,
+      defaultParams: { temperature: 0.4 },
+    })
+    const [stored] = await dbClient.db
+      .select({
+        capabilities: schema.models.capabilities,
+        defaultWebSearch: schema.models.defaultWebSearch,
+        defaultXSearch: schema.models.defaultXSearch,
+        defaultParams: schema.models.defaultParams,
+      })
+      .from(schema.models)
+      .where(eq(schema.models.id, result.model.id))
+    expect(stored).toMatchObject({
+      capabilities: { web_search: false, x_search: false },
+      defaultWebSearch: false,
+      defaultXSearch: false,
+      defaultParams: { temperature: 0.4 },
+    })
+  })
+
+  it('does not expose stale Web/X Search settings from existing Chat records', async () => {
+    const fixture = await createFixture({ kind: 'chat' })
+    await dbClient.db
+      .update(schema.models)
+      .set({
+        capabilities: {
+          vision: false,
+          file_input: false,
+          web_search: true,
+          x_search: true,
+          image_generation: false,
+          reasoning: false,
+        },
+        defaultWebSearch: true,
+        defaultXSearch: true,
+        defaultParams: { temperature: 0.6, web_search: true, x_search: true },
+      })
+      .where(eq(schema.models.id, fixture.modelId))
+
+    const publicModel = (await modelServices.listEnabledModels(fixture.userId)).find(
+      (candidate) => candidate.id === fixture.modelId,
+    )
+    const adminModel = (await modelServices.listAdminModels()).find(
+      (candidate) => candidate.id === fixture.modelId,
+    )
+
+    expect(publicModel).toMatchObject({
+      capabilities: { web_search: false, x_search: false },
+      defaultWebSearch: false,
+      defaultXSearch: false,
+      defaultParams: { temperature: 0.6 },
+    })
+    expect(adminModel).toMatchObject({
+      capabilities: { web_search: false, x_search: false },
+      defaultWebSearch: false,
+      defaultXSearch: false,
+      defaultParams: { temperature: 0.6 },
+    })
+  })
+
   it('rejects a model whose configured icon does not exist', async () => {
     const fixture = await createFixture()
     const result = await modelServices.createModel({

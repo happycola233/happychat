@@ -3,6 +3,7 @@ import type { MessageUsage, ModelParams } from '@shared/types/domain'
 import { effectiveReasoningEffort } from '@shared/util/reasoning'
 import type { models } from '../db/schema'
 import type { PathMessage, ResolvedAttachment } from './context'
+import { friendlyUpstreamMessage, UpstreamError } from './errors'
 import { isPlainObject, mergeDeep } from './params'
 import { applyPromptCacheKey } from './promptCache'
 
@@ -10,8 +11,11 @@ type ModelRow = typeof models.$inferSelect
 
 export interface ChatDelta {
   role?: string
-  content?: string
-  reasoning_content?: string
+  content?: string | null
+  reasoning_content?: string | null
+  refusal?: string | null
+  tool_calls?: unknown[]
+  function_call?: unknown
 }
 
 export interface ChatChunk {
@@ -28,6 +32,8 @@ export interface ChatChunk {
   } | null
 }
 
+export type ChatStreamEvent = { type: 'chunk'; chunk: ChatChunk } | { type: 'done' }
+
 /** chat/completions 用量 → 统一 MessageUsage。 */
 export function mapChatUsage(u: ChatChunk['usage']): MessageUsage {
   return {
@@ -42,7 +48,7 @@ export function mapChatUsage(u: ChatChunk['usage']): MessageUsage {
 
 /**
  * 把分支路径消息转成 chat/completions 的 messages[]。
- * system 来自 instructions；用户图片用多模态 content；文件输入 chat 接口不支持，忽略。
+ * system 来自 instructions；用户图片与文件使用 Chat Completions 多模态 content parts。
  */
 export function buildChatMessages(
   messages: PathMessage[],
@@ -69,17 +75,27 @@ export function buildChatMessages(
       continue
     }
     let text = ''
-    const imageParts: unknown[] = []
+    const attachmentParts: unknown[] = []
     for (const part of m.content) {
       if (part.type === 'input_text') text += part.text
       else if (part.type === 'input_image') {
         const a = atts.get(part.attachment_id)
-        if (a) imageParts.push({ type: 'image_url', image_url: { url: a.dataUrl } })
+        if (a) attachmentParts.push({ type: 'image_url', image_url: { url: a.dataUrl } })
+      } else if (part.type === 'input_file') {
+        const a = atts.get(part.attachment_id)
+        if (a) {
+          attachmentParts.push({
+            type: 'file',
+            file: { filename: a.filename, file_data: a.dataUrl },
+          })
+        }
       }
-      // input_file：chat/completions 无标准文件输入，忽略
     }
-    if (imageParts.length > 0) {
-      out.push({ role: 'user', content: [{ type: 'text', text }, ...imageParts] })
+    if (attachmentParts.length > 0) {
+      out.push({
+        role: 'user',
+        content: [...(text ? [{ type: 'text', text }] : []), ...attachmentParts],
+      })
     } else {
       out.push({ role: 'user', content: text })
     }
@@ -113,48 +129,112 @@ export function buildChatBody(o: BuildChatBodyOptions): Record<string, unknown> 
 
   let maxOut = userParams?.max_output_tokens ?? defaults.max_output_tokens
   if (effort && effort !== 'none') maxOut = Math.max(maxOut ?? 0, REASONING_MIN_OUTPUT_TOKENS)
-  if (maxOut !== undefined && maxOut > 0) body.max_tokens = maxOut
+  if (maxOut !== undefined && maxOut > 0) body.max_completion_tokens = maxOut
 
   if (stream) body.stream_options = { include_usage: true }
   applyPromptCacheKey(body, promptCacheKey)
   // 与 Responses 一致：高级 JSON 最终优先，可覆盖 key 并透传任意上游参数。
-  if (isPlainObject(model.hardParams)) mergeDeep(body, model.hardParams)
+  if (isPlainObject(model.hardParams)) {
+    const hardParams = { ...model.hardParams }
+    // 兼容升级前保存的 Chat 配置；绝不能同时发送新旧两个输出上限字段。
+    if (hardParams.max_completion_tokens === undefined && hardParams.max_tokens !== undefined) {
+      hardParams.max_completion_tokens = hardParams.max_tokens
+    }
+    delete hardParams.max_tokens
+    mergeDeep(body, hardParams)
+  }
   return body
 }
 
-/** 解析 chat/completions 的 SSE 流为 ChatChunk 序列（每个 data: JSON）。 */
+/** 解析 chat/completions SSE，并保留 [DONE] 供引擎校验流是否正常结束。 */
 export async function* parseChatStream(
   body: ReadableStream<Uint8Array>,
-): AsyncGenerator<ChatChunk> {
+): AsyncGenerator<ChatStreamEvent> {
   const reader = body.getReader()
   const decoder = new TextDecoder()
   let buf = ''
-  for (;;) {
-    const { value, done } = await reader.read()
-    if (done) break
-    buf += decoder.decode(value, { stream: true })
-    buf = buf.replace(/\r\n/g, '\n')
-    let idx: number
-    while ((idx = buf.indexOf('\n\n')) !== -1) {
-      const chunk = parseChatBlock(buf.slice(0, idx))
-      buf = buf.slice(idx + 2)
-      if (chunk) yield chunk
+  try {
+    for (;;) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buf += decoder.decode(value, { stream: true })
+      buf = buf.replace(/\r\n/g, '\n')
+      let idx: number
+      while ((idx = buf.indexOf('\n\n')) !== -1) {
+        const event = parseChatBlock(buf.slice(0, idx))
+        buf = buf.slice(idx + 2)
+        if (event) yield event
+      }
     }
+    buf += decoder.decode()
+    const tail = parseChatBlock(buf.replace(/\r\n/g, '\n'))
+    if (tail) yield tail
+  } catch (error) {
+    // 畸形帧或 200 error frame 后不再消费响应体，主动取消以释放连接与缓冲。
+    await reader.cancel(error).catch(() => undefined)
+    throw error
+  } finally {
+    reader.releaseLock()
   }
-  const tail = parseChatBlock(buf.replace(/\r\n/g, '\n'))
-  if (tail) yield tail
 }
 
-function parseChatBlock(block: string): ChatChunk | null {
-  let dataStr = ''
+function parseChatBlock(block: string): ChatStreamEvent | null {
+  const dataLines: string[] = []
+  let eventName: string | null = null
   for (const rawLine of block.split('\n')) {
     const line = rawLine.replace(/\r$/, '')
-    if (line.startsWith('data:')) dataStr += line.slice(5).replace(/^ /, '')
+    if (line.startsWith('data:')) dataLines.push(line.slice(5).replace(/^ /, ''))
+    else if (line.startsWith('event:')) eventName = line.slice(6).trim()
   }
-  if (!dataStr || dataStr === '[DONE]') return null
+  if (dataLines.length === 0) return null
+  const dataStr = dataLines.join('\n')
+  if (!dataStr) return null
+  if (dataStr === '[DONE]') return { type: 'done' }
+
+  let parsed: unknown
   try {
-    return JSON.parse(dataStr) as ChatChunk
+    parsed = JSON.parse(dataStr)
   } catch {
-    return null
+    throw new UpstreamError({
+      message: '上游返回了无法解析的 chat/completions 流数据',
+      status: 200,
+      type: 'invalid_stream',
+      code: 'malformed_sse_json',
+    })
   }
+
+  if (!isPlainObject(parsed)) {
+    throw new UpstreamError({
+      message: '上游返回了无效的 chat/completions 流数据',
+      status: 200,
+      type: 'invalid_stream',
+      code: 'invalid_sse_payload',
+    })
+  }
+
+  const isTopLevelError =
+    eventName === 'error' || parsed.type === 'error' || parsed.object === 'error'
+  if ((parsed.error !== undefined && parsed.error !== null) || isTopLevelError) {
+    const error = isPlainObject(parsed.error) ? parsed.error : isTopLevelError ? parsed : null
+    const rawMessage =
+      typeof error?.message === 'string'
+        ? error.message
+        : typeof parsed.error === 'string'
+          ? parsed.error
+          : '上游流式响应失败'
+    const errorType = typeof error?.type === 'string' ? error.type : undefined
+    const errorCode =
+      typeof error?.code === 'string' || typeof error?.code === 'number'
+        ? String(error.code)
+        : undefined
+    throw new UpstreamError({
+      message: friendlyUpstreamMessage(errorType, rawMessage, 200),
+      status: 200,
+      type: errorType,
+      code: errorCode,
+      rawMessage,
+    })
+  }
+
+  return { type: 'chunk', chunk: parsed as ChatChunk }
 }

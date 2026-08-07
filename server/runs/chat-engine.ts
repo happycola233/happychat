@@ -47,16 +47,25 @@ export async function runChatEngine(ctx: EngineContext): Promise<void> {
     reasoningTokens: 0,
     totalTokens: 0,
   }
-  let state: 'completed' | 'incomplete' | 'failed' | 'canceled' = 'completed'
+  let state: 'completed' | 'incomplete' | 'failed' | 'canceled' = 'failed'
   let incompleteReason: string | null = null
   let errorMessage: string | null = null
   let errorType: string | null = null
   let errorCode: string | null = null
   let httpStatus: number | null = null
+  let finishReason: string | null = null
+  let receivedDone = false
+  let discardPartialOutput = false
 
   try {
     const client = providerClientFromRow(ctx.provider)
-    for await (const chunk of client.createChatStream(ctx.body, ctx.abortController.signal)) {
+    for await (const event of client.createChatStream(ctx.body, ctx.abortController.signal)) {
+      if (event.type === 'done') {
+        receivedDone = true
+        continue
+      }
+
+      const chunk = event.chunk
       const choice = chunk.choices?.[0]
       const delta = choice?.delta
       if (delta?.reasoning_content) {
@@ -68,14 +77,67 @@ export async function runChatEngine(ctx: EngineContext): Promise<void> {
         persistEmit('response.output_text.delta', { delta: delta.content })
       }
       if (chunk.usage) usage = mapChatUsage(chunk.usage)
-      if (choice?.finish_reason === 'length') {
-        state = 'incomplete'
-        incompleteReason = 'max_output_tokens'
+
+      if (typeof delta?.refusal === 'string' && delta.refusal.length > 0) {
+        state = 'failed'
+        errorMessage = '模型拒绝了此请求，请调整内容后重试。'
+        errorType = 'refusal'
+        discardPartialOutput = true
+      } else if (
+        (Array.isArray(delta?.tool_calls) && delta.tool_calls.length > 0) ||
+        (delta?.function_call !== undefined && delta.function_call !== null)
+      ) {
+        state = 'failed'
+        errorMessage = '模型请求了本站不支持的客户端工具，生成已停止。'
+        errorType = 'tool_calls'
       }
+
+      if (choice?.finish_reason) finishReason = choice.finish_reason
+    }
+
+    if (ctx.abortController.signal.aborted) {
+      state = 'canceled'
+      incompleteReason = null
+      errorMessage = null
+      errorType = null
+      errorCode = null
+      httpStatus = null
+      discardPartialOutput = false
+    } else if (errorType === 'refusal' || errorType === 'tool_calls') {
+      // delta 已提供更具体的失败原因，不能再被后续 stop / [DONE] 覆盖。
+    } else if (finishReason === 'length') {
+      state = 'incomplete'
+      incompleteReason = 'max_output_tokens'
+    } else if (finishReason === 'content_filter') {
+      state = 'failed'
+      errorMessage = '上游内容过滤器终止了生成，请调整内容后重试。'
+      errorType = 'content_filter'
+      discardPartialOutput = true
+    } else if (finishReason === 'tool_calls' || finishReason === 'function_call') {
+      state = 'failed'
+      errorMessage = '模型请求了本站不支持的客户端工具，生成已停止。'
+      errorType = 'tool_calls'
+    } else if (finishReason === 'stop' || (finishReason === null && receivedDone)) {
+      // 部分兼容网关只发送 [DONE]，没有最后一个 finish_reason；保留这条兼容路径。
+      state = 'completed'
+    } else if (finishReason) {
+      state = 'failed'
+      errorMessage = `上游返回了不支持的结束原因：${finishReason}`
+      errorType = 'unsupported_finish_reason'
+    } else {
+      state = 'failed'
+      errorMessage = '上游响应在终止标记前结束'
+      errorType = 'incomplete_stream'
     }
   } catch (e) {
     if (ctx.abortController.signal.aborted) {
       state = 'canceled'
+      incompleteReason = null
+      errorMessage = null
+      errorType = null
+      errorCode = null
+      httpStatus = null
+      discardPartialOutput = false
     } else {
       const ue = e instanceof UpstreamError ? e : null
       state = 'failed'
@@ -86,6 +148,11 @@ export async function runChatEngine(ctx: EngineContext): Promise<void> {
     }
   }
 
+  if (discardPartialOutput) {
+    text = ''
+    reasoning = ''
+  }
+
   await finalizeRun({
     run: ctx.run,
     assistantMessage: ctx.assistantMessage,
@@ -94,6 +161,7 @@ export async function runChatEngine(ctx: EngineContext): Promise<void> {
     provider: ctx.provider,
     state,
     text,
+    ...(discardPartialOutput ? { content: [] } : {}),
     reasoningSummary: reasoning || null,
     annotations: [],
     usage,
@@ -102,6 +170,7 @@ export async function runChatEngine(ctx: EngineContext): Promise<void> {
     errorType,
     errorCode,
     httpStatus,
+    discardPartialOutput,
     upstreamResponseId: null,
     startedAt,
     persistEmit,

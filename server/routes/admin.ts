@@ -19,6 +19,7 @@ import {
   modelIconBatchSchema,
 } from '@shared/schemas/model-group'
 import { MAX_CUSTOM_ICON_BYTES } from '@shared/util/modelIcon'
+import { normalizeModelCapabilitiesForKind } from '@shared/util/modelCapabilities'
 import { inviteCreateSchema, statsFilterSchema, userUpdateSchema } from '@shared/schemas/admin'
 import { appConfigUpdateSchema } from '@shared/schemas/app-config'
 import {
@@ -27,6 +28,7 @@ import {
 } from '@shared/util/anthropic'
 import { normalizeReasoningEffortOptions } from '@shared/util/reasoning'
 import { providerProtocolSupportsModelKind } from '@shared/util/providerProtocol'
+import { normalizeSearchParamsForModelKind } from '@shared/util/searchTools'
 import { announcementCreateSchema, announcementUpdateSchema } from '@shared/schemas/announcement'
 import { db } from '../db/client'
 import {
@@ -352,8 +354,15 @@ adminRoutes.patch('/models/:id', jsonValidator(modelUpdateSchema), async (c) => 
       }
 
       const nextKind = input.kind ?? existing.kind
+      const nextCapabilities = normalizeModelCapabilitiesForKind(
+        nextKind,
+        input.capabilities ?? existing.capabilities,
+      )
       const nextDefaultParams =
-        input.defaultParams !== undefined ? input.defaultParams : existing.defaultParams
+        normalizeSearchParamsForModelKind(
+          nextKind,
+          input.defaultParams !== undefined ? input.defaultParams : existing.defaultParams,
+        ) ?? null
       const nextHardParams =
         input.hardParams !== undefined ? input.hardParams : existing.hardParams
       if (nextKind === 'anthropic' && !hasAnthropicMaxOutputTokens(nextDefaultParams)) {
@@ -409,11 +418,17 @@ adminRoutes.patch('/models/:id', jsonValidator(modelUpdateSchema), async (c) => 
       if (input.groupId !== undefined) patch.groupId = input.groupId
       if (input.enabled !== undefined) patch.enabled = input.enabled
       if (input.kind !== undefined) patch.kind = input.kind
-      if (input.capabilities !== undefined) patch.capabilities = input.capabilities
+      if (input.capabilities !== undefined || nextKind === 'chat') {
+        patch.capabilities = nextCapabilities
+      }
       if (input.defaultSystemPrompt !== undefined) {
         patch.defaultSystemPrompt = input.defaultSystemPrompt
       }
-      if (input.defaultParams !== undefined || input.hardParams !== undefined) {
+      if (
+        input.defaultParams !== undefined ||
+        input.hardParams !== undefined ||
+        nextKind === 'chat'
+      ) {
         patch.defaultParams = nextDefaultParams
         patch.hardParams = nextHardParams
       }
@@ -425,8 +440,13 @@ adminRoutes.patch('/models/:id', jsonValidator(modelUpdateSchema), async (c) => 
       if (input.replayProviderContext !== undefined) {
         patch.replayProviderContext = input.replayProviderContext
       }
-      if (input.defaultWebSearch !== undefined) patch.defaultWebSearch = input.defaultWebSearch
-      if (input.defaultXSearch !== undefined) patch.defaultXSearch = input.defaultXSearch
+      if (nextKind === 'chat') {
+        patch.defaultWebSearch = false
+        patch.defaultXSearch = false
+      } else {
+        if (input.defaultWebSearch !== undefined) patch.defaultWebSearch = input.defaultWebSearch
+        if (input.defaultXSearch !== undefined) patch.defaultXSearch = input.defaultXSearch
+      }
       if (input.sort !== undefined) patch.sort = input.sort
       tx.update(models).set(patch).where(eq(models.id, id)).run()
       return { ok: true } as const
