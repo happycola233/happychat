@@ -12,7 +12,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { Button } from '../components/ui/Button'
-import { SectionCard } from '../components/ui/SectionCard'
+import { SettingsSection } from '../components/ui/SettingsSection'
 import { APP_ICON_SRC } from '../lib/appIcon'
 import { APP_VERSION, BUILD_TIME } from '../lib/buildInfo'
 import { copyToClipboard } from '../lib/clipboard'
@@ -136,9 +136,9 @@ export function AboutPanel() {
   }
 
   return (
-    <div className="space-y-4 py-4">
-      {/* 身份区：不套卡片、不用渐变，居中留白即可，避免与下方分区卡片抢视觉重心 */}
-      <section className="flex flex-col items-center px-4 pb-1 pt-2 text-center">
+    <div className="pb-2 pt-1">
+      {/* 身份区：不套卡片、不用渐变，居中留白即可，避免与下方分组内容抢视觉重心 */}
+      <section className="flex flex-col items-center px-4 pb-2 pt-2 text-center">
         {/* 图标只描一圈细边界定轮廓，不加投影，免得显得「浮」在页面上 */}
         <img
           src={APP_ICON_SRC}
@@ -163,8 +163,8 @@ export function AboutPanel() {
         </p>
       </section>
 
-      <SectionCard title="功能亮点">
-        <div className="grid gap-x-5 gap-y-3.5 sm:grid-cols-2">
+      <SettingsSection title="功能亮点">
+        <div className="grid gap-x-5 gap-y-3.5 py-3 sm:grid-cols-2">
           {HIGHLIGHTS.map(({ icon: Icon, title, desc }) => (
             <div key={title} className="flex gap-2.5">
               <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
@@ -181,10 +181,10 @@ export function AboutPanel() {
             </div>
           ))}
         </div>
-      </SectionCard>
+      </SettingsSection>
 
-      <SectionCard title="相关链接">
-        <div className="-mx-2 -my-1">
+      <SettingsSection title="相关链接">
+        <div className="-mx-2 py-1.5">
           {LINKS.map(({ icon: LinkIcon, ...link }) => (
             <a
               key={link.href}
@@ -206,25 +206,31 @@ export function AboutPanel() {
             </a>
           ))}
         </div>
-      </SectionCard>
+      </SettingsSection>
 
-      <SectionCard
+      <SettingsSection
         title="运行环境"
         description="遇到问题时，复制这段信息附在反馈里能大幅加快定位。"
       >
-        <dl className="divide-y divide-neutral-100 dark:divide-neutral-800">
-          <EnvRow label="应用版本" value={`v${APP_VERSION}`} />
-          <EnvRow label="构建时间" value={buildTimeLabel} />
-          <EnvRow label="浏览器" value={clientEnv.browser} />
-          <EnvRow label="操作系统" value={clientEnv.os} />
-        </dl>
-        <div className="mt-3 flex justify-end">
-          <Button variant="secondary" className="!px-3 !py-1.5 text-xs" onClick={copyEnvReport}>
-            {copied ? <Check className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}
-            {copied ? '已复制' : '复制环境信息'}
-          </Button>
+        <div className="py-2">
+          <dl className="divide-y divide-neutral-100 dark:divide-neutral-800">
+            <EnvRow label="应用版本" value={`v${APP_VERSION}`} />
+            <EnvRow label="构建时间" value={buildTimeLabel} />
+            <EnvRow label="浏览器" value={clientEnv.browser} />
+            <EnvRow label="操作系统" value={clientEnv.os} />
+          </dl>
+          <div className="mt-3 flex justify-end">
+            <Button variant="ghost" className="!px-2.5 !py-1.5 text-xs" onClick={copyEnvReport}>
+              {copied ? (
+                <Check className="h-4 w-4 text-emerald-500" />
+              ) : (
+                <Copy className="h-4 w-4" />
+              )}
+              {copied ? '已复制' : '复制环境信息'}
+            </Button>
+          </div>
         </div>
-      </SectionCard>
+      </SettingsSection>
 
       <p className="flex items-center justify-center gap-1.5 pb-1 text-[12px] text-neutral-400 dark:text-neutral-500">
         Made with <Heart className="h-3.5 w-3.5 text-rose-400" /> · 欢迎 Issue 与 PR

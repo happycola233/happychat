@@ -23,7 +23,7 @@ import type {
 } from '@shared/types/domain'
 import { useIsDark } from '../lib/useIsDark'
 import { Button } from '../components/ui/Button'
-import { SectionCard } from '../components/ui/SectionCard'
+import { SettingsSection } from '../components/ui/SettingsSection'
 import { TextField } from '../components/ui/TextField'
 import { Toggle } from '../components/ui/Toggle'
 import { useMe } from '../hooks/useAuth'
@@ -44,9 +44,12 @@ import { Spinner } from '../components/ui/Spinner'
 import { ShareDialog } from './ShareDialog'
 import { AvatarCropDialog } from './AvatarCropDialog'
 import { AboutPanel } from './AboutPanel'
+import { HOVER_REVEAL_CLASS } from './rowMenu'
 import { CopyIcon, DeleteIcon, ExternalLinkIcon } from './icons'
 
 const USERNAME_PATTERN = /^[a-zA-Z0-9_.-]+$/
+const AVATAR_ACTION_BUTTON_CLASS =
+  '!rounded-lg border !px-2.5 !py-1.5 text-xs shadow-none hover:border-neutral-300 hover:bg-neutral-50 dark:hover:border-neutral-600 dark:hover:bg-neutral-800/70'
 
 const ACCENT_OPTIONS = [
   { value: 'default', label: '默认', light: '#b4b4b4', dark: '#9b9b9b' },
@@ -76,13 +79,30 @@ type BooleanPrefKey = {
   [K in keyof UserPreferences]: UserPreferences[K] extends boolean ? K : never
 }[keyof UserPreferences]
 
-function Row({ title, desc, control }: { title: string; desc?: ReactNode; control: ReactNode }) {
+function Row({
+  title,
+  desc,
+  control,
+  spacing = 'default',
+}: {
+  title: string
+  desc?: ReactNode
+  control: ReactNode
+  spacing?: 'default' | 'relaxed'
+}) {
   return (
-    <div className="flex items-center justify-between gap-5 py-3.5">
+    <div
+      className={clsx(
+        'flex items-center justify-between gap-5',
+        spacing === 'relaxed' ? 'py-3.5' : 'py-3',
+      )}
+    >
       <div className="min-w-0">
-        <div className="text-[14px] text-neutral-900 dark:text-neutral-100">{title}</div>
+        <div className="text-[13.5px] font-medium text-neutral-800 dark:text-neutral-100">
+          {title}
+        </div>
         {desc && (
-          <div className="mt-0.5 text-[12px] leading-5 text-neutral-500 dark:text-neutral-400">
+          <div className="mt-0.5 text-[12px] leading-5 text-neutral-400 dark:text-neutral-500">
             {desc}
           </div>
         )}
@@ -97,21 +117,20 @@ type SelectOption<T extends string> = {
   label: string
 }
 
-function PreferenceSelect<
-  T extends string,
-  TOption extends SelectOption<T> = SelectOption<T>,
->({
+function PreferenceSelect<T extends string, TOption extends SelectOption<T> = SelectOption<T>>({
   value,
   options,
   onChange,
   menuClassName = 'w-56',
   leading,
+  ariaLabel,
 }: {
   value: T
   options: readonly TOption[]
   onChange: (v: T) => void
   menuClassName?: string
   leading?: (option: TOption) => ReactNode
+  ariaLabel: string
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -134,21 +153,27 @@ function PreferenceSelect<
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
+        aria-label={ariaLabel}
         onClick={() => setOpen((v) => !v)}
         className={clsx(
-          'inline-flex items-center gap-2 rounded-xl px-3 py-2 text-[14px] font-medium text-neutral-800 transition hover:bg-neutral-100 dark:text-neutral-100 dark:hover:bg-neutral-800',
-          open && 'bg-neutral-100 dark:bg-neutral-800',
+          '-my-1 -mr-2.5 inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-neutral-600 transition hover:bg-neutral-100 hover:text-neutral-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-300 dark:text-neutral-300 dark:hover:bg-neutral-800 dark:hover:text-neutral-100 dark:focus-visible:ring-neutral-700',
+          open && 'bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100',
         )}
       >
         {leading?.(selected)}
         <span>{selected.label}</span>
-        <ChevronDown className={clsx('h-4 w-4 transition-transform', open && 'rotate-180')} />
+        <ChevronDown
+          className={clsx(
+            'h-4 w-4 text-neutral-400 transition-transform dark:text-neutral-500',
+            open && 'rotate-180',
+          )}
+        />
       </button>
       {open && (
         <div
           role="menu"
           className={clsx(
-            'hc-pop-in absolute right-0 top-full z-40 mt-2 rounded-2xl border border-black/10 bg-white p-1.5 text-neutral-900 shadow-[0_18px_45px_rgba(0,0,0,0.18)] dark:border-white/10 dark:bg-[#303030] dark:text-neutral-100 dark:shadow-[0_18px_45px_rgba(0,0,0,0.45)]',
+            'hc-pop-in absolute right-0 top-full z-40 mt-2 min-w-full rounded-2xl border border-black/10 bg-white p-1.5 text-neutral-900 shadow-[0_18px_45px_rgba(0,0,0,0.18)] dark:border-white/10 dark:bg-[#303030] dark:text-neutral-100 dark:shadow-[0_18px_45px_rgba(0,0,0,0.45)]',
             menuClassName,
           )}
         >
@@ -165,7 +190,7 @@ function PreferenceSelect<
                   setOpen(false)
                 }}
                 className={clsx(
-                  'flex min-h-10 w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[14px] font-medium transition hover:bg-neutral-100 dark:hover:bg-white/10',
+                  'flex min-h-9 w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] font-medium transition hover:bg-neutral-100 dark:hover:bg-white/10',
                   active && 'bg-neutral-100 dark:bg-white/10',
                 )}
               >
@@ -190,15 +215,13 @@ function AccentColorSelect() {
 
   return (
     <PreferenceSelect
+      ariaLabel="重点色"
       value={value}
       onChange={(v) => setPreference('accentColor', v)}
       options={ACCENT_OPTIONS}
       menuClassName="w-64"
       leading={(option) => (
-        <span
-          className="h-3.5 w-3.5 rounded-full"
-          style={{ backgroundColor: swatchOf(option) }}
-        />
+        <span className="h-3.5 w-3.5 rounded-full" style={{ backgroundColor: swatchOf(option) }} />
       )}
     />
   )
@@ -215,7 +238,15 @@ function PrefToggleRow({
 }) {
   const checked = useSettings((s) => s.preferences[prefKey])
   const setPreference = useSettings((s) => s.setPreference)
-  return <Row title={title} desc={desc} control={<Toggle checked={checked} onChange={(v) => setPreference(prefKey, v)} />} />
+  return (
+    <Row
+      title={title}
+      desc={desc}
+      control={
+        <Toggle checked={checked} onChange={(v) => setPreference(prefKey, v)} ariaLabel={title} />
+      }
+    />
+  )
 }
 
 function GeneralPanel() {
@@ -223,48 +254,58 @@ function GeneralPanel() {
   const setTheme = useSettings((s) => s.setTheme)
 
   return (
-    <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
-      <Row
-        title="主题"
-        control={
-          <PreferenceSelect<ThemePreference>
-            value={theme}
-            onChange={setTheme}
-            options={[
-              { value: 'system', label: '跟随系统' },
-              { value: 'light', label: '浅色' },
-              { value: 'dark', label: '深色' },
-            ]}
-          />
-        }
-      />
-      <Row title="重点色" control={<AccentColorSelect />} />
-      <PrefToggleRow
-        prefKey="showNewChatGradientGlow"
-        title="启用新聊天渐变光晕背景"
-        desc="在桌面端新聊天页输入框后方显示柔和渐变光晕。"
-      />
-      <PrefToggleRow
-        prefKey="sendOnEnterDesktop"
-        title="桌面端按 Enter 发送消息"
-        desc="开启后按 Enter 发送、Shift+Enter 换行；关闭后按 Enter 换行，需 Ctrl/⌘+Enter 发送。"
-      />
-      <PrefToggleRow
-        prefKey="sendOnEnterMobile"
-        title="手机端按 Enter 发送消息"
-        desc="默认关闭：按 Enter 换行，点发送按钮发送，更符合手机输入习惯；开启后按 Enter 直接发送。"
-      />
-      <PrefToggleRow
-        prefKey="autoScrollOnOpen"
-        title="打开对话时自动滚动到底部"
-        desc="开启后，进入或切换对话时直接显示最新消息；关闭后从对话顶部的最早消息开始显示。"
-      />
-      <PrefToggleRow prefKey="showScrollToBottom" title="显示「滚动到底部」按钮" />
-      <PrefToggleRow
-        prefKey="showTimelineNav"
-        title="消息时间轴导航"
-        desc="在聊天右侧显示你发送过的消息列表，悬停查看、点击快速跳转（仅桌面端视图）。"
-      />
+    <div className="pb-2">
+      <SettingsSection title="外观">
+        <Row
+          title="主题"
+          spacing="relaxed"
+          control={
+            <PreferenceSelect<ThemePreference>
+              ariaLabel="主题"
+              value={theme}
+              onChange={setTheme}
+              options={[
+                { value: 'system', label: '跟随系统' },
+                { value: 'light', label: '浅色' },
+                { value: 'dark', label: '深色' },
+              ]}
+            />
+          }
+        />
+        <Row title="重点色" spacing="relaxed" control={<AccentColorSelect />} />
+        <PrefToggleRow
+          prefKey="showNewChatGradientGlow"
+          title="新聊天渐变光晕背景"
+          desc="在桌面端新聊天页输入框后方显示柔和渐变光晕。"
+        />
+      </SettingsSection>
+
+      <SettingsSection title="发送与换行">
+        <PrefToggleRow
+          prefKey="sendOnEnterDesktop"
+          title="桌面端按 Enter 发送消息"
+          desc="开启后按 Enter 发送、Shift+Enter 换行；关闭后按 Enter 换行，需 Ctrl/⌘+Enter 发送。"
+        />
+        <PrefToggleRow
+          prefKey="sendOnEnterMobile"
+          title="手机端按 Enter 发送消息"
+          desc="默认关闭：按 Enter 换行，点发送按钮发送，更符合手机输入习惯；开启后按 Enter 直接发送。"
+        />
+      </SettingsSection>
+
+      <SettingsSection title="滚动与导航">
+        <PrefToggleRow
+          prefKey="autoScrollOnOpen"
+          title="打开对话时自动滚动到底部"
+          desc="开启后，进入或切换对话时直接显示最新消息；关闭后从对话顶部的最早消息开始显示。"
+        />
+        <PrefToggleRow prefKey="showScrollToBottom" title="显示「滚动到底部」按钮" />
+        <PrefToggleRow
+          prefKey="showTimelineNav"
+          title="消息时间轴导航"
+          desc="在聊天右侧显示你发送过的消息列表，悬停查看、点击快速跳转（仅桌面端视图）。"
+        />
+      </SettingsSection>
     </div>
   )
 }
@@ -275,48 +316,64 @@ function MessagesPanel() {
   const messageTimeFormat = useSettings((s) => s.preferences.messageTimeFormat)
   const setPreference = useSettings((s) => s.setPreference)
   return (
-    <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
-      <Row
-        title="消息字体大小"
-        control={
-          <PreferenceSelect<MessageFontSize>
-            value={fontSize}
-            onChange={(v) => setPreference('messageFontSize', v)}
-            options={[
-              { value: 'small', label: '小' },
-              { value: 'medium', label: '中' },
-              { value: 'large', label: '大' },
-            ]}
-          />
-        }
-      />
-      <PrefToggleRow prefKey="showMessageTime" title="显示消息时间" desc="在每条消息旁显示发送/生成时间。" />
-      {showMessageTime && (
+    <div className="pb-2">
+      <SettingsSection title="排版">
         <Row
-          title="时间格式"
+          title="消息字体大小"
+          spacing="relaxed"
           control={
-            <PreferenceSelect<MessageTimeFormat>
-              value={messageTimeFormat}
-              onChange={(v) => setPreference('messageTimeFormat', v)}
+            <PreferenceSelect<MessageFontSize>
+              ariaLabel="消息字体大小"
+              value={fontSize}
+              onChange={(v) => setPreference('messageFontSize', v)}
               options={[
-                { value: 'time', label: '仅时间' },
-                { value: 'datetime', label: '日期+时间' },
+                { value: 'small', label: '小' },
+                { value: 'medium', label: '中' },
+                { value: 'large', label: '大' },
               ]}
             />
           }
         />
-      )}
-      <PrefToggleRow prefKey="showModelLabel" title="在助手消息显示模型名称" />
-      <PrefToggleRow
-        prefKey="showUsageStats"
-        title="显示用量明细"
-        desc="在助手消息下方显示 Token（含缓存写入/读取）、生成速度（tok/s）与耗时。"
-      />
-      <PrefToggleRow
-        prefKey="defaultExpandReasoning"
-        title="默认展开推理摘要"
-        desc="关闭后推理摘要将默认保持折叠。"
-      />
+      </SettingsSection>
+
+      <SettingsSection title="消息时间">
+        <PrefToggleRow
+          prefKey="showMessageTime"
+          title="显示消息时间"
+          desc="在每条消息旁显示发送/生成时间。"
+        />
+        {showMessageTime && (
+          <Row
+            title="时间格式"
+            spacing="relaxed"
+            control={
+              <PreferenceSelect<MessageTimeFormat>
+                ariaLabel="消息时间格式"
+                value={messageTimeFormat}
+                onChange={(v) => setPreference('messageTimeFormat', v)}
+                options={[
+                  { value: 'time', label: '仅时间' },
+                  { value: 'datetime', label: '日期+时间' },
+                ]}
+              />
+            }
+          />
+        )}
+      </SettingsSection>
+
+      <SettingsSection title="助手消息">
+        <PrefToggleRow prefKey="showModelLabel" title="在助手消息显示模型名称" />
+        <PrefToggleRow
+          prefKey="showUsageStats"
+          title="显示用量明细"
+          desc="在助手消息下方显示 Token（含缓存写入/读取）、生成速度（tok/s）与耗时。"
+        />
+        <PrefToggleRow
+          prefKey="defaultExpandReasoning"
+          title="默认展开推理摘要"
+          desc="关闭后推理摘要将默认保持折叠。"
+        />
+      </SettingsSection>
     </div>
   )
 }
@@ -352,10 +409,10 @@ function SharesPanel() {
 
   const active = (shares ?? []).filter((s) => !s.revoked)
   const iconButtonClass =
-    'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-neutral-400 transition hover:bg-neutral-200/60 hover:text-neutral-700 dark:hover:bg-neutral-700/60 dark:hover:text-neutral-200'
+    'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-neutral-400 transition hover:bg-neutral-200/60 hover:text-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-300 dark:hover:bg-neutral-700/60 dark:hover:text-neutral-200 dark:focus-visible:ring-neutral-700'
 
   return (
-    <div className="py-4">
+    <div className="pb-4 pt-1">
       <p className="text-[12px] leading-5 text-neutral-400 dark:text-neutral-500">
         分享链接是创建时定格的快照，对方无需登录即可查看；在「分享设置」中可更新内容、调整有效期或停止分享。
       </p>
@@ -373,51 +430,50 @@ function SharesPanel() {
         </div>
       ) : (
         <>
-          <div className="mt-3 overflow-hidden rounded-2xl border border-neutral-200 dark:border-neutral-800">
-            <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
-              {active.map((s) => {
-                const expired = isShareExpired(s)
-                return (
-                  <div
-                    key={s.id}
-                    className="flex items-center gap-2 px-4 py-3 transition hover:bg-neutral-50/80 dark:hover:bg-neutral-800/40"
+          <div className="mt-2 divide-y divide-neutral-100 dark:divide-neutral-800">
+            {active.map((s) => {
+              const expired = isShareExpired(s)
+              return (
+                <div
+                  key={s.id}
+                  className="group -mx-2 flex items-center gap-1 rounded-lg px-2 py-2.5 transition hover:bg-neutral-50 dark:hover:bg-neutral-800/40"
+                >
+                  <button
+                    type="button"
+                    onClick={() => openConversation(s.conversationId)}
+                    title="在聊天中打开原对话"
+                    className="group/title min-w-0 flex-1 text-left"
                   >
-                    <button
-                      type="button"
-                      onClick={() => openConversation(s.conversationId)}
-                      title="在聊天中打开原对话"
-                      className="group/title min-w-0 flex-1 text-left"
-                    >
-                      <div className="flex min-w-0 items-center gap-1.5">
-                        <span
-                          className={clsx(
-                            'truncate text-sm font-medium group-hover/title:underline',
-                            expired
-                              ? 'text-neutral-400 dark:text-neutral-500'
-                              : 'text-neutral-800 dark:text-neutral-100',
-                          )}
-                        >
-                          {s.title ?? '（无标题）'}
-                        </span>
-                        {expired ? (
-                          <span className="shrink-0 rounded-md bg-amber-500/10 px-1.5 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">
-                            已过期
-                          </span>
-                        ) : (
-                          !s.expiresAt && (
-                            <span className="shrink-0 rounded-md bg-neutral-100 px-1.5 py-0.5 text-[11px] text-neutral-400 dark:bg-neutral-800 dark:text-neutral-500">
-                              永久
-                            </span>
-                          )
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <span
+                        className={clsx(
+                          'truncate text-[13.5px] font-medium group-hover/title:underline',
+                          expired
+                            ? 'text-neutral-400 dark:text-neutral-500'
+                            : 'text-neutral-800 dark:text-neutral-100',
                         )}
-                      </div>
-                      <div className="mt-0.5 truncate text-[12px] text-neutral-400">
-                        分享于 {formatShortDate(s.updatedAt)} · {s.messageCount} 条消息
-                        {!s.includeAttachments && ' · 不含附件'}
-                        {s.expiresAt &&
-                          ` · ${expired ? `已于 ${formatShortDate(s.expiresAt)} 过期` : `${formatShortDate(s.expiresAt)} 到期`}`}
-                      </div>
-                    </button>
+                      >
+                        {s.title ?? '（无标题）'}
+                      </span>
+                      {expired && (
+                        <span className="shrink-0 rounded-md bg-amber-500/10 px-1.5 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                          已过期
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-0.5 truncate text-[12px] text-neutral-400 dark:text-neutral-500">
+                      分享于 {formatShortDate(s.updatedAt)} · {s.messageCount} 条消息
+                      {!s.includeAttachments && ' · 不含附件'}
+                      {s.expiresAt &&
+                        ` · ${expired ? `已于 ${formatShortDate(s.expiresAt)} 过期` : `${formatShortDate(s.expiresAt)} 到期`}`}
+                    </div>
+                  </button>
+                  <div
+                    className={clsx(
+                      'flex shrink-0 items-center gap-0.5 transition',
+                      HOVER_REVEAL_CLASS,
+                    )}
+                  >
                     <button
                       type="button"
                       onClick={() => copyLink(s.id, s.token)}
@@ -465,9 +521,9 @@ function SharesPanel() {
                       <SlidersHorizontal className="h-4 w-4" />
                     </button>
                   </div>
-                )
-              })}
-            </div>
+                </div>
+              )
+            })}
           </div>
           <p className="mt-2 px-1 text-right text-[12px] text-neutral-400 dark:text-neutral-500">
             共 {active.length} 个分享
@@ -596,9 +652,9 @@ function AccountPanel() {
   const avatarInitial = (me?.displayName ?? me?.username ?? 'U').slice(0, 1).toLocaleUpperCase()
 
   return (
-    <div className="space-y-4 py-4">
-      <SectionCard title="个人资料">
-        <div className="flex items-center gap-4">
+    <div className="pb-2">
+      <SettingsSection title="个人资料">
+        <div className="flex items-center gap-4 py-3">
           <input
             ref={fileRef}
             type="file"
@@ -631,8 +687,11 @@ function AccountPanel() {
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <Button
-                variant="secondary"
-                className="!px-2.5 !py-1.5 text-xs"
+                variant="ghost"
+                className={clsx(
+                  AVATAR_ACTION_BUTTON_CLASS,
+                  'border-neutral-200/80 text-neutral-600 dark:border-neutral-700/80 dark:text-neutral-300',
+                )}
                 onClick={() => fileRef.current?.click()}
               >
                 更换头像
@@ -640,7 +699,10 @@ function AccountPanel() {
               {me?.avatarUrl && (
                 <Button
                   variant="ghost"
-                  className="!px-2.5 !py-1.5 text-xs"
+                  className={clsx(
+                    AVATAR_ACTION_BUTTON_CLASS,
+                    'border-neutral-200/60 text-neutral-500 hover:text-neutral-700 dark:border-neutral-700/60 dark:text-neutral-400 dark:hover:text-neutral-200',
+                  )}
                   loading={removeAvatar.isPending}
                   onClick={() =>
                     removeAvatar.mutate(undefined, {
@@ -658,67 +720,79 @@ function AccountPanel() {
           </div>
         </div>
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <TextField
-            label="用户名"
-            value={username}
-            maxLength={32}
-            autoComplete="username"
-            error={usernameError}
-            hint="用于登录"
-            onChange={(e) => setUsername(e.target.value)}
-          />
-          <TextField
-            label="显示名称"
-            value={displayName}
-            maxLength={48}
-            placeholder={me?.username ?? ''}
-            hint="展示给自己与分享页"
-            onChange={(e) => setDisplayName(e.target.value)}
-          />
+        <div className="py-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <TextField
+              variant="filled"
+              label="用户名"
+              value={username}
+              maxLength={32}
+              autoComplete="username"
+              error={usernameError}
+              hint="用于登录"
+              onChange={(e) => setUsername(e.target.value)}
+            />
+            <TextField
+              variant="filled"
+              label="显示名称"
+              value={displayName}
+              maxLength={48}
+              placeholder={me?.username ?? ''}
+              hint="展示给自己与分享页"
+              onChange={(e) => setDisplayName(e.target.value)}
+            />
+          </div>
+          <div className="mt-3 flex justify-end">
+            <Button
+              variant="accent"
+              className="!px-3 !py-1.5 text-xs"
+              loading={updateProfile.isPending}
+              disabled={!canSaveProfile}
+              onClick={onSaveProfile}
+            >
+              保存资料
+            </Button>
+          </div>
         </div>
-        <div className="mt-3 flex justify-end">
-          <Button
-            className="!px-3 !py-1.5 text-xs"
-            loading={updateProfile.isPending}
-            disabled={!canSaveProfile}
-            onClick={onSaveProfile}
-          >
-            保存资料
-          </Button>
-        </div>
-      </SectionCard>
+      </SettingsSection>
 
-      <SectionCard title="更换密码" description="更新密码后，其它设备上的登录将全部失效。">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <TextField
-            type="password"
-            label="当前密码"
-            autoComplete="current-password"
-            value={currentPassword}
-            onChange={(e) => setCurrentPassword(e.target.value)}
-          />
-          <TextField
-            type="password"
-            label="新密码"
-            autoComplete="new-password"
-            hint="至少 6 位"
-            value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
-          />
+      <SettingsSection title="更换密码">
+        <div className="py-3">
+          <p className="mb-3 text-[12px] leading-5 text-neutral-400 dark:text-neutral-500">
+            更新密码后，其它设备上的登录将全部失效。
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <TextField
+              variant="filled"
+              type="password"
+              label="当前密码"
+              autoComplete="current-password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+            />
+            <TextField
+              variant="filled"
+              type="password"
+              label="新密码"
+              autoComplete="new-password"
+              hint="至少 6 位"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+            />
+          </div>
+          <div className="mt-3 flex justify-end">
+            <Button
+              variant="accent"
+              className="!px-3 !py-1.5 text-xs"
+              loading={changePassword.isPending}
+              disabled={currentPassword.length < 1 || newPassword.length < 6}
+              onClick={onChangePassword}
+            >
+              更新密码
+            </Button>
+          </div>
         </div>
-        <div className="mt-3 flex justify-end">
-          <Button
-            variant="secondary"
-            className="!px-3 !py-1.5 text-xs"
-            loading={changePassword.isPending}
-            disabled={currentPassword.length < 1 || newPassword.length < 6}
-            onClick={onChangePassword}
-          >
-            更新密码
-          </Button>
-        </div>
-      </SectionCard>
+      </SettingsSection>
 
       {cropImageSrc && (
         <AvatarCropDialog
@@ -729,90 +803,107 @@ function AccountPanel() {
         />
       )}
 
-      <SectionCard title="危险操作" danger>
+      <SettingsSection title="危险操作" danger>
         <div className="space-y-3">
-        {/* 清除所有对话 */}
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <div className="text-[14px] text-neutral-900 dark:text-neutral-100">清除所有对话</div>
-            <div className="text-[12px] text-neutral-500 dark:text-neutral-400">删除你的全部对话与附件，不可恢复。</div>
-          </div>
-          {confirmClear ? (
-            <div className="flex shrink-0 gap-2">
-              <Button variant="ghost" onClick={() => setConfirmClear(false)}>
-                取消
-              </Button>
-              <Button variant="danger" loading={clearConversations.isPending} onClick={onClearAll}>
-                确认清除
-              </Button>
-            </div>
-          ) : (
-            <Button variant="secondary" className="shrink-0" onClick={() => setConfirmClear(true)}>
-              <DeleteIcon className="h-4 w-4" />
-              清除
-            </Button>
-          )}
-        </div>
-
-        <div className="border-t border-red-100 dark:border-red-900/30" />
-
-        {/* 删除账户 */}
-        <div>
+          {/* 清除所有对话 */}
           <div className="flex items-center justify-between gap-4">
             <div>
-              <div className="text-[14px] text-neutral-900 dark:text-neutral-100">删除账户</div>
-              <div className="text-[12px] text-neutral-500 dark:text-neutral-400">永久删除账户及其全部数据，不可恢复。</div>
+              <div className="text-[14px] text-neutral-900 dark:text-neutral-100">清除所有对话</div>
+              <div className="text-[12px] text-neutral-500 dark:text-neutral-400">
+                删除你的全部对话与附件，不可恢复。
+              </div>
             </div>
-            {!confirmDelete && (
-              <Button variant="danger" className="shrink-0" onClick={() => setConfirmDelete(true)}>
-                删除账户
-              </Button>
-            )}
-          </div>
-          {confirmDelete && (
-            <div className="mt-3 space-y-2.5">
-              <TextField
-                type="password"
-                label="输入密码以确认"
-                autoComplete="current-password"
-                value={deletePassword}
-                onChange={(e) => setDeletePassword(e.target.value)}
-              />
-              <div className="flex justify-end gap-2">
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    setConfirmDelete(false)
-                    setDeletePassword('')
-                  }}
-                >
+            {confirmClear ? (
+              <div className="flex shrink-0 gap-2">
+                <Button variant="ghost" onClick={() => setConfirmClear(false)}>
                   取消
                 </Button>
                 <Button
                   variant="danger"
-                  loading={deleteAccount.isPending}
-                  disabled={deletePassword.length < 1}
-                  onClick={onDeleteAccount}
+                  loading={clearConversations.isPending}
+                  onClick={onClearAll}
                 >
-                  永久删除
+                  确认清除
                 </Button>
               </div>
+            ) : (
+              <Button
+                variant="secondary"
+                className="shrink-0"
+                onClick={() => setConfirmClear(true)}
+              >
+                <DeleteIcon className="h-4 w-4" />
+                清除
+              </Button>
+            )}
+          </div>
+
+          <div className="border-t border-red-100 dark:border-red-900/30" />
+
+          {/* 删除账户 */}
+          <div>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <div className="text-[14px] text-neutral-900 dark:text-neutral-100">删除账户</div>
+                <div className="text-[12px] text-neutral-500 dark:text-neutral-400">
+                  永久删除账户及其全部数据，不可恢复。
+                </div>
+              </div>
+              {!confirmDelete && (
+                <Button
+                  variant="danger"
+                  className="shrink-0"
+                  onClick={() => setConfirmDelete(true)}
+                >
+                  删除账户
+                </Button>
+              )}
             </div>
-          )}
+            {confirmDelete && (
+              <div className="mt-3 space-y-2.5">
+                <TextField
+                  type="password"
+                  label="输入密码以确认"
+                  autoComplete="current-password"
+                  value={deletePassword}
+                  onChange={(e) => setDeletePassword(e.target.value)}
+                />
+                <div className="flex justify-end gap-2">
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setConfirmDelete(false)
+                      setDeletePassword('')
+                    }}
+                  >
+                    取消
+                  </Button>
+                  <Button
+                    variant="danger"
+                    loading={deleteAccount.isPending}
+                    disabled={deletePassword.length < 1}
+                    onClick={onDeleteAccount}
+                  >
+                    永久删除
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
-        </div>
-      </SectionCard>
+      </SettingsSection>
     </div>
   )
 }
 
 export function SettingsDialog() {
   const { open, tab, closeDialog, setTab } = useSettingsDialog()
+  const contentRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!open) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
       // 设置页上层可能叠加分享设置弹窗/确认框等模态，让最上层模态自行处理 Escape。
       if (document.querySelector('[aria-modal="true"]')) return
       closeDialog()
@@ -821,58 +912,83 @@ export function SettingsDialog() {
     return () => window.removeEventListener('keydown', onKey)
   }, [open, closeDialog])
 
+  useEffect(() => {
+    if (!open) return
+    contentRef.current?.scrollTo({ top: 0 })
+  }, [open, tab])
+
   if (!open) return null
 
+  const activeTabLabel = TABS.find((item) => item.id === tab)?.label ?? ''
+
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center sm:p-4" data-testid="settings-dialog">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={closeDialog} />
-      <div className="hc-pop-in relative z-10 flex h-full w-full flex-col overflow-hidden bg-white dark:bg-neutral-900 sm:h-[640px] sm:max-h-[88vh] sm:max-w-3xl sm:rounded-2xl sm:shadow-xl">
-        {/* 头部 */}
-        <div className="flex items-center justify-between border-b border-neutral-200 px-5 py-4 dark:border-neutral-800">
-          <h3 className="text-[17px] font-semibold text-neutral-900 dark:text-neutral-100">设置</h3>
-          <button
-            type="button"
-            onClick={closeDialog}
-            className="rounded-lg p-1 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800"
-            aria-label="关闭"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center sm:p-4"
+      data-testid="settings-dialog"
+    >
+      <div className="absolute inset-0 bg-black/45 backdrop-blur-sm" onClick={closeDialog} />
+      <div className="hc-pop-in relative z-10 flex h-full w-full flex-col overflow-hidden bg-white dark:bg-neutral-900 sm:h-[640px] sm:max-h-[88vh] sm:max-w-3xl sm:rounded-2xl sm:shadow-2xl sm:ring-1 sm:ring-black/5 dark:sm:ring-white/10">
+        <button
+          type="button"
+          onClick={closeDialog}
+          className="absolute right-3.5 top-3 z-20 flex h-8 w-8 items-center justify-center rounded-full text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+          aria-label="关闭"
+        >
+          <X className="h-[18px] w-[18px]" />
+        </button>
 
         <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
-          {/* 标签导航：桌面左侧竖排 / 移动端顶部横排 */}
-          <nav className="flex shrink-0 gap-1 overflow-x-auto border-b border-neutral-200 px-3 py-2 dark:border-neutral-800 sm:w-48 sm:flex-col sm:overflow-visible sm:border-b-0 sm:border-r sm:p-3">
-            {TABS.map((t) => {
-              const Icon = t.icon
-              const active = t.id === tab
-              return (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => setTab(t.id)}
-                  className={clsx(
-                    'flex shrink-0 items-center gap-2.5 whitespace-nowrap rounded-lg px-3 py-2 text-left text-[14px] transition',
-                    active
-                      ? 'bg-neutral-100 font-medium text-neutral-900 dark:bg-neutral-800 dark:text-white'
-                      : 'text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800',
-                  )}
-                >
-                  <Icon className="h-[18px] w-[18px]" />
-                  {t.label}
-                </button>
-              )
-            })}
-          </nav>
+          <aside className="flex shrink-0 flex-col border-b border-neutral-100 bg-neutral-50/80 dark:border-neutral-800 dark:bg-neutral-950/30 sm:w-52 sm:border-b-0 sm:border-r sm:border-neutral-200/70 dark:sm:border-neutral-800">
+            <h3 className="flex h-14 shrink-0 items-center px-5 pt-2 text-[17px] font-semibold text-neutral-900 dark:text-neutral-100">
+              设置
+            </h3>
 
-          {/* 内容 */}
-          <div className="hc-scrollbar min-h-0 flex-1 overflow-y-auto px-5 py-1 sm:px-6">
-            {tab === 'general' && <GeneralPanel />}
-            {tab === 'messages' && <MessagesPanel />}
-            {tab === 'account' && <AccountPanel />}
-            {tab === 'shares' && <SharesPanel />}
-            {tab === 'about' && <AboutPanel />}
-          </div>
+            <nav className="flex gap-1 overflow-x-auto px-3 pb-3 pt-1.5 sm:flex-1 sm:flex-col sm:overflow-visible sm:pb-3">
+              {TABS.map((item) => {
+                const Icon = item.icon
+                const active = item.id === tab
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setTab(item.id)}
+                    className={clsx(
+                      'flex shrink-0 items-center gap-2.5 whitespace-nowrap rounded-xl px-3 py-2 text-left text-[13px] transition',
+                      active
+                        ? 'bg-black/[0.06] font-medium text-neutral-900 dark:bg-white/10 dark:text-white'
+                        : 'text-neutral-500 hover:bg-black/[0.04] hover:text-neutral-800 dark:text-neutral-400 dark:hover:bg-white/5 dark:hover:text-neutral-200',
+                    )}
+                  >
+                    <Icon
+                      className={clsx(
+                        'h-4 w-4',
+                        active
+                          ? 'text-neutral-700 dark:text-neutral-200'
+                          : 'text-neutral-400 dark:text-neutral-500',
+                      )}
+                    />
+                    {item.label}
+                  </button>
+                )
+              })}
+            </nav>
+          </aside>
+
+          <section className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <h4 className="flex h-16 shrink-0 items-center px-5 pr-14 text-[15px] font-semibold text-neutral-900 dark:text-neutral-100 sm:px-6">
+              {activeTabLabel}
+            </h4>
+            <div
+              ref={contentRef}
+              className="hc-scrollbar min-h-0 flex-1 overflow-y-auto px-5 pb-6 sm:px-6"
+            >
+              {tab === 'general' && <GeneralPanel />}
+              {tab === 'messages' && <MessagesPanel />}
+              {tab === 'account' && <AccountPanel />}
+              {tab === 'shares' && <SharesPanel />}
+              {tab === 'about' && <AboutPanel />}
+            </div>
+          </section>
         </div>
       </div>
     </div>

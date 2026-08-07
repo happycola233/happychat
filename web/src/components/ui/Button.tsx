@@ -2,7 +2,7 @@ import { clsx } from 'clsx'
 import type { ButtonHTMLAttributes } from 'react'
 import { Spinner } from './Spinner'
 
-type Variant = 'primary' | 'secondary' | 'ghost' | 'danger'
+type Variant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'accent'
 
 interface Props extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant
@@ -30,6 +30,8 @@ export function Button({
           'text-neutral-600 hover:bg-neutral-100 focus-visible:ring-neutral-400/50 dark:text-neutral-300 dark:hover:bg-neutral-800',
         variant === 'danger' &&
           'bg-red-600 text-white shadow-xs hover:bg-red-500 focus-visible:ring-red-500/50',
+        variant === 'accent' &&
+          'bg-[var(--hc-accent-strong)] text-[var(--hc-accent-strong-fg)] shadow-xs hover:brightness-95 focus-visible:ring-neutral-400/50',
         className,
       )}
       {...rest}
