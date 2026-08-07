@@ -9,6 +9,7 @@ export interface ReplayableRunEvent {
 const APPEND_DELTA_TYPES = new Set([
   'response.output_text.delta',
   'response.reasoning_summary_text.delta',
+  'response.reasoning_text.delta',
 ])
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '')

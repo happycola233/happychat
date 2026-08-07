@@ -27,7 +27,8 @@ export function mapUsage(u: UpstreamUsage | undefined): MessageUsage {
 /** 解析非流式 Response 对象的 output[]：拼接正文、收集引用与思考摘要。 */
 export function parseResponse(r: UpstreamResponse): ParsedResponse {
   let text = ''
-  const reasoningParts: string[] = []
+  const reasoningSummaryParts: string[] = []
+  const rawReasoningParts: string[] = []
   const annotations: UrlCitation[] = []
 
   for (const item of r.output ?? []) {
@@ -50,19 +51,27 @@ export function parseResponse(r: UpstreamResponse): ParsedResponse {
       }
     } else if (item.type === 'reasoning') {
       for (const summaryPart of item.summary ?? []) {
-        reasoningParts.push(summaryPart.text ?? '')
+        reasoningSummaryParts.push(summaryPart.text ?? '')
+      }
+      for (const contentPart of item.content ?? []) {
+        if (contentPart.type === 'reasoning_text') {
+          rawReasoningParts.push(contentPart.text ?? '')
+        }
       }
     }
   }
 
-  const reasoningSummary = joinReasoningSummaryParts(reasoningParts)
+  // 闭源模型通常只返回 summary；DeepSeek 等兼容上游会在 content 中返回 raw
+  // reasoning_text。两者并存时优先采用摘要，避免同一推理重复展示与持久化。
+  const reasoningSummary = joinReasoningSummaryParts(reasoningSummaryParts)
+  const rawReasoning = joinReasoningSummaryParts(rawReasoningParts)
 
   return {
     responseId: r.id ?? null,
     status: r.status ?? 'completed',
     text,
     annotations,
-    reasoningSummary: reasoningSummary || null,
+    reasoningSummary: reasoningSummary || rawReasoning || null,
     usage: mapUsage(r.usage),
     incompleteReason: r.incomplete_details?.reason ?? null,
     error: r.error ? { message: r.error.message ?? '生成失败', code: r.error.code } : null,

@@ -29,4 +29,37 @@ describe('parseResponse', () => {
       reasoningSummary: '**Planning**\n\n**Checking**\n\n**Answering**',
     })
   })
+
+  it('uses raw reasoning_text when an upstream returns no summary', () => {
+    const response: UpstreamResponse = {
+      output: [
+        {
+          type: 'reasoning',
+          summary: [],
+          content: [{ type: 'reasoning_text', text: '第一段推理' }],
+        },
+        {
+          type: 'reasoning',
+          summary: [],
+          content: [{ type: 'reasoning_text', text: '第二段推理' }],
+        },
+      ],
+    }
+
+    expect(parseResponse(response).reasoningSummary).toBe('第一段推理\n\n第二段推理')
+  })
+
+  it('prefers a reasoning summary when summary and raw text are both present', () => {
+    const response: UpstreamResponse = {
+      output: [
+        {
+          type: 'reasoning',
+          summary: [{ type: 'summary_text', text: '可展示摘要' }],
+          content: [{ type: 'reasoning_text', text: '不应重复展示的原始推理' }],
+        },
+      ],
+    }
+
+    expect(parseResponse(response).reasoningSummary).toBe('可展示摘要')
+  })
 })

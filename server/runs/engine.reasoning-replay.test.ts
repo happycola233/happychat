@@ -230,6 +230,85 @@ describe('runEngine reasoning replay privacy and terminal handling', () => {
     expect(done?.data).not.toHaveProperty('providerReplayContext')
   })
 
+  it('streams and persists raw reasoning_text when the upstream returns no summary', async () => {
+    const fixture = await createEngineFixture()
+    const terminalReasoningItem = {
+      id: 'rs-raw',
+      type: 'reasoning',
+      status: 'completed',
+      summary: [],
+      content: [{ type: 'reasoning_text', text: '终态原始推理' }],
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        sseResponse([
+          {
+            type: 'response.reasoning_text.delta',
+            item_id: 'rs-raw',
+            output_index: 0,
+            content_index: 0,
+            delta: '流式原始',
+          },
+          {
+            type: 'response.reasoning_text.delta',
+            item_id: 'rs-raw',
+            output_index: 0,
+            content_index: 0,
+            delta: '推理',
+          },
+          { type: 'response.output_text.delta', delta: '流式正文' },
+          {
+            type: 'response.completed',
+            response: {
+              id: 'response-raw',
+              status: 'completed',
+              output: [
+                terminalReasoningItem,
+                {
+                  id: 'message-raw',
+                  type: 'message',
+                  role: 'assistant',
+                  content: [{ type: 'output_text', text: '终态正文', annotations: [] }],
+                },
+              ],
+              usage: {
+                input_tokens: 9,
+                output_tokens: 17,
+                output_tokens_details: { reasoning_tokens: 15 },
+                total_tokens: 26,
+              },
+            },
+          },
+        ]),
+      ),
+    )
+
+    const emitted: Array<{ type: string; data: Record<string, unknown> }> = []
+    const unsubscribe = emitter.runEmitter.subscribe(fixture.run.id, (event) => {
+      emitted.push({ type: event.type, data: event.data })
+    })
+    await engine.runEngine(fixture)
+    unsubscribe()
+
+    const storedMessage = await dbClient.db.query.messages.findFirst({
+      where: eq(schema.messages.id, fixture.assistantMessage.id),
+    })
+    expect(storedMessage).toMatchObject({
+      status: 'complete',
+      content: [{ type: 'output_text', text: '终态正文' }],
+      reasoningSummary: '终态原始推理',
+    })
+    expect(emitted.filter((event) => event.type === 'response.reasoning_text.delta')).toHaveLength(
+      2,
+    )
+    expect(emitted.find((event) => event.type === 'run.done')?.data).toMatchObject({
+      state: 'completed',
+      text: '终态正文',
+      reasoningSummary: '终态原始推理',
+    })
+  })
+
   it.each([
     ['after deltas', [{ type: 'response.output_text.delta', delta: 'partial only' }]],
     ['without events', []],

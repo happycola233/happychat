@@ -18,9 +18,12 @@ function hasOutputText(response: UpstreamResponse): boolean {
   )
 }
 
-function hasReasoningSummary(response: UpstreamResponse): boolean {
+function hasReasoningText(response: UpstreamResponse): boolean {
   return (response.output ?? []).some(
-    (item) => item.type === 'reasoning' && (item.summary?.length ?? 0) > 0,
+    (item) =>
+      item.type === 'reasoning' &&
+      ((item.summary?.length ?? 0) > 0 ||
+        (item.content ?? []).some((contentPart) => contentPart.type === 'reasoning_text')),
   )
 }
 
@@ -39,11 +42,11 @@ export function reconcileFinalResponse(
 
   const parsed = parseResponse(response)
   const outputTextIsFinal = hasOutputText(response)
-  const reasoningSummaryIsFinal = hasReasoningSummary(response)
+  const reasoningTextIsFinal = hasReasoningText(response)
 
   return {
     text: outputTextIsFinal ? parsed.text : current.text,
-    reasoningSummary: reasoningSummaryIsFinal ? parsed.reasoningSummary : current.reasoningSummary,
+    reasoningSummary: reasoningTextIsFinal ? parsed.reasoningSummary : current.reasoningSummary,
     annotations: outputTextIsFinal ? parsed.annotations : current.annotations,
     usage: response.usage ? parsed.usage : current.usage,
     upstreamResponseId: parsed.responseId ?? current.upstreamResponseId,

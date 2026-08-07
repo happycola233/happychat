@@ -8,7 +8,10 @@ import type {
 } from '@shared/types/domain'
 import { RUN_EVENT_TYPE } from '@shared/types/events'
 import { isReasoningEnabled } from '@shared/util/reasoning'
-import { appendReasoningSummaryDelta } from '@shared/util/reasoningSummary'
+import {
+  appendReasoningSummaryDelta,
+  appendReasoningTextDelta,
+} from '@shared/util/reasoningSummary'
 import {
   isSearchCallItem,
   isXSearchActionType,
@@ -106,8 +109,10 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
   db.update(runs).set({ state: 'running', startedAt }).where(eq(runs.id, ctx.run.id)).run()
 
   let text = ''
-  let reasoning = ''
-  let reasoningPartKey: string | null = null
+  let reasoningSummary = ''
+  let reasoningSummaryPartKey: string | null = null
+  let rawReasoning = ''
+  let rawReasoningPartKey: string | null = null
   let annotations: UrlCitation[] = []
   let usage: MessageUsage = {
     inputTokens: 0,
@@ -255,11 +260,15 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
   const collectSearchActions = (): SearchAction[] =>
     [...searchActionsByCallId.values()].filter((action): action is SearchAction => action !== null)
 
+  // summary 与 raw reasoning_text 是 Responses 的两条独立通道。摘要存在时优先展示；
+  // DeepSeek 等只返回 raw reasoning 的上游则自然回落到完整推理文本。
+  const displayReasoning = (): string => reasoningSummary || rawReasoning
+
   const applyFinalResponse = (response: UpstreamResponse | undefined): void => {
     const reconciled = reconcileFinalResponse(
       {
         text,
-        reasoningSummary: reasoning || null,
+        reasoningSummary: displayReasoning() || null,
         annotations,
         usage,
         upstreamResponseId,
@@ -267,7 +276,10 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
       response,
     )
     text = reconciled.text
-    reasoning = reconciled.reasoningSummary ?? ''
+    reasoningSummary = reconciled.reasoningSummary ?? ''
+    reasoningSummaryPartKey = null
+    rawReasoning = ''
+    rawReasoningPartKey = null
     annotations = reconciled.annotations
     usage = reconciled.usage
     upstreamResponseId = reconciled.upstreamResponseId
@@ -451,11 +463,20 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
           break
         case 'response.reasoning_summary_text.delta': {
           const accumulatedReasoning = appendReasoningSummaryDelta(
-            { text: reasoning, partKey: reasoningPartKey },
+            { text: reasoningSummary, partKey: reasoningSummaryPartKey },
             ev.data,
           )
-          reasoning = accumulatedReasoning.text
-          reasoningPartKey = accumulatedReasoning.partKey
+          reasoningSummary = accumulatedReasoning.text
+          reasoningSummaryPartKey = accumulatedReasoning.partKey
+          break
+        }
+        case 'response.reasoning_text.delta': {
+          const accumulatedReasoning = appendReasoningTextDelta(
+            { text: rawReasoning, partKey: rawReasoningPartKey },
+            ev.data,
+          )
+          rawReasoning = accumulatedReasoning.text
+          rawReasoningPartKey = accumulatedReasoning.partKey
           break
         }
         case 'response.output_text.annotation.added':
@@ -552,7 +573,7 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
     provider: ctx.provider,
     state,
     text,
-    reasoningSummary: reasoning || null,
+    reasoningSummary: displayReasoning() || null,
     annotations,
     usage,
     searchActions: collectSearchActions(),

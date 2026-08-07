@@ -62,4 +62,42 @@ describe('compactRunEventsForReplay', () => {
       ev(4, 'response.output_text.delta', { delta: 'd', item_id: 'msg_1' }),
     ])
   })
+
+  it('merges raw reasoning deltas only within the same content part', () => {
+    const compacted = compactRunEventsForReplay([
+      ev(1, 'response.reasoning_text.delta', {
+        delta: '第一',
+        item_id: 'rs_1',
+        output_index: 0,
+        content_index: 0,
+      }),
+      ev(2, 'response.reasoning_text.delta', {
+        delta: '段',
+        item_id: 'rs_1',
+        output_index: 0,
+        content_index: 0,
+      }),
+      ev(3, 'response.reasoning_text.delta', {
+        delta: '第二段',
+        item_id: 'rs_2',
+        output_index: 1,
+        content_index: 0,
+      }),
+    ])
+
+    expect(compacted).toEqual([
+      ev(2, 'response.reasoning_text.delta', {
+        delta: '第一段',
+        item_id: 'rs_1',
+        output_index: 0,
+        content_index: 0,
+      }),
+      ev(3, 'response.reasoning_text.delta', {
+        delta: '第二段',
+        item_id: 'rs_2',
+        output_index: 1,
+        content_index: 0,
+      }),
+    ])
+  })
 })

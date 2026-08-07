@@ -2,6 +2,7 @@ import type { SearchAction, UrlCitation, XSearchActionType } from '@shared/types
 import type { WireEvent } from '@shared/types/events'
 import {
   appendReasoningSummaryDelta,
+  appendReasoningTextDelta,
   responseDeltaIdentityKey,
 } from '@shared/util/reasoningSummary'
 import {
@@ -66,7 +67,9 @@ export function persistedSearchCalls(actions: SearchAction[] | null | undefined)
 export interface LiveMessage {
   text: string
   reasoning: string
-  /** 当前 OpenAI reasoning summary part 的身份，用于在结构化 part 之间保留段落边界。 */
+  /** 当前展示的是摘要还是上游明文推理；摘要一旦出现便覆盖并抑制 raw 通道。 */
+  reasoningKind: 'summary' | 'raw' | null
+  /** 当前 Responses reasoning part 的身份，用于在结构化 part 之间保留段落边界。 */
   reasoningPartKey: string | null
   upstreamStartedAt: number | null
   reasoningDurationMs: number | null
@@ -92,6 +95,7 @@ export const initialLive = (
 ): LiveMessage => ({
   text: '',
   reasoning: '',
+  reasoningKind: null,
   reasoningPartKey: null,
   upstreamStartedAt,
   reasoningDurationMs: null,
@@ -109,6 +113,7 @@ const str = (v: unknown): string => (typeof v === 'string' ? v : '')
 const APPEND_DELTA_TYPES = new Set([
   'response.output_text.delta',
   'response.reasoning_summary_text.delta',
+  'response.reasoning_text.delta',
 ])
 
 function compactAppendEvents(events: WireEvent[]): WireEvent[] {
@@ -377,13 +382,33 @@ export function reduceEvent(s: LiveMessage, ev: WireEvent): LiveMessage {
     case 'response.output_text.delta':
       return { ...finishReasoning(s), text: s.text + str(ev.data.delta) }
     case 'response.reasoning_summary_text.delta': {
-      const nextReasoning = appendReasoningSummaryDelta(
+      if (!str(ev.data.delta)) return markUpstreamStarted(s)
+      // 某些上游可能同时返回 raw reasoning 与摘要。摘要是面向展示的权威通道，
+      // 首个摘要 delta 到达时原子替换此前临时展示的 raw 文本，避免重复。
+      const currentReasoning =
+        s.reasoningKind === 'raw'
+          ? { text: '', partKey: null }
+          : { text: s.reasoning, partKey: s.reasoningPartKey }
+      const nextReasoning = appendReasoningSummaryDelta(currentReasoning, ev.data)
+      return {
+        ...markUpstreamStarted(s),
+        reasoning: nextReasoning.text,
+        reasoningKind: 'summary',
+        reasoningPartKey: nextReasoning.partKey,
+      }
+    }
+    case 'response.reasoning_text.delta': {
+      if (!str(ev.data.delta)) return markUpstreamStarted(s)
+      // 已出现摘要时不再把 raw 推理混入同一展示区；原始上游事件仍会保留在审计记录。
+      if (s.reasoningKind === 'summary') return markUpstreamStarted(s)
+      const nextReasoning = appendReasoningTextDelta(
         { text: s.reasoning, partKey: s.reasoningPartKey },
         ev.data,
       )
       return {
         ...markUpstreamStarted(s),
         reasoning: nextReasoning.text,
+        reasoningKind: 'raw',
         reasoningPartKey: nextReasoning.partKey,
       }
     }
@@ -444,6 +469,7 @@ export function reduceEvent(s: LiveMessage, ev: WireEvent): LiveMessage {
         reasoning: hasFinalReasoning
           ? ((ev.data.reasoningSummary as string | null) ?? '')
           : completed.reasoning,
+        reasoningKind: hasFinalReasoning ? null : completed.reasoningKind,
         reasoningPartKey: hasFinalReasoning ? null : completed.reasoningPartKey,
         annotations: finalAnnotations(ev.data.annotations, completed.annotations),
         status: (str(ev.data.state) as LiveStatus) || 'completed',
@@ -462,6 +488,7 @@ export function reduceEvent(s: LiveMessage, ev: WireEvent): LiveMessage {
         ...failed,
         text: '',
         reasoning: '',
+        reasoningKind: null,
         reasoningPartKey: null,
         annotations: [],
         searchCalls: [],

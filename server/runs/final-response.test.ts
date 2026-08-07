@@ -125,6 +125,34 @@ describe('reconcileFinalResponse', () => {
     )
   })
 
+  it('用终态 raw reasoning_text 校准流式推理', () => {
+    const response: UpstreamResponse = {
+      output: [
+        {
+          type: 'reasoning',
+          summary: [],
+          content: [{ type: 'reasoning_text', text: '终态原始推理' }],
+        },
+      ],
+    }
+
+    expect(reconcileFinalResponse(current(), response).reasoningSummary).toBe('终态原始推理')
+  })
+
+  it('终态同时携带摘要与原始推理时只采用摘要', () => {
+    const response: UpstreamResponse = {
+      output: [
+        {
+          type: 'reasoning',
+          summary: [{ type: 'summary_text', text: '终态摘要' }],
+          content: [{ type: 'reasoning_text', text: '终态原始推理' }],
+        },
+      ],
+    }
+
+    expect(reconcileFinalResponse(current(), response).reasoningSummary).toBe('终态摘要')
+  })
+
   it('不完整响应仍使用其中携带的最终部分正文', () => {
     const response: UpstreamResponse = {
       status: 'incomplete',

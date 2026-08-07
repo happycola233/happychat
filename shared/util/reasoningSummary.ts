@@ -1,8 +1,11 @@
-export interface ReasoningSummaryAccumulator {
+export interface ReasoningTextAccumulator {
   text: string
-  /** OpenAI Responses API 当前 summary part 的稳定标识；兼容无结构化索引的上游时为 null。 */
+  /** Responses API 当前 reasoning part 的稳定标识；兼容无结构化索引的上游时为 null。 */
   partKey: string | null
 }
+
+/** 兼容既有调用方命名；summary 与 raw reasoning 共用同一累积形状。 */
+export type ReasoningSummaryAccumulator = ReasoningTextAccumulator
 
 const DELTA_IDENTITY_FIELDS = ['item_id', 'output_index', 'content_index', 'summary_index'] as const
 
@@ -56,15 +59,27 @@ export function reasoningSummaryPartKey(data: Record<string, unknown>): string |
 }
 
 /**
- * 追加一个流式 reasoning delta。同一 part 内逐 token 紧密拼接；part 发生变化时保留
- * 官方 summary_index 表达的段落语义。没有 part 标识的兼容事件继续沿用普通 token 拼接。
+ * 读取 raw reasoning_text delta 所属的 content part。
+ *
+ * DeepSeek 等 Responses 上游会把可见推理放进 reasoning.content[]，同一响应中还可能
+ * 因工具调用产生多个 reasoning item；因此 item_id 与 content_index 都必须参与分段。
  */
-export function appendReasoningSummaryDelta(
-  current: ReasoningSummaryAccumulator,
+export function reasoningTextPartKey(data: Record<string, unknown>): string | null {
+  const itemId = stringValue(data.item_id) || null
+  const outputIndex = numberValue(data.output_index)
+  const contentIndex = numberValue(data.content_index)
+  if (contentIndex === null) return null
+  if (itemId !== null) return JSON.stringify(['item', itemId, contentIndex])
+  if (outputIndex !== null) return JSON.stringify(['output', outputIndex, contentIndex])
+  return null
+}
+
+function appendReasoningDelta(
+  current: ReasoningTextAccumulator,
   data: Record<string, unknown>,
-): ReasoningSummaryAccumulator {
+  nextPartKey: string | null,
+): ReasoningTextAccumulator {
   const delta = stringValue(data.delta)
-  const nextPartKey = reasoningSummaryPartKey(data)
   // 空 delta 不代表 part 已经产生可见内容；提前切换 key 会吞掉随后首个非空 delta 的边界。
   if (!delta) return current
 
@@ -78,6 +93,27 @@ export function appendReasoningSummaryDelta(
     text: startsNewPart ? joinReasoningSummaryParts([current.text, delta]) : current.text + delta,
     partKey: nextPartKey ?? current.partKey,
   }
+}
+
+/**
+ * 追加一个流式 reasoning delta。同一 part 内逐 token 紧密拼接；part 发生变化时保留
+ * 官方 summary_index 表达的段落语义。没有 part 标识的兼容事件继续沿用普通 token 拼接。
+ */
+export function appendReasoningSummaryDelta(
+  current: ReasoningSummaryAccumulator,
+  data: Record<string, unknown>,
+): ReasoningSummaryAccumulator {
+  return appendReasoningDelta(current, data, reasoningSummaryPartKey(data))
+}
+
+/**
+ * 追加一个流式 raw reasoning_text delta；跨 reasoning item/content part 时保留段落边界。
+ */
+export function appendReasoningTextDelta(
+  current: ReasoningTextAccumulator,
+  data: Record<string, unknown>,
+): ReasoningTextAccumulator {
+  return appendReasoningDelta(current, data, reasoningTextPartKey(data))
 }
 
 /** 生成可用于 SSE 回放/批处理压缩的 delta 槽位 key，避免跨输出 part 合并。 */

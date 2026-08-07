@@ -86,6 +86,75 @@ describe('reduceEvent', () => {
     expect(next.reasoningPartKey).toBe(JSON.stringify(['item', 'rs_2', 0]))
   })
 
+  it('streams raw reasoning_text and preserves boundaries between reasoning items', () => {
+    const next = reduceEvents(initialLive(), [
+      event('response.reasoning_text.delta', {
+        delta: '第一',
+        item_id: 'rs_1',
+        output_index: 0,
+        content_index: 0,
+      }),
+      event('response.reasoning_text.delta', {
+        delta: '段推理',
+        item_id: 'rs_1',
+        output_index: 0,
+        content_index: 0,
+      }),
+      event('response.reasoning_text.delta', {
+        delta: '第二段推理',
+        item_id: 'rs_2',
+        output_index: 2,
+        content_index: 0,
+      }),
+    ])
+
+    expect(next.reasoning).toBe('第一段推理\n\n第二段推理')
+    expect(next.reasoningKind).toBe('raw')
+    expect(next.reasoningPartKey).toBe(JSON.stringify(['item', 'rs_2', 0]))
+  })
+
+  it('replaces streamed raw reasoning with a summary and ignores later raw deltas', () => {
+    const raw = reduceEvent(
+      initialLive(),
+      event('response.reasoning_text.delta', {
+        delta: '原始推理',
+        item_id: 'rs_1',
+        content_index: 0,
+      }),
+    )
+    const emptySummary = reduceEvent(
+      raw,
+      event('response.reasoning_summary_text.delta', {
+        delta: '',
+        item_id: 'rs_1',
+        summary_index: 0,
+      }),
+    )
+    const summarized = reduceEvent(
+      emptySummary,
+      event('response.reasoning_summary_text.delta', {
+        delta: '展示摘要',
+        item_id: 'rs_1',
+        summary_index: 0,
+      }),
+    )
+    const ignoredRaw = reduceEvent(
+      summarized,
+      event('response.reasoning_text.delta', {
+        delta: '不应重复展示',
+        item_id: 'rs_1',
+        content_index: 0,
+      }),
+    )
+
+    expect(emptySummary.reasoning).toBe('原始推理')
+    expect(emptySummary.reasoningKind).toBe('raw')
+    expect(summarized.reasoning).toBe('展示摘要')
+    expect(summarized.reasoningKind).toBe('summary')
+    expect(ignoredRaw.reasoning).toBe('展示摘要')
+    expect(ignoredRaw.reasoningKind).toBe('summary')
+  })
+
   it('locks reasoning duration when the first output text arrives', () => {
     vi.useFakeTimers()
     vi.setSystemTime(4500)
