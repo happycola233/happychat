@@ -46,7 +46,7 @@ import { providerClientFromRow } from '../provider/client'
 import { requireAdmin } from '../auth/middleware'
 import { destroyAllUserSessions } from '../auth/session'
 import { jsonValidator } from '../http/validator'
-import { getStats, listAdminUsers, listInvites } from '../services/admin'
+import { getStats, listAdminUsers, listInvites, resetUserPassword } from '../services/admin'
 import {
   getAnalytics,
   getOverview,
@@ -363,8 +363,7 @@ adminRoutes.patch('/models/:id', jsonValidator(modelUpdateSchema), async (c) => 
           nextKind,
           input.defaultParams !== undefined ? input.defaultParams : existing.defaultParams,
         ) ?? null
-      const nextHardParams =
-        input.hardParams !== undefined ? input.hardParams : existing.hardParams
+      const nextHardParams = input.hardParams !== undefined ? input.hardParams : existing.hardParams
       if (nextKind === 'anthropic' && !hasAnthropicMaxOutputTokens(nextDefaultParams)) {
         return { ok: false, code: 'anthropic_max_output_tokens_required' } as const
       }
@@ -483,10 +482,7 @@ adminRoutes.post('/models/icons/batch', jsonValidator(modelIconBatchSchema), asy
   const result = await applyModelIcons(c.req.valid('json').items)
   if (!result.ok) {
     if (result.code === 'icon_missing') {
-      return c.json(
-        { error: { message: '所选图标不存在，请刷新后重试', code: result.code } },
-        400,
-      )
+      return c.json({ error: { message: '所选图标不存在，请刷新后重试', code: result.code } }, 400)
     }
     return c.json(
       {
@@ -511,10 +507,7 @@ adminRoutes.get('/model-groups', async (c) => {
 adminRoutes.post('/model-groups', jsonValidator(modelGroupCreateSchema), async (c) => {
   const result = await createModelGroup(c.req.valid('json'))
   if (!result.ok) {
-    return c.json(
-      { error: { message: '所选图标不存在，请刷新后重试', code: result.code } },
-      400,
-    )
+    return c.json({ error: { message: '所选图标不存在，请刷新后重试', code: result.code } }, 400)
   }
   return c.json({ group: result.group })
 })
@@ -525,10 +518,7 @@ adminRoutes.patch('/model-groups/:id', jsonValidator(modelGroupUpdateSchema), as
     if (result.code === 'group_missing') {
       return c.json({ error: { message: '分组不存在', code: 'not_found' } }, 404)
     }
-    return c.json(
-      { error: { message: '所选图标不存在，请刷新后重试', code: result.code } },
-      400,
-    )
+    return c.json({ error: { message: '所选图标不存在，请刷新后重试', code: result.code } }, 400)
   }
   return c.json({ group: result.group })
 })
@@ -609,10 +599,7 @@ adminRoutes.post('/model-icons/custom', async (c) => {
   }
   const mime = (file.type.split(';')[0] ?? '').trim().toLowerCase()
   if (!CUSTOM_ICON_MIMES.has(mime)) {
-    return c.json(
-      { error: { message: '图标需为 SVG/PNG/WebP/JPEG/GIF', code: 'bad_type' } },
-      400,
-    )
+    return c.json({ error: { message: '图标需为 SVG/PNG/WebP/JPEG/GIF', code: 'bad_type' } }, 400)
   }
   if (file.size === 0) return c.json({ error: { message: '文件为空', code: 'empty' } }, 400)
   if (file.size > MAX_CUSTOM_ICON_BYTES) {
@@ -623,7 +610,12 @@ adminRoutes.post('/model-icons/custom', async (c) => {
   const parsedName = customIconNameSchema.safeParse(nameField)
   if (!parsedName.success) {
     return c.json(
-      { error: { message: parsedName.error.issues[0]?.message ?? '图标名称不合法', code: 'invalid_request' } },
+      {
+        error: {
+          message: parsedName.error.issues[0]?.message ?? '图标名称不合法',
+          code: 'invalid_request',
+        },
+      },
       400,
     )
   }
@@ -737,6 +729,18 @@ adminRoutes.delete('/users/:id', async (c) => {
   for (const attachment of deletedResources.attachmentRows) removeUpload(attachment.storagePath)
   if (deletedResources.avatarPath) removeUpload(deletedResources.avatarPath)
   return c.json({ ok: true })
+})
+
+adminRoutes.post('/users/:id/reset-password', async (c) => {
+  const id = c.req.param('id')
+  if (id === c.get('user').id) {
+    return c.json({ error: { message: '请在个人设置中修改自己的密码', code: 'self' } }, 400)
+  }
+  const result = await resetUserPassword(id)
+  if (!result) return c.json({ error: { message: '用户不存在', code: 'not_found' } }, 404)
+  // 响应含只展示一次的临时凭据，禁止浏览器或中间代理缓存。
+  c.header('Cache-Control', 'no-store')
+  return c.json(result)
 })
 
 // ---------------- 会话（账号中心）----------------

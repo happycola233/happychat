@@ -21,6 +21,7 @@ function user(
     displayName,
     avatarUrl: null,
     disabled,
+    mustChangePassword: false,
     canShare: null,
     createdAt: 0,
     lastActiveAt: null,

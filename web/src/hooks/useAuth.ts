@@ -34,6 +34,18 @@ export function useRegister() {
   })
 }
 
+export function useCompletePasswordReset() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: authApi.completePasswordReset,
+    onSuccess: (data) => {
+      qc.setQueryData(['me'], data.user)
+      // 受限会话期间不会读取设置；完成改密后重新获取服务端真值。
+      qc.removeQueries({ queryKey: ['settings'] })
+    },
+  })
+}
+
 export function useLogout() {
   const qc = useQueryClient()
   return useMutation({

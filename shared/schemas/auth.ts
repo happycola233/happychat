@@ -26,5 +26,11 @@ export const registerSchema = z.object({
     .transform((value) => value || undefined),
 })
 
+/** 临时密码登录后的受限会话只允许提交一个新的永久密码。 */
+export const completePasswordResetSchema = z.object({
+  newPassword: passwordSchema,
+})
+
 export type LoginInput = z.infer<typeof loginSchema>
 export type RegisterInput = z.infer<typeof registerSchema>
+export type CompletePasswordResetInput = z.infer<typeof completePasswordResetSchema>

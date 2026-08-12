@@ -1,7 +1,8 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom'
-import { RedirectIfAuthed, RequireAdmin, RequireAuth } from './guards'
+import { RedirectIfAuthed, RequireAdmin, RequireAuth, RequirePasswordChange } from './guards'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
+import ChangePasswordRequiredPage from './pages/ChangePasswordRequiredPage'
 import ChatLayout from './chat/ChatLayout'
 import ChatView from './chat/ChatView'
 import SharedChatPage from './pages/SharedChatPage'
@@ -62,6 +63,10 @@ export const router = createBrowserRouter([
         ],
       },
     ],
+  },
+  {
+    element: <RequirePasswordChange />,
+    children: [{ path: '/change-password', element: <ChangePasswordRequiredPage /> }],
   },
   {
     element: <RedirectIfAuthed />,

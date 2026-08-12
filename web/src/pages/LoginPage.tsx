@@ -46,8 +46,8 @@ export default function LoginPage() {
     }
 
     try {
-      await login.mutateAsync({ username: username.trim(), password })
-      navigate('/', { replace: true })
+      const result = await login.mutateAsync({ username: username.trim(), password })
+      navigate(result.user.mustChangePassword ? '/change-password' : '/', { replace: true })
     } catch (err) {
       setError(err instanceof ApiRequestError ? err.message : '登录失败，请稍后重试')
     }

@@ -22,5 +22,6 @@ export function toPublicUser(u: AuthUser): PublicUser {
     role: u.role,
     displayName: u.displayName,
     avatarUrl: getUserAvatarUrl(u),
+    mustChangePassword: u.mustChangePassword,
   }
 }

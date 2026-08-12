@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { eq, sql } from 'drizzle-orm'
-import { loginSchema, registerSchema } from '@shared/schemas/auth'
+import { completePasswordResetSchema, loginSchema, registerSchema } from '@shared/schemas/auth'
 import {
   changePasswordSchema,
   deleteAccountSchema,
@@ -10,9 +10,10 @@ import {
 import { db } from '../db/client'
 import { appSettings, attachments, inviteCodes, userSettings, users } from '../db/schema'
 import { hashPassword, verifyPassword } from '../auth/password'
-import { createSession, destroyAllUserSessions, destroySession } from '../auth/session'
+import { replacePasswordAndRevokeSessions } from '../auth/password-reset'
+import { createSession, destroySession } from '../auth/session'
 import { toPublicUser } from '../auth/users'
-import { requireUser } from '../auth/middleware'
+import { requireAuthenticatedUser, requireUser } from '../auth/middleware'
 import { jsonValidator } from '../http/validator'
 import { getUserSettings, updateUserSettings } from '../services/settings'
 import {
@@ -30,7 +31,11 @@ export const authRoutes = new Hono<AppEnv>()
 
 /** 公开注册状态；匿名响应禁止缓存，避免管理员切换策略后注册页继续使用旧值。 */
 authRoutes.get('/bootstrap', (c) => {
-  const total = db.select({ c: sql<number>`count(*)` }).from(users).get()?.c ?? 0
+  const total =
+    db
+      .select({ c: sql<number>`count(*)` })
+      .from(users)
+      .get()?.c ?? 0
   const registrationPolicy = db
     .select({ requiresInviteCode: appSettings.registrationRequiresInviteCode })
     .from(appSettings)
@@ -53,7 +58,11 @@ authRoutes.post('/register', jsonValidator(registerSchema), async (c) => {
     const existing = tx.select().from(users).where(eq(users.username, username)).get()
     if (existing) return { error: '该用户名已被占用' } as const
 
-    const total = tx.select({ c: sql<number>`count(*)` }).from(users).get()?.c ?? 0
+    const total =
+      tx
+        .select({ c: sql<number>`count(*)` })
+        .from(users)
+        .get()?.c ?? 0
     const isFirst = total === 0
     const registrationPolicy = tx
       .select({ requiresInviteCode: appSettings.registrationRequiresInviteCode })
@@ -110,7 +119,7 @@ authRoutes.post('/logout', async (c) => {
   return c.json({ ok: true })
 })
 
-authRoutes.get('/me', requireUser, (c) => {
+authRoutes.get('/me', requireAuthenticatedUser, (c) => {
   return c.json({ user: toPublicUser(c.get('user')) })
 })
 
@@ -148,12 +157,47 @@ authRoutes.post('/change-password', requireUser, jsonValidator(changePasswordSch
   if (!verifyPassword(currentPassword, user.passwordHash)) {
     return c.json({ error: { message: '当前密码不正确', code: 'invalid_password' } }, 400)
   }
-  await db.update(users).set({ passwordHash: hashPassword(newPassword) }).where(eq(users.id, user.id))
-  // 失效所有会话（含当前），再为当前设备重新签发，使其它设备下线。
-  await destroyAllUserSessions(user.id)
+  // 原子替换密码并失效所有会话（含当前），再为当前设备重新签发，使其它设备下线。
+  if (!replacePasswordAndRevokeSessions(user.id, hashPassword(newPassword), false)) {
+    return c.json({ error: { message: '账号不存在', code: 'not_found' } }, 404)
+  }
   await createSession(c, user.id)
   return c.json({ ok: true })
 })
+
+authRoutes.post(
+  '/complete-password-reset',
+  requireAuthenticatedUser,
+  jsonValidator(completePasswordResetSchema),
+  async (c) => {
+    const user = c.get('user')
+    if (!user.mustChangePassword) {
+      return c.json(
+        { error: { message: '当前账号无需强制改密', code: 'password_change_not_required' } },
+        400,
+      )
+    }
+
+    const { newPassword } = c.req.valid('json')
+    if (verifyPassword(newPassword, user.passwordHash)) {
+      return c.json(
+        { error: { message: '新密码不能与临时密码相同', code: 'password_reused' } },
+        400,
+      )
+    }
+
+    if (!replacePasswordAndRevokeSessions(user.id, hashPassword(newPassword), false)) {
+      return c.json({ error: { message: '账号不存在', code: 'not_found' } }, 404)
+    }
+    // 受限会话已在事务中撤销；完成改密后签发一个新的完整会话。
+    await createSession(c, user.id)
+    const updatedUser = await freshPublicUser(user.id)
+    if (!updatedUser) {
+      return c.json({ error: { message: '账号不存在', code: 'not_found' } }, 404)
+    }
+    return c.json({ user: updatedUser })
+  },
+)
 
 authRoutes.patch('/profile', requireUser, jsonValidator(updateProfileSchema), async (c) => {
   const user = c.get('user')
@@ -220,7 +264,11 @@ authRoutes.delete('/avatar', requireUser, async (c) => {
 
 /** 读取某用户头像（头像非敏感，公开可读：供 UI 与公开分享页复用）。 */
 authRoutes.get('/avatar/:id', async (c) => {
-  const [u] = await db.select().from(users).where(eq(users.id, c.req.param('id'))).limit(1)
+  const [u] = await db
+    .select()
+    .from(users)
+    .where(eq(users.id, c.req.param('id')))
+    .limit(1)
   if (!u?.avatarPath) {
     return c.json({ error: { message: '头像不存在', code: 'not_found' } }, 404)
   }
@@ -251,7 +299,10 @@ authRoutes.delete('/account', requireUser, jsonValidator(deleteAccountSchema), a
         .where(eq(users.role, 'admin'))
         .get()?.c ?? 0
     if (adminCount <= 1) {
-      return c.json({ error: { message: '系统需保留至少一名管理员，无法删除', code: 'last_admin' } }, 400)
+      return c.json(
+        { error: { message: '系统需保留至少一名管理员，无法删除', code: 'last_admin' } },
+        400,
+      )
     }
   }
   // 路径快照和用户级联删除保持在同一事务，避免并发分支复制在快照后落盘而成为孤儿。

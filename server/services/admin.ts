@@ -1,5 +1,12 @@
 import { desc, eq, sql } from 'drizzle-orm'
-import type { AdminUserDTO, InviteCodeDTO, StatsDTO } from '@shared/types/api'
+import type {
+  AdminPasswordResetResult,
+  AdminUserDTO,
+  InviteCodeDTO,
+  StatsDTO,
+} from '@shared/types/api'
+import { generateTemporaryPassword, hashPassword } from '../auth/password'
+import { replacePasswordAndRevokeSessions } from '../auth/password-reset'
 import { getUserAvatarUrl } from '../auth/users'
 import { db } from '../db/client'
 import {
@@ -40,6 +47,7 @@ export async function listAdminUsers(): Promise<AdminUserDTO[]> {
     displayName: u.displayName,
     avatarUrl: getUserAvatarUrl(u),
     disabled: u.disabled,
+    mustChangePassword: u.mustChangePassword,
     canShare: u.canShare ?? null,
     createdAt: u.createdAt.getTime(),
     lastActiveAt: u.lastActiveAt?.getTime() ?? null,
@@ -47,7 +55,25 @@ export async function listAdminUsers(): Promise<AdminUserDTO[]> {
   }))
 }
 
-async function count(table: typeof users | typeof conversations | typeof messages | typeof runs | typeof errorLogs): Promise<number> {
+/**
+ * 生成只返回一次的临时密码；数据库仅写入其 scrypt 哈希，并同时撤销全部旧会话。
+ */
+export async function resetUserPassword(userId: string): Promise<AdminPasswordResetResult | null> {
+  const [target] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1)
+  if (!target) return null
+
+  const temporaryPassword = generateTemporaryPassword()
+  const updated = replacePasswordAndRevokeSessions(target.id, hashPassword(temporaryPassword), true)
+  return updated ? { temporaryPassword } : null
+}
+
+async function count(
+  table: typeof users | typeof conversations | typeof messages | typeof runs | typeof errorLogs,
+): Promise<number> {
   const [r] = await db.select({ c: sql<number>`count(*)` }).from(table)
   return r?.c ?? 0
 }
@@ -105,7 +131,15 @@ export async function getStats(): Promise<StatsDTO> {
       image: tok?.image ?? 0,
       total: tok?.total ?? 0,
     },
-    byModel: byModel.map((m) => ({ model: m.model ?? '未知', calls: m.calls, totalTokens: m.totalTokens })),
-    byUser: byUser.map((u) => ({ username: u.username, calls: u.calls, totalTokens: u.totalTokens })),
+    byModel: byModel.map((m) => ({
+      model: m.model ?? '未知',
+      calls: m.calls,
+      totalTokens: m.totalTokens,
+    })),
+    byUser: byUser.map((u) => ({
+      username: u.username,
+      calls: u.calls,
+      totalTokens: u.totalTokens,
+    })),
   }
 }

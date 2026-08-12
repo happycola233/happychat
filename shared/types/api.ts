@@ -35,6 +35,8 @@ export interface PublicUser {
   displayName: string | null
   /** 头像 URL（未设置时为 null，前端回退首字母占位） */
   avatarUrl: string | null
+  /** 管理员重置密码后为 true；完成强制改密前不得进入业务界面。 */
+  mustChangePassword: boolean
 }
 
 export interface AuthResponse {
@@ -313,11 +315,18 @@ export interface AdminUserDTO {
   /** 已上传头像的公开读取地址；未上传时为 null。 */
   avatarUrl: string | null
   disabled: boolean
+  /** 已由管理员重置密码，正等待用户使用临时密码登录并设置新密码。 */
+  mustChangePassword: boolean
   /** 是否允许分享：null=随全局，true/false=按用户覆盖 */
   canShare: boolean | null
   createdAt: number
   lastActiveAt: number | null
   conversationCount: number
+}
+
+/** 管理员重置用户密码后的单次响应；临时密码不会持久化明文。 */
+export interface AdminPasswordResetResult {
+  temporaryPassword: string
 }
 
 export interface StatsDTO {

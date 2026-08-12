@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { UserSettingsDTO } from '@shared/types/api'
+import type { PublicUser, UserSettingsDTO } from '@shared/types/api'
 import type { ThemePreference, UserPreferences } from '@shared/types/domain'
 import { DEFAULT_PREFERENCES, mergePreferences } from '@shared/util/preferences'
 import { ApiRequestError } from '../api/client'
@@ -25,7 +25,8 @@ interface SettingsStore {
 async function persistRemote(patch: Parameters<typeof updateSettings>[0]) {
   // 登录 / 注册页也能切主题，但那时没有账号可写：偏好只留在 localStorage，
   // 明知会 401 的请求就不发了（登录后由服务端真值覆盖本地缓存）。
-  if (queryClient.getQueryData(['me']) == null) return
+  const currentUser = queryClient.getQueryData<PublicUser>(['me'])
+  if (!currentUser || currentUser.mustChangePassword) return
   try {
     await updateSettings(patch)
   } catch (error) {

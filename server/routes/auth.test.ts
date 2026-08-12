@@ -27,10 +27,11 @@ beforeAll(async () => {
   schema = await import('../db/schema')
   migration.runMigrations()
   appConfigService = await import('../services/appConfig')
-  const { authRoutes } = await import('./auth')
+  const [{ authRoutes }, { adminRoutes }] = await Promise.all([import('./auth'), import('./admin')])
 
   app = new Hono<AppEnv>()
   app.route('/api/auth', authRoutes)
+  app.route('/api/admin', adminRoutes)
 })
 
 beforeEach(() => {
@@ -58,6 +59,31 @@ async function register(input: { username: string; password?: string; inviteCode
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ password: 'password123', ...input }),
+  })
+}
+
+function responseCookie(response: Response): string {
+  const setCookie = response.headers.get('set-cookie')
+  if (!setCookie) throw new Error('测试响应没有签发会话 cookie')
+  return setCookie.split(';', 1)[0]!
+}
+
+async function login(username: string, password: string) {
+  return app.request('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  })
+}
+
+function authenticatedRequest(path: string, cookie: string, init?: RequestInit) {
+  return app.request(path, {
+    ...init,
+    headers: {
+      Cookie: cookie,
+      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+      ...init?.headers,
+    },
   })
 }
 
@@ -183,5 +209,112 @@ describe('注册邀请码策略', () => {
       user: { username: 'invited-user', role: 'user' },
     })
     expect((await readInvite(inviteCode))?.usedCount).toBe(1)
+  })
+})
+
+describe('管理员重置密码与强制改密', () => {
+  it('撤销旧会话，只允许临时密码会话完成改密，之后恢复正常访问', async () => {
+    const adminRegistration = await register({ username: 'owner' })
+    expect(adminRegistration.status).toBe(200)
+    const adminCookie = responseCookie(adminRegistration)
+    const adminPayload = (await adminRegistration.json()) as { user: { id: string } }
+
+    await appConfigService.updateAppConfig({ registrationRequiresInviteCode: false })
+    const userRegistration = await register({
+      username: 'forgotten-user',
+      password: 'old-password',
+    })
+    expect(userRegistration.status).toBe(200)
+    const oldUserCookie = responseCookie(userRegistration)
+    const userPayload = (await userRegistration.json()) as {
+      user: { id: string; mustChangePassword: boolean }
+    }
+    expect(userPayload.user.mustChangePassword).toBe(false)
+
+    const resetResponse = await authenticatedRequest(
+      `/api/admin/users/${userPayload.user.id}/reset-password`,
+      adminCookie,
+      { method: 'POST' },
+    )
+    expect(resetResponse.status).toBe(200)
+    expect(resetResponse.headers.get('Cache-Control')).toBe('no-store')
+    const resetPayload = (await resetResponse.json()) as { temporaryPassword: string }
+    const groups = resetPayload.temporaryPassword.split('-')
+    expect(groups).toHaveLength(4)
+    expect(groups.every((group) => group.length === 4)).toBe(true)
+    expect(resetPayload.temporaryPassword).toMatch(/^[A-Za-z2-9-]+$/)
+
+    // 管理员不能借此接口绕过自己的“输入当前密码”改密流程。
+    const selfReset = await authenticatedRequest(
+      `/api/admin/users/${adminPayload.user.id}/reset-password`,
+      adminCookie,
+      { method: 'POST' },
+    )
+    expect(selfReset.status).toBe(400)
+
+    // 重置与旧会话撤销必须是同一个原子结果。
+    const oldSession = await authenticatedRequest('/api/auth/me', oldUserCookie)
+    expect(oldSession.status).toBe(401)
+    expect((await login('forgotten-user', 'old-password')).status).toBe(401)
+
+    const temporaryLogin = await login('forgotten-user', resetPayload.temporaryPassword)
+    expect(temporaryLogin.status).toBe(200)
+    const temporaryCookie = responseCookie(temporaryLogin)
+    await expect(temporaryLogin.json()).resolves.toMatchObject({
+      user: { mustChangePassword: true },
+    })
+
+    const meDuringReset = await authenticatedRequest('/api/auth/me', temporaryCookie)
+    expect(meDuringReset.status).toBe(200)
+    await expect(meDuringReset.json()).resolves.toMatchObject({
+      user: { mustChangePassword: true },
+    })
+
+    const blockedSettings = await authenticatedRequest('/api/auth/settings', temporaryCookie)
+    expect(blockedSettings.status).toBe(403)
+    await expect(blockedSettings.json()).resolves.toEqual({
+      error: { message: '请先设置新密码', code: 'password_change_required' },
+    })
+
+    const reusedTemporaryPassword = await authenticatedRequest(
+      '/api/auth/complete-password-reset',
+      temporaryCookie,
+      {
+        method: 'POST',
+        body: JSON.stringify({ newPassword: resetPayload.temporaryPassword }),
+      },
+    )
+    expect(reusedTemporaryPassword.status).toBe(400)
+    await expect(reusedTemporaryPassword.json()).resolves.toMatchObject({
+      error: { code: 'password_reused' },
+    })
+
+    const newPassword = 'a-new-permanent-password'
+    const completed = await authenticatedRequest(
+      '/api/auth/complete-password-reset',
+      temporaryCookie,
+      {
+        method: 'POST',
+        body: JSON.stringify({ newPassword }),
+      },
+    )
+    expect(completed.status).toBe(200)
+    const fullSessionCookie = responseCookie(completed)
+    await expect(completed.json()).resolves.toMatchObject({
+      user: { mustChangePassword: false },
+    })
+
+    // 完成改密会再次轮换会话；临时凭据与临时会话都不能继续使用。
+    expect((await authenticatedRequest('/api/auth/me', temporaryCookie)).status).toBe(401)
+    expect((await login('forgotten-user', resetPayload.temporaryPassword)).status).toBe(401)
+    expect((await authenticatedRequest('/api/auth/settings', fullSessionCookie)).status).toBe(200)
+    expect((await login('forgotten-user', newPassword)).status).toBe(200)
+
+    const [storedUser] = await dbClient.db
+      .select({ mustChangePassword: schema.users.mustChangePassword })
+      .from(schema.users)
+      .where(eq(schema.users.id, userPayload.user.id))
+      .limit(1)
+    expect(storedUser?.mustChangePassword).toBe(false)
   })
 })

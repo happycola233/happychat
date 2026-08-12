@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { clsx } from 'clsx'
-import { Check, Plus } from 'lucide-react'
+import { Check, KeyRound, Plus, ShieldAlert } from 'lucide-react'
 import type { AdminSessionDTO, AdminUserDTO, InviteCodeDTO } from '@shared/types/api'
 import * as adminApi from '../../api/admin'
 import { useMe } from '../../hooks/useAuth'
@@ -93,6 +93,10 @@ export default function AuthCenterPage() {
 function UsersTab() {
   const qc = useQueryClient()
   const { data: me } = useMe()
+  const [passwordReset, setPasswordReset] = useState<{
+    username: string
+    temporaryPassword: string
+  } | null>(null)
   const { data: users, isLoading } = useQuery({
     queryKey: ['admin', 'users'],
     queryFn: adminApi.listUsers,
@@ -119,104 +123,220 @@ function UsersTab() {
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : '删除失败'),
   })
+  const resetPassword = useMutation({
+    mutationFn: ({ id }: { id: string; username: string }) => adminApi.resetUserPassword(id),
+    onSuccess: (result, target) => {
+      setPasswordReset({ username: target.username, temporaryPassword: result.temporaryPassword })
+      toast.success('密码已重置')
+      void Promise.all([invalidate(), qc.invalidateQueries({ queryKey: ['admin', 'sessions'] })])
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : '重置失败'),
+  })
 
   if (isLoading) return <LoadingBlock />
 
   return (
-    <div className={tableScroll}>
-      <div className={`${tableShell} min-w-[720px]`}>
-        <table className={tableEl}>
-          <thead className={tableHead}>
-            <tr>
-              <th className={th}>用户名</th>
-              <th className={th}>管理员</th>
-              <th className={th}>启用</th>
-              <th className={th}>允许分享</th>
-              <th className={th}>会话</th>
-              <th className={th}>注册</th>
-              <th className={th} />
-            </tr>
-          </thead>
-          <tbody className={tableBody}>
-            {users?.map((u: AdminUserDTO) => {
-              const isSelf = u.id === me?.id
-              return (
-                <tr key={u.id} className={tableRowHover}>
-                  <td className={clsx(td, 'text-neutral-800 dark:text-neutral-100')}>
-                    {u.username}
-                    {isSelf && <span className="ml-1 text-xs text-neutral-400">（你）</span>}
-                  </td>
-                  <td className={td}>
-                    <Toggle
-                      checked={u.role === 'admin'}
-                      disabled={isSelf}
-                      onChange={(v) =>
-                        update.mutate({ id: u.id, input: { role: v ? 'admin' : 'user' } })
-                      }
-                    />
-                  </td>
-                  <td className={td}>
-                    <Toggle
-                      checked={!u.disabled}
-                      disabled={isSelf}
-                      onChange={(v) => update.mutate({ id: u.id, input: { disabled: !v } })}
-                    />
-                  </td>
-                  <td className={td}>
-                    <Toggle
-                      checked={u.canShare !== false}
-                      onChange={(v) =>
-                        update.mutate({ id: u.id, input: { canShare: v ? null : false } })
-                      }
-                    />
-                  </td>
-                  <td className={clsx(td, 'text-neutral-500')}>{u.conversationCount}</td>
-                  <td className={clsx(td, 'text-xs text-neutral-500')}>{fmtDate(u.createdAt)}</td>
-                  <td className={clsx(td, 'text-right')}>
-                    <div className="flex items-center justify-end gap-3">
-                      <Link
-                        to={'/admin/users/' + u.id}
-                        className={clsx(
-                          textActionClass,
-                          'text-neutral-600 hover:text-neutral-950 dark:text-neutral-300 dark:hover:text-white',
-                        )}
-                      >
-                        查看使用
-                      </Link>
-                      <button
-                        type="button"
+    <>
+      <div className={tableScroll}>
+        <div className={`${tableShell} min-w-[820px]`}>
+          <table className={tableEl}>
+            <thead className={tableHead}>
+              <tr>
+                <th className={th}>用户名</th>
+                <th className={th}>管理员</th>
+                <th className={th}>启用</th>
+                <th className={th}>允许分享</th>
+                <th className={th}>会话</th>
+                <th className={th}>注册</th>
+                <th className={th} />
+              </tr>
+            </thead>
+            <tbody className={tableBody}>
+              {users?.map((u: AdminUserDTO) => {
+                const isSelf = u.id === me?.id
+                return (
+                  <tr key={u.id} className={tableRowHover}>
+                    <td className={clsx(td, 'text-neutral-800 dark:text-neutral-100')}>
+                      {u.username}
+                      {isSelf && <span className="ml-1 text-xs text-neutral-400">（你）</span>}
+                      {u.mustChangePassword && (
+                        <span className="ml-2 inline-flex rounded-md bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                          待设置新密码
+                        </span>
+                      )}
+                    </td>
+                    <td className={td}>
+                      <Toggle
+                        checked={u.role === 'admin'}
                         disabled={isSelf}
-                        onClick={() => {
-                          if (isSelf) return
-                          void askConfirm({
-                            title: '删除用户？',
-                            description: `用户「${u.username}」及其全部会话、记录将被永久删除，且无法恢复。`,
-                            confirmLabel: '删除',
-                            tone: 'danger',
-                          }).then((ok) => {
-                            if (ok) remove.mutate(u.id)
-                          })
-                        }}
-                        className={clsx(
-                          'text-neutral-400 transition',
-                          isSelf
-                            ? 'cursor-not-allowed opacity-35'
-                            : 'hover:text-red-500 focus-visible:text-red-500',
-                        )}
-                        aria-label={isSelf ? '不能删除当前用户' : '删除'}
-                        title={isSelf ? '不能删除当前用户' : '删除用户'}
-                      >
-                        <DeleteIcon className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+                        onChange={(v) =>
+                          update.mutate({ id: u.id, input: { role: v ? 'admin' : 'user' } })
+                        }
+                      />
+                    </td>
+                    <td className={td}>
+                      <Toggle
+                        checked={!u.disabled}
+                        disabled={isSelf}
+                        onChange={(v) => update.mutate({ id: u.id, input: { disabled: !v } })}
+                      />
+                    </td>
+                    <td className={td}>
+                      <Toggle
+                        checked={u.canShare !== false}
+                        onChange={(v) =>
+                          update.mutate({ id: u.id, input: { canShare: v ? null : false } })
+                        }
+                      />
+                    </td>
+                    <td className={clsx(td, 'text-neutral-500')}>{u.conversationCount}</td>
+                    <td className={clsx(td, 'text-xs text-neutral-500')}>{fmtDate(u.createdAt)}</td>
+                    <td className={clsx(td, 'text-right')}>
+                      <div className="flex items-center justify-end gap-3">
+                        <button
+                          type="button"
+                          disabled={isSelf || resetPassword.isPending}
+                          onClick={() => {
+                            if (isSelf) return
+                            void askConfirm({
+                              title: '重置用户密码？',
+                              description: `用户「${u.username}」的旧密码会立即失效，所有登录设备将被踢下线。系统会生成一个仅显示一次的临时密码。`,
+                              confirmLabel: '重置密码',
+                            }).then((ok) => {
+                              if (ok) resetPassword.mutate({ id: u.id, username: u.username })
+                            })
+                          }}
+                          className={clsx(
+                            textActionClass,
+                            isSelf
+                              ? 'cursor-not-allowed text-neutral-300 no-underline dark:text-neutral-700'
+                              : 'text-amber-700 hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-200',
+                          )}
+                          title={isSelf ? '请在个人设置中修改自己的密码' : '重置用户密码'}
+                        >
+                          重置密码
+                        </button>
+                        <Link
+                          to={'/admin/users/' + u.id}
+                          className={clsx(
+                            textActionClass,
+                            'text-neutral-600 hover:text-neutral-950 dark:text-neutral-300 dark:hover:text-white',
+                          )}
+                        >
+                          查看使用
+                        </Link>
+                        <button
+                          type="button"
+                          disabled={isSelf}
+                          onClick={() => {
+                            if (isSelf) return
+                            void askConfirm({
+                              title: '删除用户？',
+                              description: `用户「${u.username}」及其全部会话、记录将被永久删除，且无法恢复。`,
+                              confirmLabel: '删除',
+                              tone: 'danger',
+                            }).then((ok) => {
+                              if (ok) remove.mutate(u.id)
+                            })
+                          }}
+                          className={clsx(
+                            'text-neutral-400 transition',
+                            isSelf
+                              ? 'cursor-not-allowed opacity-35'
+                              : 'hover:text-red-500 focus-visible:text-red-500',
+                          )}
+                          aria-label={isSelf ? '不能删除当前用户' : '删除'}
+                          title={isSelf ? '不能删除当前用户' : '删除用户'}
+                        >
+                          <DeleteIcon className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
-    </div>
+      {passwordReset && (
+        <TemporaryPasswordModal
+          username={passwordReset.username}
+          temporaryPassword={passwordReset.temporaryPassword}
+          onClose={() => setPasswordReset(null)}
+        />
+      )}
+    </>
+  )
+}
+
+function TemporaryPasswordModal({
+  username,
+  temporaryPassword,
+  onClose,
+}: {
+  username: string
+  temporaryPassword: string
+  onClose: () => void
+}) {
+  const [copied, setCopied] = useState(false)
+
+  const copyPassword = () => {
+    void copyToClipboard(temporaryPassword).then((ok) => {
+      if (!ok) {
+        toast.error('复制失败，请手动复制')
+        return
+      }
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="临时密码已生成"
+      footer={<Button onClick={onClose}>我已保存，关闭</Button>}
+    >
+      <div className="space-y-4">
+        <div className="flex gap-3 rounded-xl border border-amber-200 bg-amber-50/80 p-3.5 text-sm leading-6 text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+          <ShieldAlert className="mt-1 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+          <p>
+            此密码只显示一次。关闭后无法再次查看；用户登录后必须立即设置新密码，才能进入聊天界面。
+          </p>
+        </div>
+
+        <div>
+          <div className="mb-1.5 text-xs font-medium text-neutral-500 dark:text-neutral-400">
+            用户名
+          </div>
+          <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+            {username}
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-1.5 text-xs font-medium text-neutral-500 dark:text-neutral-400">
+            临时密码
+          </div>
+          <div className="flex items-center gap-2 rounded-xl border border-neutral-200 bg-neutral-50 p-2 dark:border-neutral-700 dark:bg-neutral-800/70">
+            <KeyRound className="h-4 w-4 shrink-0 text-neutral-400" />
+            <code className="min-w-0 flex-1 select-all break-all font-mono text-[15px] font-semibold tracking-wide text-neutral-900 dark:text-neutral-100">
+              {temporaryPassword}
+            </code>
+            <Button variant="secondary" className="shrink-0 !px-3 !py-1.5" onClick={copyPassword}>
+              {copied ? (
+                <Check className="h-4 w-4 text-emerald-500" />
+              ) : (
+                <CopyIcon className="h-4 w-4" />
+              )}
+              {copied ? '已复制' : '复制'}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </Modal>
   )
 }
 

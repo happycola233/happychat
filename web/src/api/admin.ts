@@ -1,4 +1,5 @@
 import type {
+  AdminPasswordResetResult,
   AdminModelDTO,
   AdminModelGroupDTO,
   CustomIconDTO,
@@ -105,8 +106,7 @@ export const createModelGroup = (input: ModelGroupCreateInput) =>
   apiPost<{ group: AdminModelGroupDTO }>('/admin/model-groups', input).then((r) => r.group)
 export const updateModelGroup = (id: string, input: ModelGroupUpdateInput) =>
   apiPatch<{ group: ModelGroupDTO }>(`/admin/model-groups/${id}`, input).then((r) => r.group)
-export const deleteModelGroup = (id: string) =>
-  apiDelete<{ ok: true }>(`/admin/model-groups/${id}`)
+export const deleteModelGroup = (id: string) => apiDelete<{ ok: true }>(`/admin/model-groups/${id}`)
 export const reorderModelGroups = (input: ModelGroupReorderInput) =>
   apiPost<{ ok: true }>('/admin/model-groups/reorder', input)
 export const assignModelsToGroup = (input: ModelGroupAssignInput) =>
@@ -140,6 +140,8 @@ export const listUsers = () =>
 export const updateUser = (id: string, input: UserUpdateInput) =>
   apiPatch<{ ok: true }>(`/admin/users/${id}`, input)
 export const deleteUser = (id: string) => apiDelete<{ ok: true }>(`/admin/users/${id}`)
+export const resetUserPassword = (id: string) =>
+  apiPost<AdminPasswordResetResult>(`/admin/users/${id}/reset-password`)
 
 // 会话（账号中心）
 export const getSessions = (userId?: string) =>

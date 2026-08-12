@@ -16,7 +16,8 @@ export function useSettingsSync(): void {
   const { data } = useQuery({
     queryKey: ['settings'],
     queryFn: settingsApi.getSettings,
-    enabled: !!me,
+    // 临时密码登录得到的是受限会话；完成强制改密前不请求任何业务设置接口。
+    enabled: !!me && !me.mustChangePassword,
     staleTime: 60_000,
   })
   useEffect(() => {

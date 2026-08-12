@@ -57,6 +57,10 @@ export const users = sqliteTable(
     // 是否允许分享聊天：null=随全局设置，true/false=按用户覆盖
     canShare: integer('can_share', { mode: 'boolean' }),
     disabled: integer('disabled', { mode: 'boolean' }).notNull().default(false),
+    // 管理员重置密码后置为 true；此时会话只能访问完成改密所需的最小认证接口。
+    mustChangePassword: integer('must_change_password', { mode: 'boolean' })
+      .notNull()
+      .default(false),
     createdAt: createdAt(),
     lastActiveAt: ts('last_active_at'),
   },
