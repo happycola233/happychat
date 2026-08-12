@@ -12,6 +12,7 @@ import {
   Share2,
   SlidersHorizontal,
   UserRound,
+  UserRoundX,
   X,
 } from 'lucide-react'
 import type {
@@ -829,11 +830,11 @@ function AccountPanel() {
             ) : (
               <Button
                 variant="secondary"
-                className="shrink-0"
+                className="shrink-0 !shadow-none"
                 onClick={() => setConfirmClear(true)}
               >
                 <DeleteIcon className="h-4 w-4" />
-                清除
+                清除对话
               </Button>
             )}
           </div>
@@ -855,6 +856,7 @@ function AccountPanel() {
                   className="shrink-0"
                   onClick={() => setConfirmDelete(true)}
                 >
+                  <UserRoundX className="h-4 w-4" />
                   删除账户
                 </Button>
               )}
