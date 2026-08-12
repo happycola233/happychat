@@ -152,13 +152,13 @@ function AccountMenu({
           >
             {userLabel}
           </div>
-          {/* 普通用户身份保持纯文字；管理员胶囊整体向左做 2px 光学补偿。 */}
+          {/* 角色说明共用纯文字布局；管理员只以文字色区分，不再使用胶囊底板。 */}
           <span
             className={clsx(
-              'mt-0.5 text-[11px] font-normal leading-[15px]',
+              'mt-0.5 block text-[11px] font-normal leading-[15px]',
               isAdmin
-                ? '-ml-0.5 inline-flex rounded-full bg-amber-50/70 px-2 py-px text-amber-700/80 ring-1 ring-inset ring-amber-100 dark:bg-amber-400/[0.06] dark:text-amber-200/80 dark:ring-amber-300/10'
-                : 'block text-neutral-500 dark:text-neutral-400',
+                ? 'text-[#a85d3b] dark:text-[#ce7952]'
+                : 'text-neutral-500 dark:text-neutral-400',
             )}
           >
             {roleLabel}
