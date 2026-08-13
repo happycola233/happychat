@@ -16,7 +16,6 @@ import {
   conversations,
   errorLogs,
   messages,
-  models,
   providers,
   runs,
   usageLogs,
@@ -73,26 +72,20 @@ function whereOf(conds: SQL[]): SQL | undefined {
   return conds.length ? and(...conds) : undefined
 }
 
-async function getPricingMap(): Promise<Map<string, ModelPricing | null>> {
-  const rows = await db.select({ id: models.id, pricing: models.pricing }).from(models)
-  return new Map(rows.map((r) => [r.id, r.pricing ?? null]))
-}
-
-/** 把按 (modelId, tokens) 分组的行聚合成总成本（USD）。 */
+/** 把按价格快照分组的用量聚合成总成本（USD）。 */
 function sumCost(
   rows: {
-    modelId: string | null
+    pricingSnapshot: ModelPricing | null
     inputTokens: number
     cacheWriteTokens: number
     cachedTokens: number
     outputTokens: number
     imageTokens: number
   }[],
-  pricing: Map<string, ModelPricing | null>,
 ): number {
   let total = 0
   for (const r of rows) {
-    total += costUsd(r, r.modelId ? (pricing.get(r.modelId) ?? null) : null)
+    total += costUsd(r, r.pricingSnapshot)
   }
   return total
 }
@@ -109,7 +102,6 @@ const TOKEN_SUMS = {
 
 export async function getOverview(filter: StatsFilter): Promise<OverviewDTO> {
   const conds = usageConds(filter)
-  const pricing = await getPricingMap()
 
   const [agg] = await db
     .select({
@@ -122,12 +114,12 @@ export async function getOverview(filter: StatsFilter): Promise<OverviewDTO> {
     .from(usageLogs)
     .where(whereOf(conds))
 
-  const byModel = await db
-    .select({ modelId: usageLogs.modelId, ...TOKEN_SUMS })
+  const byPricing = await db
+    .select({ pricingSnapshot: usageLogs.pricingSnapshot, ...TOKEN_SUMS })
     .from(usageLogs)
     .where(whereOf(conds))
-    .groupBy(usageLogs.modelId)
-  const cost = sumCost(byModel, pricing)
+    .groupBy(usageLogs.pricingSnapshot)
+  const cost = sumCost(byPricing)
 
   // RPM/TPM：最近 60 分钟（仅叠加 provider/model/user 过滤，不受时间范围影响）
   const rateConds = usageConds({
@@ -191,13 +183,12 @@ export async function getAnalytics(filter: StatsFilter): Promise<AnalyticsDTO> {
   const bucket = autoBucket(filter)
   const size = bucketMs(bucket)
   const conds = usageConds(filter)
-  const pricing = await getPricingMap()
   const bucketExpr = bucketStartExpr(size)
 
   const rows = await db
     .select({
       ts: bucketExpr,
-      modelId: usageLogs.modelId,
+      pricingSnapshot: usageLogs.pricingSnapshot,
       requests: sql<number>`count(*)`,
       inputTokens: TOKEN_SUMS.inputTokens,
       cacheWriteTokens: TOKEN_SUMS.cacheWriteTokens,
@@ -208,7 +199,7 @@ export async function getAnalytics(filter: StatsFilter): Promise<AnalyticsDTO> {
     })
     .from(usageLogs)
     .where(whereOf(conds))
-    .groupBy(bucketExpr, usageLogs.modelId)
+    .groupBy(bucketExpr, usageLogs.pricingSnapshot)
     .orderBy(asc(bucketExpr))
 
   const byTs = new Map<number, AnalyticsSeriesPoint>()
@@ -229,7 +220,7 @@ export async function getAnalytics(filter: StatsFilter): Promise<AnalyticsDTO> {
     point.cachedTokens += r.cachedTokens
     point.outputTokens += r.outputTokens
     point.reasoningTokens += r.reasoningTokens
-    point.costUsd += costUsd(r, r.modelId ? (pricing.get(r.modelId) ?? null) : null)
+    point.costUsd += costUsd(r, r.pricingSnapshot)
     byTs.set(r.ts, point)
   }
 
@@ -241,7 +232,6 @@ export async function getAnalytics(filter: StatsFilter): Promise<AnalyticsDTO> {
 
 export async function getUserStats(filter: StatsFilter): Promise<UserStatDTO[]> {
   const conds = usageConds(filter)
-  const pricing = await getPricingMap()
 
   // 每用户基础聚合
   const base = await db
@@ -264,6 +254,7 @@ export async function getUserStats(filter: StatsFilter): Promise<UserStatDTO[]> 
       userId: usageLogs.userId,
       modelId: usageLogs.modelId,
       modelLabel: usageLogs.modelLabel,
+      pricingSnapshot: usageLogs.pricingSnapshot,
       calls: sql<number>`count(*)`,
       inputTokens: TOKEN_SUMS.inputTokens,
       cacheWriteTokens: TOKEN_SUMS.cacheWriteTokens,
@@ -273,19 +264,22 @@ export async function getUserStats(filter: StatsFilter): Promise<UserStatDTO[]> 
     })
     .from(usageLogs)
     .where(whereOf(conds))
-    .groupBy(usageLogs.userId, usageLogs.modelId, usageLogs.modelLabel)
+    .groupBy(usageLogs.userId, usageLogs.modelId, usageLogs.modelLabel, usageLogs.pricingSnapshot)
 
   const costByUser = new Map<string, number>()
-  const topModelsByUser = new Map<string, { model: string; calls: number }[]>()
+  const modelCallsByUser = new Map<string, Map<string, { model: string; calls: number }>>()
   for (const r of byUserModel) {
     if (!r.userId) continue
-    costByUser.set(
-      r.userId,
-      (costByUser.get(r.userId) ?? 0) + costUsd(r, r.modelId ? (pricing.get(r.modelId) ?? null) : null),
-    )
-    const list = topModelsByUser.get(r.userId) ?? []
-    list.push({ model: r.modelLabel ?? '未知', calls: r.calls })
-    topModelsByUser.set(r.userId, list)
+    costByUser.set(r.userId, (costByUser.get(r.userId) ?? 0) + costUsd(r, r.pricingSnapshot))
+    const modelLabel = r.modelLabel ?? '未知'
+    const modelKey = `${r.modelId ?? ''}\u0000${modelLabel}`
+    const callsByModel = modelCallsByUser.get(r.userId) ?? new Map()
+    const current = callsByModel.get(modelKey)
+    callsByModel.set(modelKey, {
+      model: modelLabel,
+      calls: (current?.calls ?? 0) + r.calls,
+    })
+    modelCallsByUser.set(r.userId, callsByModel)
   }
 
   const [convCounts, msgCounts, fileCounts, errCounts, userRows] = await Promise.all([
@@ -321,7 +315,7 @@ export async function getUserStats(filter: StatsFilter): Promise<UserStatDTO[]> 
     if (!b.userId) continue
     const u = userMap.get(b.userId)
     if (!u) continue
-    const topModels = (topModelsByUser.get(b.userId) ?? [])
+    const topModels = [...(modelCallsByUser.get(b.userId)?.values() ?? [])]
       .sort((a, z) => z.calls - a.calls)
       .slice(0, 3)
     result.push({
@@ -352,7 +346,6 @@ export async function listUsageEvents(filter: StatsFilter): Promise<Paginated<Us
   const conds = usageConds(filter)
   const page = filter.page ?? 1
   const pageSize = filter.pageSize ?? 50
-  const pricing = await getPricingMap()
 
   const [{ total } = { total: 0 }] = await db
     .select({ total: sql<number>`count(*)` })
@@ -376,26 +369,28 @@ export async function listUsageEvents(filter: StatsFilter): Promise<Paginated<Us
     .limit(pageSize)
     .offset((page - 1) * pageSize)
 
-  const items: UsageLogDTO[] = rows.map(({ log, username, providerName, startedAt, finishedAt }) => ({
-    id: log.id,
-    userId: log.userId,
-    username: username ?? null,
-    providerId: log.providerId,
-    providerLabel: providerName ?? log.providerLabel,
-    modelLabel: log.modelLabel,
-    inputTokens: log.inputTokens,
-    cacheWriteTokens: log.cacheWriteTokens,
-    cachedTokens: log.cachedTokens,
-    outputTokens: log.outputTokens,
-    reasoningTokens: log.reasoningTokens,
-    totalTokens: log.totalTokens,
-    imageTokens: log.imageTokens,
-    success: log.success,
-    errorType: log.errorType,
-    costUsd: costUsd(log, log.modelId ? (pricing.get(log.modelId) ?? null) : null),
-    durationMs: computeGenerationDurationMs(startedAt, finishedAt),
-    createdAt: log.createdAt.getTime(),
-  }))
+  const items: UsageLogDTO[] = rows.map(
+    ({ log, username, providerName, startedAt, finishedAt }) => ({
+      id: log.id,
+      userId: log.userId,
+      username: username ?? null,
+      providerId: log.providerId,
+      providerLabel: providerName ?? log.providerLabel,
+      modelLabel: log.modelLabel,
+      inputTokens: log.inputTokens,
+      cacheWriteTokens: log.cacheWriteTokens,
+      cachedTokens: log.cachedTokens,
+      outputTokens: log.outputTokens,
+      reasoningTokens: log.reasoningTokens,
+      totalTokens: log.totalTokens,
+      imageTokens: log.imageTokens,
+      success: log.success,
+      errorType: log.errorType,
+      costUsd: costUsd(log, log.pricingSnapshot),
+      durationMs: computeGenerationDurationMs(startedAt, finishedAt),
+      createdAt: log.createdAt.getTime(),
+    }),
+  )
 
   return { items, total, page, pageSize }
 }

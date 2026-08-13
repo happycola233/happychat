@@ -156,6 +156,7 @@ export async function runImageEngine(ctx: EngineContext): Promise<void> {
       providerId: ctx.provider.id,
       modelLabel: ctx.model.modelId,
       providerLabel: ctx.provider.name,
+      pricingSnapshot: ctx.model.pricing,
       conversationId: ctx.conversation.id,
       inputTokens,
       cacheWriteTokens: 0,

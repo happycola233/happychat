@@ -74,7 +74,11 @@ export default function OverviewPage() {
               value={formatCompact(totals.tokens)}
               hint={`缓存读取率 ${formatPercent(totals.cacheRate)}`}
             />
-            <StatCard label="成本估算" value={formatUsd(totals.costUsd)} hint="按模型定价估算" />
+            <StatCard
+              label="成本估算"
+              value={formatUsd(totals.costUsd)}
+              hint="按请求时的模型价格估算"
+            />
             <StatCard
               label="RPM / TPM"
               value={`${totals.rpm.toFixed(1)} / ${formatCompact(totals.tpm)}`}

@@ -61,6 +61,7 @@ describe('finalizeRun terminal snapshots', () => {
         },
         allowedEfforts: [{ value: 'high', description: '深度思考' }],
         defaultEffort: 'high',
+        pricing: { input: 2, cachedInput: 0.2, output: 8 },
       })
       .returning()
     if (!model) throw new Error('Failed to create finalize model')
@@ -164,6 +165,9 @@ describe('finalizeRun terminal snapshots', () => {
     const persistedMessage = await dbClient.db.query.messages.findFirst({
       where: eq(schema.messages.id, assistantMessage.id),
     })
+    const persistedUsage = await dbClient.db.query.usageLogs.findFirst({
+      where: eq(schema.usageLogs.runId, run.id),
+    })
     expect(persistedRun?.finishedAt).toBeInstanceOf(Date)
     expect(persistedMessage).toMatchObject({
       status: 'complete',
@@ -172,6 +176,7 @@ describe('finalizeRun terminal snapshots', () => {
       reasoningDurationMs: 3_500,
       generationDurationMs: persistedRun!.finishedAt!.getTime() - startedAt.getTime(),
     })
+    expect(persistedUsage?.pricingSnapshot).toEqual(model.pricing)
     expect(emittedEvents.map((event) => event.type)).toEqual(['run.done'])
     expect(emittedEvents[0]?.data).toMatchObject({ searchActions })
     expect(emittedEvents[0]?.data).not.toHaveProperty('providerReplayContext')

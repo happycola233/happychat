@@ -270,6 +270,7 @@ describe('cache-write cost integration', () => {
       userId: user.id,
       providerId: provider.id,
       modelId: model.id,
+      pricingSnapshot: model.pricing,
       inputTokens: 1_000_000,
       cacheWriteTokens: 300_000,
       cachedTokens: 200_000,
@@ -289,5 +290,113 @@ describe('cache-write cost integration', () => {
     expect(analytics.series[0]?.costUsd).toBeCloseTo(7.2375, 6)
     expect(userStats[0]?.costUsd).toBeCloseTo(7.2375, 6)
     expect(events.items[0]?.costUsd).toBeCloseTo(7.2375, 6)
+  })
+})
+
+describe('historical cost snapshots', () => {
+  it('keeps past costs stable across price changes and model deletion', async () => {
+    const hourStart = Date.UTC(2027, 0, 7, 8)
+    const user = await insertUser()
+    const provider = await insertProvider('Snapshot Cost Provider')
+    const initialPricing = { input: 2, output: 8 }
+    const updatedPricing = { input: 20, output: 80 }
+    const modelLabel = `snapshot-cost-model-${uniqueId++}`
+    const [model] = await dbClient.db
+      .insert(schema.models)
+      .values({
+        providerId: provider.id,
+        modelId: modelLabel,
+        displayName: 'Snapshot Cost Model',
+        capabilities: {
+          vision: false,
+          file_input: false,
+          web_search: false,
+          x_search: false,
+          image_generation: false,
+          reasoning: false,
+        },
+        pricing: initialPricing,
+      })
+      .returning()
+    if (!model) throw new Error('failed to insert snapshot cost model')
+
+    const usage = {
+      userId: user.id,
+      providerId: provider.id,
+      modelId: model.id,
+      modelLabel,
+      inputTokens: 1_000_000,
+      outputTokens: 500_000,
+      totalTokens: 1_500_000,
+    }
+    await insertUsageLog(hourStart + 10_000, {
+      ...usage,
+      pricingSnapshot: initialPricing,
+    })
+
+    await dbClient.db
+      .update(schema.models)
+      .set({ pricing: updatedPricing })
+      .where(eq(schema.models.id, model.id))
+
+    const historicalFilter = {
+      from: hourStart,
+      to: hourStart + 5 * 60_000,
+      userId: user.id,
+    }
+    const [historicalOverview, historicalAnalytics, historicalUsers, historicalEvents] =
+      await Promise.all([
+        stats.getOverview(historicalFilter),
+        stats.getAnalytics({ ...historicalFilter, bucket: 'hour' }),
+        stats.getUserStats(historicalFilter),
+        stats.listUsageEvents(historicalFilter),
+      ])
+
+    for (const cost of [
+      historicalOverview.totals.costUsd,
+      historicalAnalytics.series[0]?.costUsd,
+      historicalUsers[0]?.costUsd,
+      historicalEvents.items[0]?.costUsd,
+    ]) {
+      expect(cost).toBeCloseTo(6, 6)
+    }
+
+    await insertUsageLog(hourStart + 10 * 60_000, {
+      ...usage,
+      pricingSnapshot: updatedPricing,
+    })
+    await dbClient.db.delete(schema.models).where(eq(schema.models.id, model.id))
+
+    const fullFilter = { from: hourStart, to: hourStart + HOUR_MS, userId: user.id }
+    const [overview, analytics, userStats, events] = await Promise.all([
+      stats.getOverview(fullFilter),
+      stats.getAnalytics({ ...fullFilter, bucket: 'hour' }),
+      stats.getUserStats(fullFilter),
+      stats.listUsageEvents(fullFilter),
+    ])
+
+    for (const cost of [
+      overview.totals.costUsd,
+      analytics.series[0]?.costUsd,
+      userStats[0]?.costUsd,
+    ]) {
+      expect(cost).toBeCloseTo(66, 6)
+    }
+    expect(events.items[0]?.costUsd).toBeCloseTo(60, 6)
+    expect(events.items[1]?.costUsd).toBeCloseTo(6, 6)
+    expect(userStats[0]?.topModels).toEqual([{ model: modelLabel, calls: 2 }])
+
+    const persistedLogs = await dbClient.db
+      .select({
+        modelId: schema.usageLogs.modelId,
+        pricingSnapshot: schema.usageLogs.pricingSnapshot,
+      })
+      .from(schema.usageLogs)
+      .where(eq(schema.usageLogs.userId, user.id))
+      .orderBy(schema.usageLogs.createdAt)
+    expect(persistedLogs).toEqual([
+      { modelId: null, pricingSnapshot: initialPricing },
+      { modelId: null, pricingSnapshot: updatedPricing },
+    ])
   })
 })

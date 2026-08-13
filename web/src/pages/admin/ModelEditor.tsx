@@ -794,7 +794,7 @@ export function ModelEditor({
         {/* ============ 定价 ============ */}
         <FormSection
           title="定价"
-          hint="USD / 每 100 万 tokens，用于成本估算；缓存写入、读取均是总输入的子项，其价格留空时回退到普通输入价；其他价格留空不计。"
+          hint="USD / 每 100 万 tokens，用于成本估算；修改后只影响新请求，不会重算历史成本。缓存写入、读取均是总输入的子项，其价格留空时回退到普通输入价；其他价格留空不计。"
         >
           <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 sm:grid-cols-3">
             {(

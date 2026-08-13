@@ -183,6 +183,13 @@
       "when": 1786546369643,
       "tag": "0025_aromatic_leper_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1786586580994,
+      "tag": "0026_usage_pricing_snapshots",
+      "breakpoints": true
     }
   ]
 }

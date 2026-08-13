@@ -507,6 +507,8 @@ export const usageLogs = sqliteTable(
     // 冗余存储以便模型/用户删除后仍可统计
     modelLabel: text('model_label'),
     providerLabel: text('provider_label'),
+    // 请求发起时的价格快照；后续改价或删除模型不得改写历史成本。
+    pricingSnapshot: text('pricing_snapshot', { mode: 'json' }).$type<ModelPricing>(),
     conversationId: text('conversation_id'),
     inputTokens: integer('input_tokens').notNull().default(0),
     cacheWriteTokens: integer('cache_write_tokens').notNull().default(0),

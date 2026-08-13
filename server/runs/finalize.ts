@@ -120,6 +120,7 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
     providerId: a.provider.id,
     modelLabel: a.model.modelId,
     providerLabel: a.provider.name,
+    pricingSnapshot: a.model.pricing,
     conversationId: a.conversation.id,
     inputTokens: a.usage.inputTokens,
     cacheWriteTokens: a.usage.cacheWriteTokens,
