@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { isUploadAbortError, uploadAttachment } from '../api/attachments'
+import { createRandomUuid } from '../lib/randomUuid'
 import { toast } from '../store/toast'
 import {
   createUploadDraft,
@@ -78,7 +79,7 @@ export function useAttachmentUpload({ canImage, canFile }: UseAttachmentUploadOp
       if (!supported.length) return
 
       for (const file of supported) {
-        const localId = crypto.randomUUID()
+        const localId = createRandomUuid()
         const previewUrl = file.type.startsWith('image/') ? URL.createObjectURL(file) : null
         tasksRef.current.set(localId, { file, previewUrl, controller: null })
         setUploads((items) => [...items, createUploadDraft({ localId, file, previewUrl })])
