@@ -74,6 +74,16 @@ export default function SettingsPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : '操作失败'),
   })
 
+  // 成本展示是全局开关；切换后让当前浏览器里的会话缓存失效，返回聊天即可读取新口径。
+  const toggleCostVisibility = useMutation({
+    mutationFn: (showCost: boolean) => updateAppConfig({ showCost }),
+    onSuccess: () => {
+      invalidateConfig()
+      void qc.invalidateQueries({ queryKey: ['conversation'] })
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : '操作失败'),
+  })
+
   const saveTitle = useMutation({
     mutationFn: (draft: TitleDraft) => {
       const prompt = draft.prompt.trim()
@@ -98,7 +108,7 @@ export default function SettingsPage() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-5">
-      <PageHeader title="系统设置" description="全局功能开关与标题总结配置。" />
+      <PageHeader title="系统设置" description="全局功能开关、成本展示与标题总结配置。" />
 
       {/* 配置到位后才渲染开关与表单：先画默认值会让刷新时所有开关闪一下「已开启」。 */}
       {!config || !titleDraft ? (
@@ -143,6 +153,25 @@ export default function SettingsPage() {
                 checked={config.sharingEnabled}
                 disabled={toggleSharing.isPending}
                 onChange={(v) => toggleSharing.mutate(v)}
+              />
+            </div>
+          </Card>
+
+          <Card title="消息用量">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <div className="text-sm text-neutral-800 dark:text-neutral-100">
+                  展示单次请求成本
+                </div>
+                <div className="mt-0.5 text-xs leading-5 text-neutral-400 dark:text-neutral-500">
+                  在助手消息的用量明细末尾显示预估成本（USD）；成本为 0 时不显示。
+                </div>
+              </div>
+              <Toggle
+                checked={config.showCost}
+                disabled={toggleCostVisibility.isPending}
+                ariaLabel="展示单次请求成本"
+                onChange={(value) => toggleCostVisibility.mutate(value)}
               />
             </div>
           </Card>

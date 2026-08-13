@@ -190,6 +190,13 @@
       "when": 1786586580994,
       "tag": "0026_usage_pricing_snapshots",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "6",
+      "when": 1786591759361,
+      "tag": "0027_next_taskmaster",
+      "breakpoints": true
     }
   ]
 }

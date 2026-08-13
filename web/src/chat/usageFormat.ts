@@ -26,6 +26,17 @@ export function formatTps(tps: number): string {
   return tps >= 100 ? String(Math.round(tps)) : trim1(tps)
 }
 
+/** 美元成本：保留小额请求所需精度，非零但低于一百万分之一美元时使用下限文案。 */
+export function formatCostUsd(costUsd: number | null | undefined): string | null {
+  if (typeof costUsd !== 'number' || !Number.isFinite(costUsd) || costUsd <= 0) return null
+  if (costUsd < 0.000001) return '<$0.000001'
+  return `$${costUsd.toLocaleString('en-US', {
+    minimumFractionDigits: costUsd >= 0.01 ? 2 : 0,
+    maximumFractionDigits: costUsd >= 0.01 ? 4 : 6,
+    useGrouping: false,
+  })}`
+}
+
 /** 消息时间显示：'time'=HH:mm；'datetime'=YYYY/MM/DD HH:mm（均 24 小时制）。 */
 export function formatMessageTime(ts: number, format: 'time' | 'datetime' = 'time'): string {
   const d = new Date(ts)

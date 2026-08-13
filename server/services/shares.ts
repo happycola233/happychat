@@ -47,7 +47,9 @@ function expiryFromDays(days: number | null): Date | null {
 }
 
 /** 用户上传的附件部件（分享可选择排除；模型生成的 image_result 属于回复内容，始终保留）。 */
-function isUserAttachmentPart(p: ContentPart): p is Extract<ContentPart, { type: 'input_image' | 'input_file' }> {
+function isUserAttachmentPart(
+  p: ContentPart,
+): p is Extract<ContentPart, { type: 'input_image' | 'input_file' }> {
   return p.type === 'input_image' || p.type === 'input_file'
 }
 
@@ -83,7 +85,8 @@ async function buildSnapshot(
   activeLeafId: string | null,
   selectedIds: string[] | null,
 ): Promise<MessageDTO[] | null> {
-  const dtos = await getConversationMessageDTOs(conversationId)
+  // 快照始终保留成本，公开读取时再按当前全局开关决定是否返回；这样切换开关立即生效。
+  const dtos = await getConversationMessageDTOs(conversationId, { includeCost: true })
   const byId = new Map(dtos.map((d) => [d.id, d]))
   const all = await getConversationMessages(conversationId)
 
@@ -116,7 +119,11 @@ export async function createShare(
     .limit(1)
   if (!conv) return { ok: false, code: 'not_found' }
 
-  const rawSnapshot = await buildSnapshot(conversationId, conv.activeLeafId, input.messageIds ?? null)
+  const rawSnapshot = await buildSnapshot(
+    conversationId,
+    conv.activeLeafId,
+    input.messageIds ?? null,
+  )
   if (!rawSnapshot || rawSnapshot.length === 0) return { ok: false, code: 'invalid_selection' }
   const snapshot = input.includeAttachments ? rawSnapshot : stripUserAttachments(rawSnapshot)
 
@@ -221,20 +228,25 @@ function isLive(row: ShareRow): boolean {
 export async function getPublicShare(token: string): Promise<PublicShareDTO | null> {
   const [row] = await db.select().from(sharedChats).where(eq(sharedChats.token, token)).limit(1)
   if (!row || !isLive(row)) return null
+  const config = await getAppConfig()
 
   let owner: PublicShareDTO['owner'] = { name: null, avatarUrl: null }
   if (row.showName || row.showAvatar) {
     const [u] = await db.select().from(users).where(eq(users.id, row.ownerId)).limit(1)
     if (u) {
       owner = {
-        name: row.showName ? (u.displayName || u.username) : null,
+        name: row.showName ? u.displayName || u.username : null,
         avatarUrl: row.showAvatar ? getUserAvatarUrl(u) : null,
       }
     }
   }
+  const snapshot = withLegacySearchActions(row.snapshot)
   return {
     title: row.title,
-    messages: withLegacySearchActions(row.snapshot),
+    messages: config.showCost
+      ? snapshot
+      : snapshot.map((message) => ({ ...message, costUsd: null })),
+    showCost: config.showCost,
     createdAt: row.createdAt.getTime(),
     updatedAt: row.updatedAt.getTime(),
     attachmentsIncluded: row.includeAttachments,

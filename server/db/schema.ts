@@ -1,4 +1,12 @@
-import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import {
+  index,
+  integer,
+  primaryKey,
+  real,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from 'drizzle-orm/sqlite-core'
 import { newId } from '../lib/id'
 // 注意：schema.ts 仅用相对路径导入（含 type-only），以规避 drizzle-kit 对 @shared/* 别名解析的不确定性。
 import type {
@@ -119,6 +127,8 @@ export const appSettings = sqliteTable('app_settings', {
     .default(true),
   // 是否允许用户分享聊天（全局开关）
   sharingEnabled: integer('sharing_enabled', { mode: 'boolean' }).notNull().default(true),
+  // 是否在助手消息用量明细中展示本次预估成本（USD）
+  showCost: integer('show_cost', { mode: 'boolean' }).notNull().default(true),
   // 标题自动总结
   titleEnabled: integer('title_enabled', { mode: 'boolean' }).notNull().default(true),
   titleModelId: text('title_model_id'),
@@ -381,6 +391,8 @@ export const messages = sqliteTable(
     outputTokens: integer('output_tokens'),
     reasoningTokens: integer('reasoning_tokens'),
     totalTokens: integer('total_tokens'),
+    // 按请求时模型价格快照计算的展示成本；独立分支复制该值，不依赖用量审计记录。
+    costUsd: real('cost_usd'),
     errorMessage: text('error_message'),
     createdAt: createdAt(),
   },

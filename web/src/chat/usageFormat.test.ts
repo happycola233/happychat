@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   computeTps,
+  formatCostUsd,
   formatDuration,
   formatMessageTime,
   formatTokens,
@@ -30,6 +31,16 @@ describe('computeTps / formatTps', () => {
   it('formats tps with one decimal under 100, integer above', () => {
     expect(formatTps(74.77)).toBe('74.8')
     expect(formatTps(120.4)).toBe('120')
+  })
+})
+
+describe('formatCostUsd', () => {
+  it('hides zero and keeps useful precision for small USD costs', () => {
+    expect(formatCostUsd(0)).toBeNull()
+    expect(formatCostUsd(null)).toBeNull()
+    expect(formatCostUsd(0.00006)).toBe('$0.00006')
+    expect(formatCostUsd(0.5)).toBe('$0.50')
+    expect(formatCostUsd(0.0000004)).toBe('<$0.000001')
   })
 })
 

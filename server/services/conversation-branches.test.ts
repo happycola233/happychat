@@ -77,6 +77,7 @@ async function createModel() {
       defaultEffort: 'high',
       defaultWebSearch: false,
       defaultXSearch: false,
+      pricing: { input: 2, cachedInput: 0.2, output: 8 },
     })
     .returning()
   if (!model) throw new Error('Failed to create model')
@@ -287,6 +288,19 @@ describe('createConversationBranch', () => {
         totalTokens: 150,
       })
       .where(eq(schema.messages.id, targetAssistant.id))
+    await dbClient.db.insert(schema.usageLogs).values({
+      runId: targetRun.id,
+      userId: user.id,
+      modelId: model.id,
+      providerId: model.providerId,
+      modelLabel: model.modelId,
+      pricingSnapshot: model.pricing,
+      conversationId: sourceConversation.id,
+      inputTokens: 120,
+      cachedTokens: 80,
+      outputTokens: 30,
+      totalTokens: 150,
+    })
 
     const laterUser = await addMessage({
       conversationId: sourceConversation.id,
@@ -357,6 +371,7 @@ describe('createConversationBranch', () => {
       reasoningTokens: 10,
       totalTokens: 150,
     })
+    expect(copiedPath.at(-1)?.costUsd).toBeCloseTo(0.000336, 10)
     expect(new Set(copiedPath.map((message) => message.id)).size).toBe(4)
     expect(copiedPath[0]?.parentId).toBeNull()
     copiedPath.slice(1).forEach((message, index) => {
@@ -428,15 +443,17 @@ describe('createConversationBranch', () => {
       true,
     )
 
-    // 删除原会话及其 run/events 后，分支仍由消息快照展示耗时，也能继续创建独立分支。
-    expect(
-      (await conversationServices.getConversationMessageDTOs(result.conversationId)).find(
-        (message) => message.id === copiedPath.at(-1)?.id,
-      ),
-    ).toMatchObject({
+    // 删除原会话及其 run/events 后，分支仍由消息快照展示耗时/成本，也能继续创建独立分支。
+    const branchAfterSourceDeleted = (
+      await conversationServices.getConversationMessageDTOs(result.conversationId, {
+        includeCost: true,
+      })
+    ).find((message) => message.id === copiedPath.at(-1)?.id)
+    expect(branchAfterSourceDeleted).toMatchObject({
       reasoningDurationMs: 5_000,
       generationDurationMs: 20_000,
     })
+    expect(branchAfterSourceDeleted?.costUsd).toBeCloseTo(0.000336, 10)
     const nestedResult = await branches.createConversationBranch(
       user.id,
       result.conversationId,

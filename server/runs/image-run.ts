@@ -1,15 +1,9 @@
 import { and, eq, inArray } from 'drizzle-orm'
 import type { ContentPart } from '@shared/types/domain'
 import { RUN_EVENT_TYPE } from '@shared/types/events'
+import { costUsd as estimateCostUsd } from '@shared/util/cost'
 import { db } from '../db/client'
-import {
-  conversations,
-  errorLogs,
-  messages,
-  runEvents,
-  runs,
-  usageLogs,
-} from '../db/schema'
+import { conversations, errorLogs, messages, runEvents, runs, usageLogs } from '../db/schema'
 import { providerClientFromRow } from '../provider/client'
 import { UpstreamError } from '../provider/errors'
 import { computeGenerationDurationMs } from '../services/run-timing'
@@ -121,6 +115,16 @@ export async function runImageEngine(ctx: EngineContext): Promise<void> {
     state === 'completed' ? 'complete' : state === 'failed' ? 'error' : 'interrupted'
   const finishedAt = new Date()
   const generationDurationMs = computeGenerationDurationMs(startedAt, finishedAt)
+  const messageCostUsd = estimateCostUsd(
+    {
+      inputTokens,
+      cacheWriteTokens: 0,
+      cachedTokens: 0,
+      outputTokens,
+      imageTokens,
+    },
+    ctx.model.pricing,
+  )
 
   db.update(messages)
     .set({
@@ -133,6 +137,7 @@ export async function runImageEngine(ctx: EngineContext): Promise<void> {
       cacheWriteTokens: 0,
       outputTokens,
       totalTokens,
+      costUsd: messageCostUsd,
       errorMessage: errorMessage ?? (state === 'canceled' ? '已停止生成' : null),
     })
     .where(eq(messages.id, ctx.assistantMessage.id))

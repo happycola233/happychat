@@ -8,6 +8,7 @@ import { copyUpload, removeUpload } from '../storage/files'
 import {
   buildPath,
   getConversationMessages,
+  getMessageCostByMessageId,
   getMessageTimingByMessageId,
   getOwnedConversation,
 } from './conversations'
@@ -152,8 +153,11 @@ export async function createConversationBranch(
     }
   }
 
-  // 旧消息可能尚无计时快照；在原 run 仍存在时先现算，确保新分支拥有独立展示数据。
-  const sourceTimingByMessageId = await getMessageTimingByMessageId(sourcePath)
+  // 旧消息可能尚无计时/成本快照；在原 run 仍存在时先现算，确保新分支拥有独立展示数据。
+  const [sourceTimingByMessageId, sourceCostByMessageId] = await Promise.all([
+    getMessageTimingByMessageId(sourcePath),
+    getMessageCostByMessageId(sourcePath),
+  ])
 
   const newConversationId = newId()
   const messageIdMap = new Map(sourcePath.map((message) => [message.id, newId()]))
@@ -257,6 +261,7 @@ export async function createConversationBranch(
       outputTokens: sourceMessage.outputTokens,
       reasoningTokens: sourceMessage.reasoningTokens,
       totalTokens: sourceMessage.totalTokens,
+      costUsd: sourceCostByMessageId.get(sourceMessage.id) ?? null,
       errorMessage: sourceMessage.errorMessage,
       createdAt: sourceMessage.createdAt,
     }

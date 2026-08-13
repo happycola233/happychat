@@ -1,10 +1,17 @@
 import { useState, type ReactNode } from 'react'
 import { clsx } from 'clsx'
-import { ArrowDown, ArrowUp, Check, Clock, Zap } from 'lucide-react'
+import { ArrowDown, ArrowUp, Check, Clock, Coins, Zap } from 'lucide-react'
 import type { MessageUsage } from '@shared/types/domain'
 import { copyToClipboard } from '../lib/clipboard'
 import { toast } from '../store/toast'
-import { computeTps, formatDuration, formatMessageTime, formatTokens, formatTps } from './usageFormat'
+import {
+  computeTps,
+  formatCostUsd,
+  formatDuration,
+  formatMessageTime,
+  formatTokens,
+  formatTps,
+} from './usageFormat'
 import { CopyIcon } from './icons'
 
 export function MessageIconButton({
@@ -86,17 +93,20 @@ export function MessageTimeLabel({
   )
 }
 
-/** 助手消息用量明细：输入（缓存写入/读取）/ 输出 / tok·s / 耗时。 */
+/** 助手消息用量明细：输入（缓存写入/读取）/ 输出 / tok·s / 耗时 / 可选成本。 */
 export function MessageUsageStats({
   usage,
   durationMs,
+  costUsd,
   className,
 }: {
   usage: MessageUsage
   durationMs: number | null
+  costUsd?: number | null
   className?: string
 }) {
   const tps = computeTps(usage.outputTokens, durationMs)
+  const formattedCost = formatCostUsd(costUsd)
   // 兼容功能上线前创建的公开分享快照，其 usage JSON 没有 cacheWriteTokens。
   const cacheWriteTokens = usage.cacheWriteTokens ?? 0
   const cacheDetails = [
@@ -113,13 +123,13 @@ export function MessageUsageStats({
       <span className="inline-flex items-center gap-1">
         <ArrowUp className="h-3 w-3" />
         <span>
-          {formatTokens(usage.inputTokens)} tokens
+          {formatTokens(usage.inputTokens)}
           {cacheDetails.length > 0 && `（缓存${cacheDetails.join(' · ')}）`}
         </span>
       </span>
       <span className="inline-flex items-center gap-1">
         <ArrowDown className="h-3 w-3" />
-        {formatTokens(usage.outputTokens)} tokens
+        {formatTokens(usage.outputTokens)}
       </span>
       {tps !== null && (
         <span className="inline-flex items-center gap-1">
@@ -131,6 +141,12 @@ export function MessageUsageStats({
         <span className="inline-flex items-center gap-1">
           <Clock className="h-3 w-3" />
           {formatDuration(durationMs)}
+        </span>
+      )}
+      {formattedCost && (
+        <span className="inline-flex items-center gap-1" title="本次预估成本（USD）">
+          <Coins className="h-3 w-3" />
+          {formattedCost}
         </span>
       )}
     </div>

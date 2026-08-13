@@ -213,6 +213,8 @@ export interface MessageDTO {
   /** 检索工具（web_search + x_search）本轮执行的动作序列；旧消息/旧分享快照可能没有该字段。 */
   searchActions?: SearchAction[] | null
   usage: MessageUsage | null
+  /** 请求时价格快照计算的预估成本（USD）；旧消息/分享快照可能没有该字段。 */
+  costUsd?: number | null
   errorMessage: string | null
   createdAt: number
 }
@@ -461,6 +463,8 @@ export interface AdminSessionDTO {
 export interface AppConfigDTO {
   registrationRequiresInviteCode: boolean
   sharingEnabled: boolean
+  /** 是否在助手消息用量明细中展示本次预估成本（USD）。 */
+  showCost: boolean
   titleEnabled: boolean
   titleModelId: string | null
   titlePrompt: string | null
@@ -546,6 +550,8 @@ export interface SharedChatDTO {
 export interface PublicShareDTO {
   title: string | null
   messages: MessageDTO[]
+  /** 公开页是否展示消息成本；读取时使用当前全局设置。 */
+  showCost: boolean
   createdAt: number
   /** 快照最近一次刷新时间 */
   updatedAt: number

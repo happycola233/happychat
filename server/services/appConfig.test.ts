@@ -30,11 +30,12 @@ afterAll(() => {
   if (temporaryDirectory) rmSync(temporaryDirectory, { recursive: true, force: true })
 })
 
-describe('全局注册策略', () => {
-  it('新部署默认要求邀请码', async () => {
+describe('全局应用配置', () => {
+  it('新部署默认要求邀请码并展示消息成本', async () => {
     const config = await appConfigService.getAppConfig()
 
     expect(config.registrationRequiresInviteCode).toBe(true)
+    expect(config.showCost).toBe(true)
   })
 
   it('可关闭并持久化，其他字段的局部更新不会重置注册策略', async () => {
@@ -44,5 +45,13 @@ describe('全局注册策略', () => {
     const config = await appConfigService.getAppConfig()
     expect(config.registrationRequiresInviteCode).toBe(false)
     expect(config.sharingEnabled).toBe(false)
+  })
+
+  it('可独立关闭消息成本展示', async () => {
+    await appConfigService.updateAppConfig({ showCost: false })
+    await appConfigService.updateAppConfig({ sharingEnabled: false })
+
+    const config = await appConfigService.getAppConfig()
+    expect(config.showCost).toBe(false)
   })
 })

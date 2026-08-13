@@ -7,6 +7,7 @@ import type {
   UrlCitation,
 } from '@shared/types/domain'
 import { RUN_EVENT_TYPE } from '@shared/types/events'
+import { costUsd as estimateCostUsd } from '@shared/util/cost'
 import { isReasoningEnabled } from '@shared/util/reasoning'
 import { db } from '../db/client'
 import { conversations, errorLogs, messages, runs, usageLogs } from '../db/schema'
@@ -62,6 +63,16 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
   const finishedAt = new Date()
   const generationDurationMs = computeGenerationDurationMs(a.startedAt, finishedAt)
   const reasoningDurationMs = await finalReasoningDurationMs(a, finishedAt)
+  const messageCostUsd = estimateCostUsd(
+    {
+      inputTokens: a.usage.inputTokens,
+      cacheWriteTokens: a.usage.cacheWriteTokens,
+      cachedTokens: a.usage.cachedTokens,
+      outputTokens: a.usage.outputTokens,
+      imageTokens: 0,
+    },
+    a.model.pricing,
+  )
 
   await db
     .update(messages)
@@ -81,6 +92,7 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
       outputTokens: a.usage.outputTokens,
       reasoningTokens: a.usage.reasoningTokens,
       totalTokens: a.usage.totalTokens,
+      costUsd: messageCostUsd,
       // 仅写消息私有列；run.done、日志与面向浏览器的 DTO 都不携带该信封。
       providerReplayContext:
         a.state === 'completed' || a.state === 'incomplete'

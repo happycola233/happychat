@@ -3,6 +3,7 @@ import type { ConversationDTO, ConversationSearchResultDTO, MessageDTO } from '@
 import type { ModelParams, ReasoningEffort } from '@shared/types/domain'
 import { textFromContent } from '@shared/util/contentText'
 import { normalizeModelCapabilities } from '@shared/util/modelCapabilities'
+import { costUsd as estimateCostUsd } from '@shared/util/cost'
 import { effectiveReasoningEffort, isReasoningEnabled } from '@shared/util/reasoning'
 import {
   effectiveWebSearchEnabled,
@@ -10,7 +11,15 @@ import {
   modelKindSupportsSearchTools,
 } from '@shared/util/searchTools'
 import { db } from '../db/client'
-import { attachments, conversations, messages, models, runEvents, runs } from '../db/schema'
+import {
+  attachments,
+  conversations,
+  messages,
+  models,
+  runEvents,
+  runs,
+  usageLogs,
+} from '../db/schema'
 import { removeUpload } from '../storage/files'
 import {
   computeReasoningDurationMs,
@@ -18,6 +27,7 @@ import {
   type ReasoningTimingEvent,
 } from './reasoning-timing'
 import { computeGenerationDurationMs } from './run-timing'
+import { getAppConfig } from './appConfig'
 
 export type ConvRow = typeof conversations.$inferSelect
 export type MsgRow = typeof messages.$inferSelect
@@ -45,6 +55,7 @@ export function toMessageDTO(
   m: MsgRow,
   timing: MessageTiming | null = null,
   modelLabel: string | null = null,
+  messageCostUsd: number | null = null,
 ): MessageDTO {
   return {
     id: m.id,
@@ -72,9 +83,66 @@ export function toMessageDTO(
             totalTokens: m.totalTokens,
           }
         : null,
+    costUsd: messageCostUsd,
     errorMessage: m.errorMessage,
     createdAt: m.createdAt.getTime(),
   }
+}
+
+/**
+ * 消息成本展示快照：新消息直接读取 messages.cost_usd；升级前的旧消息在原 run 仍可追溯时，
+ * 使用 usage_logs 中冻结的价格与用量回算。这样管理员后续改价不会改变历史成本。
+ */
+export async function getMessageCostByMessageId(rows: MsgRow[]): Promise<Map<string, number>> {
+  const costs = new Map<string, number>()
+  for (const message of rows) {
+    if (
+      typeof message.costUsd === 'number' &&
+      Number.isFinite(message.costUsd) &&
+      message.costUsd >= 0
+    ) {
+      costs.set(message.id, message.costUsd)
+    }
+  }
+
+  const unresolved = rows.filter((message) => !costs.has(message.id) && message.runId)
+  if (unresolved.length === 0) return costs
+  const runIds = [...new Set(unresolved.map((message) => message.runId as string))]
+  const usageRows = await db
+    .select({
+      runId: usageLogs.runId,
+      pricingSnapshot: usageLogs.pricingSnapshot,
+      inputTokens: usageLogs.inputTokens,
+      cacheWriteTokens: usageLogs.cacheWriteTokens,
+      cachedTokens: usageLogs.cachedTokens,
+      outputTokens: usageLogs.outputTokens,
+      imageTokens: usageLogs.imageTokens,
+    })
+    .from(usageLogs)
+    .where(inArray(usageLogs.runId, runIds))
+
+  const costByRunId = new Map<string, number>()
+  for (const usage of usageRows) {
+    if (!usage.runId) continue
+    costByRunId.set(
+      usage.runId,
+      estimateCostUsd(
+        {
+          inputTokens: usage.inputTokens,
+          cacheWriteTokens: usage.cacheWriteTokens,
+          cachedTokens: usage.cachedTokens,
+          outputTokens: usage.outputTokens,
+          imageTokens: usage.imageTokens,
+        },
+        usage.pricingSnapshot,
+      ),
+    )
+  }
+  for (const message of unresolved) {
+    const cost = message.runId ? costByRunId.get(message.runId) : undefined
+    if (cost !== undefined) costs.set(message.id, cost)
+  }
+  return costs
 }
 
 export async function listConversations(userId: string): Promise<ConversationDTO[]> {
@@ -310,17 +378,23 @@ async function getModelLabelsByModelId(rows: MsgRow[]): Promise<Map<string, stri
   return new Map(modelRows.map((m) => [m.id, m.displayName || m.modelId]))
 }
 
-export async function getConversationMessageDTOs(conversationId: string): Promise<MessageDTO[]> {
+export async function getConversationMessageDTOs(
+  conversationId: string,
+  options: { includeCost?: boolean } = {},
+): Promise<MessageDTO[]> {
   const rows = await getConversationMessages(conversationId)
-  const [timings, modelLabels] = await Promise.all([
+  const includeCost = options.includeCost ?? (await getAppConfig()).showCost
+  const [timings, modelLabels, costs] = await Promise.all([
     getMessageTimingByMessageId(rows),
     getModelLabelsByModelId(rows),
+    includeCost ? getMessageCostByMessageId(rows) : Promise.resolve(new Map<string, number>()),
   ])
   return rows.map((m) =>
     toMessageDTO(
       m,
       timings.get(m.id) ?? null,
       m.modelId ? (modelLabels.get(m.modelId) ?? null) : null,
+      costs.get(m.id) ?? null,
     ),
   )
 }

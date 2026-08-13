@@ -297,7 +297,11 @@ export function Message({
             )}
           </div>
           {showUsageStats && message.usage && (
-            <MessageUsageStats usage={message.usage} durationMs={message.generationDurationMs} />
+            <MessageUsageStats
+              usage={message.usage}
+              durationMs={message.generationDurationMs}
+              costUsd={message.costUsd}
+            />
           )}
         </div>
       )}

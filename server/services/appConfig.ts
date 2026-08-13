@@ -18,6 +18,7 @@ function toDTO(row: AppSettingsRow): AppConfigDTO {
   return {
     registrationRequiresInviteCode: row.registrationRequiresInviteCode,
     sharingEnabled: row.sharingEnabled,
+    showCost: row.showCost,
     titleEnabled: row.titleEnabled,
     titleModelId: row.titleModelId,
     titlePrompt: row.titlePrompt,
@@ -35,6 +36,7 @@ export async function updateAppConfig(patch: AppConfigUpdateInput): Promise<AppC
     set.registrationRequiresInviteCode = patch.registrationRequiresInviteCode
   }
   if (patch.sharingEnabled !== undefined) set.sharingEnabled = patch.sharingEnabled
+  if (patch.showCost !== undefined) set.showCost = patch.showCost
   if (patch.titleEnabled !== undefined) set.titleEnabled = patch.titleEnabled
   if (patch.titleModelId !== undefined) set.titleModelId = patch.titleModelId
   if (patch.titlePrompt !== undefined) set.titlePrompt = patch.titlePrompt

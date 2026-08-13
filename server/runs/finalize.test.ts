@@ -176,6 +176,7 @@ describe('finalizeRun terminal snapshots', () => {
       reasoningDurationMs: 3_500,
       generationDurationMs: persistedRun!.finishedAt!.getTime() - startedAt.getTime(),
     })
+    expect(persistedMessage?.costUsd).toBeCloseTo(0.00006, 10)
     expect(persistedUsage?.pricingSnapshot).toEqual(model.pricing)
     expect(emittedEvents.map((event) => event.type)).toEqual(['run.done'])
     expect(emittedEvents[0]?.data).toMatchObject({ searchActions })

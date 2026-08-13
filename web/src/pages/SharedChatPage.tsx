@@ -200,10 +200,12 @@ function SharedMessageMeta({
   m,
   text,
   align,
+  showCost,
 }: {
   m: MessageDTO
   text: string
   align: 'start' | 'end'
+  showCost: boolean
 }) {
   const modelLabel = m.role === 'assistant' ? (m.modelLabel ?? null) : null
   return (
@@ -220,7 +222,11 @@ function SharedMessageMeta({
         <MessageTimeLabel ts={m.createdAt} format="datetime" />
       </div>
       {m.role === 'assistant' && m.usage && (
-        <MessageUsageStats usage={m.usage} durationMs={m.generationDurationMs} />
+        <MessageUsageStats
+          usage={m.usage}
+          durationMs={m.generationDurationMs}
+          costUsd={showCost ? m.costUsd : null}
+        />
       )}
     </div>
   )
@@ -232,7 +238,15 @@ function reasoningStatus(m: MessageDTO, text: string): ReasoningCardStatus {
   return stopped ? 'stopped' : 'completed'
 }
 
-function SharedMessage({ m, token }: { m: MessageDTO; token: string }) {
+function SharedMessage({
+  m,
+  token,
+  showCost,
+}: {
+  m: MessageDTO
+  token: string
+  showCost: boolean
+}) {
   const text = textFromContent(m.content)
 
   if (m.role === 'user') {
@@ -244,7 +258,7 @@ function SharedMessage({ m, token }: { m: MessageDTO; token: string }) {
             {text}
           </div>
         )}
-        <SharedMessageMeta m={m} text={text} align="end" />
+        <SharedMessageMeta m={m} text={text} align="end" showCost={showCost} />
       </div>
     )
   }
@@ -276,7 +290,7 @@ function SharedMessage({ m, token }: { m: MessageDTO; token: string }) {
       {text && <Markdown text={text} />}
       <SharedAttachmentParts content={m.content} token={token} />
       {SHOW_CITATION_SOURCE_CHIPS && <Citations items={m.annotations} />}
-      <SharedMessageMeta m={m} text={text} align="start" />
+      <SharedMessageMeta m={m} text={text} align="start" showCost={showCost} />
     </div>
   )
 }
@@ -352,7 +366,7 @@ export default function SharedChatPage() {
 
       <main className="mx-auto max-w-3xl space-y-6 px-4 py-6">
         {share.messages.map((m) => (
-          <SharedMessage key={m.id} m={m} token={token!} />
+          <SharedMessage key={m.id} m={m} token={token!} showCost={share.showCost} />
         ))}
       </main>
 
