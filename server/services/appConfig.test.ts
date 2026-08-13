@@ -36,6 +36,7 @@ describe('全局应用配置', () => {
 
     expect(config.registrationRequiresInviteCode).toBe(true)
     expect(config.showCost).toBe(true)
+    expect(config.costCurrency).toBe('USD')
   })
 
   it('可关闭并持久化，其他字段的局部更新不会重置注册策略', async () => {
@@ -53,5 +54,13 @@ describe('全局应用配置', () => {
 
     const config = await appConfigService.getAppConfig()
     expect(config.showCost).toBe(false)
+  })
+
+  it('可把聊天消息成本币种切换为 CNY，其他更新不会重置', async () => {
+    await appConfigService.updateAppConfig({ costCurrency: 'CNY' })
+    await appConfigService.updateAppConfig({ sharingEnabled: false })
+
+    const config = await appConfigService.getAppConfig()
+    expect(config.costCurrency).toBe('CNY')
   })
 })

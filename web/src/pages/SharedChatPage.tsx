@@ -5,7 +5,7 @@ import { clsx } from 'clsx'
 import { AlertCircle, FileText, ImageOff } from 'lucide-react'
 import { textFromContent } from '@shared/util/contentText'
 import type { ContentPart, UrlCitation } from '@shared/types/domain'
-import type { MessageDTO } from '@shared/types/api'
+import type { MessageCostDisplayDTO, MessageDTO } from '@shared/types/api'
 import { getPublicShare, shareAttachmentUrl } from '../api/shares'
 import { ImagePreviewTrigger } from '../chat/ImagePreview'
 import { Markdown } from '../chat/Markdown'
@@ -201,11 +201,13 @@ function SharedMessageMeta({
   text,
   align,
   showCost,
+  costDisplay,
 }: {
   m: MessageDTO
   text: string
   align: 'start' | 'end'
   showCost: boolean
+  costDisplay: MessageCostDisplayDTO
 }) {
   const modelLabel = m.role === 'assistant' ? (m.modelLabel ?? null) : null
   return (
@@ -226,6 +228,7 @@ function SharedMessageMeta({
           usage={m.usage}
           durationMs={m.generationDurationMs}
           costUsd={showCost ? m.costUsd : null}
+          costDisplay={costDisplay}
         />
       )}
     </div>
@@ -242,10 +245,12 @@ function SharedMessage({
   m,
   token,
   showCost,
+  costDisplay,
 }: {
   m: MessageDTO
   token: string
   showCost: boolean
+  costDisplay: MessageCostDisplayDTO
 }) {
   const text = textFromContent(m.content)
 
@@ -258,7 +263,13 @@ function SharedMessage({
             {text}
           </div>
         )}
-        <SharedMessageMeta m={m} text={text} align="end" showCost={showCost} />
+        <SharedMessageMeta
+          m={m}
+          text={text}
+          align="end"
+          showCost={showCost}
+          costDisplay={costDisplay}
+        />
       </div>
     )
   }
@@ -290,7 +301,13 @@ function SharedMessage({
       {text && <Markdown text={text} />}
       <SharedAttachmentParts content={m.content} token={token} />
       {SHOW_CITATION_SOURCE_CHIPS && <Citations items={m.annotations} />}
-      <SharedMessageMeta m={m} text={text} align="start" showCost={showCost} />
+      <SharedMessageMeta
+        m={m}
+        text={text}
+        align="start"
+        showCost={showCost}
+        costDisplay={costDisplay}
+      />
     </div>
   )
 }
@@ -366,7 +383,13 @@ export default function SharedChatPage() {
 
       <main className="mx-auto max-w-3xl space-y-6 px-4 py-6">
         {share.messages.map((m) => (
-          <SharedMessage key={m.id} m={m} token={token!} showCost={share.showCost} />
+          <SharedMessage
+            key={m.id}
+            m={m}
+            token={token!}
+            showCost={share.showCost}
+            costDisplay={share.messageCostDisplay}
+          />
         ))}
       </main>
 

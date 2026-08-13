@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react'
-import type { MessageDTO } from '@shared/types/api'
+import type { MessageCostDisplayDTO, MessageDTO } from '@shared/types/api'
 import type { UrlCitation } from '@shared/types/domain'
 import type { LiveMessage } from '../sse/eventReducer'
 import { useModels } from '../hooks/useModels'
@@ -43,6 +43,7 @@ interface Props {
   onCreateBranch?: () => void
   creatingBranch?: boolean
   onUseImageSource?: (source: ImageEditSource) => void
+  costDisplay?: MessageCostDisplayDTO
 }
 
 function BranchSwitch({ branch }: { branch: BranchInfo }) {
@@ -122,6 +123,7 @@ export function Message({
   onCreateBranch,
   creatingBranch,
   onUseImageSource,
+  costDisplay,
 }: Props) {
   const [editing, setEditing] = useState(false)
   const showMessageTime = useSettings((s) => s.preferences.showMessageTime)
@@ -301,6 +303,7 @@ export function Message({
               usage={message.usage}
               durationMs={message.generationDurationMs}
               costUsd={message.costUsd}
+              costDisplay={costDisplay}
             />
           )}
         </div>

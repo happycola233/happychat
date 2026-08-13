@@ -80,6 +80,18 @@ export default function SettingsPage() {
     onSuccess: () => {
       invalidateConfig()
       void qc.invalidateQueries({ queryKey: ['conversation'] })
+      void qc.invalidateQueries({ queryKey: ['public-share'] })
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : '操作失败'),
+  })
+
+  const updateCostCurrency = useMutation({
+    mutationFn: (costCurrency: AppConfigDTO['costCurrency']) =>
+      updateAppConfig({ costCurrency }),
+    onSuccess: () => {
+      invalidateConfig()
+      void qc.invalidateQueries({ queryKey: ['conversation'] })
+      void qc.invalidateQueries({ queryKey: ['public-share'] })
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : '操作失败'),
   })
@@ -158,21 +170,45 @@ export default function SettingsPage() {
           </Card>
 
           <Card title="消息用量">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <div className="text-sm text-neutral-800 dark:text-neutral-100">
-                  展示单次请求成本
+            <div className="space-y-4">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <div className="text-sm text-neutral-800 dark:text-neutral-100">
+                    展示单次请求成本
+                  </div>
+                  <div className="mt-0.5 text-xs leading-5 text-neutral-400 dark:text-neutral-500">
+                    在助手消息的用量明细末尾显示预估成本；成本为 0 时不显示。
+                  </div>
                 </div>
-                <div className="mt-0.5 text-xs leading-5 text-neutral-400 dark:text-neutral-500">
-                  在助手消息的用量明细末尾显示预估成本（USD）；成本为 0 时不显示。
-                </div>
+                <Toggle
+                  checked={config.showCost}
+                  disabled={toggleCostVisibility.isPending}
+                  ariaLabel="展示单次请求成本"
+                  onChange={(value) => toggleCostVisibility.mutate(value)}
+                />
               </div>
-              <Toggle
-                checked={config.showCost}
-                disabled={toggleCostVisibility.isPending}
-                ariaLabel="展示单次请求成本"
-                onChange={(value) => toggleCostVisibility.mutate(value)}
-              />
+
+              <div className="flex flex-col gap-3 border-t border-neutral-100 pt-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4 dark:border-neutral-800">
+                <div>
+                  <div className="text-sm text-neutral-800 dark:text-neutral-100">展示币种</div>
+                  <div className="mt-0.5 text-xs leading-5 text-neutral-400 dark:text-neutral-500">
+                    CNY 按实时 USD/CNY 汇率换算，仅影响聊天消息用量行；原始成本与其他统计仍为 USD。
+                  </div>
+                </div>
+                <Select
+                  aria-label="成本展示币种"
+                  className="w-full sm:w-40"
+                  value={config.costCurrency}
+                  disabled={updateCostCurrency.isPending}
+                  options={[
+                    { value: 'USD', label: '美元（USD）' },
+                    { value: 'CNY', label: '人民币（CNY）' },
+                  ]}
+                  onChange={(event) =>
+                    updateCostCurrency.mutate(event.target.value as AppConfigDTO['costCurrency'])
+                  }
+                />
+              </div>
             </div>
           </Card>
 

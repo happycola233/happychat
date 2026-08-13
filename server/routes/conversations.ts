@@ -49,6 +49,8 @@ import {
 import type { BuiltExport } from '../export/types'
 import { createConversationBranch } from '../services/conversation-branches'
 import { conversationEvents, type ConversationEvent } from '../services/conversation-events'
+import { getAppConfig } from '../services/appConfig'
+import { getMessageCostDisplay } from '../services/message-cost-display'
 import type { AppEnv } from '../http/types'
 
 export const conversationRoutes = new Hono<AppEnv>()
@@ -236,13 +238,18 @@ conversationRoutes.get('/events', async (c) => {
 conversationRoutes.get('/:id', async (c) => {
   const conv = await getOwnedConversation(c.get('user').id, c.req.param('id'))
   if (!conv) return c.json({ error: { message: '会话不存在', code: 'not_found' } }, 404)
-  const messages = await getConversationMessageDTOs(conv.id)
-  const lastRun = await getConversationLastRun(conv.id)
+  const config = await getAppConfig()
+  const [messages, lastRun, messageCostDisplay] = await Promise.all([
+    getConversationMessageDTOs(conv.id, { includeCost: config.showCost }),
+    getConversationLastRun(conv.id),
+    getMessageCostDisplay(config),
+  ])
   return c.json({
     conversation: toConversationDTO(conv),
     messages,
     lastModelId: lastRun.modelId,
     lastParams: lastRun.params,
+    messageCostDisplay,
   })
 })
 
@@ -280,9 +287,11 @@ conversationRoutes.post('/:id/branch', jsonValidator(createConversationBranchSch
 
   const conversation = await getOwnedConversation(userId, result.conversationId)
   if (!conversation) throw new Error('新分支会话创建后无法读取')
-  const [branchMessages, lastRun] = await Promise.all([
-    getConversationMessageDTOs(conversation.id),
+  const config = await getAppConfig()
+  const [branchMessages, lastRun, messageCostDisplay] = await Promise.all([
+    getConversationMessageDTOs(conversation.id, { includeCost: config.showCost }),
     getConversationLastRun(conversation.id),
+    getMessageCostDisplay(config),
   ])
   return c.json(
     {
@@ -290,6 +299,7 @@ conversationRoutes.post('/:id/branch', jsonValidator(createConversationBranchSch
       messages: branchMessages,
       lastModelId: lastRun.modelId,
       lastParams: lastRun.params,
+      messageCostDisplay,
     },
     201,
   )

@@ -386,6 +386,7 @@ export default function ChatView() {
         messages: [],
         lastModelId: res.assistantMessage.modelId,
         lastParams,
+        messageCostDisplay: { currency: 'USD', usdToCnyRate: null },
       }
       const ids = new Set(base.messages.map((m) => m.id))
       const toAdd = [res.userMessage, res.assistantMessage].filter(
@@ -814,6 +815,7 @@ export default function ChatView() {
                     <div key={m.id} data-scroll-anchor={m.id} className="hc-anim-in">
                       <Message
                         message={m}
+                        costDisplay={detail?.messageCostDisplay}
                         live={stream && m.id === stream.assistantMessageId ? stream : undefined}
                         branch={branch}
                         busy={streaming || branchMut.isPending}

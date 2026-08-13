@@ -3,6 +3,9 @@
 export type UserRole = 'admin' | 'user'
 export type Role = 'user' | 'assistant' | 'system'
 
+/** 聊天消息用量行支持的成本展示币种；底层成本始终以 USD 保存。 */
+export type CostCurrency = 'USD' | 'CNY'
+
 /** 上游原生协议；决定鉴权头、版本路径与模型目录的解析方式。 */
 export type ProviderProtocol = 'openai' | 'anthropic'
 

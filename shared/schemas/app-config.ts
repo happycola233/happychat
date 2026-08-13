@@ -4,6 +4,7 @@ export const appConfigUpdateSchema = z.object({
   registrationRequiresInviteCode: z.boolean().optional(),
   sharingEnabled: z.boolean().optional(),
   showCost: z.boolean().optional(),
+  costCurrency: z.enum(['USD', 'CNY']).optional(),
   titleEnabled: z.boolean().optional(),
   titleModelId: z.string().min(1).nullable().optional(),
   titlePrompt: z.string().max(4000).nullable().optional(),

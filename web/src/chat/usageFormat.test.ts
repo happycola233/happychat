@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   computeTps,
   formatCostUsd,
+  formatMessageCost,
   formatDuration,
   formatMessageTime,
   formatTokens,
@@ -41,6 +42,25 @@ describe('formatCostUsd', () => {
     expect(formatCostUsd(0.00006)).toBe('$0.00006')
     expect(formatCostUsd(0.5)).toBe('$0.50')
     expect(formatCostUsd(0.0000004)).toBe('<$0.000001')
+  })
+})
+
+describe('formatMessageCost', () => {
+  it('按实时汇率展示 CNY，并在提示中保留原始 USD 和汇率', () => {
+    expect(
+      formatMessageCost(0.0681, { currency: 'CNY', usdToCnyRate: 7.123456 }),
+    ).toEqual({
+      value: '¥0.4851',
+      title:
+        '本次预估成本（CNY）；原始成本：$0.0681 USD；汇率：1 USD ≈ 7.123456 CNY',
+    })
+  })
+
+  it('CNY 汇率不可用时回退显示原始 USD', () => {
+    expect(formatMessageCost(0.0681, { currency: 'CNY', usdToCnyRate: null })).toEqual({
+      value: '$0.0681',
+      title: '人民币实时汇率暂不可用，显示原始成本：$0.0681 USD',
+    })
   })
 })
 

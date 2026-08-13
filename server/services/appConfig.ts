@@ -19,6 +19,8 @@ function toDTO(row: AppSettingsRow): AppConfigDTO {
     registrationRequiresInviteCode: row.registrationRequiresInviteCode,
     sharingEnabled: row.sharingEnabled,
     showCost: row.showCost,
+    // SQLite 不约束 text 枚举；异常旧值按默认 USD 收敛，避免误触发人民币换算。
+    costCurrency: row.costCurrency === 'CNY' ? 'CNY' : 'USD',
     titleEnabled: row.titleEnabled,
     titleModelId: row.titleModelId,
     titlePrompt: row.titlePrompt,
@@ -37,6 +39,7 @@ export async function updateAppConfig(patch: AppConfigUpdateInput): Promise<AppC
   }
   if (patch.sharingEnabled !== undefined) set.sharingEnabled = patch.sharingEnabled
   if (patch.showCost !== undefined) set.showCost = patch.showCost
+  if (patch.costCurrency !== undefined) set.costCurrency = patch.costCurrency
   if (patch.titleEnabled !== undefined) set.titleEnabled = patch.titleEnabled
   if (patch.titleModelId !== undefined) set.titleModelId = patch.titleModelId
   if (patch.titlePrompt !== undefined) set.titlePrompt = patch.titlePrompt

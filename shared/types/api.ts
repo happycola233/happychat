@@ -5,6 +5,7 @@ import type {
   AnnouncementPhase,
   AnnouncementStatus,
   ContentPart,
+  CostCurrency,
   MessageStatus,
   MessageUsage,
   ModelCapabilities,
@@ -264,6 +265,8 @@ export interface ConversationDetail {
     x_search?: boolean
     reasoning_effort?: ReasoningEffort
   } | null
+  /** 消息用量行的成本展示口径；人民币汇率仅随响应返回，不持久化。 */
+  messageCostDisplay: MessageCostDisplayDTO
 }
 
 export interface SendResult {
@@ -463,11 +466,20 @@ export interface AdminSessionDTO {
 export interface AppConfigDTO {
   registrationRequiresInviteCode: boolean
   sharingEnabled: boolean
-  /** 是否在助手消息用量明细中展示本次预估成本（USD）。 */
+  /** 是否在助手消息用量明细中展示本次预估成本。 */
   showCost: boolean
+  /** 仅影响聊天消息用量行；成本存储与后台统计始终保持 USD。 */
+  costCurrency: CostCurrency
   titleEnabled: boolean
   titleModelId: string | null
   titlePrompt: string | null
+}
+
+/** 聊天消息用量行的成本展示上下文。 */
+export interface MessageCostDisplayDTO {
+  currency: CostCurrency
+  /** 仅 currency=CNY 时可能存在；实时获取失败时为 null，前端回退显示原始 USD。 */
+  usdToCnyRate: number | null
 }
 
 // ===================== 站内公告 =====================
@@ -552,6 +564,8 @@ export interface PublicShareDTO {
   messages: MessageDTO[]
   /** 公开页是否展示消息成本；读取时使用当前全局设置。 */
   showCost: boolean
+  /** 只用于公开聊天消息用量行，不改变快照中保存的原始 USD 成本。 */
+  messageCostDisplay: MessageCostDisplayDTO
   createdAt: number
   /** 快照最近一次刷新时间 */
   updatedAt: number

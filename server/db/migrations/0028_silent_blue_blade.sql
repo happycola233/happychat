@@ -1,0 +1,1 @@
+ALTER TABLE `app_settings` ADD `cost_currency` text DEFAULT 'USD' NOT NULL;

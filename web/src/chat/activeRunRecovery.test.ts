@@ -36,6 +36,7 @@ function detailWithStatus(status: MessageDTO['status']): ConversationDetail {
     ],
     lastModelId: null,
     lastParams: null,
+    messageCostDisplay: { currency: 'USD', usdToCnyRate: null },
   }
 }
 

@@ -207,6 +207,7 @@ describe('createShare 附件包含开关', () => {
     // 公开视图声明附件未包含
     const pub = await shares.getPublicShare(row!.token)
     expect(pub?.attachmentsIncluded).toBe(false)
+    expect(pub?.messageCostDisplay).toEqual({ currency: 'USD', usdToCnyRate: null })
   })
 
   it('includeAttachments=true 时快照保留附件引用', async () => {

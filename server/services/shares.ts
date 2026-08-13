@@ -9,6 +9,7 @@ import { attachments, conversations, sharedChats, users } from '../db/schema'
 import { genShareToken } from '../lib/id'
 import { buildPath, getConversationMessageDTOs, getConversationMessages } from './conversations'
 import { getAppConfig } from './appConfig'
+import { getMessageCostDisplay } from './message-cost-display'
 
 type ShareRow = typeof sharedChats.$inferSelect
 type AttachmentRow = typeof attachments.$inferSelect
@@ -241,12 +242,14 @@ export async function getPublicShare(token: string): Promise<PublicShareDTO | nu
     }
   }
   const snapshot = withLegacySearchActions(row.snapshot)
+  const messageCostDisplay = await getMessageCostDisplay(config)
   return {
     title: row.title,
     messages: config.showCost
       ? snapshot
       : snapshot.map((message) => ({ ...message, costUsd: null })),
     showCost: config.showCost,
+    messageCostDisplay,
     createdAt: row.createdAt.getTime(),
     updatedAt: row.updatedAt.getTime(),
     attachmentsIncluded: row.includeAttachments,

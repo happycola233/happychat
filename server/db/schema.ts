@@ -15,6 +15,7 @@ import type {
   AnnouncementLevel,
   AnnouncementStatus,
   ContentPart,
+  CostCurrency,
   MessageStatus,
   ModelAccessMode,
   ModelCapabilities,
@@ -127,8 +128,10 @@ export const appSettings = sqliteTable('app_settings', {
     .default(true),
   // 是否允许用户分享聊天（全局开关）
   sharingEnabled: integer('sharing_enabled', { mode: 'boolean' }).notNull().default(true),
-  // 是否在助手消息用量明细中展示本次预估成本（USD）
+  // 是否在助手消息用量明细中展示本次预估成本
   showCost: integer('show_cost', { mode: 'boolean' }).notNull().default(true),
+  // 仅控制聊天消息用量行的展示币种；成本与汇率不以 CNY 形式落库
+  costCurrency: text('cost_currency').$type<CostCurrency>().notNull().default('USD'),
   // 标题自动总结
   titleEnabled: integer('title_enabled', { mode: 'boolean' }).notNull().default(true),
   titleModelId: text('title_model_id'),
