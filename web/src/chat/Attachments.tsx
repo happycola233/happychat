@@ -1,24 +1,27 @@
-import { FileText } from 'lucide-react'
+import { clsx } from 'clsx'
 import type { ContentPart } from '@shared/types/domain'
 import { attachmentUrl } from '../api/attachments'
 import { EditIcon } from './icons'
 import type { ImageEditSource } from './imageSource'
 import { ImagePreviewTrigger } from './ImagePreview'
+import { FileAttachmentCard } from './FileAttachmentCard'
 
 /** 渲染消息内容里的附件部件：图片缩略图、文件卡片、生成的图片。 */
 export function AttachmentParts({
   content,
   onUseImageSource,
+  align = 'start',
 }: {
   content: ContentPart[]
   onUseImageSource?: (source: ImageEditSource) => void
+  align?: 'start' | 'end'
 }) {
   const parts = content.filter(
     (p) => p.type === 'input_image' || p.type === 'input_file' || p.type === 'image_result',
   )
   if (parts.length === 0) return null
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className={clsx('flex flex-wrap gap-2', align === 'end' && 'justify-end')}>
       {parts.map((p, i) => {
         if (p.type === 'input_image') {
           const url = attachmentUrl(p.attachment_id)
@@ -63,16 +66,14 @@ export function AttachmentParts({
           )
         }
         return (
-          <a
+          <FileAttachmentCard
             key={i}
+            filename={p.filename}
+            mime={p.mime ?? null}
+            byteSize={p.byte_size ?? null}
             href={attachmentUrl(p.attachment_id)}
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-600 transition hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300"
-          >
-            <FileText className="h-4 w-4 shrink-0" />
-            <span className="max-w-[12rem] truncate">{p.filename}</span>
-          </a>
+            data-testid="message-file-attachment"
+          />
         )
       })}
     </div>

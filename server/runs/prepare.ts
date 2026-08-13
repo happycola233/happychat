@@ -574,6 +574,7 @@ export async function prepareRun(args: PrepareArgs): Promise<PrepareResult> {
 
   const refs = args.attachments ?? []
   const sourceRefs = args.imageSources ?? []
+  const validatedAttachmentById = new Map<string, typeof attachments.$inferSelect>()
   const allImageRefIds = [
     ...refs.filter((r) => r.kind === 'image').map((r) => r.attachmentId),
     ...sourceRefs.map((r) => r.attachmentId),
@@ -581,6 +582,7 @@ export async function prepareRun(args: PrepareArgs): Promise<PrepareResult> {
   const idsToValidate = [...new Set([...refs.map((r) => r.attachmentId), ...allImageRefIds])]
   if (idsToValidate.length > 0) {
     const rows = await db.select().from(attachments).where(inArray(attachments.id, idsToValidate))
+    rows.forEach((attachment) => validatedAttachmentById.set(attachment.id, attachment))
     const owned = new Set(rows.filter((a) => a.userId === args.userId).map((a) => a.id))
     if (idsToValidate.some((id) => !owned.has(id))) {
       return { ok: false, status: 400, message: '附件无效或无权访问', code: 'invalid_attachment' }
@@ -641,7 +643,15 @@ export async function prepareRun(args: PrepareArgs): Promise<PrepareResult> {
         detail: r.detail ?? 'auto',
       })
     } else {
-      userContent.push({ type: 'input_file', attachment_id: r.attachmentId, filename: r.filename })
+      // 展示元数据只信任附件表；客户端 filename 仍只用于请求校验前的引用描述。
+      const attachment = must(validatedAttachmentById.get(r.attachmentId), '已验证的文件附件不存在')
+      userContent.push({
+        type: 'input_file',
+        attachment_id: r.attachmentId,
+        filename: attachment.filename,
+        mime: attachment.mime,
+        byte_size: attachment.byteSize,
+      })
     }
   }
   const existingImageIds = new Set(

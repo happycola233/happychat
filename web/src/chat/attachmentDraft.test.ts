@@ -14,7 +14,13 @@ describe('attachment draft helpers', () => {
     const content: ContentPart[] = [
       { type: 'input_text', text: '看一下这些材料' },
       { type: 'input_image', attachment_id: 'image-1', detail: 'high' },
-      { type: 'input_file', attachment_id: 'file-1', filename: 'notes.pdf' },
+      {
+        type: 'input_file',
+        attachment_id: 'file-1',
+        filename: 'notes.pdf',
+        mime: 'application/pdf',
+        byte_size: 3_072,
+      },
     ]
 
     expect(attachmentDraftsFromContent(content)).toEqual([
@@ -33,8 +39,8 @@ describe('attachment draft helpers', () => {
         attachmentId: 'file-1',
         kind: 'file',
         filename: 'notes.pdf',
-        byteSize: null,
-        mime: null,
+        byteSize: 3_072,
+        mime: 'application/pdf',
         retained: true,
       },
     ])
@@ -68,12 +74,8 @@ describe('attachment draft helpers', () => {
 
     expect(canSubmitAttachmentDraft('', drafts)).toBe(true)
     expect(canSubmitAttachmentDraft('   ', [])).toBe(false)
-    expect(getAttachmentDraftSupportIssue(drafts, { canImage: false, canFile: true })).toBe(
-      'image',
-    )
-    expect(getAttachmentDraftSupportIssue(drafts, { canImage: true, canFile: false })).toBe(
-      'file',
-    )
+    expect(getAttachmentDraftSupportIssue(drafts, { canImage: false, canFile: true })).toBe('image')
+    expect(getAttachmentDraftSupportIssue(drafts, { canImage: true, canFile: false })).toBe('file')
     expect(getAttachmentDraftSupportIssue(drafts, { canImage: true, canFile: true })).toBeNull()
   })
 })

@@ -218,7 +218,14 @@ export type ContentPart =
   | { type: 'input_text'; text: string }
   | { type: 'output_text'; text: string; annotations?: UrlCitation[] }
   | { type: 'input_image'; attachment_id: string; detail?: 'auto' | 'low' | 'high' }
-  | { type: 'input_file'; attachment_id: string; filename: string }
+  | {
+      type: 'input_file'
+      attachment_id: string
+      filename: string
+      /** 文件卡片展示元数据；旧消息可能没有，由消息 DTO 查询附件表后补齐。 */
+      mime?: string
+      byte_size?: number
+    }
   | { type: 'image_result'; attachment_id: string; revised_prompt?: string }
 
 export interface MessageUsage {

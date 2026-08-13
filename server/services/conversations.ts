@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, inArray } from 'drizzle-orm'
 import type { ConversationDTO, ConversationSearchResultDTO, MessageDTO } from '@shared/types/api'
-import type { ModelParams, ReasoningEffort } from '@shared/types/domain'
+import type { ContentPart, ModelParams, ReasoningEffort } from '@shared/types/domain'
 import { textFromContent } from '@shared/util/contentText'
 import { normalizeModelCapabilities } from '@shared/util/modelCapabilities'
 import { costUsd as estimateCostUsd } from '@shared/util/cost'
@@ -38,6 +38,31 @@ export interface MessageTiming {
   generationDurationMs: number | null
 }
 
+interface FileAttachmentMetadata {
+  filename: string
+  mime: string
+  byteSize: number
+}
+
+/** 历史消息的 content 只有文件名；返回 DTO 时从附件表无损补齐类型与大小。 */
+function withFileAttachmentMetadata(
+  content: ContentPart[],
+  metadataById?: ReadonlyMap<string, FileAttachmentMetadata>,
+): ContentPart[] {
+  if (!metadataById?.size) return content
+  return content.map((part) => {
+    if (part.type !== 'input_file') return part
+    const metadata = metadataById.get(part.attachment_id)
+    if (!metadata) return part
+    return {
+      ...part,
+      filename: metadata.filename,
+      mime: metadata.mime,
+      byte_size: metadata.byteSize,
+    }
+  })
+}
+
 export function toConversationDTO(c: ConvRow): ConversationDTO {
   return {
     id: c.id,
@@ -56,6 +81,7 @@ export function toMessageDTO(
   timing: MessageTiming | null = null,
   modelLabel: string | null = null,
   messageCostUsd: number | null = null,
+  fileAttachmentMetadata?: ReadonlyMap<string, FileAttachmentMetadata>,
 ): MessageDTO {
   return {
     id: m.id,
@@ -63,7 +89,7 @@ export function toMessageDTO(
     parentId: m.parentId,
     role: m.role,
     status: m.status,
-    content: m.content,
+    content: withFileAttachmentMetadata(m.content, fileAttachmentMetadata),
     modelId: m.modelId,
     modelLabel,
     runId: m.runId,
@@ -378,16 +404,52 @@ async function getModelLabelsByModelId(rows: MsgRow[]): Promise<Map<string, stri
   return new Map(modelRows.map((m) => [m.id, m.displayName || m.modelId]))
 }
 
+async function getFileAttachmentMetadataById(
+  rows: MsgRow[],
+): Promise<Map<string, FileAttachmentMetadata>> {
+  const ids = [
+    ...new Set(
+      rows.flatMap((message) =>
+        message.content.flatMap((part) =>
+          part.type === 'input_file' && part.attachment_id ? [part.attachment_id] : [],
+        ),
+      ),
+    ),
+  ]
+  if (ids.length === 0) return new Map()
+
+  const attachmentRows = await db
+    .select({
+      id: attachments.id,
+      filename: attachments.filename,
+      mime: attachments.mime,
+      byteSize: attachments.byteSize,
+    })
+    .from(attachments)
+    .where(inArray(attachments.id, ids))
+  return new Map(
+    attachmentRows.map((attachment) => [
+      attachment.id,
+      {
+        filename: attachment.filename,
+        mime: attachment.mime,
+        byteSize: attachment.byteSize,
+      },
+    ]),
+  )
+}
+
 export async function getConversationMessageDTOs(
   conversationId: string,
   options: { includeCost?: boolean } = {},
 ): Promise<MessageDTO[]> {
   const rows = await getConversationMessages(conversationId)
   const includeCost = options.includeCost ?? (await getAppConfig()).showCost
-  const [timings, modelLabels, costs] = await Promise.all([
+  const [timings, modelLabels, costs, fileAttachmentMetadata] = await Promise.all([
     getMessageTimingByMessageId(rows),
     getModelLabelsByModelId(rows),
     includeCost ? getMessageCostByMessageId(rows) : Promise.resolve(new Map<string, number>()),
+    getFileAttachmentMetadataById(rows),
   ])
   return rows.map((m) =>
     toMessageDTO(
@@ -395,6 +457,7 @@ export async function getConversationMessageDTOs(
       timings.get(m.id) ?? null,
       m.modelId ? (modelLabels.get(m.modelId) ?? null) : null,
       costs.get(m.id) ?? null,
+      fileAttachmentMetadata,
     ),
   )
 }

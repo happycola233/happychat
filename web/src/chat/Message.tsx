@@ -158,8 +158,8 @@ export function Message({
     return (
       <div className="group flex flex-col items-end gap-1.5">
         {hasAtt && (
-          <div className="flex max-w-[85%] flex-wrap justify-end">
-            <AttachmentParts content={message.content} />
+          <div className="w-full max-w-[85%]">
+            <AttachmentParts content={message.content} align="end" />
           </div>
         )}
         {text && (

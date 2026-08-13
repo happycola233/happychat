@@ -2,12 +2,14 @@ import { useLayoutEffect, useRef } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { clsx } from 'clsx'
-import { AlertCircle, FileText, ImageOff } from 'lucide-react'
+import { AlertCircle, ImageOff } from 'lucide-react'
 import { textFromContent } from '@shared/util/contentText'
 import type { ContentPart, UrlCitation } from '@shared/types/domain'
 import type { MessageCostDisplayDTO, MessageDTO } from '@shared/types/api'
 import { getPublicShare, shareAttachmentUrl } from '../api/shares'
 import { ImagePreviewTrigger } from '../chat/ImagePreview'
+import { FileAttachmentCard } from '../chat/FileAttachmentCard'
+import { FileAttachmentIcon } from '../chat/icons'
 import { Markdown } from '../chat/Markdown'
 import { ReasoningCard, type ReasoningCardStatus } from '../chat/ReasoningCard'
 import { SearchActivity } from '../chat/SearchActivity'
@@ -86,7 +88,7 @@ function ExcludedAttachmentPlaceholder({ part }: { part: SharedAttachmentPart })
   return (
     <div className="flex items-center gap-2 rounded-xl border border-dashed border-neutral-300 bg-neutral-50/60 px-3 py-2 text-sm text-neutral-400 dark:border-neutral-700 dark:bg-neutral-900/40 dark:text-neutral-500">
       {isFile ? (
-        <FileText className="h-4 w-4 shrink-0" />
+        <FileAttachmentIcon className="h-4 w-4 shrink-0 text-[#0285ff]" />
       ) : (
         <ImageOff className="h-4 w-4 shrink-0" />
       )}
@@ -120,16 +122,14 @@ function SharedAttachmentParts({
         const url = shareAttachmentUrl(token, p.attachment_id)
         if (p.type === 'input_file') {
           return (
-            <a
+            <FileAttachmentCard
               key={`${p.type}-${p.attachment_id}-${i}`}
+              filename={p.filename}
+              mime={p.mime ?? null}
+              byteSize={p.byte_size ?? null}
               href={url}
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-600 transition hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
-            >
-              <FileText className="h-4 w-4 shrink-0" />
-              <span className="max-w-[12rem] truncate">{p.filename}</span>
-            </a>
+              data-testid="shared-file-attachment"
+            />
           )
         }
 

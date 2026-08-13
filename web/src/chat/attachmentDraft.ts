@@ -47,8 +47,8 @@ export function attachmentDraftsFromContent(content: ContentPart[]): AttachmentD
           attachmentId: part.attachment_id,
           kind: 'file',
           filename: part.filename,
-          byteSize: null,
-          mime: null,
+          byteSize: part.byte_size ?? null,
+          mime: part.mime ?? null,
           retained: true,
         },
       ]
@@ -82,9 +82,7 @@ export function removeAttachmentDraft(
   return attachments.filter((attachment) => attachment.draftId !== draftId)
 }
 
-export function toAttachmentRefs(
-  attachments: AttachmentDraftItem[],
-): AttachmentDraftSendRef[] {
+export function toAttachmentRefs(attachments: AttachmentDraftItem[]): AttachmentDraftSendRef[] {
   return attachments.map((attachment) => ({
     attachmentId: attachment.attachmentId,
     kind: attachment.kind,
@@ -93,7 +91,10 @@ export function toAttachmentRefs(
   }))
 }
 
-export function canSubmitAttachmentDraft(text: string, attachments: AttachmentDraftItem[]): boolean {
+export function canSubmitAttachmentDraft(
+  text: string,
+  attachments: AttachmentDraftItem[],
+): boolean {
   return text.trim().length > 0 || attachments.length > 0
 }
 

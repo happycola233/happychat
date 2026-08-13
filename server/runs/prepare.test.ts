@@ -165,6 +165,7 @@ async function createFileAttachment(
   const filename = options.filename ?? `diagnostic-${n}.log`
   const mime = options.mime ?? 'application/octet-stream'
   const bytes = Buffer.from('small fixture; byteSize is metadata for budget tests')
+  const byteSize = options.byteSize ?? bytes.length
   const storagePath = storage.saveUpload(userId, attachmentId, filename, mime, bytes)
 
   await dbClient.db.insert(schema.attachments).values({
@@ -173,11 +174,11 @@ async function createFileAttachment(
     kind: 'file',
     mime,
     filename,
-    byteSize: options.byteSize ?? bytes.length,
+    byteSize,
     storagePath,
   })
 
-  return { attachmentId, filename, kind: 'file' as const }
+  return { attachmentId, filename, kind: 'file' as const, mime, byteSize }
 }
 
 function assertPrepared(
@@ -1013,6 +1014,8 @@ describe('prepareRun file inputs', () => {
       type: 'input_file',
       attachment_id: attachment.attachmentId,
       filename: attachment.filename,
+      mime: attachment.mime,
+      byte_size: attachment.byteSize,
     })
 
     const [oldUserMessage] = await dbClient.db
@@ -1024,6 +1027,8 @@ describe('prepareRun file inputs', () => {
       type: 'input_file',
       attachment_id: attachment.attachmentId,
       filename: attachment.filename,
+      mime: attachment.mime,
+      byte_size: attachment.byteSize,
     })
 
     const attachmentRow = dbClient.sqlite

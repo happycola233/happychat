@@ -400,15 +400,29 @@ describe('createConversationBranch', () => {
       ),
     ).toEqual(expect.arrayContaining(copiedAttachmentRows.map((attachment) => attachment.id)))
 
+    // 旧 content 没有展示元数据时，DTO 仍应从复制后的附件行补齐文件类型与大小。
+    const copiedMessageDtos = await conversationServices.getConversationMessageDTOs(
+      result.conversationId,
+    )
+    const copiedFilePart = copiedMessageDtos
+      .flatMap((message) => message.content)
+      .find((part) => part.type === 'input_file')
+    expect(copiedFilePart).toMatchObject({
+      type: 'input_file',
+      filename: 'notes.txt',
+      mime: 'text/plain',
+      byte_size: 11,
+    })
+
     expect(
       await dbClient.db
         .select()
         .from(schema.runs)
         .where(eq(schema.runs.conversationId, result.conversationId)),
     ).toHaveLength(0)
-    const copiedMessageDto = (
-      await conversationServices.getConversationMessageDTOs(result.conversationId)
-    ).find((message) => message.id === copiedPath.at(-1)?.id)
+    const copiedMessageDto = copiedMessageDtos.find(
+      (message) => message.id === copiedPath.at(-1)?.id,
+    )
     expect(copiedMessageDto).toMatchObject({
       runId: null,
       reasoningDurationMs: 5_000,
