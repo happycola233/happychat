@@ -77,7 +77,8 @@ export const users = sqliteTable(
       .notNull()
       .default(false),
     createdAt: createdAt(),
-    lastActiveAt: ts('last_active_at'),
+    // 仅在密码登录成功时更新；模型请求时间应从 usage_logs 聚合，二者不可混用。
+    lastLoginAt: ts('last_login_at'),
   },
   (t) => [uniqueIndex('users_username_unique').on(t.username)],
 )

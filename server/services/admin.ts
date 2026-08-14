@@ -50,7 +50,7 @@ export async function listAdminUsers(): Promise<AdminUserDTO[]> {
     mustChangePassword: u.mustChangePassword,
     canShare: u.canShare ?? null,
     createdAt: u.createdAt.getTime(),
-    lastActiveAt: u.lastActiveAt?.getTime() ?? null,
+    lastLoginAt: u.lastLoginAt?.getTime() ?? null,
     conversationCount: map.get(u.id) ?? 0,
   }))
 }

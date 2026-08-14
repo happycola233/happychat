@@ -24,7 +24,7 @@ function user(
     mustChangePassword: false,
     canShare: null,
     createdAt: 0,
-    lastActiveAt: null,
+    lastLoginAt: null,
     conversationCount: 0,
   }
 }

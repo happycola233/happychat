@@ -559,7 +559,7 @@ export default function QuotasPage() {
                           {row.usingDefaultPolicy && '（默认）'}
                         </span>
                         {row.overrideCount > 0 && <span>已覆写 {row.overrideCount} 项</span>}
-                        <span>最近使用 {formatRelative(row.lastActiveAt)}</span>
+                        <span>最近使用 {formatRelative(row.lastUsageAt)}</span>
                       </div>
                     </div>
 

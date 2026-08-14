@@ -65,12 +65,18 @@ const perModelRequests = (modelIds: string[], value: number, id = 'r-each'): Quo
   priority: 0,
 })
 
-async function createUser(role: 'admin' | 'user' = 'user') {
+async function createUser(role: 'admin' | 'user' = 'user', lastLoginAt?: number) {
   const n = fixtureSeq++
   const id = `qa-user-${n}`
   await dbClient.db
     .insert(schema.users)
-    .values({ id, username: `qa-user-${n}`, passwordHash: 'hash', role })
+    .values({
+      id,
+      username: `qa-user-${n}`,
+      passwordHash: 'hash',
+      role,
+      lastLoginAt: lastLoginAt === undefined ? null : new Date(lastLoginAt),
+    })
   return id
 }
 
@@ -103,14 +109,20 @@ async function createModel() {
   return modelId
 }
 
-async function logUsage(userId: string, modelId: string, costUsd = 0) {
+async function logUsage(
+  userId: string,
+  modelId: string,
+  costUsd = 0,
+  options: { createdAt?: number; success?: boolean } = {},
+) {
   await dbClient.db.insert(schema.usageLogs).values({
     userId,
     modelId,
     pricingSnapshot: PRICING,
     inputTokens: costUsd,
     totalTokens: costUsd,
-    success: true,
+    success: options.success ?? true,
+    createdAt: options.createdAt === undefined ? undefined : new Date(options.createdAt),
   })
 }
 
@@ -478,6 +490,23 @@ describe('临时额度与重置', () => {
 })
 
 describe('列表 / 明细 / 预览', () => {
+  it('用户列表的最近使用取最新用量日志，而不是最近登录时间', async () => {
+    const loginAt = Date.UTC(2026, 7, 8, 2, 35, 1)
+    const firstUsageAt = Date.UTC(2026, 7, 13, 15, 20, 54)
+    const latestUsageAt = Date.UTC(2026, 7, 13, 16, 35, 29)
+    const userId = await createUser('user', loginAt)
+    const modelId = await createModel()
+    await logUsage(userId, modelId, 1, { createdAt: firstUsageAt })
+    // 与请求事件/分用户统计保持一致：失败的模型请求也是一次最近使用。
+    await logUsage(userId, modelId, 0, { createdAt: latestUsageAt, success: false })
+
+    const rows = await admin.listAdminUserQuotas()
+    const row = rows.find((item) => item.userId === userId)
+
+    expect(row?.lastUsageAt).toBe(latestUsageAt)
+    expect(row?.lastUsageAt).not.toBe(loginAt)
+  })
+
   it('用户列表给出最紧张的规则与耗尽状态', async () => {
     const policy = await admin.createQuotaPolicy({ name: 'A', rules: [monthlyCost(10)] })
     const userId = await createUser()

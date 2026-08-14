@@ -26,7 +26,7 @@ import {
 } from '@shared/util/quota'
 import { resolveQuotaPeriod } from '@shared/util/quotaWindow'
 import { db } from '../db/client'
-import { quotaAdjustments, quotaPolicies, userQuotas, users } from '../db/schema'
+import { quotaAdjustments, quotaPolicies, usageLogs, userQuotas, users } from '../db/schema'
 import { must } from '../lib/assert'
 import { newId } from '../lib/id'
 import {
@@ -591,17 +591,30 @@ function toAdjustmentDTO(
 /** 管理端用户列表：每人一次快照（含用量），并给出最紧张的一条规则用于进度条。 */
 export async function listAdminUserQuotas(): Promise<AdminUserQuotaDTO[]> {
   const config = await getQuotaConfig()
-  const userRows = await db
-    .select({
-      id: users.id,
-      username: users.username,
-      displayName: users.displayName,
-      role: users.role,
-      disabled: users.disabled,
-      lastActiveAt: users.lastActiveAt,
-    })
-    .from(users)
-    .orderBy(asc(users.username))
+  const [userRows, latestUsageRows] = await Promise.all([
+    db
+      .select({
+        id: users.id,
+        username: users.username,
+        displayName: users.displayName,
+        role: users.role,
+        disabled: users.disabled,
+      })
+      .from(users)
+      .orderBy(asc(users.username)),
+    db
+      .select({
+        userId: usageLogs.userId,
+        lastUsageAt: sql<number | null>`max(${usageLogs.createdAt})`,
+      })
+      .from(usageLogs)
+      .groupBy(usageLogs.userId),
+  ])
+  const lastUsageAtByUser = new Map(
+    latestUsageRows.flatMap((row) =>
+      row.userId && row.lastUsageAt != null ? [[row.userId, row.lastUsageAt] as const] : [],
+    ),
+  )
 
   const result: AdminUserQuotaDTO[] = []
   for (const user of userRows) {
@@ -628,7 +641,7 @@ export async function listAdminUserQuotas(): Promise<AdminUserQuotaDTO[]> {
         (binding.overrides.extraRules?.length ?? 0),
       highlight: highlight ?? null,
       blocked: snapshot.blockedModelIds.length > 0,
-      lastActiveAt: user.lastActiveAt?.getTime() ?? null,
+      lastUsageAt: lastUsageAtByUser.get(user.id) ?? null,
     })
   }
   return result

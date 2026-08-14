@@ -215,7 +215,7 @@ export default function AnalyticsPage() {
                     <th className={th}>成本</th>
                     <th className={th}>错误</th>
                     <th className={th}>成功率</th>
-                    <th className={th}>最近活跃</th>
+                    <th className={th}>最近使用</th>
                     <th className={th}>常用模型</th>
                     <th className={th}>操作</th>
                   </tr>
@@ -242,7 +242,7 @@ export default function AnalyticsPage() {
                       <td className={`${td} tabular-nums`}>{formatInt(u.errors)}</td>
                       <td className={`${td} tabular-nums`}>{formatPercent(u.successRate)}</td>
                       <td className={`${td} whitespace-nowrap text-neutral-500 dark:text-neutral-400`}>
-                        {formatRelative(u.lastActive)}
+                        {formatRelative(u.lastUsageAt)}
                       </td>
                       <td className={`${td} text-neutral-500 dark:text-neutral-400`}>
                         {u.topModels.map((m) => m.model).join('、') || '—'}

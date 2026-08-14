@@ -338,7 +338,8 @@ export interface AdminUserDTO {
   /** 是否允许分享：null=随全局，true/false=按用户覆盖 */
   canShare: boolean | null
   createdAt: number
-  lastActiveAt: number | null
+  /** 最近一次密码登录时间；不代表最近一次模型请求。 */
+  lastLoginAt: number | null
   conversationCount: number
 }
 
@@ -461,7 +462,8 @@ export interface UserStatDTO {
   costUsd: number
   errors: number
   successRate: number // 0-1
-  lastActive: number | null
+  /** 筛选范围内最近一条用量日志的时间。 */
+  lastUsageAt: number | null
   topModels: { model: string; calls: number }[]
 }
 
@@ -620,7 +622,8 @@ export interface AdminUserQuotaDTO {
   /** 进度最紧张的桶，用于列表进度条；无限额度时为 null */
   highlight: QuotaBucketUsageDTO | null
   blocked: boolean
-  lastActiveAt: number | null
+  /** 最近一条模型请求用量日志的时间，与账号登录时间无关。 */
+  lastUsageAt: number | null
 }
 
 /** 单个用户的限额明细（管理端弹窗 / 用户详情页）。 */

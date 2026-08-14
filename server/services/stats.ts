@@ -335,8 +335,7 @@ export async function getUserStats(filter: StatsFilter): Promise<UserStatDTO[]> 
       costUsd: costByUser.get(b.userId) ?? 0,
       errors: errMap.get(b.userId) ?? 0,
       successRate: b.requests ? b.successes / b.requests : 1,
-      // 统计页的「最近活跃」应跟使用记录同源，避免把最近登录误显示成最近调用模型。
-      lastActive: b.lastUsageAt,
+      lastUsageAt: b.lastUsageAt,
       topModels,
     })
   }

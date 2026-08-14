@@ -109,7 +109,7 @@ authRoutes.post('/login', jsonValidator(loginSchema), async (c) => {
   if (u.disabled) {
     return c.json({ error: { message: '该账号已被禁用', code: 'account_disabled' } }, 403)
   }
-  await db.update(users).set({ lastActiveAt: new Date() }).where(eq(users.id, u.id))
+  await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, u.id))
   await createSession(c, u.id)
   return c.json({ user: toPublicUser(u) })
 })

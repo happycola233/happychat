@@ -40,13 +40,13 @@ async function insertUsageLog(
   await dbClient.db.insert(schema.usageLogs).values({ ...values, createdAt: new Date(createdAt) })
 }
 
-async function insertUser(lastActiveAt?: number) {
+async function insertUser(lastLoginAt?: number) {
   const [user] = await dbClient.db
     .insert(schema.users)
     .values({
       username: `stats_user_${Date.now()}_${uniqueId++}`,
       passwordHash: 'test-password-hash',
-      lastActiveAt: lastActiveAt === undefined ? null : new Date(lastActiveAt),
+      lastLoginAt: lastLoginAt === undefined ? null : new Date(lastLoginAt),
     })
     .returning()
   if (!user) throw new Error('failed to insert test user')
@@ -134,15 +134,15 @@ describe('stats time buckets', () => {
   })
 })
 
-describe('user stats activity', () => {
-  it('uses usage log time when account lastActiveAt has never been written', async () => {
+describe('user stats usage time', () => {
+  it('uses usage log time when account lastLoginAt has never been written', async () => {
     const usageAt = Date.UTC(2026, 5, 21, 1, 35, 51)
     const user = await insertUser()
     await insertUsageLog(usageAt, { userId: user.id, modelLabel: 'gpt-5.5', totalTokens: 39430 })
 
     const [stat] = await stats.getUserStats({ userId: user.id })
 
-    expect(stat?.lastActive).toBe(usageAt)
+    expect(stat?.lastUsageAt).toBe(usageAt)
   })
 
   it('uses the latest matching usage log instead of an older login time', async () => {
@@ -155,7 +155,7 @@ describe('user stats activity', () => {
 
     const [stat] = await stats.getUserStats({ userId: user.id })
 
-    expect(stat?.lastActive).toBe(latestUsageAt)
+    expect(stat?.lastUsageAt).toBe(latestUsageAt)
   })
 })
 

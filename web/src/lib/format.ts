@@ -61,7 +61,7 @@ export function formatBucketTick(ts: number, bucket: 'hour' | 'day' | 'month'): 
     : d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })
 }
 
-/** 相对时间（最近活跃等）。 */
+/** 通用相对时间（最近使用、最近登录等），具体业务语义由调用方命名。 */
 export function formatRelative(ts: number | null): string {
   if (!ts) return '从未'
   const diff = Date.now() - ts

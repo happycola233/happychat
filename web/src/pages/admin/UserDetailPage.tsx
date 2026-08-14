@@ -215,7 +215,7 @@ export default function UserDetailPage() {
             <StatCard label="成功率" value={formatPercent(stat.successRate)} />
             <StatCard label="会话" value={formatInt(stat.conversations)} />
             <StatCard label="消息" value={formatInt(stat.messages)} />
-            <StatCard label="最近活跃" value={formatRelative(stat.lastActive)} />
+            <StatCard label="最近使用" value={formatRelative(stat.lastUsageAt)} />
           </div>
 
           <div className={`${cardSurface} p-5`}>
