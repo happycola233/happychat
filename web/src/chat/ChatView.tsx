@@ -21,9 +21,11 @@ import type {
 import type { ModelParams } from '@shared/types/domain'
 import { isReasoningEffortAllowed, isReasoningEnabled } from '@shared/util/reasoning'
 import { createConversationBranch, switchBranch } from '../api/chat'
+import { ApiRequestError } from '../api/client'
 import { abortRun, getActiveRun, regenerateRun, startRun } from '../api/runs'
 import { useConversation } from '../hooks/useConversations'
 import { useModels } from '../hooks/useModels'
+import { invalidateMyQuota, useMyQuota } from '../hooks/useQuota'
 import { useChatPrefs } from '../store/chat'
 import { useSettings } from '../store/settings'
 import { useStreamStore } from '../store/stream'
@@ -41,6 +43,7 @@ import { Message } from './Message'
 import type { MessageEditSubmit } from './MessageEditForm'
 import { CollapsibleUserMessageText } from './MessageContent'
 import { ModelControlMenu } from './ModelControlMenu'
+import { QuotaNotice } from './QuotaNotice'
 import { TimelineNav } from './TimelineNav'
 import { shouldShowTimeline, timelineItemsFromMessages } from './timelineItems'
 import { shouldShowTopFade } from './topFade'
@@ -72,6 +75,8 @@ const PROGRAMMATIC_SCROLL_RESET_MS = 1200
 const DOCK_ANIMATION_SETTLE_MS = 900
 /** 时间轴跳转后消息顶部与视口的间距：给悬浮顶栏让位再留一点呼吸感。 */
 const TIMELINE_JUMP_OFFSET_PX = 76
+/** 前端只做即时反馈；真正的拦截在服务端（`prepareRun` → 429 quota_exceeded）。 */
+const QUOTA_BLOCKED_HINT = '当前模型的额度已用尽，请切换其他模型或联系管理员'
 
 export default function ChatView() {
   const { id } = useParams()
@@ -94,6 +99,8 @@ export default function ChatView() {
   const devicePixelRatio = useDevicePixelRatio()
   const { data: models } = useModels()
   const model = models?.find((m) => m.id === activeModelId)
+  const { data: quota } = useMyQuota()
+  const modelQuotaExhausted = Boolean(model && quota?.blockedModelIds.includes(model.id))
   const { data: detail } = useConversation(id)
   const stream = useStreamStore((s) => (id ? s.byConversation[id] : undefined))
   const clearStream = useStreamStore((s) => s.clear)
@@ -157,6 +164,8 @@ export default function ChatView() {
     (convId: string) => {
       void invalidateDetail(convId)
       pollConversationTitleAfterRun(qc, convId)
+      // 用量在 finalize 时才落库，生成结束正是额度进度唯一需要刷新的时刻。
+      invalidateMyQuota(qc)
     },
     [invalidateDetail, qc],
   )
@@ -513,6 +522,17 @@ export default function ChatView() {
     }
   }, [hideScrollButton, id, scrollToBottom])
 
+  /** 服务端是额度的唯一权威：被 429 拦下后立刻刷新额度，让提示条与模型列表同步变为耗尽态。 */
+  const handleRunError = useCallback(
+    (error: unknown, fallback: string) => {
+      if (error instanceof ApiRequestError && error.code === 'quota_exceeded') {
+        invalidateMyQuota(qc)
+      }
+      toast.error(error instanceof Error ? error.message : fallback)
+    },
+    [qc],
+  )
+
   const sendMut = useMutation({
     mutationFn: startRun,
     onSuccess: (res, vars) => {
@@ -522,7 +542,7 @@ export default function ChatView() {
     },
     onError: (e) => {
       setOptimisticUser(null)
-      toast.error(e instanceof Error ? e.message : '发送失败')
+      handleRunError(e, '发送失败')
     },
   })
 
@@ -533,7 +553,7 @@ export default function ChatView() {
   const regenMut = useMutation({
     mutationFn: regenerateRun,
     onSuccess: (res, vars) => applyRunResult(res, vars.params),
-    onError: (e) => toast.error(e instanceof Error ? e.message : '重新生成失败'),
+    onError: (e) => handleRunError(e, '重新生成失败'),
   })
 
   const switchMut = useMutation({
@@ -604,6 +624,7 @@ export default function ChatView() {
     if (selectedImageSources.length > 0 && model.kind !== 'image') {
       return toast.error('请使用图片模型编辑图片')
     }
+    if (modelQuotaExhausted) return toast.error(QUOTA_BLOCKED_HINT)
     // 从居中态发出首条消息：为接下来的「落底」变化临时开启平移动画。
     if (heroComposer) {
       setDockAnimated(true)
@@ -652,6 +673,10 @@ export default function ChatView() {
       toast.error('请输入图片生成或编辑提示词')
       return false
     }
+    if (modelQuotaExhausted) {
+      toast.error(QUOTA_BLOCKED_HINT)
+      return false
+    }
     const supportIssue = getAttachmentDraftSupportIssue(input.attachments, {
       canImage: model.capabilities.vision,
       canFile: model.capabilities.file_input,
@@ -681,6 +706,10 @@ export default function ChatView() {
   const onRegenerate = (assistantMessageId: string) => {
     if (!model) {
       toast.error(models ? '当前账号暂无可用模型，请联系管理员' : '模型列表加载中，请稍后再试')
+      return
+    }
+    if (modelQuotaExhausted) {
+      toast.error(QUOTA_BLOCKED_HINT)
       return
     }
     shouldAutoFollowRef.current = true
@@ -925,7 +954,8 @@ export default function ChatView() {
           </div>
           <Composer
             onSend={onSend}
-            disabled={sendMut.isPending || streaming || !model}
+            notice={<QuotaNotice />}
+            disabled={sendMut.isPending || streaming || !model || modelQuotaExhausted}
             streaming={streaming}
             onStop={onStop}
             modelControl={

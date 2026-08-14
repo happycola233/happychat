@@ -22,6 +22,7 @@ import { Select } from '../components/ui/Select'
 import { Toggle } from '../components/ui/Toggle'
 import { Spinner } from '../components/ui/Spinner'
 import { Checkbox } from '../components/ui/Checkbox'
+import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { toast } from '../store/toast'
 import { buildPath } from './buildPath'
 import { textFromContent } from './contentText'
@@ -36,16 +37,6 @@ function SectionTitle({ children, aside }: { children: string; aside?: React.Rea
       {aside}
     </div>
   )
-}
-
-/** 值随渲染频繁变化时延迟取用（导出预览请求防抖）。 */
-function useDebouncedValue<T>(value: T, delayMs: number): T {
-  const [debounced, setDebounced] = useState(value)
-  useEffect(() => {
-    const timer = setTimeout(() => setDebounced(value), delayMs)
-    return () => clearTimeout(timer)
-  }, [value, delayMs])
-  return debounced
 }
 
 /** 开关行：不支持当前格式时置灰并说明原因。 */
@@ -64,23 +55,24 @@ function OptionToggleRow({
 }) {
   const note = disabled ? '当前格式不支持' : hint
   return (
-    <div className={clsx('flex items-center justify-between gap-4 py-2.5', disabled && 'opacity-50')}>
+    <div
+      className={clsx('flex items-center justify-between gap-4 py-2.5', disabled && 'opacity-50')}
+    >
       <div className="min-w-0">
         <div className="text-sm text-neutral-800 dark:text-neutral-100">{label}</div>
         {note && <div className="mt-0.5 text-[12px] leading-5 text-neutral-400">{note}</div>}
       </div>
-      <Toggle checked={checked && !disabled} onChange={onChange} disabled={disabled} ariaLabel={label} />
+      <Toggle
+        checked={checked && !disabled}
+        onChange={onChange}
+        disabled={disabled}
+        ariaLabel={label}
+      />
     </div>
   )
 }
 
-function SelectRow({
-  label,
-  children,
-}: {
-  label: string
-  children: React.ReactNode
-}) {
+function SelectRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-4 py-2.5">
       <span className="shrink-0 text-sm text-neutral-800 dark:text-neutral-100">{label}</span>
@@ -371,7 +363,11 @@ export function ExportDialog({
             <SelectRow label="附件">
               <Select
                 aria-label="附件处理方式"
-                value={caps.attachmentModes.includes(attachmentMode) ? attachmentMode : caps.attachmentModes[0]!}
+                value={
+                  caps.attachmentModes.includes(attachmentMode)
+                    ? attachmentMode
+                    : caps.attachmentModes[0]!
+                }
                 onChange={(e) => setAttachmentMode(e.target.value as ExportAttachmentMode)}
                 options={caps.attachmentModes.map((m) => ({
                   value: m,
@@ -487,9 +483,7 @@ export function ExportDialog({
               </div>
             </div>
             {selectionEmpty && (
-              <p className="text-[12px] text-amber-600 dark:text-amber-400">
-                请至少选择一条消息。
-              </p>
+              <p className="text-[12px] text-amber-600 dark:text-amber-400">请至少选择一条消息。</p>
             )}
           </section>
         )}

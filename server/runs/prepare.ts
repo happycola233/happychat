@@ -20,6 +20,7 @@ import { promptCacheKeyForConversation } from '../provider/promptCache'
 import type { AnthropicReplayContextV1, ProviderReplayContext } from '../provider/reasoning-replay'
 import { buildPath, getConversationMessages, getOwnedConversation } from '../services/conversations'
 import { getRunnableModel } from '../services/models'
+import { checkQuota } from '../services/quota'
 import {
   MAX_FILE_INPUT_BYTES,
   MAX_FILE_INPUT_REQUEST_BYTES,
@@ -57,7 +58,7 @@ export interface PreparedRun {
   body: Record<string, unknown>
   imageOperation?: ImageOperation
 }
-export type PrepareError = { ok: false; status: 400 | 404; message: string; code: string }
+export type PrepareError = { ok: false; status: 400 | 404 | 429; message: string; code: string }
 export type PrepareResult = PreparedRun | PrepareError
 
 function normalizeImageParamsForModel(
@@ -555,11 +556,23 @@ export interface PrepareArgs {
   imageSources?: ImageSourceRef[]
 }
 
+/**
+ * 额度校验放在任何写库之前：拦下的请求不留占位消息、不建 run，
+ * 与「请求体构建失败也不留 queued run」的既有约定一致。
+ */
+async function checkQuotaOrError(userId: string, modelDbId: string): Promise<PrepareError | null> {
+  const quota = await checkQuota(userId, modelDbId)
+  if (quota.ok) return null
+  return { ok: false, status: 429, message: quota.message, code: 'quota_exceeded' }
+}
+
 export async function prepareRun(args: PrepareArgs): Promise<PrepareResult> {
   const runnable = await getRunnableModel(args.modelId, args.userId)
   if (!runnable)
     return { ok: false, status: 400, message: '所选模型不可用', code: 'model_unavailable' }
   const { model, provider } = runnable
+  const quotaError = await checkQuotaOrError(args.userId, model.id)
+  if (quotaError) return quotaError
   if (model.kind === 'image' && !args.text.trim()) {
     return {
       ok: false,
@@ -838,6 +851,8 @@ export async function prepareRegenerate(args: RegenerateArgs): Promise<PrepareRe
   if (!runnable)
     return { ok: false, status: 400, message: '所选模型不可用', code: 'model_unavailable' }
   const { model, provider } = runnable
+  const quotaError = await checkQuotaOrError(args.userId, model.id)
+  if (quotaError) return quotaError
   const reasoningParams = normalizeReasoningParamsForModel(model, args.params)
   const normalizedParams = normalizeImageParamsForModel(model, reasoningParams)
   if (!normalizedParams.ok) return normalizedParams

@@ -158,6 +158,86 @@ export type ModelKind = 'responses' | 'chat' | 'anthropic' | 'image'
  */
 export type ModelAccessMode = 'all' | 'selected'
 
+// ========================= 用户限额（配额）=========================
+
+/**
+ * 限额计量口径。
+ * - requests：成功请求次数（上游失败不计费，也不消耗用户额度）
+ * - cost：预估消费金额，**恒为 USD**（用量成本只以 USD 落库，限额不做任何汇率换算）
+ */
+export type QuotaMetric = 'requests' | 'cost'
+
+/**
+ * 规则适用范围。
+ *
+ * `mode` 决定多个目标是共享一个额度池还是各自独立：
+ * - each：所选的每个模型/分组各有一份独立额度（「每个模型 $5/天」）
+ * - shared：所选目标共同消耗同一份额度（「这几个模型合计 $5/天」）
+ *
+ * 分组归属按 `models.group_id` 的**当前值**实时判定；引用了已删除分组的规则视为失效。
+ */
+export type QuotaScope =
+  | { type: 'all' }
+  | { type: 'models'; modelIds: string[]; mode: 'each' | 'shared' }
+  | { type: 'groups'; groupIds: string[]; mode: 'each' | 'shared' }
+
+/**
+ * 统计窗口。
+ * - calendar：自然日/周/月，边界按全局配置的时区与周起始日计算，到点自动重置
+ * - rolling：滚动窗口（Codex / Claude Code 风格的 5 小时、周、月限额）
+ * - total：永久累计，永不重置
+ */
+export type QuotaWindow =
+  | { type: 'calendar'; period: 'day' | 'week' | 'month' }
+  | { type: 'rolling'; hours: number }
+  | { type: 'total' }
+
+/** 日历周期的周起始日（中文语境默认周一）。 */
+export type QuotaWeekStart = 'mon' | 'sun'
+
+/** 上限：unlimited 是真正的「无限额度」，不是一个很大的数字。 */
+export type QuotaLimit = { kind: 'unlimited' } | { kind: 'amount'; value: number }
+
+/**
+ * 一条限额规则。同一策略内多条规则同时生效，**任意一条触顶即拦截**。
+ *
+ * `id` 是稳定标识：用户覆写与周期内调整（临时额度/手动重置）都靠它绑定，
+ * 编辑策略时绝不能重新生成已有规则的 id。
+ */
+export interface QuotaRule {
+  id: string
+  /** 可选备注，用于管理端列表与用户端进度条标题 */
+  label: string | null
+  scope: QuotaScope
+  metric: QuotaMetric
+  limit: QuotaLimit
+  window: QuotaWindow
+}
+
+/** 单条继承规则的用户级覆写；只写想改的字段，disabled=true 表示对该用户停用这条规则。 */
+export interface QuotaRuleOverride {
+  limit?: QuotaLimit
+  window?: QuotaWindow
+  disabled?: boolean
+}
+
+/** 用户级覆写：逐规则覆写 + 用户专属附加规则。 */
+export interface UserQuotaOverrides {
+  rules?: Record<string, QuotaRuleOverride>
+  extraRules?: QuotaRule[]
+}
+
+/** 生效规则的来源，供界面标注「继承 / 已覆写 / 用户专属」。 */
+export type QuotaRuleSource = 'policy' | 'override' | 'user'
+
+/** 解析策略与用户覆写后的最终规则。 */
+export interface EffectiveQuotaRule extends QuotaRule {
+  source: QuotaRuleSource
+}
+
+/** 周期内调整：grant=临时增加额度（周期结束自动失效），reset=手动重置当前周期。 */
+export type QuotaAdjustmentKind = 'grant' | 'reset'
+
 /** web_search 工具的动作类型：上游把三者都记为一次 `web_search_call`。 */
 export type WebSearchActionType = 'search' | 'open_page' | 'find_in_page'
 

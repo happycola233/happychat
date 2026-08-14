@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { clsx } from 'clsx'
 import { Check, ChevronDown, Globe, Layers3, List, Pin } from 'lucide-react'
@@ -24,6 +24,7 @@ import { XLogo } from '../components/XLogo'
 import { useSizeTransition } from '../hooks/useSizeTransition'
 import { useTriggerLabelWidth } from '../hooks/useTriggerLabelWidth'
 import { useModelGroups, useModels } from '../hooks/useModels'
+import { useMyQuota } from '../hooks/useQuota'
 import { useChatPrefs } from '../store/chat'
 import { useSettings } from '../store/settings'
 import { useIsMobile } from '../store/sidebar'
@@ -503,6 +504,12 @@ function MenuSections({
   const activeModelId = useChatPrefs((s) => s.activeModelId)
   const setActiveModel = useChatPrefs((s) => s.setActiveModel)
   const view = useSettings((s) => s.preferences.modelPickerView)
+  const { data: quota } = useMyQuota()
+  // 未开启限额（或无限额度）时集合为空，列表行为与之前完全一致。
+  const exhaustedModelIds = useMemo(
+    () => new Set(quota?.blockedModelIds ?? []),
+    [quota?.blockedModelIds],
+  )
   const isImage = model?.kind === 'image'
   const supportsSearchTools = modelKindSupportsSearchTools(model?.kind)
   const showReasoning = Boolean(
@@ -519,6 +526,7 @@ function MenuSections({
         activeModelId={activeModelId}
         sheet={sheet}
         view={view}
+        exhaustedModelIds={exhaustedModelIds}
         viewToggle={<ModelViewToggle view={view} sheet={sheet} />}
         onSelectModel={setActiveModel}
         modelParameterSections={

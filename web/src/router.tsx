@@ -1,11 +1,14 @@
+import { Suspense } from 'react'
 import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { RedirectIfAuthed, RequireAdmin, RequireAuth, RequirePasswordChange } from './guards'
+import { Spinner } from './components/ui/Spinner'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import ChangePasswordRequiredPage from './pages/ChangePasswordRequiredPage'
 import ChatLayout from './chat/ChatLayout'
 import ChatView from './chat/ChatView'
 import SharedChatPage from './pages/SharedChatPage'
+import { UsagePage } from './pages/lazyPages'
 import AdminLayout from './pages/admin/AdminLayout'
 import {
   AnalyticsPage,
@@ -16,6 +19,7 @@ import {
   ModelGroupsPage,
   OverviewPage,
   ProvidersPage,
+  QuotasPage,
   RequestEventsPage,
   SettingsPage,
   SharesPage,
@@ -33,6 +37,20 @@ export const router = createBrowserRouter([
           { path: '/c/:id', element: <ChatView /> },
         ],
       },
+      {
+        path: '/usage',
+        element: (
+          <Suspense
+            fallback={
+              <div className="flex h-dvh items-center justify-center">
+                <Spinner className="h-6 w-6 text-neutral-400" />
+              </div>
+            }
+          >
+            <UsagePage />
+          </Suspense>
+        ),
+      },
     ],
   },
   {
@@ -49,6 +67,7 @@ export const router = createBrowserRouter([
           { path: 'error-logs', element: <ErrorEventsPage /> },
           { path: 'auth-center', element: <AuthCenterPage /> },
           { path: 'shares', element: <SharesPage /> },
+          { path: 'quotas', element: <QuotasPage /> },
           { path: 'users/:id', element: <UserDetailPage /> },
           { path: 'providers', element: <ProvidersPage /> },
           { path: 'models', element: <ModelsPage /> },

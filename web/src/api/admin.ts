@@ -2,7 +2,12 @@ import type {
   AdminPasswordResetResult,
   AdminModelDTO,
   AdminModelGroupDTO,
+  AdminQuotaPolicyDTO,
+  AdminUserQuotaDTO,
+  AdminUserQuotaDetailDTO,
   CustomIconDTO,
+  QuotaAdjustmentDTO,
+  QuotaPreviewDTO,
   ModelAccessDTO,
   ModelGroupDTO,
   AdminSessionDTO,
@@ -39,6 +44,16 @@ import type {
   ModelIconBatchInput,
 } from '@shared/schemas/model-group'
 import type { InviteCreateInput, UserUpdateInput } from '@shared/schemas/admin'
+import type {
+  QuotaBatchAssignInput,
+  QuotaGrantCreateInput,
+  QuotaPolicyCreateInput,
+  QuotaPolicyReorderInput,
+  QuotaPolicyUpdateInput,
+  QuotaPreviewInput,
+  QuotaResetInput,
+  UserQuotaUpdateInput,
+} from '@shared/schemas/quota'
 import { apiDelete, apiGet, apiPatch, apiPost, apiPut, apiUpload } from './client'
 
 /** 统计/事件查询参数（与后端 statsFilterSchema 对应）。 */
@@ -151,6 +166,47 @@ export const getSessions = (userId?: string) =>
 export const revokeSession = (id: string) => apiDelete<{ ok: true }>(`/admin/sessions/${id}`)
 export const revokeUserSessions = (userId: string) =>
   apiPost<{ ok: true }>(`/admin/users/${userId}/revoke-sessions`)
+
+// 用户限额
+export const listQuotaPolicies = () =>
+  apiGet<{ policies: AdminQuotaPolicyDTO[] }>('/admin/quota/policies').then((r) => r.policies)
+export const createQuotaPolicy = (input: QuotaPolicyCreateInput) =>
+  apiPost<{ policy: AdminQuotaPolicyDTO }>('/admin/quota/policies', input).then((r) => r.policy)
+export const updateQuotaPolicy = (id: string, input: QuotaPolicyUpdateInput) =>
+  apiPatch<{ policy: AdminQuotaPolicyDTO }>(`/admin/quota/policies/${id}`, input).then(
+    (r) => r.policy,
+  )
+export const deleteQuotaPolicy = (id: string) =>
+  apiDelete<{ ok: true; releasedUsers: number }>(`/admin/quota/policies/${id}`)
+export const duplicateQuotaPolicy = (id: string) =>
+  apiPost<{ policy: AdminQuotaPolicyDTO }>(`/admin/quota/policies/${id}/duplicate`).then(
+    (r) => r.policy,
+  )
+export const setDefaultQuotaPolicy = (id: string) =>
+  apiPost<{ ok: true }>(`/admin/quota/policies/${id}/default`)
+export const reorderQuotaPolicies = (input: QuotaPolicyReorderInput) =>
+  apiPost<{ ok: true }>('/admin/quota/policies/reorder', input)
+
+export const listUserQuotas = () =>
+  apiGet<{ users: AdminUserQuotaDTO[] }>('/admin/quota/users').then((r) => r.users)
+export const getUserQuotaDetail = (userId: string, days?: number) =>
+  apiGet<{ detail: AdminUserQuotaDetailDTO }>(
+    `/admin/quota/users/${userId}${days ? `?days=${days}` : ''}`,
+  ).then((r) => r.detail)
+export const updateUserQuota = (userId: string, input: UserQuotaUpdateInput) =>
+  apiPut<{ ok: true }>(`/admin/quota/users/${userId}`, input)
+export const batchAssignQuotaPolicy = (input: QuotaBatchAssignInput) =>
+  apiPost<{ ok: true; updated: number }>('/admin/quota/users/batch-assign', input)
+export const resetUserQuotaPeriod = (userId: string, input: QuotaResetInput) =>
+  apiPost<{ ok: true; resetRules: number }>(`/admin/quota/users/${userId}/reset`, input)
+export const createUserQuotaGrant = (userId: string, input: QuotaGrantCreateInput) =>
+  apiPost<{ grant: QuotaAdjustmentDTO }>(`/admin/quota/users/${userId}/grants`, input).then(
+    (r) => r.grant,
+  )
+export const revokeQuotaAdjustment = (id: string) =>
+  apiDelete<{ ok: true }>(`/admin/quota/grants/${id}`)
+export const previewUserQuota = (input: QuotaPreviewInput) =>
+  apiPost<{ preview: QuotaPreviewDTO }>('/admin/quota/preview', input).then((r) => r.preview)
 
 // 统计 / 分析 / 事件
 export const getStats = () => apiGet<StatsDTO>('/admin/stats')

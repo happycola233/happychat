@@ -24,6 +24,10 @@ import type {
   ModelParams,
   ModelPricing,
   ProviderProtocol,
+  QuotaAdjustmentKind,
+  QuotaMetric,
+  QuotaRule,
+  QuotaWeekStart,
   ReasoningEffort,
   StoredReasoningEffortOption,
   Role,
@@ -34,6 +38,7 @@ import type {
   StoredModelTag,
   UrlCitation,
   UserPreferences,
+  UserQuotaOverrides,
   UserRole,
 } from '../../shared/types/domain'
 import type { MessageDTO } from '../../shared/types/api'
@@ -136,6 +141,13 @@ export const appSettings = sqliteTable('app_settings', {
   titleEnabled: integer('title_enabled', { mode: 'boolean' }).notNull().default(true),
   titleModelId: text('title_model_id'),
   titlePrompt: text('title_prompt'),
+  // 用户限额总开关：关闭时完全不判定，策略/覆写/用量计数全部保留，用户端零感知。
+  quotaEnabled: integer('quota_enabled', { mode: 'boolean' }).notNull().default(false),
+  // 日历周期（天/周/月）的边界时区与周起始日；滚动窗口与之无关。
+  quotaTimezone: text('quota_timezone').notNull().default('Asia/Shanghai'),
+  quotaWeekStart: text('quota_week_start').$type<QuotaWeekStart>().notNull().default('mon'),
+  // 用户端「即将用尽」提示的触发占比。
+  quotaWarnThreshold: real('quota_warn_threshold').notNull().default(0.8),
   updatedAt: updatedAt(),
 })
 
@@ -307,6 +319,85 @@ export const modelUserAccess = sqliteTable(
     primaryKey({ columns: [t.modelId, t.userId] }),
     // 用户模型列表按 user_id 过滤；反向索引避免为每个模型扫描整张白名单表。
     index('model_user_access_user_idx').on(t.userId, t.modelId),
+  ],
+)
+
+// ========================= 用户限额（配额）=========================
+
+/**
+ * 限额策略模板（管理员定义的全站结构）。`rules` 为空数组即「无限额度」策略。
+ *
+ * 规则内引用的模型 / 分组 id 存在 JSON 里，**没有 FK 级联**：模型或分组被删除后，
+ * 对应的额度桶在解析时自然消失（分组规则整体视为失效），不需要迁移数据。
+ * 排序沿用 models / model_groups 的稀疏步长约定（重排写 `(index+1)*100`）。
+ */
+export const quotaPolicies = sqliteTable('quota_policies', {
+  id: pk(),
+  name: text('name').notNull(),
+  description: text('description'),
+  rules: text('rules', { mode: 'json' }).$type<QuotaRule[]>().notNull(),
+  // 未在 user_quotas 显式绑定策略的用户跟随该策略；服务层保证至多一行为 true。
+  isDefault: integer('is_default', { mode: 'boolean' }).notNull().default(false),
+  sort: integer('sort').notNull().default(0),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+})
+
+/**
+ * 用户级限额配置。**只为「有显式配置」的用户建行**：没有行等价于
+ * 「跟随默认策略 + 无覆写 + 未暂停」，因此新用户零配置即可工作。
+ *
+ * `enforcementPaused` 是临时绕过拦截的开关（用量仍照常累计），
+ * 与「封禁账号」（`users.disabled`）是两件事。
+ */
+export const userQuotas = sqliteTable('user_quotas', {
+  userId: text('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  // 删除策略后回退到默认策略（服务层同时显式置 null 并保留原 updatedAt）。
+  policyId: text('policy_id').references(() => quotaPolicies.id, { onDelete: 'set null' }),
+  overrides: text('overrides', { mode: 'json' }).$type<UserQuotaOverrides>(),
+  enforcementPaused: integer('enforcement_paused', { mode: 'boolean' }).notNull().default(false),
+  pausedAt: ts('paused_at'),
+  pausedBy: text('paused_by').references(() => users.id, { onDelete: 'set null' }),
+  note: text('note'),
+  updatedAt: updatedAt(),
+})
+
+/**
+ * 周期内调整，表达两个只影响「当前周期」的管理动作，绝不改写历史用量：
+ * - `grant`：临时增加额度（`amount` 叠加到上限），到期或周期切换后自动失效；
+ * - `reset`：手动重置当前周期（把统计起点抬到 `effectiveFrom`）。
+ *
+ * `periodStart` 记录创建时所处周期的起点：当前周期起点与之不同即视为失效，
+ * 因此即使 `expiresAt` 因时区/配置调整而失准，赠送额度也不会跨周期复活。
+ */
+export const quotaAdjustments = sqliteTable(
+  'quota_adjustments',
+  {
+    id: pk(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    kind: text('kind').$type<QuotaAdjustmentKind>().notNull(),
+    // 目标规则 id（JSON 规则的稳定 id，无 FK）；null=作用于该用户全部规则（重置全部周期）。
+    ruleId: text('rule_id'),
+    // 「各自独立」规则的具体桶（模型 DB id / 分组 id）；null=整条规则的单一桶。
+    bucketKey: text('bucket_key'),
+    metric: text('metric').$type<QuotaMetric>().notNull(),
+    // grant 的额度增量（cost=USD，requests=次数）；reset 为 null。
+    amount: real('amount'),
+    effectiveFrom: ts('effective_from').notNull(),
+    periodStart: ts('period_start').notNull(),
+    // grant 失效时刻；「永久累计」窗口可为 null（永不自动失效）。
+    expiresAt: ts('expires_at'),
+    note: text('note'),
+    createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('quota_adjustments_user_created_idx').on(t.userId, t.createdAt),
+    index('quota_adjustments_user_rule_idx').on(t.userId, t.ruleId),
   ],
 )
 

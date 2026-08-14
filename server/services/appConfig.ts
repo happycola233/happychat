@@ -6,6 +6,9 @@ import { appSettings } from '../db/schema'
 
 type AppSettingsRow = typeof appSettings.$inferSelect
 
+const DEFAULT_QUOTA_TIMEZONE = 'Asia/Shanghai'
+const DEFAULT_QUOTA_WARN_THRESHOLD = 0.8
+
 /** 取（或创建）全局设置单例行。 */
 async function ensureRow(): Promise<AppSettingsRow> {
   const [row] = await db.select().from(appSettings).limit(1)
@@ -24,6 +27,16 @@ function toDTO(row: AppSettingsRow): AppConfigDTO {
     titleEnabled: row.titleEnabled,
     titleModelId: row.titleModelId,
     titlePrompt: row.titlePrompt,
+    quotaEnabled: row.quotaEnabled,
+    // SQLite 不约束 text 枚举，异常旧值统一收敛为默认值，避免限额周期算出诡异边界。
+    quotaTimezone: row.quotaTimezone || DEFAULT_QUOTA_TIMEZONE,
+    quotaWeekStart: row.quotaWeekStart === 'sun' ? 'sun' : 'mon',
+    quotaWarnThreshold:
+      Number.isFinite(row.quotaWarnThreshold) &&
+      row.quotaWarnThreshold > 0 &&
+      row.quotaWarnThreshold < 1
+        ? row.quotaWarnThreshold
+        : DEFAULT_QUOTA_WARN_THRESHOLD,
   }
 }
 
@@ -43,6 +56,10 @@ export async function updateAppConfig(patch: AppConfigUpdateInput): Promise<AppC
   if (patch.titleEnabled !== undefined) set.titleEnabled = patch.titleEnabled
   if (patch.titleModelId !== undefined) set.titleModelId = patch.titleModelId
   if (patch.titlePrompt !== undefined) set.titlePrompt = patch.titlePrompt
+  if (patch.quotaEnabled !== undefined) set.quotaEnabled = patch.quotaEnabled
+  if (patch.quotaTimezone !== undefined) set.quotaTimezone = patch.quotaTimezone
+  if (patch.quotaWeekStart !== undefined) set.quotaWeekStart = patch.quotaWeekStart
+  if (patch.quotaWarnThreshold !== undefined) set.quotaWarnThreshold = patch.quotaWarnThreshold
   await db.update(appSettings).set(set).where(eq(appSettings.id, row.id))
   return getAppConfig()
 }

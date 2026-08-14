@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   Boxes,
+  Gauge,
   LayoutDashboard,
   Layers3,
   Megaphone,
@@ -37,6 +38,7 @@ const navGroups = [
     label: '运营',
     items: [
       { to: 'auth-center', label: '账号中心', icon: Users },
+      { to: 'quotas', label: '用户限额', icon: Gauge },
       { to: 'shares', label: '分享管理', icon: ShareIcon },
       { to: 'announcements', label: '公告', icon: Megaphone },
     ],
@@ -111,11 +113,7 @@ export default function AdminLayout() {
               </div>
               <div className="space-y-0.5">
                 {group.items.map((it) => (
-                  <NavLink
-                    key={it.to}
-                    to={it.to}
-                    className={({ isActive }) => itemClass(isActive)}
-                  >
+                  <NavLink key={it.to} to={it.to} className={({ isActive }) => itemClass(isActive)}>
                     <it.icon className="h-4 w-4" />
                     {it.label}
                   </NavLink>

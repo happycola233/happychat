@@ -102,6 +102,10 @@ function ModelInfoTip({ name, description }: { name: string; description: string
   )
 }
 
+/** 额度耗尽标记：与「生图」标记同一档字号，弱化但可读。 */
+const EXHAUSTED_BADGE_CLASS =
+  'shrink-0 rounded-md bg-rose-50 px-1.5 py-px text-[11px] font-medium text-rose-500 dark:bg-rose-500/10 dark:text-rose-300'
+
 /** 单个模型行（两种视图共用）。 */
 function ModelRow({
   model,
@@ -110,6 +114,7 @@ function ModelRow({
   sheet,
   descriptionOpen,
   onToggleDescription,
+  exhausted,
 }: {
   model: ModelDTO
   selected: boolean
@@ -117,6 +122,8 @@ function ModelRow({
   sheet: boolean
   descriptionOpen: boolean
   onToggleDescription: () => void
+  /** 该模型的额度已用尽：行不可选，但仍然显示，便于用户理解为什么用不了 */
+  exhausted: boolean
 }) {
   return (
     <div data-active={selected || undefined}>
@@ -126,8 +133,13 @@ function ModelRow({
         <button
           type="button"
           onClick={() => onSelect(model.id)}
+          disabled={exhausted}
+          title={exhausted ? '该模型的额度已用尽' : undefined}
           className={clsx(
-            'flex w-full min-w-0 items-center gap-2 rounded-lg pl-3 pr-11 text-left text-sm transition group-hover:bg-neutral-100 dark:group-hover:bg-neutral-800',
+            'flex w-full min-w-0 items-center gap-2 rounded-lg pl-3 pr-11 text-left text-sm transition',
+            exhausted
+              ? 'cursor-not-allowed opacity-60'
+              : 'group-hover:bg-neutral-100 dark:group-hover:bg-neutral-800',
             selected && 'bg-neutral-100 dark:bg-neutral-800',
             sheet ? 'py-2.5' : 'py-2',
           )}
@@ -143,6 +155,7 @@ function ModelRow({
             {model.displayName}
           </span>
           <ModelTagList tags={model.tags} />
+          {exhausted && <span className={EXHAUSTED_BADGE_CLASS}>额度已用尽</span>}
           {model.kind === 'image' && (
             <span className="shrink-0 text-xs text-neutral-400">生图</span>
           )}
@@ -262,6 +275,8 @@ interface ListProps {
   activeModelId: string | null
   onSelectModel: (id: string) => void
   sheet: boolean
+  /** 额度已用尽的模型 id 集合：行内标记并禁用，其余模型不受影响 */
+  exhaustedModelIds: ReadonlySet<string>
   /** 移动端点按 ⓘ 展开的模型描述（一次只展开一条） */
   openDescriptionId: string | null
   setOpenDescriptionId: (id: string | null) => void
@@ -275,6 +290,7 @@ function FlatList({
   sheet,
   openDescriptionId,
   setOpenDescriptionId,
+  exhaustedModelIds,
   collapsible,
 }: ListProps & { collapsible: boolean }) {
   const collapsedGroups = useModelPickerStore((s) => s.collapsedGroups)
@@ -295,6 +311,7 @@ function FlatList({
             onToggleDescription={() =>
               setOpenDescriptionId(openDescriptionId === model.id ? null : model.id)
             }
+            exhausted={exhaustedModelIds.has(model.id)}
           />
         ))}
       </>
@@ -365,6 +382,7 @@ function FlatList({
                     onToggleDescription={() =>
                       setOpenDescriptionId(openDescriptionId === model.id ? null : model.id)
                     }
+                    exhausted={exhaustedModelIds.has(model.id)}
                   />
                 ))}
               </div>
@@ -384,6 +402,7 @@ function TreeList({
   sheet,
   openDescriptionId,
   setOpenDescriptionId,
+  exhaustedModelIds,
   openedKey,
   onOpenSection,
 }: ListProps & { openedKey: string | null; onOpenSection: (key: string | null) => void }) {
@@ -474,6 +493,7 @@ function TreeList({
           onToggleDescription={() =>
             setOpenDescriptionId(openDescriptionId === model.id ? null : model.id)
           }
+          exhausted={exhaustedModelIds.has(model.id)}
         />
       ))}
     </div>
@@ -497,12 +517,15 @@ export function ModelListSection({
   view,
   viewToggle,
   modelParameterSections,
+  exhaustedModelIds,
 }: {
   models: ModelDTO[]
   groups: ModelGroupDTO[]
   activeModelId: string | null
   onSelectModel: (id: string) => void
   sheet: boolean
+  /** 额度已用尽的模型 id（由 `/api/quota/me` 派生）；未开启限额时为空集合 */
+  exhaustedModelIds: ReadonlySet<string>
   view: ModelListView
   /** 视图切换控件，渲染在分区标题右侧 */
   viewToggle: React.ReactNode
@@ -629,6 +652,7 @@ export function ModelListSection({
               sheet={sheet}
               openDescriptionId={openDescriptionId}
               setOpenDescriptionId={setOpenDescriptionId}
+              exhaustedModelIds={exhaustedModelIds}
               openedKey={openedKey}
               onOpenSection={setOpenedKey}
             />
@@ -640,6 +664,7 @@ export function ModelListSection({
               sheet={sheet}
               openDescriptionId={openDescriptionId}
               setOpenDescriptionId={setOpenDescriptionId}
+              exhaustedModelIds={exhaustedModelIds}
               // 搜索结果按扁平列表呈现：此时用户要的是具体模型，分组标题只会碍事。
               collapsible={!searching}
             />

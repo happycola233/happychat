@@ -6,6 +6,16 @@ import type {
   AnnouncementStatus,
   ContentPart,
   CostCurrency,
+  EffectiveQuotaRule,
+  QuotaAdjustmentKind,
+  QuotaLimit,
+  QuotaMetric,
+  QuotaRule,
+  QuotaRuleSource,
+  QuotaScope,
+  QuotaWeekStart,
+  QuotaWindow,
+  UserQuotaOverrides,
   MessageStatus,
   MessageUsage,
   ModelCapabilities,
@@ -473,6 +483,14 @@ export interface AppConfigDTO {
   titleEnabled: boolean
   titleModelId: string | null
   titlePrompt: string | null
+  /** 用户限额总开关；关闭时不做任何判定，配置与用量计数完整保留。 */
+  quotaEnabled: boolean
+  /** 日历周期（天/周/月）的边界时区（IANA）。 */
+  quotaTimezone: string
+  /** 周窗口的起始日。 */
+  quotaWeekStart: QuotaWeekStart
+  /** 用户端「即将用尽」提示的触发占比（0–1）。 */
+  quotaWarnThreshold: number
 }
 
 /** 聊天消息用量行的成本展示上下文。 */
@@ -480,6 +498,201 @@ export interface MessageCostDisplayDTO {
   currency: CostCurrency
   /** 仅 currency=CNY 时可能存在；实时获取失败时为 null，前端回退显示原始 USD。 */
   usdToCnyRate: number | null
+}
+
+// ===================== 用户限额 =====================
+
+/** 限额策略模板；rules 为空数组即「无限额度」策略。 */
+export interface QuotaPolicyDTO {
+  id: string
+  name: string
+  description: string | null
+  rules: QuotaRule[]
+  /** 未显式绑定策略的用户使用该策略 */
+  isDefault: boolean
+  sort: number
+  createdAt: number
+  updatedAt: number
+}
+
+/** 管理端策略列表：额外带绑定人数（含通过「默认策略」间接绑定的人数）。 */
+export interface AdminQuotaPolicyDTO extends QuotaPolicyDTO {
+  boundUserCount: number
+}
+
+/** 一条仍然有效的临时额度（周期结束或到期后自动失效）。 */
+export interface QuotaGrantDTO {
+  id: string
+  ruleId: string | null
+  bucketKey: string | null
+  metric: QuotaMetric
+  amount: number
+  note: string | null
+  /** 失效时刻；null=不会自动失效（仅「永久累计」窗口可能出现） */
+  expiresAt: number | null
+  createdAt: number
+  createdByName: string | null
+}
+
+/** 管理端可见的周期调整记录（临时额度 + 手动重置）。 */
+export interface QuotaAdjustmentDTO extends QuotaGrantDTO {
+  kind: QuotaAdjustmentKind
+  effectiveFrom: number
+  periodStart: number
+  /** 是否仍作用于当前周期（周期已切换或已过期则为 false） */
+  active: boolean
+}
+
+/**
+ * 一个「额度桶」的实时用量。
+ * 「各自独立」的规则会按目标展开成多个桶（每个模型/分组一条），
+ * 「共享额度」与「全部模型」只有一个桶（bucketKey=null）。
+ */
+export interface QuotaBucketUsageDTO {
+  ruleId: string
+  bucketKey: string | null
+  /** 桶的展示名（模型显示名 / 分组名）；单桶规则为 null */
+  bucketLabel: string | null
+  label: string | null
+  source: QuotaRuleSource
+  scope: QuotaScope
+  metric: QuotaMetric
+  window: QuotaWindow
+  limit: QuotaLimit
+  used: number
+  granted: number
+  /** 基础上限 + 临时额度；null=无限额度 */
+  effectiveLimit: number | null
+  remaining: number | null
+  /** 已用占比，可能 >1（暂停限额或单次超支）；null=无限额度 */
+  percent: number | null
+  blocked: boolean
+  /** 当前周期起点（窗口的真实起点，与临时额度/重置记录的绑定键一致） */
+  periodStart: number
+  /** 实际计量起点：手动重置后会晚于 periodStart，用于界面说明「已于某时重置」 */
+  usageStart: number
+  /** 下次重置时刻；滚动窗口与永久累计为 null */
+  periodEnd: number | null
+  grants: QuotaGrantDTO[]
+  /** 规则当前失效（如引用了已删除的分组）：不参与拦截，管理端标注 */
+  invalid: boolean
+}
+
+/** 用户自己的额度视图；quotaEnabled=false 时只返回 `enabled:false`。 */
+export interface MyQuotaDTO {
+  enabled: boolean
+  /** 管理员已暂停限额：不拦截，但用量仍在累计 */
+  paused: boolean
+  unlimited: boolean
+  policyName: string | null
+  warnThreshold: number
+  rules: QuotaBucketUsageDTO[]
+  /** 额度已用尽、当前不可用的模型（DB id） */
+  blockedModelIds: string[]
+}
+
+/** 管理端用户限额列表的一行。 */
+export interface AdminUserQuotaDTO {
+  userId: string
+  username: string
+  displayName: string | null
+  role: UserRole
+  disabled: boolean
+  policyId: string | null
+  policyName: string | null
+  /** 未显式绑定策略，当前跟随默认策略 */
+  usingDefaultPolicy: boolean
+  enforcementPaused: boolean
+  pausedAt: number | null
+  note: string | null
+  unlimited: boolean
+  /** 用户级覆写条数（含专属规则），列表显示「已覆写 N 项」 */
+  overrideCount: number
+  /** 进度最紧张的桶，用于列表进度条；无限额度时为 null */
+  highlight: QuotaBucketUsageDTO | null
+  blocked: boolean
+  lastActiveAt: number | null
+}
+
+/** 单个用户的限额明细（管理端弹窗 / 用户详情页）。 */
+export interface AdminUserQuotaDetailDTO {
+  userId: string
+  username: string
+  displayName: string | null
+  policyId: string | null
+  policyName: string | null
+  usingDefaultPolicy: boolean
+  enforcementPaused: boolean
+  pausedAt: number | null
+  note: string | null
+  overrides: UserQuotaOverrides
+  effectiveRules: EffectiveQuotaRule[]
+  rules: QuotaBucketUsageDTO[]
+  adjustments: QuotaAdjustmentDTO[]
+  /** 按模型的消费构成（默认近 30 天，随查询参数变化） */
+  byModel: UsageModelStatDTO[]
+}
+
+/** 保存前预览：草稿策略/覆写按真实用量算出的最终生效结果。 */
+export interface QuotaPreviewDTO {
+  unlimited: boolean
+  rules: QuotaBucketUsageDTO[]
+  /** 保存后会立即处于「已耗尽」的桶（管理端给出警示） */
+  blockedRules: QuotaBucketUsageDTO[]
+}
+
+// ===================== 个人使用情况 =====================
+
+/** 热力图的一格（按用户本地日聚合）。 */
+export interface UsageHeatmapCellDTO {
+  /** YYYY-MM-DD（用户本地日） */
+  date: string
+  requests: number
+  totalTokens: number
+  costUsd: number
+}
+
+export interface UsageModelStatDTO {
+  modelId: string | null
+  modelLabel: string
+  requests: number
+  totalTokens: number
+  costUsd: number
+}
+
+export interface UsageTrendPointDTO {
+  ts: number
+  requests: number
+  totalTokens: number
+  costUsd: number
+}
+
+/** 个人使用情况面板的一次性数据包。 */
+export interface UsageStatsDTO {
+  rangeDays: number
+  totals: {
+    conversations: number
+    messages: number
+    requests: number
+    totalTokens: number
+    costUsd: number
+    imageGenerations: number
+    /** 有请求的天数（本地日） */
+    activeDays: number
+    currentStreak: number
+    longestStreak: number
+  }
+  heatmap: UsageHeatmapCellDTO[]
+  byModel: UsageModelStatDTO[]
+  /** 24 项，索引=本地小时 */
+  byHour: number[]
+  /** 7 项，索引 0=周日 */
+  byWeekday: number[]
+  trend: UsageTrendPointDTO[]
+  topModel: UsageModelStatDTO | null
+  busiestHour: number | null
+  busiestWeekday: number | null
+  firstUsedAt: number | null
 }
 
 // ===================== 站内公告 =====================

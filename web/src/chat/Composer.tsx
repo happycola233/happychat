@@ -39,6 +39,12 @@ interface Props {
   onStop?: () => void
   /** 聚合模型选择器，渲染在发送按钮左侧（移动端为 undefined，由顶栏承载）。 */
   modelControl?: ReactNode
+  /**
+   * 输入框上方的提示条（当前用于额度预警）。刻意渲染在 Composer 根节点内部：
+   * 这样 `onMetricsChange` 上报的高度自动包含它（底部遮罩与滚动按钮位置正确），
+   * 而 `boxCenterFromBottom` 由「根底边 → 盒中心」计算、不受上方内容影响，hero 居中几何不变。
+   */
+  notice?: ReactNode
   canImage?: boolean
   canFile?: boolean
   imageSources?: ImageEditSource[]
@@ -150,6 +156,7 @@ export function Composer({
   streaming,
   onStop,
   modelControl,
+  notice,
   canImage,
   canFile,
   imageSources = [],
@@ -443,6 +450,8 @@ export function Composer({
         className="relative px-4"
         style={{ paddingRight: `calc(1rem + ${scrollbarGutterWidth}px)` }}
       >
+        {/* 提示条与输入框共用同一条限宽基线，左右边界严格对齐。 */}
+        {notice && <div className="mx-auto max-w-3xl">{notice}</div>}
         {/* 视觉盒：浅色用低对比 hairline 描边 + 柔和弥散阴影撑起体积感，
             避免生硬的灰色描边压过居中态光晕；深色以描边为主要轮廓，维持原对比。 */}
         <div

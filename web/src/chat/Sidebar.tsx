@@ -2,6 +2,7 @@ import { clsx } from 'clsx'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ConversationDTO, FolderDTO } from '@shared/types/api'
 import {
+  ChartNoAxesColumn,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -90,10 +91,7 @@ function Avatar({
       <img
         src={src}
         alt={`${label}的头像`}
-        className={clsx(
-          sizeClass,
-          'shrink-0 rounded-full object-cover',
-        )}
+        className={clsx(sizeClass, 'shrink-0 rounded-full object-cover')}
       />
     )
   }
@@ -169,6 +167,12 @@ function AccountMenu({
       <div className="mx-1 border-t border-neutral-100 dark:border-neutral-800" />
 
       <div className="flex flex-col gap-0.5 py-0.5">
+        <Link to="/usage" aria-label="使用情况" onClick={onClose} className={regularItemClass}>
+          <span className={iconSlotClass}>
+            <ChartNoAxesColumn className={regularIconClass} />
+          </span>
+          使用情况
+        </Link>
         <button
           type="button"
           aria-label="设置"

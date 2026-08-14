@@ -1870,3 +1870,69 @@ html.hc-ios .hc-chat-scroll {
   width: 18px;
   height: 18px;
 }
+
+/* ============ 使用情况面板：热力图与活跃度条 ============ */
+
+/* 热力图色阶是「单色序列」编码（量级），不是分类配色：同一个 sky 色相由浅到深四档，
+   0 档用中性灰表示「当天没有活动」，与 1 档的浅蓝拉开色相差而非仅明度差。
+   深色模式锚点翻转——量级越大越亮，否则深底上的深蓝几乎看不见。 */
+.hc-heat-cell {
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.04);
+}
+.hc-heat-0 {
+  background-color: #f1f2f4;
+}
+.hc-heat-1 {
+  background-color: #bae6fd;
+}
+.hc-heat-2 {
+  background-color: #38bdf8;
+}
+.hc-heat-3 {
+  background-color: #0284c7;
+}
+.hc-heat-4 {
+  background-color: #075985;
+}
+.dark .hc-heat-cell {
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.05);
+}
+.dark .hc-heat-0 {
+  background-color: #26262a;
+}
+.dark .hc-heat-1 {
+  background-color: #0c4a6e;
+}
+.dark .hc-heat-2 {
+  background-color: #0369a1;
+}
+.dark .hc-heat-3 {
+  background-color: #0ea5e9;
+}
+.dark .hc-heat-4 {
+  background-color: #7dd3fc;
+}
+/* 键盘/指针聚焦的格子：用 2px 表面色描边把它从相邻格里“抬”出来（marks 规范的重叠分隔）。 */
+.hc-heat-cell:focus-visible {
+  outline: 2px solid #0284c7;
+  outline-offset: 1px;
+}
+.dark .hc-heat-cell:focus-visible {
+  outline-color: #7dd3fc;
+}
+
+/* 活跃度柱：单序列，数据端 3px 圆角、柱间留 2px 表面缝隙（细柱规范）。 */
+.hc-activity-bar {
+  border-radius: 3px 3px 1px 1px;
+  background-color: #0ea5e9;
+}
+.dark .hc-activity-bar {
+  background-color: #38bdf8;
+}
+.hc-activity-bar[data-empty='true'] {
+  background-color: #e7e7ea;
+}
+.dark .hc-activity-bar[data-empty='true'] {
+  background-color: #2a2a2e;
+}

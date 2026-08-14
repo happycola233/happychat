@@ -23,6 +23,16 @@ import { normalizeModelCapabilitiesForKind } from '@shared/util/modelCapabilitie
 import { inviteCreateSchema, statsFilterSchema, userUpdateSchema } from '@shared/schemas/admin'
 import { appConfigUpdateSchema } from '@shared/schemas/app-config'
 import {
+  quotaBatchAssignSchema,
+  quotaGrantCreateSchema,
+  quotaPolicyCreateSchema,
+  quotaPolicyReorderSchema,
+  quotaPolicyUpdateSchema,
+  quotaPreviewSchema,
+  quotaResetSchema,
+  userQuotaUpdateSchema,
+} from '@shared/schemas/quota'
+import {
   hasAnthropicMaxOutputTokens,
   hasAnthropicThinkingBudgetConflict,
 } from '@shared/util/anthropic'
@@ -66,6 +76,23 @@ import {
   updateAnnouncement,
 } from '../services/announcements'
 import { listAllShares, revokeShare } from '../services/shares'
+import {
+  batchAssignQuotaPolicy,
+  createQuotaGrant,
+  createQuotaPolicy,
+  deleteQuotaPolicy,
+  duplicateQuotaPolicy,
+  getAdminUserQuotaDetail,
+  listAdminUserQuotas,
+  listQuotaPolicies,
+  previewUserQuota,
+  reorderQuotaPolicies,
+  resetQuotaPeriod,
+  revokeQuotaAdjustment,
+  setDefaultQuotaPolicy,
+  updateQuotaPolicy,
+  updateUserQuota,
+} from '../services/quota-admin'
 import {
   applyModelIcons,
   assignModelsToGroup,
@@ -805,6 +832,158 @@ adminRoutes.post('/announcements/:id/reset-reads', async (c) => {
   const ok = await resetAnnouncementReads(c.req.param('id'))
   if (!ok) return c.json({ error: { message: '公告不存在', code: 'not_found' } }, 404)
   return c.json({ ok: true })
+})
+
+// ---------------- 用户限额 ----------------
+
+adminRoutes.get('/quota/policies', async (c) => {
+  return c.json({ policies: await listQuotaPolicies() })
+})
+
+adminRoutes.post('/quota/policies', jsonValidator(quotaPolicyCreateSchema), async (c) => {
+  return c.json({ policy: await createQuotaPolicy(c.req.valid('json')) })
+})
+
+adminRoutes.patch('/quota/policies/:id', jsonValidator(quotaPolicyUpdateSchema), async (c) => {
+  const result = await updateQuotaPolicy(c.req.param('id'), c.req.valid('json'))
+  if (!result.ok) return c.json({ error: { message: '策略不存在', code: 'not_found' } }, 404)
+  return c.json({ policy: result.policy })
+})
+
+/** 删除策略：绑定用户回退到默认策略；唯一的默认策略不允许删除。 */
+adminRoutes.delete('/quota/policies/:id', async (c) => {
+  const result = await deleteQuotaPolicy(c.req.param('id'))
+  if (!result.ok) {
+    if (result.code === 'policy_missing') {
+      return c.json({ error: { message: '策略不存在', code: 'not_found' } }, 404)
+    }
+    return c.json(
+      {
+        error: {
+          message: '请先把其他策略设为默认，再删除当前默认策略',
+          code: result.code,
+        },
+      },
+      400,
+    )
+  }
+  return c.json({ ok: true, releasedUsers: result.releasedUsers })
+})
+
+adminRoutes.post('/quota/policies/:id/duplicate', async (c) => {
+  const result = await duplicateQuotaPolicy(c.req.param('id'))
+  if (!result.ok) return c.json({ error: { message: '策略不存在', code: 'not_found' } }, 404)
+  return c.json({ policy: result.policy })
+})
+
+adminRoutes.post('/quota/policies/:id/default', async (c) => {
+  const result = await setDefaultQuotaPolicy(c.req.param('id'))
+  if (!result.ok) return c.json({ error: { message: '策略不存在', code: 'not_found' } }, 404)
+  return c.json({ ok: true })
+})
+
+adminRoutes.post('/quota/policies/reorder', jsonValidator(quotaPolicyReorderSchema), async (c) => {
+  const result = await reorderQuotaPolicies(c.req.valid('json').policyIds)
+  if (!result.ok) {
+    return c.json(
+      {
+        error: {
+          message: '策略列表已变化，请刷新后重试',
+          code: result.code,
+          detail: { invalidIds: result.invalidIds },
+        },
+      },
+      400,
+    )
+  }
+  return c.json({ ok: true })
+})
+
+adminRoutes.get('/quota/users', async (c) => {
+  return c.json({ users: await listAdminUserQuotas() })
+})
+
+adminRoutes.get('/quota/users/:id', async (c) => {
+  const days = Number(c.req.query('days') ?? 30)
+  const detail = await getAdminUserQuotaDetail(c.req.param('id'), {
+    days: Number.isFinite(days) ? Math.max(1, Math.min(731, days)) : 30,
+  })
+  if (!detail) return c.json({ error: { message: '用户不存在', code: 'not_found' } }, 404)
+  return c.json({ detail })
+})
+
+adminRoutes.put('/quota/users/:id', jsonValidator(userQuotaUpdateSchema), async (c) => {
+  const result = await updateUserQuota(c.req.param('id'), c.req.valid('json'), c.get('user').id)
+  if (!result.ok) {
+    if (result.code === 'user_missing') {
+      return c.json({ error: { message: '用户不存在', code: 'not_found' } }, 404)
+    }
+    return c.json({ error: { message: '所选策略不存在，请刷新后重试', code: result.code } }, 400)
+  }
+  return c.json({ ok: true })
+})
+
+/** 批量修改策略：只改策略绑定，不动各用户已有的覆写与暂停状态。 */
+adminRoutes.post('/quota/users/batch-assign', jsonValidator(quotaBatchAssignSchema), async (c) => {
+  const { userIds, policyId } = c.req.valid('json')
+  const result = await batchAssignQuotaPolicy(userIds, policyId)
+  if (!result.ok) {
+    if (result.code === 'policy_missing') {
+      return c.json({ error: { message: '所选策略不存在，请刷新后重试', code: 'not_found' } }, 404)
+    }
+    return c.json(
+      {
+        error: {
+          message: '部分用户已不存在，请刷新后重试',
+          code: result.code,
+          detail: { userIds: result.invalidIds },
+        },
+      },
+      400,
+    )
+  }
+  return c.json({ ok: true, updated: result.updated })
+})
+
+/** 手动重置当前周期：只抬高统计起点，不删除任何用量日志。 */
+adminRoutes.post('/quota/users/:id/reset', jsonValidator(quotaResetSchema), async (c) => {
+  const result = await resetQuotaPeriod(c.req.param('id'), c.req.valid('json'), c.get('user').id)
+  if (!result.ok) {
+    const messages = {
+      rule_missing: '该规则已不存在，请刷新后重试',
+      bucket_required: '这条规则为「各自独立额度」，请选择具体的模型或分组',
+      no_rules: '该用户当前没有任何限额规则',
+    } as const
+    return c.json({ error: { message: messages[result.code], code: result.code } }, 400)
+  }
+  return c.json({ ok: true, resetRules: result.resetRules })
+})
+
+/** 临时增加额度：只在当前周期有效，到期自动失效，不改动长期配置。 */
+adminRoutes.post('/quota/users/:id/grants', jsonValidator(quotaGrantCreateSchema), async (c) => {
+  const result = await createQuotaGrant(c.req.param('id'), c.req.valid('json'), c.get('user').id)
+  if (!result.ok) {
+    const messages = {
+      rule_missing: '该规则已不存在，请刷新后重试',
+      bucket_required: '这条规则为「各自独立额度」，请选择具体的模型或分组',
+      unlimited_rule: '该规则本身已是无限额度，无需赠送',
+    } as const
+    return c.json({ error: { message: messages[result.code], code: result.code } }, 400)
+  }
+  return c.json({ grant: result.grant })
+})
+
+adminRoutes.delete('/quota/grants/:id', async (c) => {
+  const removed = await revokeQuotaAdjustment(c.req.param('id'))
+  if (!removed) return c.json({ error: { message: '记录不存在', code: 'not_found' } }, 404)
+  return c.json({ ok: true })
+})
+
+/** 保存前预览：用草稿策略/覆写按真实用量算出最终生效结果。 */
+adminRoutes.post('/quota/preview', jsonValidator(quotaPreviewSchema), async (c) => {
+  const preview = await previewUserQuota(c.req.valid('json'))
+  if (!preview) return c.json({ error: { message: '用户不存在', code: 'not_found' } }, 404)
+  return c.json({ preview })
 })
 
 adminRoutes.get('/shares', async (c) => c.json({ shares: await listAllShares() }))

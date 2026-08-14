@@ -1,9 +1,12 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Gauge, Infinity as InfinityIcon, PauseCircle } from 'lucide-react'
+import { clsx } from 'clsx'
 import type { UsageLogDTO, UserStatDTO } from '@shared/types/api'
-import { getUsageEvents, getUserStats } from '../../api/admin'
+import { formatQuotaAmount, formatQuotaCostUsd } from '@shared/util/quota'
+import { describeQuotaWindow } from '@shared/util/quotaWindow'
+import { getUsageEvents, getUserQuotaDetail, getUserStats } from '../../api/admin'
 import { StatCard } from '../../components/ui/StatCard'
 import { Badge } from '../../components/ui/Badge'
 import { Pagination } from '../../components/ui/Pagination'
@@ -27,6 +30,128 @@ import {
   formatRelative,
   formatUsd,
 } from '../../lib/format'
+
+/**
+ * 限额状态卡：生效规则（含覆写来源）与按模型的消费构成。
+ * 具体的编辑动作留在「用户限额」页的配置弹窗里，这里只做只读明细，避免两处实现同一套表单。
+ */
+function UserQuotaSection({ userId }: { userId: string }) {
+  const { data: detail } = useQuery({
+    queryKey: ['admin', 'quota', 'user', userId],
+    queryFn: () => getUserQuotaDetail(userId),
+  })
+  if (!detail) return null
+
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center gap-2">
+        <Gauge className="h-4 w-4 text-neutral-400" />
+        <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">限额状态</h2>
+        <Link
+          to="/admin/quotas"
+          className="ml-auto text-xs text-sky-600 underline-offset-2 hover:underline dark:text-sky-400"
+        >
+          去配置
+        </Link>
+      </div>
+
+      <div className={`${cardSurface} p-5`}>
+        <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
+          <span>
+            策略：{detail.policyName ?? '无'}
+            {detail.usingDefaultPolicy && '（跟随默认）'}
+          </span>
+          {detail.enforcementPaused && (
+            <span className="inline-flex items-center gap-1 rounded bg-sky-50 px-1.5 py-px font-medium text-sky-600 dark:bg-sky-500/10 dark:text-sky-300">
+              <PauseCircle className="h-3 w-3" /> 限额已暂停（用量仍在累计）
+            </span>
+          )}
+          {detail.note && <span className="text-neutral-400">备注：{detail.note}</span>}
+        </div>
+
+        {detail.rules.length === 0 ? (
+          <div className="flex items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400">
+            <InfinityIcon className="h-4 w-4 text-neutral-400" /> 无限额度
+          </div>
+        ) : (
+          <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
+            {detail.rules.map((rule) => (
+              <div key={`${rule.ruleId}:${rule.bucketKey ?? ''}`} className="py-2.5 first:pt-0">
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="min-w-0 flex-1 truncate text-neutral-700 dark:text-neutral-200">
+                    {rule.bucketLabel ? `${rule.bucketLabel} · ` : ''}
+                    {describeQuotaWindow(rule.window)}
+                    {rule.metric === 'cost' ? '消费' : '请求'}
+                    {rule.source !== 'policy' && (
+                      <span className="ml-1.5 text-[10px] text-sky-600 dark:text-sky-400">
+                        {rule.source === 'override' ? '已覆写' : '专属'}
+                      </span>
+                    )}
+                  </span>
+                  <span className="shrink-0 tabular-nums text-neutral-500 dark:text-neutral-400">
+                    {formatQuotaAmount(rule.metric, rule.used)} /{' '}
+                    {rule.effectiveLimit === null
+                      ? '∞'
+                      : formatQuotaAmount(rule.metric, rule.effectiveLimit)}
+                  </span>
+                </div>
+                {rule.effectiveLimit !== null && (
+                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
+                    <div
+                      className={clsx(
+                        'h-full rounded-full',
+                        rule.blocked
+                          ? 'bg-rose-500 dark:bg-rose-400'
+                          : 'bg-sky-500 dark:bg-sky-400',
+                      )}
+                      style={{
+                        width: `${Math.min(100, Math.max(2, Math.round((rule.percent ?? 0) * 100)))}%`,
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className={`${cardSurface} p-5`}>
+        <div className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
+          按模型的消费构成（近 30 天）
+        </div>
+        {detail.byModel.length === 0 ? (
+          <div className="text-sm text-neutral-400">暂无用量</div>
+        ) : (
+          <div className="space-y-2">
+            {detail.byModel.map((row) => {
+              const max = Math.max(...detail.byModel.map((item) => item.costUsd), 0.000001)
+              return (
+                <div key={`${row.modelId ?? ''}:${row.modelLabel}`}>
+                  <div className="flex items-baseline justify-between gap-2 text-xs">
+                    <span className="min-w-0 truncate text-neutral-700 dark:text-neutral-200">
+                      {row.modelLabel}
+                    </span>
+                    <span className="shrink-0 tabular-nums text-neutral-500 dark:text-neutral-400">
+                      {formatQuotaCostUsd(row.costUsd)} · {formatInt(row.requests)} 次 ·{' '}
+                      {formatCompact(row.totalTokens)} tokens
+                    </span>
+                  </div>
+                  <div className="mt-1 h-1 overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
+                    <div
+                      className="h-full rounded-full bg-sky-500/70 dark:bg-sky-400/70"
+                      style={{ width: `${Math.max(2, (row.costUsd / max) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </section>
+  )
+}
 
 export default function UserDetailPage() {
   const { id } = useParams()
@@ -110,6 +235,8 @@ export default function UserDetailPage() {
         </div>
       )}
 
+      <UserQuotaSection userId={id} />
+
       <section className="space-y-3">
         <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">使用记录</h2>
         {usageQuery.isLoading ? (
@@ -153,7 +280,9 @@ export default function UserDetailPage() {
                   <tbody className={tableBody}>
                     {usageQuery.data.items.map((e: UsageLogDTO) => (
                       <tr key={e.id} className={tableRowHover}>
-                        <td className={`${td} whitespace-nowrap text-xs text-neutral-500 dark:text-neutral-400`}>
+                        <td
+                          className={`${td} whitespace-nowrap text-xs text-neutral-500 dark:text-neutral-400`}
+                        >
                           {formatDateTime(e.createdAt)}
                         </td>
                         <td className={`${td} text-neutral-800 dark:text-neutral-200`}>

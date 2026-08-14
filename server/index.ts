@@ -17,6 +17,7 @@ import { runRoutes } from './routes/runs'
 import { attachmentRoutes } from './routes/attachments'
 import { shareRoutes } from './routes/shares'
 import { announcementRoutes } from './routes/announcements'
+import { quotaRoutes } from './routes/quota'
 import { isVersionedAssetPath, productionWebCacheMiddleware } from './http/web-cache'
 import { recoverInterruptedRuns } from './runs/manager'
 import { sanitizePersistedRunEvents } from './runs/run-event-cleanup'
@@ -50,6 +51,7 @@ app.route('/api/runs', runRoutes)
 app.route('/api/attachments', attachmentRoutes)
 app.route('/api/shares', shareRoutes)
 app.route('/api/announcements', announcementRoutes)
+app.route('/api/quota', quotaRoutes)
 
 // 生产环境：由后端静态托管构建后的前端（单体部署）
 const isProd = env.NODE_ENV === 'production'

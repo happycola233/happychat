@@ -11,6 +11,7 @@ import { buildPath, getConversationMessages } from './conversations'
 import { getAppConfig } from './appConfig'
 import { conversationEvents } from './conversation-events'
 import { getFirstRunnableTextModel, getRunnableModel } from './models'
+import { checkQuota } from './quota'
 
 type ModelRow = typeof models.$inferSelect
 type ProviderRow = typeof providers.$inferSelect
@@ -28,12 +29,18 @@ async function resolveTitleModel(
   titleModelId: string | null,
   userId: string,
 ): Promise<{ model: ModelRow; provider: ProviderRow } | null> {
+  // 标题总结不该顶着用户额度偷跑：额度耗尽时直接放弃模型总结，回退本地切片标题。
+  const withinQuota = async (candidate: { model: ModelRow; provider: ProviderRow } | null) => {
+    if (!candidate) return null
+    return (await checkQuota(userId, candidate.model.id)).ok ? candidate : null
+  }
+
   if (titleModelId) {
     const preferred = await getRunnableModel(titleModelId, userId)
-    if (preferred && preferred.model.kind !== 'image') return preferred
+    if (preferred && preferred.model.kind !== 'image') return withinQuota(preferred)
   }
   // 回退同样受当前会话所有者的模型范围约束；无可用模型时走本地标题，不做隐藏旁路调用。
-  return getFirstRunnableTextModel(userId)
+  return withinQuota(await getFirstRunnableTextModel(userId))
 }
 
 async function callTitleModel(m: ModelRow, p: ProviderRow, prompt: string): Promise<string> {
