@@ -53,14 +53,17 @@ export function ActivityRhythm({
   byWeekday,
   busiestHour,
   busiestWeekday,
+  showWeekday = true,
 }: {
   byHour: number[]
   byWeekday: number[]
   busiestHour: number | null
   busiestWeekday: number | null
+  /** 「今日」窗口下一周分布必然只有一根柱子，没有信息量，直接隐藏 */
+  showWeekday?: boolean
 }) {
   return (
-    <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
+    <div className={clsx('grid gap-4', showWeekday && 'lg:grid-cols-[1.6fr_1fr]')}>
       <div className="rounded-2xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900">
         <div className="mb-4 flex items-baseline justify-between gap-2">
           <h2 className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">
@@ -78,21 +81,23 @@ export function ActivityRhythm({
         />
       </div>
 
-      <div className="rounded-2xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900">
-        <div className="mb-4 flex items-baseline justify-between gap-2">
-          <h2 className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">
-            一周中的分布
-          </h2>
-          <span className="text-[11px] text-neutral-400 dark:text-neutral-500">
-            {busiestWeekday === null ? '暂无数据' : `最活跃 ${WEEKDAY_LABELS[busiestWeekday]}`}
-          </span>
+      {showWeekday && (
+        <div className="rounded-2xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900">
+          <div className="mb-4 flex items-baseline justify-between gap-2">
+            <h2 className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">
+              一周中的分布
+            </h2>
+            <span className="text-[11px] text-neutral-400 dark:text-neutral-500">
+              {busiestWeekday === null ? '暂无数据' : `最活跃 ${WEEKDAY_LABELS[busiestWeekday]}`}
+            </span>
+          </div>
+          <BarRow
+            values={byWeekday}
+            labelOf={(index) => WEEKDAY_LABELS[index]!.slice(1)}
+            tooltipOf={(index, value) => `${WEEKDAY_LABELS[index]} · ${formatInt(value)} 次请求`}
+          />
         </div>
-        <BarRow
-          values={byWeekday}
-          labelOf={(index) => WEEKDAY_LABELS[index]!.slice(1)}
-          tooltipOf={(index, value) => `${WEEKDAY_LABELS[index]} · ${formatInt(value)} 次请求`}
-        />
-      </div>
+      )}
     </div>
   )
 }

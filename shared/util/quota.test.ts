@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest'
 import type { QuotaRule } from '../types/domain'
 import {
   QUOTA_MAX_RULES_PER_POLICY,
+  QUOTA_MAX_RULE_PRIORITY,
   describeQuotaRule,
   evaluateQuotaLimit,
   formatQuotaAmount,
   formatQuotaLimit,
+  isQuotaRuleNoOp,
   isQuotaUnlimited,
   normalizeQuotaRules,
   normalizeUserQuotaOverrides,
@@ -20,6 +22,7 @@ const monthlyCost = (value: number, id = 'r-cost'): QuotaRule => ({
   metric: 'cost',
   limit: { kind: 'amount', value },
   window: { type: 'calendar', period: 'month' },
+  priority: 0,
 })
 
 const dailyRequests = (value: number, id = 'r-req'): QuotaRule => ({
@@ -29,6 +32,7 @@ const dailyRequests = (value: number, id = 'r-req'): QuotaRule => ({
   metric: 'requests',
   limit: { kind: 'amount', value },
   window: { type: 'calendar', period: 'day' },
+  priority: 0,
 })
 
 describe('normalizeQuotaRules', () => {
@@ -52,6 +56,7 @@ describe('normalizeQuotaRules', () => {
         metric: 'requests',
         limit: { kind: 'amount', value: 300 },
         window: { type: 'rolling', hours: 5 },
+        priority: 0,
       },
     ])
   })
@@ -119,6 +124,16 @@ describe('normalizeQuotaRules', () => {
       monthlyCost(index + 1, `rule-${index}`),
     )
     expect(normalizeQuotaRules(many)).toHaveLength(QUOTA_MAX_RULES_PER_POLICY)
+  })
+
+  it('优先级归一化：缺失回落 0，小数取整，越界钳制', () => {
+    const priorityOf = (priority: unknown) =>
+      normalizeQuotaRules([{ ...monthlyCost(10), priority }])[0]?.priority
+    expect(priorityOf(undefined)).toBe(0)
+    expect(priorityOf('10')).toBe(0)
+    expect(priorityOf(10.4)).toBe(10)
+    expect(priorityOf(-5)).toBe(0)
+    expect(priorityOf(1000)).toBe(QUOTA_MAX_RULE_PRIORITY)
   })
 
   it('scope.mode 缺失时按「各自独立」处理', () => {
@@ -212,6 +227,14 @@ describe('resolveEffectiveQuota', () => {
   })
 })
 
+describe('isQuotaRuleNoOp', () => {
+  it('只有 0 档豁免是废话规则；高优先级豁免与具体上限都有作用', () => {
+    expect(isQuotaRuleNoOp({ limit: { kind: 'unlimited' }, priority: 0 })).toBe(true)
+    expect(isQuotaRuleNoOp({ limit: { kind: 'unlimited' }, priority: 5 })).toBe(false)
+    expect(isQuotaRuleNoOp({ limit: { kind: 'amount', value: 1 }, priority: 0 })).toBe(false)
+  })
+})
+
 describe('isQuotaUnlimited', () => {
   it('零规则与全部无限都视为无限额度', () => {
     expect(isQuotaUnlimited([])).toBe(true)
@@ -264,11 +287,14 @@ describe('文案', () => {
     expect(formatQuotaAmount('cost', 0.5)).toBe('$0.500')
     expect(formatQuotaAmount('cost', 0.0001)).toBe('$0.0001')
     expect(formatQuotaAmount('requests', 300)).toBe('300 次')
-    expect(formatQuotaLimit('cost', { kind: 'unlimited' })).toBe('无限额度')
+    expect(formatQuotaLimit('cost', { kind: 'unlimited' })).toBe('豁免（不限额）')
   })
 
-  it('规则摘要串联窗口/范围/上限', () => {
+  it('规则摘要串联窗口/范围/上限，非默认优先级前置标注', () => {
     expect(describeQuotaRule(monthlyCost(30))).toBe('每月 · 全部模型 · $30.00')
+    expect(describeQuotaRule({ ...monthlyCost(30), priority: 10 })).toBe(
+      '优先 10 · 每月 · 全部模型 · $30.00',
+    )
     expect(
       describeQuotaRule(
         {

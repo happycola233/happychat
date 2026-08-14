@@ -1,10 +1,14 @@
 import { and, desc, eq } from 'drizzle-orm'
 import { DEFAULT_TITLE_PROMPT } from '@shared/constants'
+import type { MessageUsage } from '@shared/types/domain'
 import { textFromContent } from '@shared/util/contentText'
 import { anthropicModelProfile } from '@shared/util/anthropic'
 import { titleLocaleFromBrowser } from '@shared/util/titleLocale'
 import { db } from '../db/client'
-import { conversations, models, providers, runs } from '../db/schema'
+import { conversations, models, providers, runs, usageLogs } from '../db/schema'
+import { mapAnthropicUsage, type AnthropicUsage } from '../provider/anthropic'
+import { mapChatUsage } from '../provider/chat'
+import type { ChatChunk } from '../provider/chat'
 import { providerClientFromRow } from '../provider/client'
 import { parseResponse } from '../provider/normalize'
 import { buildPath, getConversationMessages } from './conversations'
@@ -43,7 +47,17 @@ async function resolveTitleModel(
   return withinQuota(await getFirstRunnableTextModel(userId))
 }
 
-async function callTitleModel(m: ModelRow, p: ProviderRow, prompt: string): Promise<string> {
+/** 标题调用的结果：正文 + 上游用量（用量要落 `usage_logs`，否则标题请求等于免费白跑）。 */
+interface TitleModelResult {
+  text: string
+  usage: MessageUsage
+}
+
+async function callTitleModel(
+  m: ModelRow,
+  p: ProviderRow,
+  prompt: string,
+): Promise<TitleModelResult> {
   const client = providerClientFromRow(p)
   if (m.kind === 'chat') {
     const resp = (await client.createChat({
@@ -51,8 +65,11 @@ async function callTitleModel(m: ModelRow, p: ProviderRow, prompt: string): Prom
       messages: [{ role: 'user', content: prompt }],
       max_completion_tokens: 512,
       stream: false,
-    })) as { choices?: { message?: { content?: string } }[] }
-    return resp.choices?.[0]?.message?.content ?? ''
+    })) as { choices?: { message?: { content?: string } }[]; usage?: ChatChunk['usage'] }
+    return {
+      text: resp.choices?.[0]?.message?.content ?? '',
+      usage: mapChatUsage(resp.usage),
+    }
   }
   if (m.kind === 'anthropic') {
     const body: Record<string, unknown> = {
@@ -69,11 +86,15 @@ async function callTitleModel(m: ModelRow, p: ProviderRow, prompt: string): Prom
     }
     const resp = (await client.createAnthropicMessage(body)) as {
       content?: { type?: string; text?: string }[]
+      usage?: AnthropicUsage
     }
-    return (resp.content ?? [])
-      .filter((block) => block.type === 'text')
-      .map((block) => block.text ?? '')
-      .join('')
+    return {
+      text: (resp.content ?? [])
+        .filter((block) => block.type === 'text')
+        .map((block) => block.text ?? '')
+        .join(''),
+      usage: mapAnthropicUsage(resp.usage),
+    }
   }
   const resp = await client.createResponse({
     model: m.modelId,
@@ -81,7 +102,41 @@ async function callTitleModel(m: ModelRow, p: ProviderRow, prompt: string): Prom
     max_output_tokens: 1024,
     store: false,
   })
-  return parseResponse(resp).text
+  const parsed = parseResponse(resp)
+  return { text: parsed.text, usage: parsed.usage }
+}
+
+/**
+ * 记账标题调用的真实用量。
+ *
+ * 标题总结没有 run（不走 `runs` 表，也没有助手消息），因此 `run_id` 为空，
+ * 靠 `kind='title'` 与对话请求区分；成本口径与 finalize 完全一致（同一份价格快照）。
+ * 与「失败请求不计费也不计次」一致：只有成功返回的调用才写行。
+ */
+async function logTitleUsage(
+  conversationId: string,
+  userId: string,
+  model: ModelRow,
+  provider: ProviderRow,
+  usage: MessageUsage,
+): Promise<void> {
+  await db.insert(usageLogs).values({
+    userId,
+    modelId: model.id,
+    providerId: provider.id,
+    modelLabel: model.modelId,
+    providerLabel: provider.name,
+    pricingSnapshot: model.pricing,
+    conversationId,
+    kind: 'title',
+    inputTokens: usage.inputTokens,
+    cacheWriteTokens: usage.cacheWriteTokens,
+    cachedTokens: usage.cachedTokens,
+    outputTokens: usage.outputTokens,
+    reasoningTokens: usage.reasoningTokens,
+    totalTokens: usage.totalTokens,
+    success: true,
+  })
 }
 
 async function titleLocaleForRun(conversationId: string, runId?: string): Promise<string> {
@@ -146,7 +201,8 @@ export async function maybeGenerateTitle(conversationId: string, runId?: string)
     const prompt = (cfg.titlePrompt || DEFAULT_TITLE_PROMPT)
       .replaceAll('{locale}', titleLocale)
       .replaceAll('{content}', content)
-    const raw = await callTitleModel(resolved.model, resolved.provider, prompt)
+    const { text: raw, usage } = await callTitleModel(resolved.model, resolved.provider, prompt)
+    await logTitleUsage(conversationId, conv.userId, resolved.model, resolved.provider, usage)
     const title = cleanTitle(raw) || fallback
     const updatedAt = new Date()
     await db

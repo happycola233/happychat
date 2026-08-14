@@ -7,13 +7,20 @@ import { formatCompact, formatInt } from '../lib/format'
  * 分模型用量表：兼作热力图与柱图的「表格视图」（无障碍要求的替代读法）。
  * 行内条形只表达占比，数值仍以文字给出，不依赖颜色传达信息。
  */
-export function ModelUsageTable({ rows }: { rows: UsageModelStatDTO[] }) {
+export function ModelUsageTable({
+  rows,
+  viewLabel,
+}: {
+  rows: UsageModelStatDTO[]
+  /** 统计窗口的中文名（今日 / 本周 / …），标题里点明口径 */
+  viewLabel?: string
+}) {
   const maxRequests = Math.max(1, ...rows.map((row) => row.requests))
 
   return (
     <div className="rounded-2xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900">
       <h2 className="mb-1 text-sm font-semibold text-neutral-800 dark:text-neutral-100">
-        模型使用构成
+        模型使用构成{viewLabel ? ` · ${viewLabel}` : ''}
       </h2>
       <p className="mb-4 text-xs text-neutral-400 dark:text-neutral-500">
         按请求次数排序；花费按请求时的价格快照估算。

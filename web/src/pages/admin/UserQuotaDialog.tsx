@@ -117,8 +117,22 @@ const SOURCE_BADGE: Record<string, { label: string; className: string }> = {
   },
 }
 
+/** 桶的一行中文说明，用于重置确认框与无障碍名称。 */
+function describeBucket(rule: QuotaBucketUsageDTO): string {
+  return `${rule.bucketLabel ? `${rule.bucketLabel} · ` : ''}${describeQuotaWindow(rule.window)}${
+    rule.metric === 'cost' ? '消费' : '请求'
+  }`
+}
+
 /** 预览里的一条桶用量（保存后会立即生效的真实数字）。 */
-function PreviewRow({ rule }: { rule: QuotaBucketUsageDTO }) {
+function PreviewRow({
+  rule,
+  onReset,
+}: {
+  rule: QuotaBucketUsageDTO
+  /** 提供时显示单桶重置按钮；失效桶与被接管的桶不给（重置它们没有意义） */
+  onReset?: () => void
+}) {
   const percent = Math.min(100, Math.round((rule.percent ?? 0) * 100))
   const badge = SOURCE_BADGE[rule.source]!
   return (
@@ -130,14 +144,47 @@ function PreviewRow({ rule }: { rule: QuotaBucketUsageDTO }) {
           {badge.label}
         </span>
         <span className="min-w-0 flex-1 truncate text-neutral-700 dark:text-neutral-200">
-          {rule.bucketLabel ? `${rule.bucketLabel} · ` : ''}
-          {describeQuotaWindow(rule.window)}
-          {rule.metric === 'cost' ? '消费' : '请求'}
+          {describeBucket(rule)}
         </span>
+        {rule.priority > 0 && (
+          <span
+            title="规则优先级：数字越大越优先"
+            className="shrink-0 rounded bg-neutral-100 px-1.5 py-px text-[10px] font-medium text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400"
+          >
+            优先 {rule.priority}
+          </span>
+        )}
+        {rule.shadowed && (
+          <span
+            title="该桶内的模型都已被更高优先级的规则接管，这条规则对它们不计量也不拦截"
+            className="shrink-0 rounded bg-violet-50 px-1.5 py-px text-[10px] font-medium text-violet-600 dark:bg-violet-500/10 dark:text-violet-300"
+          >
+            已被接管
+          </span>
+        )}
+        {rule.invalid && (
+          <span
+            title="规则指向的模型或分组已不存在，不参与拦截"
+            className="shrink-0 rounded bg-amber-50 px-1.5 py-px text-[10px] font-medium text-amber-600 dark:bg-amber-400/10 dark:text-amber-200"
+          >
+            已失效
+          </span>
+        )}
         <span className="shrink-0 tabular-nums text-neutral-500 dark:text-neutral-400">
           {formatQuotaAmount(rule.metric, rule.used)} /{' '}
           {rule.effectiveLimit === null ? '∞' : formatQuotaAmount(rule.metric, rule.effectiveLimit)}
         </span>
+        {onReset && (
+          <button
+            type="button"
+            onClick={onReset}
+            title="重置这个额度的当前周期"
+            aria-label={`重置「${describeBucket(rule)}」的当前周期`}
+            className="shrink-0 rounded p-0.5 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
+          >
+            <RotateCcw className="h-3 w-3" />
+          </button>
+        )}
       </div>
       {rule.effectiveLimit !== null && (
         <div className="mt-1 h-1 overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
@@ -323,7 +370,10 @@ export function UserQuotaDialog({
   const activeGrants = (detail?.adjustments ?? []).filter(
     (row) => row.kind === 'grant' && row.active,
   )
-  const grantableRules = (preview?.rules ?? []).filter((rule) => rule.limit.kind === 'amount')
+  // 只有真正在生效的限额桶才能赠送：豁免、失效与被更高优先级接管的桶收到赠送也不会有任何效果。
+  const grantableRules = (preview?.rules ?? []).filter(
+    (rule) => rule.limit.kind === 'amount' && !rule.invalid && !rule.shadowed,
+  )
   const grantRule = grantableRules.find((rule) => rule.ruleId === grantForm.ruleId)
   const grantBuckets = grantableRules.filter((rule) => rule.ruleId === grantForm.ruleId)
   const requiresBucket = grantRule ? grantBuckets.some((rule) => rule.bucketKey !== null) : false
@@ -564,7 +614,28 @@ export function UserQuotaDialog({
               <div className="rounded-xl border border-neutral-200 px-3 py-1 dark:border-neutral-700">
                 <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
                   {preview.rules.map((rule) => (
-                    <PreviewRow key={`${rule.ruleId}:${rule.bucketKey ?? ''}`} rule={rule} />
+                    <PreviewRow
+                      key={`${rule.ruleId}:${rule.bucketKey ?? ''}`}
+                      rule={rule}
+                      onReset={
+                        rule.invalid || rule.shadowed || rule.limit.kind === 'unlimited'
+                          ? undefined
+                          : async () => {
+                              if (
+                                await askConfirm({
+                                  title: '重置这个额度',
+                                  description: `「${describeBucket(rule)}」的本周期用量将从此刻重新计算，其他额度与历史统计不受影响。`,
+                                  confirmLabel: '重置',
+                                })
+                              ) {
+                                resetPeriod.mutate({
+                                  ruleId: rule.ruleId,
+                                  bucketKey: rule.bucketKey ?? undefined,
+                                })
+                              }
+                            }
+                      }
+                    />
                   ))}
                 </div>
               </div>

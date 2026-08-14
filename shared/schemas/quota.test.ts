@@ -4,6 +4,7 @@ import {
   quotaGrantCreateSchema,
   quotaPolicyCreateSchema,
   quotaPolicyUpdateSchema,
+  quotaResetSchema,
   quotaRuleSchema,
   userQuotaUpdateSchema,
 } from './quota'
@@ -67,6 +68,27 @@ describe('quotaRuleSchema', () => {
       quotaRuleSchema.safeParse({ ...validRule, window: { type: 'rolling', hours: 1.5 } }).success,
     ).toBe(false)
   })
+
+  it('优先级默认 0，只接受 0–99 的整数', () => {
+    expect(quotaRuleSchema.parse(validRule).priority).toBe(0)
+    expect(quotaRuleSchema.parse({ ...validRule, priority: 10 }).priority).toBe(10)
+    expect(quotaRuleSchema.safeParse({ ...validRule, priority: -1 }).success).toBe(false)
+    expect(quotaRuleSchema.safeParse({ ...validRule, priority: 100 }).success).toBe(false)
+    expect(quotaRuleSchema.safeParse({ ...validRule, priority: 1.5 }).success).toBe(false)
+  })
+
+  it('次数型上限必须是整数（金额可以有小数）', () => {
+    expect(
+      quotaRuleSchema.safeParse({
+        ...validRule,
+        metric: 'requests',
+        limit: { kind: 'amount', value: 1.5 },
+      }).success,
+    ).toBe(false)
+    expect(
+      quotaRuleSchema.safeParse({ ...validRule, limit: { kind: 'amount', value: 1.5 } }).success,
+    ).toBe(true)
+  })
 })
 
 describe('quotaPolicyCreateSchema', () => {
@@ -125,6 +147,12 @@ describe('临时额度与批量指派', () => {
     expect(quotaGrantCreateSchema.safeParse({ ruleId: 'r', amount: 5 }).success).toBe(true)
     expect(quotaGrantCreateSchema.safeParse({ ruleId: 'r', amount: 0 }).success).toBe(false)
     expect(quotaGrantCreateSchema.safeParse({ ruleId: '', amount: 5 }).success).toBe(false)
+  })
+
+  it('重置：只给 bucketKey 不给 ruleId 被拒（否则会被当成「重置全部」）', () => {
+    expect(quotaResetSchema.safeParse({}).success).toBe(true)
+    expect(quotaResetSchema.safeParse({ ruleId: 'r', bucketKey: 'm1' }).success).toBe(true)
+    expect(quotaResetSchema.safeParse({ bucketKey: 'm1' }).success).toBe(false)
   })
 
   it('批量指派拒绝空列表与重复项', () => {

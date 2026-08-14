@@ -128,18 +128,26 @@ describe('个人使用情况统计', () => {
       await logUsage(userId, { at: new Date(now - offset * DAY_MS) })
     }
     const stats = await usageStats.getMyUsageStats(userId, { tzOffsetMinutes: 0, days: 30 })
-    expect(stats.totals.activeDays).toBe(4)
+    // 活跃天数按窗口统计，连续天数按近一年的热力图序列滚动计算，因此这里数热力图。
+    expect(stats.heatmap.filter((cell) => cell.requests > 0)).toHaveLength(4)
     expect(stats.totals.currentStreak).toBe(3)
     expect(stats.totals.longestStreak).toBe(3)
   })
 
   it('时段与星期分布按本地时间对齐', async () => {
     const userId = await createUser()
-    // UTC 周六 2026-03-14T20:00Z = 东八区 周日 3/15 04:00
-    await logUsage(userId, { at: new Date('2026-03-14T20:00:00Z') })
-    const stats = await usageStats.getMyUsageStats(userId, { tzOffsetMinutes: 480, days: 730 })
+    // 取「东八区今天 04:00」对应的真实时刻：按相对时间构造，测试不会随年份失效。
+    const offsetMs = 480 * 60_000
+    const localDayStart = Math.floor((Date.now() + offsetMs) / DAY_MS) * DAY_MS
+    const localFourAm = localDayStart + 4 * 3_600_000
+    await logUsage(userId, { at: new Date(localFourAm - offsetMs) })
+
+    const stats = await usageStats.getMyUsageStats(userId, {
+      tzOffsetMinutes: 480,
+      view: 'day',
+    })
     expect(stats.busiestHour).toBe(4)
-    expect(stats.busiestWeekday).toBe(0) // 0=周日
+    expect(stats.busiestWeekday).toBe(new Date(localDayStart).getUTCDay())
     expect(stats.byHour[4]).toBe(1)
   })
 
@@ -160,6 +168,86 @@ describe('个人使用情况统计', () => {
     expect(stats.totals.messages).toBe(2)
     expect(stats.totals.imageGenerations).toBe(1)
     expect(stats.firstUsedAt).not.toBeNull()
+  })
+
+  it('窗口视图按自然周期切片：昨天的用量不计入「今日」', async () => {
+    const userId = await createUser()
+    const offsetMs = 480 * 60_000
+    const localDayStart = Math.floor((Date.now() + offsetMs) / DAY_MS) * DAY_MS
+    // 今天本地 10:00 与昨天本地 10:00
+    await logUsage(userId, { at: new Date(localDayStart + 10 * 3_600_000 - offsetMs), tokens: 5 })
+    await logUsage(userId, {
+      at: new Date(localDayStart - DAY_MS + 10 * 3_600_000 - offsetMs),
+      tokens: 7,
+    })
+
+    const today = await usageStats.getMyUsageStats(userId, { tzOffsetMinutes: 480, view: 'day' })
+    expect(today.totals.requests).toBe(1)
+    expect(today.totals.totalTokens).toBe(5)
+    expect(today.granularity).toBe('hour')
+    expect(today.windowStart).toBe(localDayStart - offsetMs)
+    expect(today.windowEnd).toBe(localDayStart + DAY_MS - offsetMs)
+    // 热力图与窗口解耦：仍能看到昨天那一格
+    expect(today.heatmap.filter((cell) => cell.requests > 0)).toHaveLength(2)
+
+    const year = await usageStats.getMyUsageStats(userId, { tzOffsetMinutes: 480, view: 'year' })
+    expect(year.totals.requests).toBe(2)
+    expect(year.granularity).toBe('month')
+  })
+
+  it('本周起点跟随站点配置（周一 / 周日）', async () => {
+    const userId = await createUser()
+    const monday = await usageStats.getMyUsageStats(userId, {
+      tzOffsetMinutes: 0,
+      view: 'week',
+      weekStart: 'mon',
+    })
+    const sunday = await usageStats.getMyUsageStats(userId, {
+      tzOffsetMinutes: 0,
+      view: 'week',
+      weekStart: 'sun',
+    })
+    expect(new Date(monday.windowStart).getUTCDay()).toBe(1)
+    expect(new Date(sunday.windowStart).getUTCDay()).toBe(0)
+    expect(monday.windowEnd - monday.windowStart).toBe(7 * DAY_MS)
+  })
+
+  it('趋势按粒度补齐空桶，且只覆盖已经发生的时段', async () => {
+    const userId = await createUser()
+    const offsetMs = 0
+    const localDayStart = Math.floor(Date.now() / DAY_MS) * DAY_MS
+    await logUsage(userId, { at: new Date(localDayStart + 3_600_000), tokens: 2 })
+
+    const stats = await usageStats.getMyUsageStats(userId, { tzOffsetMinutes: 0, view: 'day' })
+    const currentHour = new Date(Date.now() + offsetMs).getUTCHours()
+    expect(stats.trend).toHaveLength(currentHour + 1)
+    expect(stats.trend[0]?.ts).toBe(localDayStart)
+    expect(stats.trend[1]?.requests).toBe(1)
+  })
+
+  it('对话与消息数按窗口统计（不再是终身累计）', async () => {
+    const userId = await createUser()
+    const [old] = await dbClient.db
+      .insert(schema.conversations)
+      .values({ userId, title: '很久以前', createdAt: new Date(Date.now() - 400 * DAY_MS) })
+      .returning()
+    await dbClient.db.insert(schema.messages).values({
+      conversationId: old!.id,
+      role: 'user',
+      content: [],
+      createdAt: new Date(Date.now() - 400 * DAY_MS),
+    })
+    const [fresh] = await dbClient.db
+      .insert(schema.conversations)
+      .values({ userId, title: '刚刚' })
+      .returning()
+    await dbClient.db
+      .insert(schema.messages)
+      .values({ conversationId: fresh!.id, role: 'user', content: [] })
+
+    const today = await usageStats.getMyUsageStats(userId, { tzOffsetMinutes: 0, view: 'day' })
+    expect(today.totals.conversations).toBe(1)
+    expect(today.totals.messages).toBe(1)
   })
 
   it('管理端复用的分模型明细按窗口过滤', async () => {

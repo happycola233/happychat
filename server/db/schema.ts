@@ -37,6 +37,7 @@ import type {
   StoredModelIcon,
   StoredModelTag,
   UrlCitation,
+  UsageLogKind,
   UserPreferences,
   UserQuotaOverrides,
   UserRole,
@@ -616,6 +617,8 @@ export const usageLogs = sqliteTable(
     // 请求发起时的价格快照；后续改价或删除模型不得改写历史成本。
     pricingSnapshot: text('pricing_snapshot', { mode: 'json' }).$type<ModelPricing>(),
     conversationId: text('conversation_id'),
+    // 请求类型：标题总结与用户对话都要计费计额度，但后台需要能分开看。
+    kind: text('kind').$type<UsageLogKind>().notNull().default('chat'),
     inputTokens: integer('input_tokens').notNull().default(0),
     cacheWriteTokens: integer('cache_write_tokens').notNull().default(0),
     cachedTokens: integer('cached_tokens').notNull().default(0),

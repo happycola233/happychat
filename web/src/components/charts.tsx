@@ -19,7 +19,7 @@ export interface SeriesDef {
   color: string
 }
 
-type Bucket = 'hour' | 'day'
+type Bucket = 'hour' | 'day' | 'month'
 type ValueFormat = (n: number) => string
 
 interface TooltipDatum {

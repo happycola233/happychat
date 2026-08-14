@@ -34,6 +34,9 @@ import type {
   SearchAction,
   ThemePreference,
   UrlCitation,
+  UsageLogKind,
+  UsageStatsView,
+  UsageTrendGranularity,
   UserPreferences,
   UserRole,
 } from './domain'
@@ -380,6 +383,8 @@ export interface UsageLogDTO {
   providerId: string | null
   providerLabel: string | null
   modelLabel: string | null
+  /** 请求类型：chat=用户对话，title=会话标题总结 */
+  kind: UsageLogKind
   inputTokens: number
   cacheWriteTokens: number
   cachedTokens: number
@@ -559,6 +564,8 @@ export interface QuotaBucketUsageDTO {
   metric: QuotaMetric
   window: QuotaWindow
   limit: QuotaLimit
+  /** 规则优先级（0=默认档，数字越大越优先） */
+  priority: number
   used: number
   granted: number
   /** 基础上限 + 临时额度；null=无限额度 */
@@ -576,6 +583,8 @@ export interface QuotaBucketUsageDTO {
   grants: QuotaGrantDTO[]
   /** 规则当前失效（如引用了已删除的分组）：不参与拦截，管理端标注 */
   invalid: boolean
+  /** 桶内模型全部被更高优先级规则接管：不计量也不拦截，管理端标注 */
+  shadowed: boolean
 }
 
 /** 用户自己的额度视图；quotaEnabled=false 时只返回 `enabled:false`。 */
@@ -669,16 +678,26 @@ export interface UsageTrendPointDTO {
 
 /** 个人使用情况面板的一次性数据包。 */
 export interface UsageStatsDTO {
+  /** 当前窗口视图（今日 / 本周 / 本月 / 本年） */
+  view: UsageStatsView
+  /** 窗口起点（含）与终点（不含），按用户本地时区的自然周期边界 */
+  windowStart: number
+  windowEnd: number
+  /** 趋势分桶粒度，由视图派生 */
+  granularity: UsageTrendGranularity
+  /** 热力图覆盖天数；恒为「近一年」视角，与 view 无关 */
   rangeDays: number
   totals: {
+    /** 以下指标均按当前窗口统计（对话/消息按窗口内新建计） */
     conversations: number
     messages: number
     requests: number
     totalTokens: number
     costUsd: number
     imageGenerations: number
-    /** 有请求的天数（本地日） */
+    /** 窗口内有请求的天数（本地日） */
     activeDays: number
+    /** 连续活跃天数按「近一年」滚动计算，不随窗口变化 */
     currentStreak: number
     longestStreak: number
   }

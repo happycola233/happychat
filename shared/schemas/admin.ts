@@ -24,6 +24,8 @@ export const statsFilterSchema = z.object({
     .enum(['true', 'false'])
     .optional()
     .transform((v) => (v === undefined ? undefined : v === 'true')),
+  /** 请求类型：省略=对话与标题总结一起统计 */
+  kind: z.enum(['chat', 'title']).optional(),
   scope: z.enum(['upstream', 'server', 'stream', 'frontend']).optional(),
   search: z.string().trim().max(200).optional(),
   bucket: z.enum(['hour', 'day']).optional(),

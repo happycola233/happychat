@@ -15,6 +15,8 @@ export const QUOTA_MAX_SCOPE_TARGETS = 200
 export const QUOTA_RULE_LABEL_MAX_LENGTH = 40
 export const QUOTA_POLICY_NAME_MAX_LENGTH = 40
 export const QUOTA_NOTE_MAX_LENGTH = 200
+/** 规则优先级上限；0 为默认档，够用又不至于让管理员在几十个档位里迷路。 */
+export const QUOTA_MAX_RULE_PRIORITY = 99
 /** 滚动窗口在管理端提供的预设档位（对齐 Codex / Claude Code 的 5 小时 / 周 / 月）。 */
 export const QUOTA_ROLLING_PRESET_HOURS = [5, 24, 168, 720] as const
 
@@ -88,6 +90,12 @@ function normalizeLabel(value: unknown): string | null {
   return label || null
 }
 
+/** 优先级归一化：缺失或非法一律回落 0（默认档），越界钳制，小数取整。 */
+function normalizePriority(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 0
+  return Math.max(0, Math.min(QUOTA_MAX_RULE_PRIORITY, Math.round(value)))
+}
+
 /** 单条规则归一化；任何非法字段都让该条规则整体作废（宁可少一条限制也不能误拦）。 */
 function normalizeQuotaRule(value: unknown): QuotaRule | null {
   if (!isRecord(value)) return null
@@ -98,7 +106,15 @@ function normalizeQuotaRule(value: unknown): QuotaRule | null {
   const limit = normalizeLimit(value.limit)
   const window = normalizeWindow(value.window)
   if (!scope || !metric || !limit || !window) return null
-  return { id, label: normalizeLabel(value.label), scope, metric, limit, window }
+  return {
+    id,
+    label: normalizeLabel(value.label),
+    scope,
+    metric,
+    limit,
+    window,
+    priority: normalizePriority(value.priority),
+  }
 }
 
 /**
@@ -250,9 +266,9 @@ export function formatQuotaAmount(metric: QuotaMetric, value: number): string {
   return metric === 'cost' ? formatQuotaCostUsd(value) : `${Math.round(value)} 次`
 }
 
-/** 上限文案；无限额度显式显示为「无限额度」而不是一个大数字。 */
+/** 上限文案；豁免显式显示为「豁免（不限额）」而不是一个大数字。 */
 export function formatQuotaLimit(metric: QuotaMetric, limit: QuotaLimit): string {
-  return limit.kind === 'unlimited' ? '无限额度' : formatQuotaAmount(metric, limit.value)
+  return limit.kind === 'unlimited' ? '豁免（不限额）' : formatQuotaAmount(metric, limit.value)
 }
 
 export const QUOTA_METRIC_LABELS: Record<QuotaMetric, string> = {
@@ -279,16 +295,28 @@ export function describeQuotaScope(scope: QuotaScope, names?: QuotaScopeNames): 
   return `${head}·${suffix}`
 }
 
-/** 规则的一行中文摘要，如「每月 · 全部模型 · $30」。 */
+/** 规则的一行中文摘要，如「每月 · 全部模型 · $30」；优先级非默认档时前置「优先 N」。 */
 export function describeQuotaRule(
-  rule: Pick<QuotaRule, 'scope' | 'metric' | 'limit' | 'window'>,
+  rule: Pick<QuotaRule, 'scope' | 'metric' | 'limit' | 'window'> &
+    Partial<Pick<QuotaRule, 'priority'>>,
   names?: QuotaScopeNames,
 ): string {
   return [
+    ...(rule.priority ? [`优先 ${rule.priority}`] : []),
     describeQuotaWindow(rule.window),
     describeQuotaScope(rule.scope, names),
     formatQuotaLimit(rule.metric, rule.limit),
   ].join(' · ')
+}
+
+/**
+ * 这条规则是否「什么都不做」：优先级为默认档 0 的豁免规则。
+ *
+ * 豁免只有在优先级高于其它命中同一模型的规则时才有意义（把该模型从大范围规则里放行）；
+ * 同档内不发生遮蔽，因此 0 档豁免与不写这条规则完全等价，编辑器据此给出提示。
+ */
+export function isQuotaRuleNoOp(rule: Pick<QuotaRule, 'limit' | 'priority'>): boolean {
+  return rule.limit.kind === 'unlimited' && rule.priority === 0
 }
 
 /** 「各自独立」的规则必须把临时额度/重置绑定到具体目标，否则一份赠送会被每个桶重复享用。 */

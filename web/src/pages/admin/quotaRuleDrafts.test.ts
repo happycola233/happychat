@@ -27,6 +27,7 @@ describe('ruleFromDraft', () => {
       metric: 'cost',
       limit: { kind: 'amount', value: 10 },
       window: { type: 'calendar', period: 'month' },
+      priority: 0,
     })
   })
 
@@ -103,6 +104,7 @@ describe('draftFromRule', () => {
       metric: 'requests',
       limit: { kind: 'amount', value: 20 },
       window: { type: 'rolling', hours: 168 },
+      priority: 0,
     }
     const roundTrip = ruleFromDraft(draftFromRule(rule))
     expect(roundTrip.ok && roundTrip.rule).toEqual(rule)
@@ -116,6 +118,7 @@ describe('draftFromRule', () => {
       metric: 'cost',
       limit: { kind: 'unlimited' },
       window: { type: 'total' },
+      priority: 0,
     })
     expect(draft).toMatchObject({ unlimited: true, limitInput: '', windowChoice: 'total' })
   })

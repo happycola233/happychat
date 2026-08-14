@@ -53,8 +53,9 @@ export function formatShortDate(ts: number): string {
 }
 
 /** 时间轴刻度：按天显示 MM-DD，按时显示 HH:mm。 */
-export function formatBucketTick(ts: number, bucket: 'hour' | 'day'): string {
+export function formatBucketTick(ts: number, bucket: 'hour' | 'day' | 'month'): string {
   const d = new Date(ts)
+  if (bucket === 'month') return d.toLocaleDateString('zh-CN', { year: '2-digit', month: 'short' })
   return bucket === 'day'
     ? d.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })
     : d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })

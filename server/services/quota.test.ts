@@ -131,6 +131,7 @@ const monthlyCost = (value: number, id = 'r-cost'): QuotaRule => ({
   metric: 'cost',
   limit: { kind: 'amount', value },
   window: { type: 'calendar', period: 'month' },
+  priority: 0,
 })
 
 const dailyRequests = (value: number, id = 'r-req'): QuotaRule => ({
@@ -140,6 +141,7 @@ const dailyRequests = (value: number, id = 'r-req'): QuotaRule => ({
   metric: 'requests',
   limit: { kind: 'amount', value },
   window: { type: 'calendar', period: 'day' },
+  priority: 0,
 })
 
 describe('额度快照与拦截', () => {
@@ -239,6 +241,7 @@ describe('额度快照与拦截', () => {
         metric: 'requests',
         limit: { kind: 'amount', value: 1 },
         window: { type: 'calendar', period: 'day' },
+        priority: 0,
       },
     ])
     await logUsage(userId, modelA)
@@ -260,6 +263,7 @@ describe('额度快照与拦截', () => {
         metric: 'requests',
         limit: { kind: 'amount', value: 2 },
         window: { type: 'calendar', period: 'day' },
+        priority: 0,
       },
     ])
     await logUsage(userId, modelA)
@@ -281,6 +285,7 @@ describe('额度快照与拦截', () => {
         metric: 'requests',
         limit: { kind: 'amount', value: 1 },
         window: { type: 'calendar', period: 'day' },
+        priority: 0,
       },
     ])
     await logUsage(userId, modelA) // 组外模型，不计入
@@ -460,6 +465,7 @@ describe('周期调整（临时额度 / 手动重置）', () => {
         metric: 'requests',
         limit: { kind: 'amount', value: 1 },
         window: { type: 'calendar', period: 'day' },
+        priority: 0,
       },
     ])
     await logUsage(userId, modelA)
@@ -484,6 +490,208 @@ describe('周期调整（临时额度 / 手动重置）', () => {
     expect(byBucket.get(modelA)?.effectiveLimit).toBe(4)
     expect(byBucket.get(modelB)?.effectiveLimit).toBe(1)
     expect(snapshot.blockedModelIds).toEqual([modelB])
+  })
+})
+
+describe('滚动窗口的周期调整', () => {
+  const rollingRequests = (value: number, hours: number, id = 'r-roll'): QuotaRule => ({
+    id,
+    label: null,
+    scope: { type: 'all' },
+    metric: 'requests',
+    limit: { kind: 'amount', value },
+    window: { type: 'rolling', hours },
+    priority: 0,
+  })
+
+  /** 回归：滚动窗口的 periodStart 每毫秒前移，一旦按「相等」匹配，赠送写完就失效。 */
+  it('赠送在滚动窗口内持续有效（不因窗口起点前移而失效）', async () => {
+    const { userId, modelA } = await createFixture()
+    await bindPolicy(userId, [rollingRequests(1, 5)])
+    await logUsage(userId, modelA)
+    expect((await quota.checkQuota(userId, modelA)).ok).toBe(false)
+
+    const now = Date.now()
+    await dbClient.db.insert(schema.quotaAdjustments).values({
+      id: `grant-roll-${userId}`,
+      userId,
+      kind: 'grant',
+      ruleId: 'r-roll',
+      metric: 'requests',
+      amount: 3,
+      effectiveFrom: new Date(now),
+      // 服务写入的就是「此刻 - 窗口长度」，下一次查询时这个值已经不再等于新的窗口起点。
+      periodStart: new Date(now - 5 * 3_600_000),
+      expiresAt: new Date(now + 5 * 3_600_000),
+    })
+
+    const snapshot = await quota.getQuotaSnapshot(userId)
+    expect(snapshot.rules[0]?.granted).toBe(3)
+    expect(snapshot.rules[0]?.effectiveLimit).toBe(4)
+    expect((await quota.checkQuota(userId, modelA)).ok).toBe(true)
+  })
+
+  it('手动重置在滚动窗口内持续有效，滑出窗口后自然失效', async () => {
+    const { userId, modelA } = await createFixture()
+    await bindPolicy(userId, [rollingRequests(1, 5)])
+    await logUsage(userId, modelA, { createdAt: new Date(Date.now() - 60_000) })
+
+    const now = Date.now()
+    await dbClient.db.insert(schema.quotaAdjustments).values({
+      id: `reset-roll-${userId}`,
+      userId,
+      kind: 'reset',
+      ruleId: 'r-roll',
+      metric: 'requests',
+      amount: null,
+      effectiveFrom: new Date(now),
+      periodStart: new Date(now - 5 * 3_600_000),
+    })
+    expect((await quota.getQuotaSnapshot(userId)).rules[0]?.used).toBe(0)
+
+    // 重置时刻滑出窗口后不再生效（此时窗口内也已经没有那条用量了）。
+    await dbClient.db
+      .update(schema.quotaAdjustments)
+      .set({ effectiveFrom: new Date(now - 6 * 3_600_000) })
+      .where(eq(schema.quotaAdjustments.userId, userId))
+    const later = await quota.getQuotaSnapshot(userId)
+    expect(later.rules[0]?.usageStart).toBe(later.rules[0]?.periodStart)
+  })
+
+  it('「重置全部」（bucketKey 为空）覆盖各自独立展开出的每个桶', async () => {
+    const { userId, modelA, modelB } = await createFixture()
+    await bindPolicy(userId, [
+      {
+        id: 'per-model',
+        label: null,
+        scope: { type: 'models', modelIds: [modelA, modelB], mode: 'each' },
+        metric: 'requests',
+        limit: { kind: 'amount', value: 1 },
+        window: { type: 'calendar', period: 'day' },
+        priority: 0,
+      },
+    ])
+    await logUsage(userId, modelA, { createdAt: new Date(Date.now() - 60_000) })
+    await logUsage(userId, modelB, { createdAt: new Date(Date.now() - 60_000) })
+    const periodStart = (await quota.getQuotaSnapshot(userId)).rules[0]!.periodStart
+
+    await dbClient.db.insert(schema.quotaAdjustments).values({
+      id: `reset-all-${userId}`,
+      userId,
+      kind: 'reset',
+      ruleId: 'per-model',
+      bucketKey: null,
+      metric: 'requests',
+      amount: null,
+      effectiveFrom: new Date(),
+      periodStart: new Date(periodStart),
+    })
+
+    const snapshot = await quota.getQuotaSnapshot(userId)
+    expect(snapshot.rules.map((rule) => rule.used)).toEqual([0, 0])
+    expect(snapshot.blockedModelIds).toEqual([])
+  })
+})
+
+describe('规则优先级遮蔽', () => {
+  /** 两个模型同属一个分组：分组整体限额，其中一个模型用更高优先级豁免。 */
+  async function groupFixture() {
+    const fixture = await createFixture()
+    await dbClient.db
+      .update(schema.models)
+      .set({ groupId: fixture.groupId })
+      .where(eq(schema.models.id, fixture.modelA))
+    return fixture
+  }
+
+  const groupRequests = (groupId: string, value: number): QuotaRule => ({
+    id: 'r-group',
+    label: null,
+    scope: { type: 'groups', groupIds: [groupId], mode: 'shared' },
+    metric: 'requests',
+    limit: { kind: 'amount', value },
+    window: { type: 'calendar', period: 'day' },
+    priority: 0,
+  })
+
+  const exempt = (modelId: string, priority: number): QuotaRule => ({
+    id: 'r-exempt',
+    label: null,
+    scope: { type: 'models', modelIds: [modelId], mode: 'each' },
+    metric: 'requests',
+    limit: { kind: 'unlimited' },
+    window: { type: 'calendar', period: 'day' },
+    priority,
+  })
+
+  it('高优先级豁免让该模型不受分组规则约束，用量也不计入分组桶', async () => {
+    const { userId, groupId, modelA, modelB } = await groupFixture()
+    await bindPolicy(userId, [groupRequests(groupId, 2), exempt(modelB, 10)])
+    await logUsage(userId, modelA)
+    await logUsage(userId, modelB)
+    await logUsage(userId, modelB)
+    await logUsage(userId, modelB)
+
+    const snapshot = await quota.getQuotaSnapshot(userId)
+    const groupBucket = snapshot.rules.find((rule) => rule.ruleId === 'r-group')
+    // 分组桶只统计未被接管的 modelA
+    expect(groupBucket?.used).toBe(1)
+    expect(groupBucket?.blocked).toBe(false)
+    expect(snapshot.blockedModelIds).toEqual([])
+    expect((await quota.checkQuota(userId, modelB)).ok).toBe(true)
+
+    // 组内其他模型照常受限，新模型进组无需任何额外配置
+    await logUsage(userId, modelA)
+    expect((await quota.checkQuota(userId, modelA)).ok).toBe(false)
+    expect((await quota.checkQuota(userId, modelB)).ok).toBe(true)
+  })
+
+  it('同一优先级档内不发生遮蔽（0 档豁免等于没写这条规则）', async () => {
+    const { userId, groupId, modelA, modelB } = await groupFixture()
+    await bindPolicy(userId, [groupRequests(groupId, 1), exempt(modelB, 0)])
+    await logUsage(userId, modelB)
+
+    const snapshot = await quota.getQuotaSnapshot(userId)
+    expect(snapshot.rules.find((rule) => rule.ruleId === 'r-group')?.used).toBe(1)
+    expect((await quota.checkQuota(userId, modelB)).ok).toBe(false)
+    expect(modelA).toBeTruthy()
+  })
+
+  it('被完全接管的桶标记 shadowed 且永不拦截', async () => {
+    const { userId, modelA } = await createFixture()
+    await bindPolicy(userId, [
+      {
+        id: 'r-low',
+        label: null,
+        scope: { type: 'models', modelIds: [modelA], mode: 'each' },
+        metric: 'requests',
+        limit: { kind: 'amount', value: 1 },
+        window: { type: 'calendar', period: 'day' },
+        priority: 0,
+      },
+      exempt(modelA, 5),
+    ])
+    await logUsage(userId, modelA)
+    await logUsage(userId, modelA)
+
+    const snapshot = await quota.getQuotaSnapshot(userId)
+    const low = snapshot.rules.find((rule) => rule.ruleId === 'r-low')
+    expect(low?.shadowed).toBe(true)
+    expect(low?.used).toBe(0)
+    expect(low?.blocked).toBe(false)
+    expect(snapshot.blockedModelIds).toEqual([])
+  })
+
+  it('「全部模型」规则在出现遮蔽后只统计未被接管的模型', async () => {
+    const { userId, modelA, modelB } = await createFixture()
+    await bindPolicy(userId, [dailyRequests(2), exempt(modelB, 3)])
+    await logUsage(userId, modelA)
+    await logUsage(userId, modelB)
+    await logUsage(userId, modelB)
+
+    const snapshot = await quota.getQuotaSnapshot(userId)
+    expect(snapshot.rules.find((rule) => rule.ruleId === 'r-req')?.used).toBe(1)
+    expect((await quota.checkQuota(userId, modelB)).ok).toBe(true)
   })
 })
 

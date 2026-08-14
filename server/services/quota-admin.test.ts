@@ -52,6 +52,7 @@ const monthlyCost = (value: number, id = 'r-cost'): QuotaRule => ({
   metric: 'cost',
   limit: { kind: 'amount', value },
   window: { type: 'calendar', period: 'month' },
+  priority: 0,
 })
 
 const perModelRequests = (modelIds: string[], value: number, id = 'r-each'): QuotaRule => ({
@@ -61,6 +62,7 @@ const perModelRequests = (modelIds: string[], value: number, id = 'r-each'): Quo
   metric: 'requests',
   limit: { kind: 'amount', value },
   window: { type: 'calendar', period: 'day' },
+  priority: 0,
 })
 
 async function createUser(role: 'admin' | 'user' = 'user') {
@@ -398,6 +400,72 @@ describe('临时额度与重置', () => {
     const detail = await admin.getAdminUserQuotaDetail(userId)
     expect(detail?.adjustments.filter((row) => row.kind === 'reset')).toHaveLength(2)
     expect(detail?.adjustments.every((row) => row.active)).toBe(true)
+  })
+
+  it('拒绝指向不存在桶的调整与非整数的次数赠送', async () => {
+    const modelId = await createModel()
+    const policy = await admin.createQuotaPolicy({
+      name: 'A',
+      isDefault: false,
+      rules: [perModelRequests([modelId], 5)],
+    })
+    const userId = await createUser()
+    await admin.updateUserQuota(
+      userId,
+      { policyId: policy.id, overrides: {}, enforcementPaused: false },
+      userId,
+    )
+
+    // 不在规则范围内的 bucketKey 只会写出一条永不生效的记录，直接拒绝
+    expect(
+      await admin.createQuotaGrant(
+        userId,
+        { ruleId: 'r-each', bucketKey: 'ghost-model', amount: 3 },
+        userId,
+      ),
+    ).toEqual({ ok: false, code: 'bucket_unknown' })
+    expect(
+      await admin.resetQuotaPeriod(userId, { ruleId: 'r-each', bucketKey: 'ghost-model' }, userId),
+    ).toEqual({ ok: false, code: 'bucket_unknown' })
+    // 次数没有小数
+    expect(
+      await admin.createQuotaGrant(
+        userId,
+        { ruleId: 'r-each', bucketKey: modelId, amount: 1.5 },
+        userId,
+      ),
+    ).toEqual({ ok: false, code: 'amount_not_integer' })
+  })
+
+  it('单桶重置只影响目标桶', async () => {
+    const first = await createModel()
+    const second = await createModel()
+    const policy = await admin.createQuotaPolicy({
+      name: 'A',
+      isDefault: false,
+      rules: [perModelRequests([first, second], 1)],
+    })
+    const userId = await createUser()
+    await admin.updateUserQuota(
+      userId,
+      { policyId: policy.id, overrides: {}, enforcementPaused: false },
+      userId,
+    )
+    await logUsage(userId, first)
+    await logUsage(userId, second)
+
+    const result = await admin.resetQuotaPeriod(
+      userId,
+      { ruleId: 'r-each', bucketKey: first },
+      userId,
+    )
+    expect(result).toEqual({ ok: true, resetRules: 1 })
+
+    const snapshot = await quota.getQuotaSnapshot(userId)
+    const byBucket = new Map(snapshot.rules.map((rule) => [rule.bucketKey, rule]))
+    expect(byBucket.get(first)?.used).toBe(0)
+    expect(byBucket.get(second)?.used).toBe(1)
+    expect(snapshot.blockedModelIds).toEqual([second])
   })
 
   it('没有任何规则时重置给出明确错误', async () => {

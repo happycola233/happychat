@@ -12,6 +12,7 @@ const bucket = (patch: Partial<QuotaBucketUsageDTO> = {}): QuotaBucketUsageDTO =
   metric: 'cost',
   window: { type: 'calendar', period: 'month' },
   limit: { kind: 'amount', value: 10 },
+  priority: 0,
   used: 5,
   granted: 0,
   effectiveLimit: 10,
@@ -23,6 +24,7 @@ const bucket = (patch: Partial<QuotaBucketUsageDTO> = {}): QuotaBucketUsageDTO =
   periodEnd: 1,
   grants: [],
   invalid: false,
+  shadowed: false,
   ...patch,
 })
 

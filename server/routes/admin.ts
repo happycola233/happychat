@@ -952,6 +952,7 @@ adminRoutes.post('/quota/users/:id/reset', jsonValidator(quotaResetSchema), asyn
     const messages = {
       rule_missing: '该规则已不存在，请刷新后重试',
       bucket_required: '这条规则为「各自独立额度」，请选择具体的模型或分组',
+      bucket_unknown: '目标模型或分组已不在这条规则的范围内，请刷新后重试',
       no_rules: '该用户当前没有任何限额规则',
     } as const
     return c.json({ error: { message: messages[result.code], code: result.code } }, 400)
@@ -966,7 +967,9 @@ adminRoutes.post('/quota/users/:id/grants', jsonValidator(quotaGrantCreateSchema
     const messages = {
       rule_missing: '该规则已不存在，请刷新后重试',
       bucket_required: '这条规则为「各自独立额度」，请选择具体的模型或分组',
-      unlimited_rule: '该规则本身已是无限额度，无需赠送',
+      bucket_unknown: '目标模型或分组已不在这条规则的范围内，请刷新后重试',
+      unlimited_rule: '该规则已是豁免（不限额），无需赠送',
+      amount_not_integer: '请求次数只能赠送整数',
     } as const
     return c.json({ error: { message: messages[result.code], code: result.code } }, 400)
   }

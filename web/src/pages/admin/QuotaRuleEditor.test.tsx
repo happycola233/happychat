@@ -73,10 +73,21 @@ describe('QuotaRuleEditor', () => {
     expect(render(draft())).toContain('每月 · 全部模型 · $30.00')
   })
 
-  it('「不限」开关下摘要显示无限额度，且不再渲染数值输入框', () => {
+  it('「豁免」开关下不再渲染数值输入框，0 档豁免提示这条规则没有作用', () => {
     const html = render(draft({ unlimited: true }))
-    expect(html).toContain('无限额度')
+    expect(html).toContain('豁免（不限额）')
     expect(html).not.toContain('placeholder="10"')
+    expect(html).toContain('这条规则不产生任何限制')
+  })
+
+  it('高优先级豁免是有效配置：摘要标出优先级，不再提示无作用', () => {
+    const html = render(draft({ unlimited: true, priorityInput: '10' }))
+    expect(html).toContain('优先 10 · 每月 · 全部模型 · 豁免（不限额）')
+    expect(html).not.toContain('这条规则不产生任何限制')
+  })
+
+  it('优先级非整数时摘要位置给出校验提示', () => {
+    expect(render(draft({ priorityInput: '1.5' }))).toContain('优先级需为 0–99 之间的整数')
   })
 
   it('指定模型时渲染目标勾选列表与「各自独立 / 共享」切换', () => {

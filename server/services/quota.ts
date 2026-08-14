@@ -90,6 +90,8 @@ interface QuotaBucket {
   /** 扣除手动重置后的实际统计起点 */
   usageStart: number
   invalid: boolean
+  /** 桶内所有模型都被更高优先级规则接管：不计量也不拦截 */
+  shadowed: boolean
 }
 
 interface UsageAggregate {
@@ -233,34 +235,116 @@ function sumUsage(
   return modelIds.reduce((sum, id) => sum + (byModel.get(id) ?? 0), 0)
 }
 
-/** 调整是否作用于某个桶（ruleId=null 表示作用于该用户全部规则）。 */
-function adjustmentTargetsBucket(row: QuotaAdjustmentRow, bucket: QuotaBucket): boolean {
+/** 调整记录的作用目标：桶的规则 id、桶 key 与当前周期起点。 */
+interface AdjustmentTarget {
+  ruleId: string
+  bucketKey: string | null
+  periodStart: number
+}
+
+const targetOfBucket = (bucket: QuotaBucket): AdjustmentTarget => ({
+  ruleId: bucket.rule.id,
+  bucketKey: bucket.bucketKey,
+  periodStart: bucket.periodStart,
+})
+
+/**
+ * 调整记录（临时额度 / 手动重置）是否作用于某个桶的当前周期。
+ *
+ * 周期判据是「生效时刻不早于统计窗口起点」，对三种窗口统一成立：日历周期下，上一周期
+ * 的记录自然落在本周期 `periodStart` 之前；滚动窗口的 `periodStart` 每毫秒前移，
+ * `effectiveFrom >= now - 窗口长度` 恰好等价于「记录还在窗口内」——**不能**改用
+ * `periodStart` 相等匹配，那样滚动窗口的赠送与重置写完下一次查询就会失效；
+ * `total` 窗口 `periodStart = 0`，记录终身有效。
+ *
+ * 目标判据：`ruleId=null` 作用于该用户全部规则；桶级绑定按 kind 区分——
+ * - `reset` 的 `bucketKey=null` 表示「该规则的所有桶」，否则「重置全部」碰不到各自独立的桶；
+ * - `grant` 的 `bucketKey=null` 只匹配单桶规则，否则一份赠送会被每个桶重复享用。
+ */
+function adjustmentApplies(row: QuotaAdjustmentRow, target: AdjustmentTarget): boolean {
+  if (row.effectiveFrom < target.periodStart) return false
   if (row.ruleId === null) return true
-  if (row.ruleId !== bucket.rule.id) return false
-  // 桶级绑定：null 只匹配单桶规则，具体 key 只匹配同名桶，避免一份赠送被每个桶重复享用。
-  return row.bucketKey === bucket.bucketKey
+  if (row.ruleId !== target.ruleId) return false
+  if (row.bucketKey === null) return row.kind === 'reset' || target.bucketKey === null
+  return row.bucketKey === target.bucketKey
+}
+
+/** 某条调整记录当前是否仍生效（管理端列表用）：未过期且命中任一当前桶。 */
+export function isQuotaAdjustmentActive(
+  row: QuotaAdjustmentRow,
+  buckets: QuotaBucketUsageDTO[],
+  now: number,
+): boolean {
+  if (row.expiresAt !== null && row.expiresAt <= now) return false
+  return buckets.some((bucket) => adjustmentApplies(row, bucket))
+}
+
+interface BucketContext {
+  modelsById: Map<string, QuotaModelRow>
+  modelsByGroup: Map<string, string[]>
+  groupNames: Map<string, string>
+  period: { startMs: number; endMs: number | null }
+  /** 该模型是否已被更高优先级规则接管：对本条规则既不计量也不拦截 */
+  isShadowed: (modelId: string) => boolean
+}
+
+/** 规则命中的模型集合（分组按 `models.group_id` 当前值实时判定，与展开逻辑同口径）。 */
+function ruleTargetModelIds(rule: EffectiveQuotaRule, context: BucketContext): string[] {
+  if (rule.scope.type === 'all') return [...context.modelsById.keys()]
+  if (rule.scope.type === 'models') {
+    return rule.scope.modelIds.filter((id) => context.modelsById.has(id))
+  }
+  return rule.scope.groupIds.flatMap((id) => context.modelsByGroup.get(id) ?? [])
+}
+
+/**
+ * 优先级遮蔽表：模型 → 命中它的规则中的最高优先级。
+ *
+ * 判定时只保留优先级等于该值的规则，因此「OpenAI 分组限额 + 组内某个模型豁免（更高优先级）」
+ * 不需要枚举组内其他模型，新模型进组也会自动落入分组规则。规则全为默认档 0 时该表不产生任何影响。
+ */
+function resolveTopPriorityByModel(
+  rules: EffectiveQuotaRule[],
+  context: BucketContext,
+): Map<string, number> {
+  const top = new Map<string, number>()
+  for (const rule of rules) {
+    for (const modelId of ruleTargetModelIds(rule, context)) {
+      top.set(modelId, Math.max(top.get(modelId) ?? 0, rule.priority))
+    }
+  }
+  return top
 }
 
 /** 展开某条规则的额度桶。「各自独立」按目标逐个展开，其余为单桶。 */
-function expandRuleBuckets(
-  rule: EffectiveQuotaRule,
-  context: {
-    modelsById: Map<string, QuotaModelRow>
-    modelsByGroup: Map<string, string[]>
-    groupNames: Map<string, string>
-    period: { startMs: number; endMs: number | null }
-  },
-): QuotaBucket[] {
+function expandRuleBuckets(rule: EffectiveQuotaRule, context: BucketContext): QuotaBucket[] {
   const base = {
     rule,
     periodStart: context.period.startMs,
     periodEnd: context.period.endMs,
     usageStart: context.period.startMs,
     invalid: false,
+    shadowed: false,
   }
+  const keep = (ids: string[]) => ids.filter((id) => !context.isShadowed(id))
 
   if (rule.scope.type === 'all') {
-    return [{ ...base, bucketKey: null, bucketLabel: null, modelIds: null }]
+    const all = [...context.modelsById.keys()]
+    const visible = keep(all)
+    // 没有任何模型被遮蔽时保持 null（=「全部用量」），已删除模型留下的历史用量仍计入这条规则；
+    // 一旦出现遮蔽就必须退化成显式模型列表，代价是无法归属到模型的历史用量不再计入。
+    if (visible.length === all.length) {
+      return [{ ...base, bucketKey: null, bucketLabel: null, modelIds: null }]
+    }
+    return [
+      {
+        ...base,
+        bucketKey: null,
+        bucketLabel: null,
+        modelIds: visible,
+        shadowed: visible.length === 0,
+      },
+    ]
   }
 
   // 目标全部被删除/下架时保留一个「失效」占位桶：既不参与拦截（宁可放行也不误拦），
@@ -273,34 +357,55 @@ function expandRuleBuckets(
     const existing = rule.scope.modelIds.filter((id) => context.modelsById.has(id))
     if (existing.length === 0) return invalidBucket()
     if (rule.scope.mode === 'shared') {
-      return [{ ...base, bucketKey: null, bucketLabel: null, modelIds: existing }]
+      const visible = keep(existing)
+      return [
+        {
+          ...base,
+          bucketKey: null,
+          bucketLabel: null,
+          modelIds: visible,
+          shadowed: visible.length === 0,
+        },
+      ]
     }
-    return existing.map((id) => ({
-      ...base,
-      bucketKey: id,
-      bucketLabel: context.modelsById.get(id)?.displayName ?? null,
-      modelIds: [id],
-    }))
+    return existing.map((id) => {
+      const shadowed = context.isShadowed(id)
+      return {
+        ...base,
+        bucketKey: id,
+        bucketLabel: context.modelsById.get(id)?.displayName ?? null,
+        modelIds: shadowed ? [] : [id],
+        shadowed,
+      }
+    })
   }
 
   const existingGroups = rule.scope.groupIds.filter((id) => context.groupNames.has(id))
   if (existingGroups.length === 0) return invalidBucket()
   if (rule.scope.mode === 'shared') {
+    const members = existingGroups.flatMap((id) => context.modelsByGroup.get(id) ?? [])
+    const visible = keep(members)
     return [
       {
         ...base,
         bucketKey: null,
         bucketLabel: null,
-        modelIds: existingGroups.flatMap((id) => context.modelsByGroup.get(id) ?? []),
+        modelIds: visible,
+        shadowed: members.length > 0 && visible.length === 0,
       },
     ]
   }
-  return existingGroups.map((id) => ({
-    ...base,
-    bucketKey: id,
-    bucketLabel: context.groupNames.get(id) ?? null,
-    modelIds: context.modelsByGroup.get(id) ?? [],
-  }))
+  return existingGroups.map((id) => {
+    const members = context.modelsByGroup.get(id) ?? []
+    const visible = keep(members)
+    return {
+      ...base,
+      bucketKey: id,
+      bucketLabel: context.groupNames.get(id) ?? null,
+      modelIds: visible,
+      shadowed: members.length > 0 && visible.length === 0,
+    }
+  })
 }
 
 function toGrantDTO(row: QuotaAdjustmentRow): QuotaGrantDTO {
@@ -412,7 +517,15 @@ export async function getQuotaSnapshot(
   ])
   const adjustments = options.adjustments ?? (await listQuotaAdjustments(userId))
 
-  // 1) 展开桶，并按「手动重置」抬高统计起点
+  // 1) 展开桶，按优先级遮蔽剔除被更高优先级规则接管的模型，并按「手动重置」抬高统计起点
+  const sharedContext = {
+    modelsById,
+    modelsByGroup,
+    groupNames,
+    period: { startMs: 0, endMs: null },
+    isShadowed: () => false,
+  }
+  const topPriorityByModel = resolveTopPriorityByModel(rules, sharedContext)
   const buckets: QuotaBucket[] = []
   for (const rule of rules) {
     const period = resolveQuotaPeriod(rule.window, now, {
@@ -420,16 +533,14 @@ export async function getQuotaSnapshot(
       weekStart: config.quotaWeekStart,
     })
     for (const bucket of expandRuleBuckets(rule, {
-      modelsById,
-      modelsByGroup,
-      groupNames,
+      ...sharedContext,
       period,
+      isShadowed: (modelId) => (topPriorityByModel.get(modelId) ?? 0) > rule.priority,
     })) {
+      const target = targetOfBucket(bucket)
       const latestReset = adjustments.reduce(
         (max, row) =>
-          row.kind === 'reset' &&
-          row.periodStart === bucket.periodStart &&
-          adjustmentTargetsBucket(row, bucket)
+          row.kind === 'reset' && adjustmentApplies(row, target)
             ? Math.max(max, row.effectiveFrom)
             : max,
         0,
@@ -452,14 +563,16 @@ export async function getQuotaSnapshot(
   // 3) 叠加当前周期内仍有效的临时额度并评估
   const usageRules: QuotaBucketUsageDTO[] = buckets.map((bucket) => {
     const aggregate = aggregates.get(bucket.usageStart)!
-    const used = bucket.invalid ? 0 : sumUsage(aggregate, bucket.modelIds, bucket.rule.metric)
+    const used =
+      bucket.invalid || bucket.shadowed
+        ? 0
+        : sumUsage(aggregate, bucket.modelIds, bucket.rule.metric)
     const grantRows = adjustments.filter(
       (row) =>
         row.kind === 'grant' &&
         row.metric === bucket.rule.metric &&
-        row.periodStart === bucket.periodStart &&
         (row.expiresAt === null || row.expiresAt > now) &&
-        adjustmentTargetsBucket(row, bucket),
+        adjustmentApplies(row, targetOfBucket(bucket)),
     )
     const granted = grantRows.reduce((sum, row) => sum + (row.amount ?? 0), 0)
     const evaluation = evaluateQuotaLimit({ limit: bucket.rule.limit, used, granted })
@@ -473,18 +586,20 @@ export async function getQuotaSnapshot(
       metric: bucket.rule.metric,
       window: bucket.rule.window,
       limit: bucket.rule.limit,
+      priority: bucket.rule.priority,
       used: evaluation.used,
       granted: evaluation.granted,
       effectiveLimit: evaluation.effectiveLimit,
       remaining: evaluation.remaining,
       percent: evaluation.percent,
-      // 失效规则（目标模型/分组已不存在）永不拦截。
-      blocked: bucket.invalid ? false : evaluation.blocked,
+      // 失效规则（目标已不存在）与被更高优先级接管的桶永不拦截。
+      blocked: bucket.invalid || bucket.shadowed ? false : evaluation.blocked,
       periodStart: bucket.periodStart,
       usageStart: bucket.usageStart,
       periodEnd: bucket.periodEnd,
       grants: grantRows.map(toGrantDTO),
       invalid: bucket.invalid,
+      shadowed: bucket.shadowed,
     }
   })
   const bucketModelIds = buckets.map((bucket) => bucket.modelIds)

@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import {
   QUOTA_MAX_RULES_PER_POLICY,
+  QUOTA_MAX_RULE_PRIORITY,
   QUOTA_MAX_SCOPE_TARGETS,
   QUOTA_NOTE_MAX_LENGTH,
   QUOTA_POLICY_NAME_MAX_LENGTH,
@@ -47,7 +48,7 @@ export const quotaWindowSchema = z.discriminatedUnion('type', [
 
 export const quotaMetricSchema = z.enum(['requests', 'cost'])
 
-/** 上限：unlimited 是真正的无限额度；amount 必须为正数（0 应当用「停用规则」表达）。 */
+/** 上限：unlimited 是「豁免」（配合更高优先级放行）；amount 必须为正数（0 应当用「停用规则」表达）。 */
 export const quotaLimitSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('unlimited') }),
   z.object({
@@ -65,7 +66,22 @@ export const quotaRuleSchema = z
     metric: quotaMetricSchema,
     limit: quotaLimitSchema,
     window: quotaWindowSchema,
+    /** 数字越大越优先；只有优先级最高的那一档规则对某个模型生效。默认 0。 */
+    priority: z
+      .number()
+      .int('优先级必须是整数')
+      .min(0, '优先级不能小于 0')
+      .max(QUOTA_MAX_RULE_PRIORITY, `优先级最大 ${QUOTA_MAX_RULE_PRIORITY}`)
+      .default(0),
   })
+  // 次数没有小数：`1.5 次` 的上限既无法达成也无法展示。
+  .refine(
+    (rule) =>
+      rule.metric !== 'requests' ||
+      rule.limit.kind !== 'amount' ||
+      Number.isInteger(rule.limit.value),
+    { message: '请求次数上限必须是整数', path: ['limit'] },
+  )
   .transform((rule) => ({ ...rule, label: rule.label?.trim() || null }))
 
 export const quotaRulesSchema = z
@@ -146,12 +162,18 @@ export const quotaGrantCreateSchema = z.object({
   note: z.string().trim().max(QUOTA_NOTE_MAX_LENGTH).nullish(),
 })
 
-/** 手动重置：ruleId 省略表示重置该用户全部规则的当前周期。 */
-export const quotaResetSchema = z.object({
-  ruleId: z.string().trim().min(1).nullish(),
-  bucketKey: z.string().trim().min(1).nullish(),
-  note: z.string().trim().max(QUOTA_NOTE_MAX_LENGTH).nullish(),
-})
+/** 手动重置：ruleId 省略表示重置该用户全部规则的当前周期（含各自独立展开出的每个桶）。 */
+export const quotaResetSchema = z
+  .object({
+    ruleId: z.string().trim().min(1).nullish(),
+    bucketKey: z.string().trim().min(1).nullish(),
+    note: z.string().trim().max(QUOTA_NOTE_MAX_LENGTH).nullish(),
+  })
+  // 只给 bucketKey 不给 ruleId 会被当成「重置全部」，与调用者的本意相反，直接拒绝。
+  .refine((value) => !value.bucketKey || Boolean(value.ruleId), {
+    message: '指定模型或分组时必须同时指定规则',
+    path: ['ruleId'],
+  })
 
 /** 保存前预览：用草稿策略/覆写按真实用量算一遍最终生效结果。 */
 export const quotaPreviewSchema = z.object({

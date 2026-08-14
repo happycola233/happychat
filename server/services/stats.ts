@@ -8,7 +8,7 @@ import type {
   UsageLogDTO,
   UserStatDTO,
 } from '@shared/types/api'
-import type { ModelPricing } from '@shared/types/domain'
+import type { ModelPricing, UsageLogKind } from '@shared/types/domain'
 import { costUsd } from '@shared/util/cost'
 import { db } from '../db/client'
 import {
@@ -30,6 +30,8 @@ export interface StatsFilter {
   modelId?: string
   userId?: string
   success?: boolean
+  /** 请求类型：省略=不限（对话 + 标题总结一起统计） */
+  kind?: UsageLogKind
   scope?: 'upstream' | 'server' | 'stream' | 'frontend'
   search?: string
   bucket?: 'hour' | 'day'
@@ -65,6 +67,7 @@ function usageConds(filter: StatsFilter): SQL[] {
   if (filter.modelId) c.push(eq(usageLogs.modelId, filter.modelId))
   if (filter.userId) c.push(eq(usageLogs.userId, filter.userId))
   if (filter.success !== undefined) c.push(eq(usageLogs.success, filter.success))
+  if (filter.kind) c.push(eq(usageLogs.kind, filter.kind))
   return c
 }
 
@@ -377,6 +380,7 @@ export async function listUsageEvents(filter: StatsFilter): Promise<Paginated<Us
       providerId: log.providerId,
       providerLabel: providerName ?? log.providerLabel,
       modelLabel: log.modelLabel,
+      kind: log.kind,
       inputTokens: log.inputTokens,
       cacheWriteTokens: log.cacheWriteTokens,
       cachedTokens: log.cachedTokens,

@@ -322,6 +322,16 @@ export default function QuotasPage() {
   const allSelected =
     filteredUsers.length > 0 && filteredUsers.every((row) => selectedUserIds.includes(row.userId))
 
+  /**
+   * 切换单个用户的选中态。幂等：以「当前状态」而不是渲染时的闭包为准判断，
+   * 因此即便同一次交互触发两次（复选框自身 + 冒泡到整行）也不会把同一个 id 加两遍——
+   * 后端会以「用户列表不能包含重复项」拒绝整批。
+   */
+  const toggleUser = (userId: string) =>
+    setSelectedUserIds((current) =>
+      current.includes(userId) ? current.filter((id) => id !== userId) : [...current, userId],
+    )
+
   return (
     <div className="space-y-5">
       <PageHeader
@@ -439,10 +449,13 @@ export default function QuotasPage() {
                   onDuplicate={() => duplicate.mutate(policy.id)}
                   onSetDefault={() => makeDefault.mutate(policy.id)}
                   onDelete={async () => {
+                    // 删掉唯一的默认策略后全站不再有默认策略，隐式跟随它的用户会当场变成无限额度。
+                    const lastDefault = policy.isDefault && (policies ?? []).length === 1
                     const confirmed = await askConfirm({
                       title: `删除策略「${policy.name}」`,
-                      description:
-                        policy.boundUserCount > 0
+                      description: lastDefault
+                        ? `这是唯一的策略：删除后全站将没有默认策略，${policy.boundUserCount} 位未单独指派的用户都会变成无限额度。`
+                        : policy.boundUserCount > 0
                           ? `${policy.boundUserCount} 位用户将回退到默认策略；用量记录不受影响。`
                           : '该策略暂无用户使用。',
                       confirmLabel: '删除',
@@ -491,16 +504,18 @@ export default function QuotasPage() {
                 return (
                   <div
                     key={row.userId}
-                    role={batchMode ? 'button' : undefined}
+                    role={batchMode ? 'checkbox' : undefined}
+                    aria-checked={batchMode ? selected : undefined}
                     tabIndex={batchMode ? 0 : undefined}
-                    onClick={
+                    onClick={batchMode ? () => toggleUser(row.userId) : undefined}
+                    onKeyDown={
                       batchMode
-                        ? () =>
-                            setSelectedUserIds((current) =>
-                              selected
-                                ? current.filter((id) => id !== row.userId)
-                                : [...current, row.userId],
-                            )
+                        ? (event) => {
+                            // 整行可聚焦就必须能用键盘操作：空格/回车与点击同义。
+                            if (event.key !== ' ' && event.key !== 'Enter') return
+                            event.preventDefault()
+                            toggleUser(row.userId)
+                          }
                         : undefined
                     }
                     className={clsx(
@@ -510,17 +525,14 @@ export default function QuotasPage() {
                     )}
                   >
                     {batchMode && (
-                      <Checkbox
-                        checked={selected}
-                        onChange={() =>
-                          setSelectedUserIds((current) =>
-                            selected
-                              ? current.filter((id) => id !== row.userId)
-                              : [...current, row.userId],
-                          )
-                        }
-                        ariaLabel={`选择 ${row.username}`}
-                      />
+                      // 复选框自身已经会切换一次；阻止冒泡，避免整行再切换一次导致「点了没反应」。
+                      <span onClick={(event) => event.stopPropagation()}>
+                        <Checkbox
+                          checked={selected}
+                          onChange={() => toggleUser(row.userId)}
+                          ariaLabel={`选择 ${row.username}`}
+                        />
+                      </span>
                     )}
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">

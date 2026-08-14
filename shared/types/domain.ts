@@ -195,11 +195,14 @@ export type QuotaWindow =
 /** 日历周期的周起始日（中文语境默认周一）。 */
 export type QuotaWeekStart = 'mon' | 'sun'
 
-/** 上限：unlimited 是真正的「无限额度」，不是一个很大的数字。 */
+/**
+ * 上限：`unlimited` 是「豁免」——配合更高的 `priority` 用来把个别模型从大范围规则里放行，
+ * 不是一个很大的数字。优先级为 0 的豁免规则等价于不写这条规则。
+ */
 export type QuotaLimit = { kind: 'unlimited' } | { kind: 'amount'; value: number }
 
 /**
- * 一条限额规则。同一策略内多条规则同时生效，**任意一条触顶即拦截**。
+ * 一条限额规则。同一优先级档内的多条规则同时生效，**任意一条触顶即拦截**。
  *
  * `id` 是稳定标识：用户覆写与周期内调整（临时额度/手动重置）都靠它绑定，
  * 编辑策略时绝不能重新生成已有规则的 id。
@@ -212,6 +215,14 @@ export interface QuotaRule {
   metric: QuotaMetric
   limit: QuotaLimit
   window: QuotaWindow
+  /**
+   * 优先级（0–99，默认 0，数字越大越优先）。
+   *
+   * 对每个模型只有「命中它的规则中优先级最高的那一档」生效，更低优先级的规则对该模型
+   * 既不计量也不拦截。因此「分组整体限额 + 组内某个模型豁免」不必枚举组内其他模型，
+   * 新模型进组也会自动落入分组规则。全部规则同为 0 时行为与无优先级概念时完全一致。
+   */
+  priority: number
 }
 
 /** 单条继承规则的用户级覆写；只写想改的字段，disabled=true 表示对该用户停用这条规则。 */
@@ -319,6 +330,19 @@ export interface MessageUsage {
   reasoningTokens: number
   totalTokens: number
 }
+
+/** 个人使用情况面板的窗口视图（自然周期，边界按浏览器本地时区）。 */
+export type UsageStatsView = 'day' | 'week' | 'month' | 'year'
+
+/** 趋势分桶粒度：由窗口视图派生（今日=小时，本周/本月=天，本年=月）。 */
+export type UsageTrendGranularity = 'hour' | 'day' | 'month'
+
+/**
+ * 用量日志的请求类型。
+ * - chat：用户发起的正常生成（含生图）
+ * - title：会话标题总结的后台调用；同样真实花钱、同样占用额度，只是与对话请求分开标识
+ */
+export type UsageLogKind = 'chat' | 'title'
 
 export type MessageStatus = 'complete' | 'streaming' | 'interrupted' | 'error'
 

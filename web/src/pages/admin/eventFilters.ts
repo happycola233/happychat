@@ -7,6 +7,8 @@ export interface UsageEventsFilterState {
   modelId: string
   userId: string
   successSel: string
+  /** 请求类型：''=全部，'chat'=仅对话，'title'=仅标题总结 */
+  kindSel: string
   page: number
   pageSize: number
 }
@@ -32,6 +34,7 @@ export function usageEventsQueryKey(filter: UsageEventsFilterState) {
     filter.modelId,
     filter.userId,
     filter.successSel,
+    filter.kindSel,
     filter.page,
     filter.pageSize,
   ] as const
@@ -44,6 +47,7 @@ export function buildUsageEventsQuery(filter: UsageEventsFilterState): StatsQuer
     modelId: filter.modelId || undefined,
     userId: filter.userId || undefined,
     success: filter.successSel === '' ? undefined : filter.successSel === 'true',
+    kind: filter.kindSel === 'chat' || filter.kindSel === 'title' ? filter.kindSel : undefined,
     page: filter.page,
     pageSize: filter.pageSize,
   }

@@ -64,6 +64,8 @@ export interface StatsQuery {
   modelId?: string
   userId?: string
   success?: boolean
+  /** 请求类型：省略=对话与标题总结一起统计 */
+  kind?: 'chat' | 'title'
   scope?: string
   search?: string
   bucket?: 'hour' | 'day'

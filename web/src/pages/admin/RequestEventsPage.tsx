@@ -1,11 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import {
-  getUsageEvents,
-  listAdminModels,
-  listProviders,
-  listUsers,
-} from '../../api/admin'
+import { getUsageEvents, listAdminModels, listProviders, listUsers } from '../../api/admin'
 import { Badge } from '../../components/ui/Badge'
 import { DateRangePicker } from '../../components/ui/DateRangePicker'
 import { EmptyState } from '../../components/ui/EmptyState'
@@ -33,12 +28,20 @@ const STATUS_OPTIONS: SelectOption[] = [
   { value: 'false', label: '失败' },
 ]
 
+/** 标题总结是后台自动发起的调用，与用户对话同样计费、同样占额度，但常需要单独过滤。 */
+const KIND_OPTIONS: SelectOption[] = [
+  { value: '', label: '全部请求' },
+  { value: 'chat', label: '仅对话' },
+  { value: 'title', label: '仅标题总结' },
+]
+
 export default function RequestEventsPage() {
   const [rangeKey, setRangeKey] = useState<RangeKey>('7d')
   const [providerId, setProviderId] = useState('')
   const [modelId, setModelId] = useState('')
   const [userId, setUserId] = useState('')
   const [successSel, setSuccessSel] = useState('')
+  const [kindSel, setKindSel] = useState('')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(50)
 
@@ -83,6 +86,7 @@ export default function RequestEventsPage() {
     modelId,
     userId,
     successSel,
+    kindSel,
     page,
     pageSize,
   }
@@ -140,6 +144,15 @@ export default function RequestEventsPage() {
             setPage(1)
           }}
         />
+        <Select
+          label="请求类型"
+          options={KIND_OPTIONS}
+          value={kindSel}
+          onChange={(e) => {
+            setKindSel(e.target.value)
+            setPage(1)
+          }}
+        />
       </div>
 
       {isLoading ? (
@@ -183,16 +196,34 @@ export default function RequestEventsPage() {
                 <tbody className={tableBody}>
                   {data.items.map((row) => (
                     <tr key={row.id} className={tableRowHover}>
-                      <td className={`${td} whitespace-nowrap text-neutral-600 dark:text-neutral-300`}>
+                      <td
+                        className={`${td} whitespace-nowrap text-neutral-600 dark:text-neutral-300`}
+                      >
                         {formatDateTime(row.createdAt)}
                       </td>
-                      <td className={`${td} whitespace-nowrap text-neutral-700 dark:text-neutral-200`}>
+                      <td
+                        className={`${td} whitespace-nowrap text-neutral-700 dark:text-neutral-200`}
+                      >
                         {row.username ?? '—'}
                       </td>
-                      <td className={`${td} whitespace-nowrap text-neutral-700 dark:text-neutral-200`}>
-                        {row.modelLabel ?? '—'}
+                      <td
+                        className={`${td} whitespace-nowrap text-neutral-700 dark:text-neutral-200`}
+                      >
+                        <span className="inline-flex items-center gap-1.5">
+                          {row.modelLabel ?? '—'}
+                          {row.kind === 'title' && (
+                            <span
+                              title="会话标题总结的后台调用"
+                              className="rounded bg-neutral-100 px-1.5 py-px text-[10px] font-medium text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400"
+                            >
+                              标题
+                            </span>
+                          )}
+                        </span>
                       </td>
-                      <td className={`${td} whitespace-nowrap text-neutral-700 dark:text-neutral-200`}>
+                      <td
+                        className={`${td} whitespace-nowrap text-neutral-700 dark:text-neutral-200`}
+                      >
                         {row.providerLabel ?? '—'}
                       </td>
                       <td className={`${td} tabular-nums text-neutral-600 dark:text-neutral-300`}>
@@ -210,7 +241,9 @@ export default function RequestEventsPage() {
                       <td className={`${td} tabular-nums text-neutral-600 dark:text-neutral-300`}>
                         {formatCompact(row.reasoningTokens)}
                       </td>
-                      <td className={`${td} tabular-nums font-medium text-neutral-800 dark:text-neutral-100`}>
+                      <td
+                        className={`${td} tabular-nums font-medium text-neutral-800 dark:text-neutral-100`}
+                      >
                         {formatCompact(row.totalTokens)}
                       </td>
                       <td className={`${td} tabular-nums text-neutral-600 dark:text-neutral-300`}>

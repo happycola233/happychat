@@ -1,8 +1,8 @@
 import { clsx } from 'clsx'
 import { Trash2 } from 'lucide-react'
 import type { AdminModelDTO, AdminModelGroupDTO } from '@shared/types/api'
-import { describeQuotaRule } from '@shared/util/quota'
-import { QUOTA_ROLLING_PRESET_HOURS } from '@shared/util/quota'
+import { describeQuotaRule, isQuotaRuleNoOp } from '@shared/util/quota'
+import { QUOTA_MAX_RULE_PRIORITY, QUOTA_ROLLING_PRESET_HOURS } from '@shared/util/quota'
 import { describeRollingHours } from '@shared/util/quotaWindow'
 import { Checkbox } from '../../components/ui/Checkbox'
 import { Select } from '../../components/ui/Select'
@@ -116,6 +116,11 @@ export function QuotaRuleEditor({
   const preview = ruleFromDraft(draft)
   const modelNames = Object.fromEntries(models.map((model) => [model.id, model.displayName]))
   const groupNames = Object.fromEntries(groups.map((group) => [group.id, group.name]))
+  // 0 档豁免不遮蔽任何规则，与「不写这条规则」完全等价——直接在摘要位提醒，别让它冒充一条限制。
+  const noOpHint =
+    preview.ok && isQuotaRuleNoOp(preview.rule)
+      ? '这条规则不产生任何限制：豁免需要配更高的优先级，才能把目标从其他规则里放行。'
+      : null
 
   return (
     <div className="rounded-xl border border-neutral-200 p-3.5 dark:border-neutral-700">
@@ -225,17 +230,17 @@ export function QuotaRuleEditor({
           <div className="mb-1 flex items-center justify-between gap-2">
             <span className={clsx(FIELD_LABEL_CLASS, 'mb-0')}>额度上限</span>
             <label className="flex items-center gap-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
-              不限
+              豁免
               <Toggle
                 checked={draft.unlimited}
                 onChange={(checked) => patch({ unlimited: checked })}
-                ariaLabel="不限额度"
+                ariaLabel="豁免（不限额）"
               />
             </label>
           </div>
           {draft.unlimited ? (
             <div className="rounded-lg border border-dashed border-neutral-200 px-3 py-2 text-sm text-neutral-400 dark:border-neutral-700">
-              无限额度
+              豁免（不限额）
             </div>
           ) : (
             <div className="relative">
@@ -306,20 +311,39 @@ export function QuotaRuleEditor({
             </div>
           )}
         </div>
+
+        <div className="sm:col-span-2">
+          <span className={FIELD_LABEL_CLASS}>优先级</span>
+          <div className="flex items-center gap-2">
+            <input
+              value={draft.priorityInput}
+              onChange={(event) => patch({ priorityInput: event.target.value })}
+              inputMode="numeric"
+              aria-label="规则优先级"
+              className="w-20 rounded-lg border border-neutral-300 bg-white px-2.5 py-1.5 text-sm tabular-nums text-neutral-800 outline-none transition focus:border-sky-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:focus:border-sky-400"
+            />
+            <p className="min-w-0 flex-1 text-[11px] leading-4 text-neutral-400 dark:text-neutral-500">
+              0–{QUOTA_MAX_RULE_PRIORITY}
+              ，数字越大越优先。一个模型只受「命中它的最高优先级」那一档规则约束，
+              更低优先级的规则对它既不计量也不拦截；全部留 0 则各条规则共同生效。
+            </p>
+          </div>
+        </div>
       </div>
 
       {/* 实时摘要 / 校验：与用户端进度条共用 describeQuotaRule，所见即所得。 */}
       <div
         className={clsx(
           'mt-3 rounded-lg px-2.5 py-1.5 text-[11px] leading-5',
-          preview.ok && !invalidMessage
+          preview.ok && !invalidMessage && !noOpHint
             ? 'bg-neutral-50 text-neutral-500 dark:bg-neutral-800/60 dark:text-neutral-400'
             : 'bg-amber-50 text-amber-700 dark:bg-amber-400/10 dark:text-amber-200',
         )}
       >
         {invalidMessage ??
           (preview.ok
-            ? describeQuotaRule(preview.rule, { models: modelNames, groups: groupNames })
+            ? (noOpHint ??
+              describeQuotaRule(preview.rule, { models: modelNames, groups: groupNames }))
             : preview.message)}
       </div>
     </div>

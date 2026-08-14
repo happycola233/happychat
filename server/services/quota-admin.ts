@@ -4,6 +4,7 @@ import type {
   AdminUserQuotaDTO,
   AdminUserQuotaDetailDTO,
   QuotaAdjustmentDTO,
+  QuotaBucketUsageDTO,
   QuotaPolicyDTO,
   QuotaPreviewDTO,
 } from '@shared/types/api'
@@ -32,6 +33,7 @@ import {
   getQuotaConfig,
   getQuotaSnapshot,
   getUserQuotaBinding,
+  isQuotaAdjustmentActive,
   listQuotaAdjustments,
   sortQuotaBucketsBySeverity,
   type QuotaAdjustmentRow,
@@ -385,23 +387,35 @@ export async function batchAssignQuotaPolicy(
 
 // ---------------- 临时额度 / 手动重置 ----------------
 
-/** 在给定规则集合中查找目标规则，并校验桶绑定是否合法。 */
-function findRuleForAdjustment(
+export type AdjustmentTargetError = 'rule_missing' | 'bucket_required' | 'bucket_unknown'
+
+/**
+ * 定位调整（临时额度 / 手动重置）的目标规则与桶。
+ *
+ * `bucketKey` 必须对应一个**当前真实存在的桶**：模型/分组被删除后桶会消失，
+ * 放过这种 key 只会写出一条永不生效的记录，管理员却以为已经生效。
+ */
+function findAdjustmentTarget(
   rules: EffectiveQuotaRule[],
+  buckets: QuotaBucketUsageDTO[],
   ruleId: string,
   bucketKey: string | null,
-):
-  | { ok: true; rule: EffectiveQuotaRule }
-  | { ok: false; code: 'rule_missing' | 'bucket_required' } {
+): { ok: true; rule: EffectiveQuotaRule } | { ok: false; code: AdjustmentTargetError } {
   const rule = rules.find((item) => item.id === ruleId)
   if (!rule) return { ok: false, code: 'rule_missing' }
   if (quotaRuleRequiresBucketKey(rule) && !bucketKey) return { ok: false, code: 'bucket_required' }
+  if (bucketKey !== null) {
+    const known = buckets.some(
+      (bucket) => bucket.ruleId === ruleId && bucket.bucketKey === bucketKey,
+    )
+    if (!known) return { ok: false, code: 'bucket_unknown' }
+  }
   return { ok: true, rule }
 }
 
 export type CreateGrantResult =
   | { ok: true; grant: QuotaAdjustmentDTO }
-  | { ok: false; code: 'rule_missing' | 'bucket_required' | 'unlimited_rule' }
+  | { ok: false; code: AdjustmentTargetError | 'unlimited_rule' | 'amount_not_integer' }
 
 /**
  * 临时增加额度：只作用于**当前周期**。
@@ -416,9 +430,19 @@ export async function createQuotaGrant(
 ): Promise<CreateGrantResult> {
   const config = await getQuotaConfig()
   const binding = await getUserQuotaBinding(userId)
-  const found = findRuleForAdjustment(binding.rules, input.ruleId, input.bucketKey ?? null)
+  const snapshot = await getQuotaSnapshot(userId, { config, binding })
+  const found = findAdjustmentTarget(
+    binding.rules,
+    snapshot.rules,
+    input.ruleId,
+    input.bucketKey ?? null,
+  )
   if (!found.ok) return found
   if (found.rule.limit.kind === 'unlimited') return { ok: false, code: 'unlimited_rule' }
+  // 次数没有小数：赠送 1.5 次既无法达成也无法展示。
+  if (found.rule.metric === 'requests' && !Number.isInteger(input.amount)) {
+    return { ok: false, code: 'amount_not_integer' }
+  }
 
   const now = new Date()
   const period = resolveQuotaPeriod(found.rule.window, now.getTime(), {
@@ -481,7 +505,7 @@ export async function revokeQuotaAdjustment(id: string): Promise<boolean> {
 
 export type ResetPeriodResult =
   | { ok: true; resetRules: number }
-  | { ok: false; code: 'rule_missing' | 'bucket_required' | 'no_rules' }
+  | { ok: false; code: AdjustmentTargetError | 'no_rules' }
 
 /**
  * 手动重置当前周期：写 `reset` 记录把统计起点抬到此刻，**不删除任何用量日志**，
@@ -498,11 +522,18 @@ export async function resetQuotaPeriod(
 
   const targets: { rule: EffectiveQuotaRule; bucketKey: string | null }[] = []
   if (input.ruleId) {
-    const found = findRuleForAdjustment(binding.rules, input.ruleId, input.bucketKey ?? null)
+    const snapshot = await getQuotaSnapshot(userId, { config, binding })
+    const found = findAdjustmentTarget(
+      binding.rules,
+      snapshot.rules,
+      input.ruleId,
+      input.bucketKey ?? null,
+    )
     if (!found.ok) return found
     targets.push({ rule: found.rule, bucketKey: input.bucketKey ?? null })
   } else {
     // 「重置全部」对每条规则各写一条记录：不同规则的周期起点不同，一条记录无法覆盖。
+    // 记录的 bucketKey 留空，判定时对该规则的所有桶生效（含「各自独立」展开出的每个桶）。
     for (const rule of binding.rules) targets.push({ rule, bucketKey: null })
   }
 
@@ -537,7 +568,7 @@ export async function resetQuotaPeriod(
 
 function toAdjustmentDTO(
   row: QuotaAdjustmentRow,
-  currentPeriodStarts: Set<number>,
+  buckets: QuotaBucketUsageDTO[],
   now: number,
 ): QuotaAdjustmentDTO {
   return {
@@ -553,8 +584,7 @@ function toAdjustmentDTO(
     periodStart: row.periodStart,
     createdAt: row.createdAt,
     createdByName: row.createdByName,
-    active:
-      currentPeriodStarts.has(row.periodStart) && (row.expiresAt === null || row.expiresAt > now),
+    active: isQuotaAdjustmentActive(row, buckets, now),
   }
 }
 
@@ -578,7 +608,7 @@ export async function listAdminUserQuotas(): Promise<AdminUserQuotaDTO[]> {
     const binding = await getUserQuotaBinding(user.id)
     const snapshot = await getQuotaSnapshot(user.id, { config, binding })
     const highlight = sortQuotaBucketsBySeverity(snapshot.rules).find(
-      (rule) => rule.limit.kind === 'amount' && !rule.invalid,
+      (rule) => rule.limit.kind === 'amount' && !rule.invalid && !rule.shadowed,
     )
     result.push({
       userId: user.id,
@@ -620,7 +650,6 @@ export async function getAdminUserQuotaDetail(
   const adjustments = await listQuotaAdjustments(userId)
   const snapshot = await getQuotaSnapshot(userId, { config, binding, adjustments })
   const now = Date.now()
-  const currentPeriodStarts = new Set(snapshot.rules.map((rule) => rule.periodStart))
 
   return {
     userId: user.id,
@@ -635,7 +664,7 @@ export async function getAdminUserQuotaDetail(
     overrides: binding.overrides,
     effectiveRules: binding.rules,
     rules: sortQuotaBucketsBySeverity(snapshot.rules),
-    adjustments: adjustments.map((row) => toAdjustmentDTO(row, currentPeriodStarts, now)),
+    adjustments: adjustments.map((row) => toAdjustmentDTO(row, snapshot.rules, now)),
     byModel: await getUserModelUsage(userId, options.days ?? 30),
   }
 }

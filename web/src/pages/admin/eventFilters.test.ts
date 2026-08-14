@@ -20,6 +20,7 @@ describe('admin event filters', () => {
       modelId: '',
       userId: '',
       successSel: '',
+      kindSel: '',
       page: 1,
       pageSize: 50,
     }

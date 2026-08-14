@@ -1,0 +1,1 @@
+ALTER TABLE `usage_logs` ADD `kind` text DEFAULT 'chat' NOT NULL;

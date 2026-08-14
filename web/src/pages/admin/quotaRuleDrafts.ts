@@ -1,5 +1,5 @@
 import type { QuotaMetric, QuotaRule } from '@shared/types/domain'
-import { QUOTA_MAX_RULES_PER_POLICY } from '@shared/util/quota'
+import { QUOTA_MAX_RULES_PER_POLICY, QUOTA_MAX_RULE_PRIORITY } from '@shared/util/quota'
 import { QUOTA_ROLLING_MAX_HOURS } from '@shared/util/quotaWindow'
 import { createRandomUuid } from '../../lib/randomUuid'
 
@@ -23,6 +23,8 @@ export interface QuotaRuleDraft {
   limitInput: string
   windowChoice: QuotaWindowChoice
   rollingHoursInput: string
+  /** 优先级（字符串形态：输入过程中允许为空） */
+  priorityInput: string
 }
 
 export const QUOTA_RULE_LIMIT = QUOTA_MAX_RULES_PER_POLICY
@@ -39,6 +41,7 @@ export function createQuotaRuleDraft(): QuotaRuleDraft {
     limitInput: '',
     windowChoice: 'month',
     rollingHoursInput: '5',
+    priorityInput: '0',
   }
 }
 
@@ -64,6 +67,7 @@ export function draftFromRule(rule: QuotaRule): QuotaRuleDraft {
           ? 'rolling'
           : 'total',
     rollingHoursInput: rule.window.type === 'rolling' ? String(rule.window.hours) : '5',
+    priorityInput: String(rule.priority),
   }
 }
 
@@ -94,6 +98,11 @@ export function ruleFromDraft(draft: QuotaRuleDraft): DraftResult {
     return { ok: false, message: `滚动窗口需为 1–${QUOTA_ROLLING_MAX_HOURS} 之间的整数小时` }
   }
 
+  const priority = draft.priorityInput.trim() === '' ? 0 : Number(draft.priorityInput)
+  if (!Number.isInteger(priority) || priority < 0 || priority > QUOTA_MAX_RULE_PRIORITY) {
+    return { ok: false, message: `优先级需为 0–${QUOTA_MAX_RULE_PRIORITY} 之间的整数` }
+  }
+
   return {
     ok: true,
     rule: {
@@ -113,6 +122,7 @@ export function ruleFromDraft(draft: QuotaRuleDraft): DraftResult {
           : draft.windowChoice === 'total'
             ? { type: 'total' }
             : { type: 'calendar', period: draft.windowChoice },
+      priority,
     },
   }
 }
