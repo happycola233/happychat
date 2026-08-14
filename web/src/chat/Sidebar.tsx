@@ -2,7 +2,7 @@ import { clsx } from 'clsx'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ConversationDTO, FolderDTO } from '@shared/types/api'
 import {
-  ChartNoAxesColumn,
+  ChartColumn,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -169,7 +169,7 @@ function AccountMenu({
       <div className="flex flex-col gap-0.5 py-0.5">
         <Link to="/usage" aria-label="使用情况" onClick={onClose} className={regularItemClass}>
           <span className={iconSlotClass}>
-            <ChartNoAxesColumn className={regularIconClass} />
+            <ChartColumn className={regularIconClass} />
           </span>
           使用情况
         </Link>
