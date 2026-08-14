@@ -1,4 +1,5 @@
 // 统一的表格样式类，保证各管理页表格深浅色一致。
+import { cardSurface } from './Card'
 
 /**
  * 宽表的横向滚动容器：窄屏贴边（-mx-4 + px-4）以获得完整可视宽度，
@@ -10,7 +11,7 @@ export const tableScroll =
   'hc-scrollbar -mx-4 overflow-x-auto overscroll-x-contain px-4 pb-1 sm:mx-0 sm:px-0'
 
 export const tableShell =
-  'overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xs dark:border-neutral-800 dark:bg-neutral-900 dark:shadow-none'
+  `overflow-hidden ${cardSurface}`
 export const tableEl = 'w-full text-sm'
 // 表头轻量化：不再铺灰底，只靠更淡的小字号 + 底部分隔线与表体区分，视觉更透气。
 export const tableHead =

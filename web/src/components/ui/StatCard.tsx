@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { cardSurface } from './Card'
 
 interface Props {
   label: string
@@ -9,7 +10,7 @@ interface Props {
 
 export function StatCard({ label, value, hint, icon }: Props) {
   return (
-    <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-xs dark:border-neutral-800 dark:bg-neutral-900 dark:shadow-none">
+    <div className={`${cardSurface} p-5`}>
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium text-neutral-400 dark:text-neutral-500">{label}</span>
         {icon && <span className="text-neutral-400">{icon}</span>}

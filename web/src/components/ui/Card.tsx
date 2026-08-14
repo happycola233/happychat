@@ -1,9 +1,9 @@
 import { clsx } from 'clsx'
 import type { ReactNode } from 'react'
 
-/** 管理页统一卡片表面：白底圆角 + hairline 描边 + 极浅投影，深色为深灰表面（无投影）。 */
+/** 管理页统一卡片表面：仅用底色与 hairline 描边分层，避免阴影带来的浮雕感。 */
 export const cardSurface =
-  'rounded-2xl border border-neutral-200 bg-white shadow-xs dark:border-neutral-800 dark:bg-neutral-900 dark:shadow-none'
+  'rounded-2xl border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900'
 
 /**
  * 分区卡片：可选标题/说明 + 内容。管理页所有「设置块」共用，
