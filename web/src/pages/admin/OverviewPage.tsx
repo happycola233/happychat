@@ -9,12 +9,7 @@ import { cardSurface } from '../../components/ui/Card'
 import { Spinner } from '../../components/ui/Spinner'
 import { DateRangePicker } from '../../components/ui/DateRangePicker'
 import { rangeToFilter, type RangeKey } from '../../lib/dateRange'
-import {
-  formatCompact,
-  formatInt,
-  formatPercent,
-  formatUsd,
-} from '../../lib/format'
+import { formatCompact, formatInt, formatPercent, formatUsd } from '../../lib/format'
 
 /** 规模统计条：一张卡里用竖分隔线排布多个次级指标，比一格一卡轻得多。 */
 function StatStrip({ items }: { items: { label: string; value: string }[] }) {
@@ -67,7 +62,7 @@ export default function OverviewPage() {
             <StatCard
               label="请求总数"
               value={formatInt(totals.requests)}
-              hint={`成功率 ${formatPercent(totals.successRate)} · 错误数 ${formatInt(totals.errors)}`}
+              hint={`非失败率 ${formatPercent(totals.successRate)} · 错误日志总数 ${formatInt(totals.errors)}`}
             />
             <StatCard
               label="Token 总量"

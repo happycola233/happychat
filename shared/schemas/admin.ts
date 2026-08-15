@@ -24,6 +24,10 @@ export const statsFilterSchema = z.object({
     .enum(['true', 'false'])
     .optional()
     .transform((v) => (v === undefined ? undefined : v === 'true')),
+  /** 用户可见的结果分类；拒绝与内容过滤从 failed + terminalReason 派生。 */
+  result: z
+    .enum(['completed', 'incomplete', 'refused', 'filtered', 'failed', 'canceled', 'interrupted'])
+    .optional(),
   /** 请求类型：省略=对话与标题总结一起统计 */
   kind: z.enum(['chat', 'title']).optional(),
   scope: z.enum(['upstream', 'server', 'stream', 'frontend']).optional(),

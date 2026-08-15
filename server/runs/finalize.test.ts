@@ -129,7 +129,7 @@ describe('finalizeRun terminal snapshots', () => {
       { type: 'open_page' as const, url: 'https://react.dev/blog' },
     ]
     const emittedEvents: Array<{ type: string; data: Record<string, unknown> }> = []
-    await finalize.finalizeRun({
+    const completedArgs = {
       run,
       assistantMessage,
       conversation,
@@ -157,7 +157,8 @@ describe('finalizeRun terminal snapshots', () => {
         emittedEvents.push({ type, data })
         return emittedEvents.length - 1
       },
-    })
+    } satisfies Parameters<typeof finalize.finalizeRun>[0]
+    await finalize.finalizeRun(completedArgs)
 
     const persistedRun = await dbClient.db.query.runs.findFirst({
       where: eq(schema.runs.id, run.id),
@@ -177,12 +178,26 @@ describe('finalizeRun terminal snapshots', () => {
       generationDurationMs: persistedRun!.finishedAt!.getTime() - startedAt.getTime(),
     })
     expect(persistedMessage?.costUsd).toBeCloseTo(0.00006, 10)
-    expect(persistedUsage?.pricingSnapshot).toEqual(model.pricing)
+    expect(persistedUsage).toMatchObject({
+      pricingSnapshot: model.pricing,
+      outcome: 'completed',
+      terminalReason: null,
+      success: true,
+    })
     expect(persistedUsage?.quotaAt?.getTime()).toBe(run.createdAt.getTime())
     expect(emittedEvents.map((event) => event.type)).toEqual(['run.done'])
     expect(emittedEvents[0]?.data).toMatchObject({ searchActions })
     expect(emittedEvents[0]?.data).not.toHaveProperty('providerReplayContext')
     expect(JSON.stringify(emittedEvents)).not.toContain('opaque-finalize-ciphertext')
+
+    // 同一个 run 的第二个终结者 CAS 不命中，不得重复写审计或发终态事件。
+    await finalize.finalizeRun(completedArgs)
+    const completedUsageRows = await dbClient.db
+      .select()
+      .from(schema.usageLogs)
+      .where(eq(schema.usageLogs.runId, run.id))
+    expect(completedUsageRows).toHaveLength(1)
+    expect(emittedEvents.map((event) => event.type)).toEqual(['run.done'])
 
     const [failedMessage] = await dbClient.db
       .insert(schema.messages)
@@ -231,6 +246,9 @@ describe('finalizeRun terminal snapshots', () => {
       },
       incompleteReason: null,
       errorMessage: 'upstream failed',
+      errorType: 'refusal',
+      errorCode: 'request_rejected',
+      httpStatus: 400,
       discardPartialOutput: true,
       upstreamResponseId: null,
       providerReplayContext,
@@ -244,18 +262,175 @@ describe('finalizeRun terminal snapshots', () => {
     const persistedFailedMessage = await dbClient.db.query.messages.findFirst({
       where: eq(schema.messages.id, failedMessage.id),
     })
+    const persistedFailedRun = await dbClient.db.query.runs.findFirst({
+      where: eq(schema.runs.id, failedRun.id),
+    })
+    const persistedFailedUsage = await dbClient.db.query.usageLogs.findFirst({
+      where: eq(schema.usageLogs.runId, failedRun.id),
+    })
+    const persistedError = await dbClient.db.query.errorLogs.findFirst({
+      where: eq(schema.errorLogs.runId, failedRun.id),
+    })
     expect(persistedFailedMessage?.providerReplayContext).toBeNull()
     // 空数组表示本轮没有任何搜索动作，列保持 null 而不是存 []。
     expect(persistedFailedMessage?.searchActions).toBeNull()
+    expect(persistedFailedRun?.errorCode).toBe('request_rejected')
+    expect(persistedFailedUsage).toMatchObject({
+      outcome: 'failed',
+      terminalReason: 'refusal',
+      success: false,
+      errorType: 'refusal',
+    })
+    expect(persistedError).toMatchObject({
+      errorType: 'refusal',
+      code: 'request_rejected',
+      httpStatus: 400,
+      message: 'upstream failed',
+    })
     expect(failedEvents).toEqual([
       {
         type: 'run.error',
         data: {
           state: 'failed',
           message: 'upstream failed',
+          code: 'request_rejected',
           discardPartialOutput: true,
         },
       },
     ])
+
+    for (const terminal of [
+      {
+        state: 'incomplete',
+        incompleteReason: 'max_output_tokens',
+        terminalReason: 'max_output_tokens',
+        eventType: 'run.done',
+      },
+      {
+        state: 'canceled',
+        incompleteReason: null,
+        terminalReason: 'user_cancelled',
+        eventType: 'run.canceled',
+      },
+    ] as const) {
+      const [terminalMessage] = await dbClient.db
+        .insert(schema.messages)
+        .values({
+          conversationId: conversation.id,
+          role: 'assistant',
+          status: 'streaming',
+          modelId: model.id,
+          content: [],
+        })
+        .returning()
+      if (!terminalMessage) throw new Error('Failed to create terminal assistant fixture')
+      const [terminalRun] = await dbClient.db
+        .insert(schema.runs)
+        .values({
+          conversationId: conversation.id,
+          userId: user.id,
+          assistantMessageId: terminalMessage.id,
+          modelId: model.id,
+          state: 'running',
+          requestParams: { reasoning_effort: 'high' },
+          startedAt,
+        })
+        .returning()
+      if (!terminalRun) throw new Error('Failed to create terminal run fixture')
+
+      const terminalEvents: string[] = []
+      await finalize.finalizeRun({
+        run: terminalRun,
+        assistantMessage: terminalMessage,
+        conversation,
+        model,
+        provider,
+        state: terminal.state,
+        text: terminal.state === 'incomplete' ? '部分回答' : '',
+        reasoningSummary: null,
+        annotations: [],
+        usage: {
+          inputTokens: 10,
+          cacheWriteTokens: 0,
+          cachedTokens: 0,
+          outputTokens: 2,
+          reasoningTokens: 0,
+          totalTokens: 12,
+        },
+        incompleteReason: terminal.incompleteReason,
+        errorMessage: null,
+        upstreamResponseId: null,
+        startedAt,
+        persistEmit: (type) => {
+          terminalEvents.push(type)
+          return 0
+        },
+      })
+
+      const terminalUsage = await dbClient.db.query.usageLogs.findFirst({
+        where: eq(schema.usageLogs.runId, terminalRun.id),
+      })
+      expect(terminalUsage).toMatchObject({
+        outcome: terminal.state,
+        terminalReason: terminal.terminalReason,
+        // 保留既有额度口径：截断与用户停止仍不等同于上游失败。
+        success: true,
+      })
+      expect(terminalEvents).toEqual([terminal.eventType])
+    }
+
+    const [rollbackMessage] = await dbClient.db
+      .insert(schema.messages)
+      .values({
+        conversationId: conversation.id,
+        role: 'assistant',
+        status: 'streaming',
+        modelId: model.id,
+        content: [],
+      })
+      .returning()
+    if (!rollbackMessage) throw new Error('Failed to create rollback message fixture')
+    const [rollbackRun] = await dbClient.db
+      .insert(schema.runs)
+      .values({
+        conversationId: conversation.id,
+        userId: user.id,
+        assistantMessageId: rollbackMessage.id,
+        modelId: model.id,
+        state: 'running',
+        startedAt,
+      })
+      .returning()
+    if (!rollbackRun) throw new Error('Failed to create rollback run fixture')
+    const rollbackEvents: string[] = []
+
+    await expect(
+      finalize.finalizeRun({
+        ...completedArgs,
+        run: rollbackRun,
+        assistantMessage: rollbackMessage,
+        // usage_logs.provider_id 的外键失败，用来验证前面的 run/message 更新会一起回滚。
+        provider: { ...provider, id: 'missing-provider' },
+        persistEmit: (type) => {
+          rollbackEvents.push(type)
+          return 0
+        },
+      }),
+    ).rejects.toThrow()
+
+    const rolledBackRun = await dbClient.db.query.runs.findFirst({
+      where: eq(schema.runs.id, rollbackRun.id),
+    })
+    const rolledBackMessage = await dbClient.db.query.messages.findFirst({
+      where: eq(schema.messages.id, rollbackMessage.id),
+    })
+    const rolledBackUsage = await dbClient.db
+      .select()
+      .from(schema.usageLogs)
+      .where(eq(schema.usageLogs.runId, rollbackRun.id))
+    expect(rolledBackRun?.state).toBe('running')
+    expect(rolledBackMessage?.status).toBe('streaming')
+    expect(rolledBackUsage).toHaveLength(0)
+    expect(rollbackEvents).toHaveLength(0)
   })
 })

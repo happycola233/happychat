@@ -54,6 +54,7 @@ import type {
   QuotaResetInput,
   UserQuotaUpdateInput,
 } from '@shared/schemas/quota'
+import type { UsageResult } from '@shared/types/domain'
 import { apiDelete, apiGet, apiPatch, apiPost, apiPut, apiUpload } from './client'
 
 /** 统计/事件查询参数（与后端 statsFilterSchema 对应）。 */
@@ -64,6 +65,8 @@ export interface StatsQuery {
   modelId?: string
   userId?: string
   success?: boolean
+  /** 请求事件的用户可见结果分类；与旧 success 筛选可同时使用。 */
+  result?: UsageResult
   /** 请求类型：省略=对话与标题总结一起统计 */
   kind?: 'chat' | 'title'
   scope?: string

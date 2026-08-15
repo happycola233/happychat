@@ -6,7 +6,6 @@ import type { AdminUserQuotaDetailDTO, UsageLogDTO, UserStatDTO } from '@shared/
 import { formatQuotaCostUsd } from '@shared/util/quota'
 import { getUsageEvents, getUserQuotaDetail, getUserStats } from '../../api/admin'
 import { StatCard } from '../../components/ui/StatCard'
-import { Badge } from '../../components/ui/Badge'
 import { Pagination } from '../../components/ui/Pagination'
 import { cardSurface } from '../../components/ui/Card'
 import { Spinner } from '../../components/ui/Spinner'
@@ -31,6 +30,8 @@ import {
 import { resolveQuotaRulesRefetchInterval } from '../../lib/quotaRefetch'
 import { UserQuotaBuckets } from './UserQuotaBuckets'
 import { quotaTimezoneLabel } from './userQuotaDisplay'
+import { RequestKindBadge } from './RequestKindBadge'
+import { RequestOutcomeBadge } from './RequestOutcomeBadge'
 
 /**
  * 限额状态卡：生效规则（含覆写来源）与按模型的消费构成。
@@ -187,8 +188,12 @@ export default function UserDetailPage() {
             <StatCard label="请求" value={formatInt(stat.requests)} />
             <StatCard label="Token" value={formatCompact(stat.totalTokens)} />
             <StatCard label="成本" value={formatUsd(stat.costUsd)} />
-            <StatCard label="错误" value={formatInt(stat.errors)} />
-            <StatCard label="成功率" value={formatPercent(stat.successRate)} />
+            <StatCard label="错误日志总数" value={formatInt(stat.errors)} />
+            <StatCard
+              label="非失败率"
+              value={formatPercent(stat.successRate)}
+              hint="截断、主动取消与服务中断不计为上游失败"
+            />
             <StatCard label="会话" value={formatInt(stat.conversations)} />
             <StatCard label="消息" value={formatInt(stat.messages)} />
             <StatCard label="最近使用" value={formatRelative(stat.lastUsageAt)} />
@@ -250,7 +255,7 @@ export default function UserDetailPage() {
                       <th className={th}>推理</th>
                       <th className={th}>总计</th>
                       <th className={th}>成本</th>
-                      <th className={th}>状态</th>
+                      <th className={th}>结果</th>
                     </tr>
                   </thead>
                   <tbody className={tableBody}>
@@ -262,7 +267,10 @@ export default function UserDetailPage() {
                           {formatDateTime(e.createdAt)}
                         </td>
                         <td className={`${td} text-neutral-800 dark:text-neutral-200`}>
-                          {e.modelLabel ?? '—'}
+                          <span className="inline-flex items-center gap-1.5">
+                            {e.modelLabel ?? '—'}
+                            <RequestKindBadge kind={e.kind} />
+                          </span>
                         </td>
                         <td className={`${td} text-neutral-500 dark:text-neutral-400`}>
                           {e.providerLabel ?? '—'}
@@ -289,11 +297,11 @@ export default function UserDetailPage() {
                           {formatUsd(e.costUsd)}
                         </td>
                         <td className={td}>
-                          {e.success ? (
-                            <Badge tone="success">成功</Badge>
-                          ) : (
-                            <Badge tone="danger">{e.errorType ?? '失败'}</Badge>
-                          )}
+                          <RequestOutcomeBadge
+                            kind={e.kind}
+                            result={e.result}
+                            terminalReason={e.terminalReason}
+                          />
                         </td>
                       </tr>
                     ))}

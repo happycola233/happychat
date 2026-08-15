@@ -19,7 +19,7 @@ describe('admin event filters', () => {
       providerId: '',
       modelId: '',
       userId: '',
-      successSel: '',
+      resultSel: 'refused',
       kindSel: '',
       page: 1,
       pageSize: 50,
@@ -35,6 +35,7 @@ describe('admin event filters', () => {
     const secondQuery = buildUsageEventsQuery(filter)
 
     expect(secondKey).toEqual(firstKey)
+    expect(firstQuery.result).toBe('refused')
     expect(secondQuery.from).toBe((firstQuery.from ?? 0) + 30_000)
   })
 

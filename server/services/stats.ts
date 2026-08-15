@@ -8,8 +8,9 @@ import type {
   UsageLogDTO,
   UserStatDTO,
 } from '@shared/types/api'
-import type { ModelPricing, UsageLogKind } from '@shared/types/domain'
+import type { ModelPricing, UsageLogKind, UsageResult } from '@shared/types/domain'
 import { costUsd } from '@shared/util/cost'
+import { resolveUsageResult } from '@shared/util/usageOutcome'
 import { db } from '../db/client'
 import {
   attachments,
@@ -30,6 +31,8 @@ export interface StatsFilter {
   modelId?: string
   userId?: string
   success?: boolean
+  /** 用户可见结果分类；refused / filtered 是 failed 按终止原因细分后的互斥类别。 */
+  result?: UsageResult
   /** 请求类型：省略=不限（对话 + 标题总结一起统计） */
   kind?: UsageLogKind
   scope?: 'upstream' | 'server' | 'stream' | 'frontend'
@@ -67,8 +70,23 @@ function usageConds(filter: StatsFilter): SQL[] {
   if (filter.modelId) c.push(eq(usageLogs.modelId, filter.modelId))
   if (filter.userId) c.push(eq(usageLogs.userId, filter.userId))
   if (filter.success !== undefined) c.push(eq(usageLogs.success, filter.success))
+  if (filter.result) c.push(usageResultCond(filter.result))
   if (filter.kind) c.push(eq(usageLogs.kind, filter.kind))
   return c
+}
+
+/** 与 resolveUsageResult 保持同一套互斥分类，避免“失败”重复包含拒绝与内容过滤。 */
+function usageResultCond(result: UsageResult): SQL {
+  switch (result) {
+    case 'refused':
+      return sql`${usageLogs.outcome} = 'failed' and ${usageLogs.terminalReason} = 'refusal'`
+    case 'filtered':
+      return sql`${usageLogs.outcome} = 'failed' and ${usageLogs.terminalReason} = 'content_filter'`
+    case 'failed':
+      return sql`${usageLogs.outcome} = 'failed' and (${usageLogs.terminalReason} is null or ${usageLogs.terminalReason} not in ('refusal', 'content_filter'))`
+    default:
+      return eq(usageLogs.outcome, result)
+  }
 }
 
 function whereOf(conds: SQL[]): SQL | undefined {
@@ -374,6 +392,8 @@ export async function listUsageEvents(filter: StatsFilter): Promise<Paginated<Us
   const items: UsageLogDTO[] = rows.map(
     ({ log, username, providerName, startedAt, finishedAt }) => ({
       id: log.id,
+      runId: log.runId,
+      conversationId: log.conversationId,
       userId: log.userId,
       username: username ?? null,
       providerId: log.providerId,
@@ -387,6 +407,9 @@ export async function listUsageEvents(filter: StatsFilter): Promise<Paginated<Us
       reasoningTokens: log.reasoningTokens,
       totalTokens: log.totalTokens,
       imageTokens: log.imageTokens,
+      outcome: log.outcome,
+      terminalReason: log.terminalReason,
+      result: resolveUsageResult(log.outcome, log.terminalReason),
       success: log.success,
       errorType: log.errorType,
       costUsd: costUsd(log, log.pricingSnapshot),

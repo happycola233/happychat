@@ -702,6 +702,10 @@ describe('search call tracking', () => {
           end_index: 4,
         },
       }),
+      event('image.generation.partial', {
+        attachmentId: 'att_partial_to_discard',
+        partialIndex: 0,
+      }),
       event('response.output_item.done', {
         item: {
           type: 'web_search_call',
@@ -738,8 +742,16 @@ describe('search call tracking', () => {
       reasoningPartKey: null,
       annotations: [],
       searchCalls: [],
+      imageGenerations: [],
+      imagePreviewIndex: null,
+      imagePreviewUpdatedAt: null,
+      imageStartedAt: null,
       status: 'failed',
       error: '模型拒绝了此请求',
     })
+    expect(refusal.imageStatus).toBeUndefined()
+    expect(refusal.imageAttachmentId).toBeUndefined()
+    expect(refusal.imagePreviewAttachmentId).toBeUndefined()
+    expect(refusal.imageRevisedPrompt).toBeUndefined()
   })
 })

@@ -17,6 +17,7 @@ import { computeGenerationDurationMs } from '../services/run-timing'
 import { getReasoningDurationSnapshot } from '../services/run-timing-snapshot'
 import { maybeGenerateTitle } from '../services/title'
 import type { ConvRow, ModelRow, MsgRow, ProviderRow, RunRow } from './types'
+import { errorTypeForAudit, terminalReasonForUsage } from './usage-audit'
 
 type FinalState = 'completed' | 'incomplete' | 'failed' | 'canceled'
 
@@ -73,94 +74,118 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
     },
     a.model.pricing,
   )
+  const terminalReason = terminalReasonForUsage(a.state, {
+    incompleteReason: a.incompleteReason,
+    errorType: a.errorType,
+    errorCode: a.errorCode,
+  })
+  const persistedErrorType =
+    a.state === 'failed' ? errorTypeForAudit(a.errorType, a.errorCode) : null
 
-  await db
-    .update(messages)
-    .set({
-      content: a.content ?? buildAssistantContent(a.text),
-      status: msgStatus,
-      reasoningSummary: a.reasoningSummary,
-      annotations: a.annotations.length ? a.annotations : null,
-      // 检索确实发生过就保留（含失败/取消），供 UI 复现检索过程。
-      searchActions: a.searchActions?.length ? a.searchActions : null,
-      runId: a.run.id,
-      reasoningDurationMs,
-      generationDurationMs,
-      inputTokens: a.usage.inputTokens,
-      cacheWriteTokens: a.usage.cacheWriteTokens,
-      cachedTokens: a.usage.cachedTokens,
-      outputTokens: a.usage.outputTokens,
-      reasoningTokens: a.usage.reasoningTokens,
-      totalTokens: a.usage.totalTokens,
-      costUsd: messageCostUsd,
-      // 仅写消息私有列；run.done、日志与面向浏览器的 DTO 都不携带该信封。
-      providerReplayContext:
-        a.state === 'completed' || a.state === 'incomplete'
-          ? (a.providerReplayContext ?? null)
-          : null,
-      errorMessage:
-        a.errorMessage ??
-        (a.state === 'incomplete'
-          ? '生成因长度限制被截断'
-          : a.state === 'canceled'
-            ? '已停止生成'
-            : null),
-    })
-    .where(eq(messages.id, a.assistantMessage.id))
+  const finalized = db.transaction((tx) => {
+    // 先做一次性 CAS；未命中说明已有终结者完成了全部落库，不能重复写日志或发事件。
+    const finalizedRun = tx
+      .update(runs)
+      .set({
+        state: a.state,
+        finishedAt,
+        upstreamResponseId: a.upstreamResponseId,
+        incompleteReason: a.incompleteReason,
+        errorMessage: a.errorMessage,
+        errorCode: a.errorCode,
+      })
+      .where(and(eq(runs.id, a.run.id), inArray(runs.state, ['queued', 'running'])))
+      .returning({ id: runs.id })
+      .get()
+    if (!finalizedRun) return false
 
-  // 仅当当前为非终态时写入（防止重复 finalize）
-  await db
-    .update(runs)
-    .set({
-      state: a.state,
-      finishedAt,
-      upstreamResponseId: a.upstreamResponseId,
-      incompleteReason: a.incompleteReason,
-      errorMessage: a.errorMessage,
-    })
-    .where(and(eq(runs.id, a.run.id), inArray(runs.state, ['queued', 'running'])))
+    tx.update(messages)
+      .set({
+        content: a.content ?? buildAssistantContent(a.text),
+        status: msgStatus,
+        reasoningSummary: a.reasoningSummary,
+        annotations: a.annotations.length ? a.annotations : null,
+        // 检索确实发生过就保留（含失败/取消），供 UI 复现检索过程。
+        searchActions: a.searchActions?.length ? a.searchActions : null,
+        runId: a.run.id,
+        reasoningDurationMs,
+        generationDurationMs,
+        inputTokens: a.usage.inputTokens,
+        cacheWriteTokens: a.usage.cacheWriteTokens,
+        cachedTokens: a.usage.cachedTokens,
+        outputTokens: a.usage.outputTokens,
+        reasoningTokens: a.usage.reasoningTokens,
+        totalTokens: a.usage.totalTokens,
+        costUsd: messageCostUsd,
+        // 仅写消息私有列；run.done、日志与面向浏览器的 DTO 都不携带该信封。
+        providerReplayContext:
+          a.state === 'completed' || a.state === 'incomplete'
+            ? (a.providerReplayContext ?? null)
+            : null,
+        errorMessage:
+          a.errorMessage ??
+          (a.state === 'incomplete'
+            ? '生成因长度限制被截断'
+            : a.state === 'canceled'
+              ? '已停止生成'
+              : null),
+      })
+      .where(eq(messages.id, a.assistantMessage.id))
+      .run()
 
-  await db
-    .update(conversations)
-    .set({ activeLeafId: a.assistantMessage.id, modelId: a.model.id, updatedAt: new Date() })
-    .where(eq(conversations.id, a.conversation.id))
+    tx.update(conversations)
+      .set({ activeLeafId: a.assistantMessage.id, modelId: a.model.id, updatedAt: finishedAt })
+      .where(eq(conversations.id, a.conversation.id))
+      .run()
 
-  await db.insert(usageLogs).values({
-    runId: a.run.id,
-    userId: a.run.userId,
-    modelId: a.model.id,
-    providerId: a.provider.id,
-    modelLabel: a.model.modelId,
-    providerLabel: a.provider.name,
-    pricingSnapshot: a.model.pricing,
-    conversationId: a.conversation.id,
-    inputTokens: a.usage.inputTokens,
-    cacheWriteTokens: a.usage.cacheWriteTokens,
-    cachedTokens: a.usage.cachedTokens,
-    outputTokens: a.usage.outputTokens,
-    reasoningTokens: a.usage.reasoningTokens,
-    totalTokens: a.usage.totalTokens,
-    quotaAt: a.run.createdAt,
-    success: a.state !== 'failed',
-    errorType: a.state === 'failed' ? (a.errorType ?? 'error') : null,
+    tx.insert(usageLogs)
+      .values({
+        runId: a.run.id,
+        userId: a.run.userId,
+        modelId: a.model.id,
+        providerId: a.provider.id,
+        modelLabel: a.model.modelId,
+        providerLabel: a.provider.name,
+        pricingSnapshot: a.model.pricing,
+        conversationId: a.conversation.id,
+        inputTokens: a.usage.inputTokens,
+        cacheWriteTokens: a.usage.cacheWriteTokens,
+        cachedTokens: a.usage.cachedTokens,
+        outputTokens: a.usage.outputTokens,
+        reasoningTokens: a.usage.reasoningTokens,
+        totalTokens: a.usage.totalTokens,
+        quotaAt: a.run.createdAt,
+        outcome: a.state,
+        terminalReason,
+        success: a.state !== 'failed',
+        errorType: persistedErrorType,
+      })
+      .run()
+
+    if (a.state === 'failed' && a.errorMessage) {
+      tx.insert(errorLogs)
+        .values({
+          runId: a.run.id,
+          userId: a.run.userId,
+          scope: 'upstream',
+          errorType: persistedErrorType,
+          code: a.errorCode ?? null,
+          httpStatus: a.httpStatus ?? null,
+          message: a.errorMessage,
+        })
+        .run()
+    }
+    return true
   })
 
-  if (a.state === 'failed' && a.errorMessage) {
-    await db.insert(errorLogs).values({
-      runId: a.run.id,
-      userId: a.run.userId,
-      scope: 'upstream',
-      errorType: a.errorType ?? null,
-      code: a.errorCode ?? null,
-      httpStatus: a.httpStatus ?? null,
-      message: a.errorMessage,
-    })
-  }
+  if (!finalized) return
 
   if (a.state === 'failed') {
+    const terminalErrorCode = a.errorCode ?? persistedErrorType
     a.persistEmit(RUN_EVENT_TYPE.error, {
       state: 'failed',
       message: a.errorMessage ?? '生成失败',
+      ...(terminalErrorCode ? { code: terminalErrorCode } : {}),
       ...(a.discardPartialOutput ? { discardPartialOutput: true } : {}),
     })
   } else if (a.state === 'canceled') {

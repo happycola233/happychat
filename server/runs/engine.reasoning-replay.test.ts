@@ -337,6 +337,288 @@ describe('runEngine reasoning replay privacy and terminal handling', () => {
     })
   })
 
+  it.each([
+    {
+      label: 'completed + refusal',
+      terminalEvent: {
+        type: 'response.completed',
+        response: {
+          id: 'response-refusal',
+          status: 'completed',
+          output: [
+            {
+              type: 'message',
+              content: [{ type: 'refusal', refusal: 'I cannot help with that.' }],
+            },
+          ],
+          usage: { input_tokens: 13, output_tokens: 2, total_tokens: 15 },
+        },
+      },
+      refusalEvent: {
+        type: 'response.refusal.delta',
+        delta: 'I cannot help with that.',
+      },
+      errorType: 'refusal',
+      responseId: 'response-refusal',
+      inputTokens: 13,
+      totalTokens: 15,
+    },
+    {
+      label: 'incomplete + content_filter',
+      terminalEvent: {
+        type: 'response.incomplete',
+        response: {
+          id: 'response-content-filter',
+          status: 'incomplete',
+          incomplete_details: { reason: 'content_filter' },
+          output: [
+            {
+              type: 'message',
+              content: [{ type: 'output_text', text: '终态部分正文' }],
+            },
+          ],
+          usage: { input_tokens: 17, output_tokens: 4, total_tokens: 21 },
+        },
+      },
+      refusalEvent: null,
+      errorType: 'content_filter',
+      responseId: 'response-content-filter',
+      inputTokens: 17,
+      totalTokens: 21,
+    },
+  ])(
+    '$label 作为失败终结，作废部分输出但保留 usage 与 response id',
+    async ({ terminalEvent, refusalEvent, errorType, responseId, inputTokens, totalTokens }) => {
+      const fixture = await createEngineFixture()
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () =>
+          sseResponse([
+            { type: 'response.output_text.delta', delta: '流式部分正文' },
+            ...(refusalEvent ? [refusalEvent] : []),
+            terminalEvent,
+          ]),
+        ),
+      )
+
+      const emitted: Array<{ type: string; data: Record<string, unknown> }> = []
+      const unsubscribe = emitter.runEmitter.subscribe(fixture.run.id, (event) => {
+        emitted.push({ type: event.type, data: event.data })
+      })
+      await engine.runEngine(fixture)
+      unsubscribe()
+
+      const storedRun = await dbClient.db.query.runs.findFirst({
+        where: eq(schema.runs.id, fixture.run.id),
+      })
+      const storedMessage = await dbClient.db.query.messages.findFirst({
+        where: eq(schema.messages.id, fixture.assistantMessage.id),
+      })
+      const [usageLog] = await dbClient.db
+        .select()
+        .from(schema.usageLogs)
+        .where(eq(schema.usageLogs.runId, fixture.run.id))
+      const [errorLog] = await dbClient.db
+        .select()
+        .from(schema.errorLogs)
+        .where(eq(schema.errorLogs.runId, fixture.run.id))
+
+      expect(storedRun).toMatchObject({ state: 'failed', upstreamResponseId: responseId })
+      expect(storedMessage).toMatchObject({
+        status: 'error',
+        content: [],
+        inputTokens,
+        totalTokens,
+        providerReplayContext: null,
+      })
+      expect(usageLog).toMatchObject({
+        inputTokens,
+        totalTokens,
+        success: false,
+        errorType,
+        outcome: 'failed',
+        terminalReason: errorType,
+      })
+      expect(errorLog).toMatchObject({ errorType })
+      expect(emitted.at(-1)).toMatchObject({
+        type: 'run.error',
+        data: { state: 'failed', discardPartialOutput: true },
+      })
+    },
+  )
+
+  it('普通输出上限截断保留部分正文、usage 与 response id', async () => {
+    const fixture = await createEngineFixture()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        sseResponse([
+          { type: 'response.output_text.delta', delta: '流式正文' },
+          {
+            type: 'response.incomplete',
+            response: {
+              id: 'response-max-output',
+              status: 'incomplete',
+              incomplete_details: { reason: 'max_output_tokens' },
+              output: [
+                {
+                  type: 'message',
+                  content: [{ type: 'output_text', text: '终态部分正文' }],
+                },
+              ],
+              usage: { input_tokens: 19, output_tokens: 6, total_tokens: 25 },
+            },
+          },
+        ]),
+      ),
+    )
+
+    await engine.runEngine(fixture)
+
+    const storedRun = await dbClient.db.query.runs.findFirst({
+      where: eq(schema.runs.id, fixture.run.id),
+    })
+    const storedMessage = await dbClient.db.query.messages.findFirst({
+      where: eq(schema.messages.id, fixture.assistantMessage.id),
+    })
+    const [usageLog] = await dbClient.db
+      .select()
+      .from(schema.usageLogs)
+      .where(eq(schema.usageLogs.runId, fixture.run.id))
+
+    expect(storedRun).toMatchObject({
+      state: 'incomplete',
+      incompleteReason: 'max_output_tokens',
+      upstreamResponseId: 'response-max-output',
+    })
+    expect(storedMessage).toMatchObject({
+      status: 'interrupted',
+      content: [{ type: 'output_text', text: '终态部分正文' }],
+      inputTokens: 19,
+      totalTokens: 25,
+    })
+    expect(usageLog).toMatchObject({
+      outcome: 'incomplete',
+      terminalReason: 'max_output_tokens',
+    })
+  })
+
+  it('独立 error 事件保留具体 code、使用稳定错误类型并脱敏消息', async () => {
+    const opaqueContext = 'standalone-error-private-context'
+    const fixture = await createEngineFixture([
+      { type: 'reasoning', id: 'rs-error', encrypted_content: opaqueContext },
+    ])
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        sseResponse([
+          {
+            type: 'error',
+            code: 'stream_generation_error',
+            message: `failed to use encrypted_content ${opaqueContext}`,
+          },
+        ]),
+      ),
+    )
+
+    await engine.runEngine(fixture)
+
+    const storedRun = await dbClient.db.query.runs.findFirst({
+      where: eq(schema.runs.id, fixture.run.id),
+    })
+    const usageLog = await dbClient.db.query.usageLogs.findFirst({
+      where: eq(schema.usageLogs.runId, fixture.run.id),
+    })
+    const errorLog = await dbClient.db.query.errorLogs.findFirst({
+      where: eq(schema.errorLogs.runId, fixture.run.id),
+    })
+    const storedEvents = await dbClient.db
+      .select({ type: schema.runEvents.type, data: schema.runEvents.data })
+      .from(schema.runEvents)
+      .where(eq(schema.runEvents.runId, fixture.run.id))
+
+    expect(storedRun).toMatchObject({
+      state: 'failed',
+      errorCode: 'stream_generation_error',
+      errorMessage: expect.stringContaining('[provider opaque content omitted]'),
+    })
+    expect(usageLog).toMatchObject({
+      outcome: 'failed',
+      terminalReason: 'stream_generation_error',
+      errorType: 'response_error',
+    })
+    expect(errorLog).toMatchObject({
+      errorType: 'response_error',
+      code: 'stream_generation_error',
+      message: expect.stringContaining('[provider opaque content omitted]'),
+    })
+    expect(storedEvents.at(-1)).toMatchObject({
+      type: 'run.error',
+      data: expect.objectContaining({ code: 'stream_generation_error' }),
+    })
+    expect(JSON.stringify(storedEvents)).not.toContain(opaqueContext)
+  })
+
+  it('response.failed 保留终态 usage、response id 与错误代码', async () => {
+    const fixture = await createEngineFixture()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        sseResponse([
+          { type: 'response.output_text.delta', delta: '可诊断的部分正文' },
+          {
+            type: 'response.failed',
+            response: {
+              id: 'response-failed',
+              status: 'failed',
+              error: { code: 'server_error', message: 'upstream generation failed' },
+              usage: { input_tokens: 23, output_tokens: 3, total_tokens: 26 },
+            },
+          },
+        ]),
+      ),
+    )
+
+    await engine.runEngine(fixture)
+
+    const storedRun = await dbClient.db.query.runs.findFirst({
+      where: eq(schema.runs.id, fixture.run.id),
+    })
+    const storedMessage = await dbClient.db.query.messages.findFirst({
+      where: eq(schema.messages.id, fixture.assistantMessage.id),
+    })
+    const [usageLog] = await dbClient.db
+      .select()
+      .from(schema.usageLogs)
+      .where(eq(schema.usageLogs.runId, fixture.run.id))
+    const [errorLog] = await dbClient.db
+      .select()
+      .from(schema.errorLogs)
+      .where(eq(schema.errorLogs.runId, fixture.run.id))
+
+    expect(storedRun).toMatchObject({
+      state: 'failed',
+      upstreamResponseId: 'response-failed',
+      errorMessage: 'upstream generation failed',
+    })
+    expect(storedMessage).toMatchObject({
+      status: 'error',
+      content: [{ type: 'output_text', text: '可诊断的部分正文' }],
+      inputTokens: 23,
+      totalTokens: 26,
+    })
+    expect(usageLog).toMatchObject({
+      outcome: 'failed',
+      terminalReason: 'server_error',
+      errorType: 'server_error',
+    })
+    expect(errorLog).toMatchObject({
+      errorType: 'server_error',
+      code: 'server_error',
+      message: 'upstream generation failed',
+    })
+  })
+
   it('retries an invalid history only before streaming and redacts echoed ciphertext on failure', async () => {
     const historyCiphertext = 'history-request-ciphertext'
     const fixture = await createEngineFixture([

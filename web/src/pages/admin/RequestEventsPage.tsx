@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import type { UsageResult } from '@shared/types/domain'
 import { getUsageEvents, listAdminModels, listProviders, listUsers } from '../../api/admin'
-import { Badge } from '../../components/ui/Badge'
 import { DateRangePicker } from '../../components/ui/DateRangePicker'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { PageHeader } from '../../components/ui/PageHeader'
@@ -10,6 +10,9 @@ import { Pagination } from '../../components/ui/Pagination'
 import { Select, type SelectOption } from '../../components/ui/Select'
 import { Spinner } from '../../components/ui/Spinner'
 import { buildUsageEventsQuery, usageEventsQueryKey } from './eventFilters'
+import { RequestKindBadge } from './RequestKindBadge'
+import { RequestOutcomeBadge } from './RequestOutcomeBadge'
+import { REQUEST_RESULT_LABELS } from './requestOutcome'
 import {
   tableBody,
   tableEl,
@@ -22,10 +25,15 @@ import {
 } from '../../components/ui/tableStyles'
 import { formatCompact, formatDateTime, formatDuration, formatUsd } from '../../lib/format'
 
-const STATUS_OPTIONS: SelectOption[] = [
-  { value: '', label: '全部状态' },
-  { value: 'true', label: '成功' },
-  { value: 'false', label: '失败' },
+const RESULT_OPTIONS: SelectOption[] = [
+  { value: '', label: '全部结果' },
+  { value: 'completed', label: REQUEST_RESULT_LABELS.completed },
+  { value: 'incomplete', label: REQUEST_RESULT_LABELS.incomplete },
+  { value: 'refused', label: REQUEST_RESULT_LABELS.refused },
+  { value: 'filtered', label: REQUEST_RESULT_LABELS.filtered },
+  { value: 'failed', label: REQUEST_RESULT_LABELS.failed },
+  { value: 'canceled', label: REQUEST_RESULT_LABELS.canceled },
+  { value: 'interrupted', label: REQUEST_RESULT_LABELS.interrupted },
 ]
 
 /** 标题总结是后台自动发起的调用：保留请求与成本审计，但不占用户额度，且常需要单独过滤。 */
@@ -40,7 +48,7 @@ export default function RequestEventsPage() {
   const [providerId, setProviderId] = useState('')
   const [modelId, setModelId] = useState('')
   const [userId, setUserId] = useState('')
-  const [successSel, setSuccessSel] = useState('')
+  const [resultSel, setResultSel] = useState<UsageResult | ''>('')
   const [kindSel, setKindSel] = useState('')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(50)
@@ -85,7 +93,7 @@ export default function RequestEventsPage() {
     providerId,
     modelId,
     userId,
-    successSel,
+    resultSel,
     kindSel,
     page,
     pageSize,
@@ -98,7 +106,10 @@ export default function RequestEventsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="请求事件" />
+      <PageHeader
+        title="请求事件"
+        description="每条记录代表一次已结算的上游调用。结果描述是否产出可用内容，Token 与成本始终按上游实际返回值记录。"
+      />
 
       <div className="flex flex-wrap items-end gap-3">
         <DateRangePicker
@@ -136,11 +147,11 @@ export default function RequestEventsPage() {
           }}
         />
         <Select
-          label="状态"
-          options={STATUS_OPTIONS}
-          value={successSel}
+          label="结果"
+          options={RESULT_OPTIONS}
+          value={resultSel}
           onChange={(e) => {
-            setSuccessSel(e.target.value)
+            setResultSel(e.target.value as UsageResult | '')
             setPage(1)
           }}
         />
@@ -190,7 +201,7 @@ export default function RequestEventsPage() {
                     <th className={th}>总计</th>
                     <th className={th}>成本</th>
                     <th className={th}>耗时</th>
-                    <th className={th}>状态</th>
+                    <th className={th}>结果</th>
                   </tr>
                 </thead>
                 <tbody className={tableBody}>
@@ -211,14 +222,7 @@ export default function RequestEventsPage() {
                       >
                         <span className="inline-flex items-center gap-1.5">
                           {row.modelLabel ?? '—'}
-                          {row.kind === 'title' && (
-                            <span
-                              title="会话标题总结的后台调用"
-                              className="rounded bg-neutral-100 px-1.5 py-px text-[10px] font-medium text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400"
-                            >
-                              标题
-                            </span>
-                          )}
+                          <RequestKindBadge kind={row.kind} />
                         </span>
                       </td>
                       <td
@@ -255,9 +259,11 @@ export default function RequestEventsPage() {
                         {row.durationMs === null ? '—' : formatDuration(row.durationMs)}
                       </td>
                       <td className={td}>
-                        <Badge tone={row.success ? 'success' : 'danger'}>
-                          {row.success ? '成功' : '失败'}
-                        </Badge>
+                        <RequestOutcomeBadge
+                          kind={row.kind}
+                          result={row.result}
+                          terminalReason={row.terminalReason}
+                        />
                       </td>
                     </tr>
                   ))}

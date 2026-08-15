@@ -10,6 +10,7 @@ let dbClient: typeof import('../db/client')
 let schema: typeof import('../db/schema')
 let title: typeof import('./title')
 let appConfig: typeof import('./appConfig')
+let UpstreamError: typeof import('../provider/errors').UpstreamError
 let fixtureSeq = 0
 
 const providerMocks = vi.hoisted(() => ({
@@ -59,6 +60,8 @@ beforeAll(async () => {
   const migration = await import('../db/migrate')
   dbClient = await import('../db/client')
   schema = await import('../db/schema')
+  const providerErrors = await import('../provider/errors')
+  UpstreamError = providerErrors.UpstreamError
   title = await import('./title')
   appConfig = await import('./appConfig')
   migration.runMigrations()
@@ -138,6 +141,18 @@ async function bindPolicy(userId: string, rules: QuotaRule[]) {
   await dbClient.db.insert(schema.userQuotas).values({ userId, policyId })
 }
 
+async function readTitleResult(userId: string, conversationId: string) {
+  const [conversation] = await dbClient.db
+    .select({ title: schema.conversations.title })
+    .from(schema.conversations)
+    .where(eq(schema.conversations.id, conversationId))
+  const [usageLog] = await dbClient.db
+    .select()
+    .from(schema.usageLogs)
+    .where(eq(schema.usageLogs.userId, userId))
+  return { title: conversation?.title, usageLog }
+}
+
 describe('标题总结', () => {
   it('写入标题并把上游用量记为 kind=title 的用量日志', async () => {
     const { userId, conversationId, modelId } = await createFixture()
@@ -174,6 +189,8 @@ describe('标题总结', () => {
       outputTokens: 8,
       totalTokens: 128,
       success: true,
+      outcome: 'completed',
+      terminalReason: null,
     })
     // 价格快照随行落库，标题请求的成本口径与对话请求完全一致。
     expect(logs[0]?.pricingSnapshot).toEqual(PRICING)
@@ -248,6 +265,8 @@ describe('标题总结', () => {
       totalTokens: 12,
       success: false,
       errorType: 'server_error',
+      outcome: 'failed',
+      terminalReason: 'server_error',
     })
   })
 
@@ -291,6 +310,37 @@ describe('标题总结', () => {
       kind: 'title',
       success: false,
       errorType,
+      outcome: 'failed',
+      terminalReason: errorType,
+    })
+  })
+
+  it('Responses 输出上限截断时保留可用标题并记录具体终态', async () => {
+    providerMocks.createResponse.mockResolvedValueOnce({
+      status: 'incomplete',
+      incomplete_details: { reason: 'max_output_tokens' },
+      output: [{ type: 'message', content: [{ type: 'output_text', text: '可用的部分标题' }] }],
+      usage: { input_tokens: 18, output_tokens: 4, total_tokens: 22 },
+    })
+    const { userId, conversationId } = await createFixture()
+
+    await title.maybeGenerateTitle(conversationId)
+
+    const [conversation] = await dbClient.db
+      .select({ title: schema.conversations.title })
+      .from(schema.conversations)
+      .where(eq(schema.conversations.id, conversationId))
+    expect(conversation?.title).toBe('可用的部分标题')
+
+    const [log] = await dbClient.db
+      .select()
+      .from(schema.usageLogs)
+      .where(eq(schema.usageLogs.userId, userId))
+    expect(log).toMatchObject({
+      kind: 'title',
+      success: true,
+      outcome: 'incomplete',
+      terminalReason: 'max_output_tokens',
     })
   })
 
@@ -317,6 +367,33 @@ describe('标题总结', () => {
       totalTokens: 0,
       success: false,
       errorType: 'upstream_error',
+      outcome: 'failed',
+      terminalReason: 'upstream_error',
+    })
+    expect(consoleError).toHaveBeenCalledOnce()
+    consoleError.mockRestore()
+  })
+
+  it('标题 HTTP 错误只有 code 时仍把具体代码写入终止原因', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    providerMocks.createResponse.mockRejectedValueOnce(
+      new UpstreamError({
+        message: 'request failed',
+        status: 429,
+        code: 'rate_limit_exceeded',
+      }),
+    )
+    const { userId, conversationId } = await createFixture()
+
+    await title.maybeGenerateTitle(conversationId)
+
+    const result = await readTitleResult(userId, conversationId)
+    expect(result.title).toBe('新聊天')
+    expect(result.usageLog).toMatchObject({
+      success: false,
+      errorType: 'upstream_error',
+      outcome: 'failed',
+      terminalReason: 'rate_limit_exceeded',
     })
     expect(consoleError).toHaveBeenCalledOnce()
     consoleError.mockRestore()
@@ -348,6 +425,150 @@ describe('标题总结', () => {
       totalTokens: 20,
       success: false,
       errorType: 'content_filter',
+      outcome: 'failed',
+      terminalReason: 'content_filter',
+    })
+  })
+
+  it('Chat Completions 非流响应缺少 finish_reason 时记为无效响应', async () => {
+    providerMocks.createChat.mockResolvedValueOnce({
+      choices: [{ message: { content: '缺少终止原因的标题' } }],
+      usage: { prompt_tokens: 14, completion_tokens: 4, total_tokens: 18 },
+    })
+    const { userId, conversationId, modelId } = await createFixture('chat')
+    await appConfig.updateAppConfig({ titleModelId: modelId })
+
+    await title.maybeGenerateTitle(conversationId)
+
+    const result = await readTitleResult(userId, conversationId)
+    expect(result.title).toBe('新聊天')
+    expect(result.usageLog).toMatchObject({
+      inputTokens: 14,
+      totalTokens: 18,
+      success: false,
+      errorType: 'invalid_response',
+      outcome: 'failed',
+      terminalReason: 'invalid_response',
+    })
+  })
+
+  it('Responses 非流响应缺少 status 时记为无效响应', async () => {
+    providerMocks.createResponse.mockResolvedValueOnce({
+      output: [{ type: 'message', content: [{ type: 'output_text', text: '缺少状态的标题' }] }],
+      usage: { input_tokens: 15, output_tokens: 4, total_tokens: 19 },
+    })
+    const { userId, conversationId } = await createFixture()
+
+    await title.maybeGenerateTitle(conversationId)
+
+    const result = await readTitleResult(userId, conversationId)
+    expect(result.title).toBe('新聊天')
+    expect(result.usageLog).toMatchObject({
+      inputTokens: 15,
+      totalTokens: 19,
+      success: false,
+      errorType: 'invalid_response',
+      outcome: 'failed',
+      terminalReason: 'invalid_response',
+    })
+  })
+
+  it.each(['end_turn', 'stop_sequence'] as const)(
+    'Anthropic %s 终态记为完成并使用生成标题',
+    async (stopReason) => {
+      providerMocks.createAnthropicMessage.mockResolvedValueOnce({
+        content: [{ type: 'text', text: '明确完成的标题' }],
+        stop_reason: stopReason,
+        usage: { input_tokens: 16, output_tokens: 4 },
+      })
+      const { userId, conversationId, modelId } = await createFixture('anthropic')
+      await appConfig.updateAppConfig({ titleModelId: modelId })
+
+      await title.maybeGenerateTitle(conversationId)
+
+      const result = await readTitleResult(userId, conversationId)
+      expect(result.title).toBe('明确完成的标题')
+      expect(result.usageLog).toMatchObject({
+        kind: 'title',
+        success: true,
+        errorType: null,
+        outcome: 'completed',
+        terminalReason: null,
+      })
+    },
+  )
+
+  it.each(['max_tokens', 'model_context_window_exceeded'] as const)(
+    'Anthropic %s 终态保留部分标题并记为未完整完成',
+    async (stopReason) => {
+      providerMocks.createAnthropicMessage.mockResolvedValueOnce({
+        content: [{ type: 'text', text: '仍可使用的部分标题' }],
+        stop_reason: stopReason,
+        usage: { input_tokens: 16, output_tokens: 4 },
+      })
+      const { userId, conversationId, modelId } = await createFixture('anthropic')
+      await appConfig.updateAppConfig({ titleModelId: modelId })
+
+      await title.maybeGenerateTitle(conversationId)
+
+      const result = await readTitleResult(userId, conversationId)
+      expect(result.title).toBe('仍可使用的部分标题')
+      expect(result.usageLog).toMatchObject({
+        kind: 'title',
+        success: true,
+        errorType: null,
+        outcome: 'incomplete',
+        terminalReason: stopReason,
+      })
+    },
+  )
+
+  it.each(['tool_use', 'future_stop_reason'] as const)(
+    'Anthropic 不支持的 %s 终态记为失败并保留原始原因',
+    async (stopReason) => {
+      providerMocks.createAnthropicMessage.mockResolvedValueOnce({
+        content: [{ type: 'text', text: '不应采用的标题' }],
+        stop_reason: stopReason,
+        usage: { input_tokens: 16, output_tokens: 4 },
+      })
+      const { userId, conversationId, modelId } = await createFixture('anthropic')
+      await appConfig.updateAppConfig({ titleModelId: modelId })
+
+      await title.maybeGenerateTitle(conversationId)
+
+      const result = await readTitleResult(userId, conversationId)
+      expect(result.title).toBe('新聊天')
+      expect(result.usageLog).toMatchObject({
+        kind: 'title',
+        inputTokens: 16,
+        totalTokens: 20,
+        success: false,
+        errorType: stopReason,
+        outcome: 'failed',
+        terminalReason: stopReason,
+      })
+    },
+  )
+
+  it('Anthropic 非流响应缺少 stop_reason 时记为无效响应', async () => {
+    providerMocks.createAnthropicMessage.mockResolvedValueOnce({
+      content: [{ type: 'text', text: '缺少终止原因的标题' }],
+      usage: { input_tokens: 16, output_tokens: 4 },
+    })
+    const { userId, conversationId, modelId } = await createFixture('anthropic')
+    await appConfig.updateAppConfig({ titleModelId: modelId })
+
+    await title.maybeGenerateTitle(conversationId)
+
+    const result = await readTitleResult(userId, conversationId)
+    expect(result.title).toBe('新聊天')
+    expect(result.usageLog).toMatchObject({
+      inputTokens: 16,
+      totalTokens: 20,
+      success: false,
+      errorType: 'invalid_response',
+      outcome: 'failed',
+      terminalReason: 'invalid_response',
     })
   })
 
@@ -378,6 +599,8 @@ describe('标题总结', () => {
       totalTokens: 16,
       success: false,
       errorType: 'refusal',
+      outcome: 'failed',
+      terminalReason: 'refusal',
     })
   })
 })

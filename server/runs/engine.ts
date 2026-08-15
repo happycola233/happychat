@@ -25,6 +25,10 @@ import { runEvents, runs } from '../db/schema'
 import { providerClientFromRow } from '../provider/client'
 import { UpstreamError } from '../provider/errors'
 import type { ReasoningReplayContextV1 } from '../provider/reasoning-replay'
+import {
+  classifyResponsesTerminal,
+  type ResponsesTerminalState,
+} from '../provider/responses-terminal'
 import type { UpstreamOutputItem, UpstreamResponse } from '../provider/upstream-types'
 import { runEmitter } from './emitter'
 import {
@@ -130,6 +134,8 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
   let httpStatus: number | null = null
   let upstreamResponseId: string | null = null
   let providerReplayContext: ReasoningReplayContextV1 | null = null
+  let refusalObserved = false
+  let discardPartialOutput = false
   let receivedTerminalEvent = false
   const finalContentParts: ContentPart[] = []
   const finalImages = new Map<
@@ -390,6 +396,38 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
     })
   }
 
+  const handleTerminalResponse = (
+    eventState: ResponsesTerminalState,
+    response: UpstreamResponse | undefined,
+  ) => {
+    // failed 终态也可能携带最终 usage / response id，不能只解析成功终态。
+    applyFinalResponse(response)
+    recordResponseSearchItems(response)
+
+    const terminal = classifyResponsesTerminal(response, {
+      eventState,
+      refusalObserved,
+    })
+
+    if (terminal.state === 'failed') {
+      const terminalErrorMessage =
+        terminal.errorType === 'refusal'
+          ? '模型拒绝了此请求，请调整内容后重试。'
+          : terminal.errorType === 'content_filter'
+            ? '上游内容过滤器终止了生成，请调整内容后重试。'
+            : redactProviderOpaqueContent(response?.error?.message ?? '生成失败', [
+                ...sensitiveProviderContent,
+                ...collectProviderOpaqueStrings(response),
+              ])
+      providerReplayContext = null
+      return { terminal, errorMessage: terminalErrorMessage }
+    }
+
+    saveResponseImages(response)
+    captureReasoningReplayContext(terminal.state, response)
+    return { terminal, errorMessage: null }
+  }
+
   try {
     const client = providerClientFromRow(ctx.provider)
     const stream = streamResponseWithFallback({
@@ -461,6 +499,10 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
         case 'response.output_text.delta':
           text += str(ev.data.delta)
           break
+        case 'response.refusal.delta':
+        case 'response.refusal.done':
+          refusalObserved = true
+          break
         case 'response.reasoning_summary_text.delta': {
           const accumulatedReasoning = appendReasoningSummaryDelta(
             { text: reasoningSummary, partKey: reasoningSummaryPartKey },
@@ -482,40 +524,31 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
         case 'response.output_text.annotation.added':
           pushCitation(annotations, ev.data.annotation)
           break
-        case 'response.completed': {
-          receivedTerminalEvent = true
-          const resp = ev.data.response as UpstreamResponse | undefined
-          applyFinalResponse(resp)
-          saveResponseImages(resp)
-          recordResponseSearchItems(resp)
-          state = 'completed'
-          captureReasoningReplayContext(state, resp)
-          break
-        }
-        case 'response.incomplete': {
-          receivedTerminalEvent = true
-          const resp = ev.data.response as UpstreamResponse | undefined
-          applyFinalResponse(resp)
-          saveResponseImages(resp)
-          recordResponseSearchItems(resp)
-          state = 'incomplete'
-          incompleteReason = resp?.incomplete_details?.reason ?? 'max_output_tokens'
-          captureReasoningReplayContext(state, resp)
-          break
-        }
+        case 'response.completed':
+        case 'response.incomplete':
         case 'response.failed': {
           receivedTerminalEvent = true
           const resp = ev.data.response as UpstreamResponse | undefined
-          state = 'failed'
-          errorMessage = redactProviderOpaqueContent(resp?.error?.message ?? '生成失败', [
-            ...sensitiveProviderContent,
-            ...collectProviderOpaqueStrings(resp),
-          ])
+          const eventState: ResponsesTerminalState =
+            ev.type === 'response.completed'
+              ? 'completed'
+              : ev.type === 'response.incomplete'
+                ? 'incomplete'
+                : 'failed'
+          const terminalResult = handleTerminalResponse(eventState, resp)
+          state = terminalResult.terminal.state
+          incompleteReason = terminalResult.terminal.incompleteReason
+          errorType = terminalResult.terminal.errorType
+          errorCode = terminalResult.terminal.errorCode
+          discardPartialOutput = terminalResult.terminal.discardPartialOutput
+          errorMessage = terminalResult.errorMessage
           break
         }
         case 'error':
           receivedTerminalEvent = true
           state = 'failed'
+          errorType = 'response_error'
+          errorCode = str(ev.data.code) || null
           errorMessage = redactProviderOpaqueContent(str(ev.data.message) || '生成失败', [
             ...sensitiveProviderContent,
             ...collectProviderOpaqueStrings(ev.data),
@@ -554,6 +587,19 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
     }
   }
 
+  if (discardPartialOutput) {
+    text = ''
+    reasoningSummary = ''
+    rawReasoning = ''
+    annotations = []
+    searchActionsByCallId.clear()
+    providerReplayContext = null
+    cleanupPartialImages()
+    removeGeneratedImageAttachments([...finalImages.values()].map((image) => image.attachmentId))
+    finalImages.clear()
+    imageContentParts.length = 0
+  }
+
   if (imageContentParts.length) {
     if (text) {
       finalContentParts.push({
@@ -582,10 +628,15 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
     errorType,
     errorCode,
     httpStatus,
+    discardPartialOutput,
     upstreamResponseId,
     providerReplayContext,
     startedAt,
-    content: finalContentParts.length ? finalContentParts : undefined,
+    ...(discardPartialOutput
+      ? { content: [] }
+      : finalContentParts.length
+        ? { content: finalContentParts }
+        : {}),
     persistEmit,
   })
 

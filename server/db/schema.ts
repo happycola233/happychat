@@ -38,6 +38,7 @@ import type {
   StoredModelTag,
   UrlCitation,
   UsageLogKind,
+  UsageOutcome,
   UserPreferences,
   UserQuotaOverrides,
   UserRole,
@@ -650,6 +651,9 @@ export const usageLogs = sqliteTable(
     reasoningTokens: integer('reasoning_tokens').notNull().default(0),
     totalTokens: integer('total_tokens').notNull().default(0),
     imageTokens: integer('image_tokens').notNull().default(0),
+    // 审计终态与原因独立于 success；后者暂时保留额度兼容语义。
+    outcome: text('outcome').$type<UsageOutcome>().notNull().default('completed'),
+    terminalReason: text('terminal_reason'),
     success: integer('success', { mode: 'boolean' }).notNull().default(true),
     errorType: text('error_type'),
     // chat 的额度归属按请求获准/入队时刻计算；title 不参与额度并保持为空。
@@ -662,6 +666,7 @@ export const usageLogs = sqliteTable(
     index('usage_logs_user_quota_idx').on(t.userId, t.quotaAt),
     index('usage_logs_created_idx').on(t.createdAt),
     index('usage_logs_provider_idx').on(t.providerId),
+    index('usage_logs_outcome_created_idx').on(t.outcome, t.createdAt),
   ],
 )
 

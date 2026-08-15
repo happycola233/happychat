@@ -35,6 +35,8 @@ import type {
   ThemePreference,
   UrlCitation,
   UsageLogKind,
+  UsageOutcome,
+  UsageResult,
   UsageStatsView,
   UsageTrendGranularity,
   UserPreferences,
@@ -379,6 +381,10 @@ export interface ErrorLogDTO {
 
 export interface UsageLogDTO {
   id: string
+  /** 对话生成对应的 run；标题总结及 run 已被级联删除的历史事件为 null。 */
+  runId: string | null
+  /** 请求发生时的会话快照；会话删除后仍保留该值用于审计关联。 */
+  conversationId: string | null
   userId: string | null
   username: string | null
   providerId: string | null
@@ -393,6 +399,13 @@ export interface UsageLogDTO {
   reasoningTokens: number
   totalTokens: number
   imageTokens: number
+  /** 已结算调用的生命周期终态；不再从 success 布尔值猜测。 */
+  outcome: UsageOutcome
+  /** 终止原因，例如 max_output_tokens、refusal、content_filter、user_cancelled。 */
+  terminalReason: string | null
+  /** 供列表展示与筛选的稳定分类，由 outcome + terminalReason 派生。 */
+  result: UsageResult
+  /** 旧额度/聚合兼容字段；请求事件状态不得再直接使用它。 */
   success: boolean
   errorType: string | null
   costUsd: number
@@ -415,6 +428,7 @@ export interface Paginated<T> {
 export interface OverviewDTO {
   totals: {
     requests: number
+    /** legacy success=true 占比；截断与取消不算上游失败。 */
     successRate: number // 0-1
     tokens: number
     cacheRate: number // cached / input，0-1
@@ -461,6 +475,7 @@ export interface UserStatDTO {
   fileUploads: number
   costUsd: number
   errors: number
+  /** legacy success=true 占比；截断与取消不算上游失败。 */
   successRate: number // 0-1
   /** 筛选范围内最近一条用量日志的时间。 */
   lastUsageAt: number | null

@@ -346,6 +346,22 @@ export type UsageTrendGranularity = 'hour' | 'day' | 'month'
  */
 export type UsageLogKind = 'chat' | 'title'
 
+/**
+ * 一次已结算上游调用的生命周期终态。`success` 仍保留旧的额度兼容口径，
+ * 请求审计与界面状态应使用 outcome + terminalReason，避免把截断或取消误写成“成功”。
+ */
+export type UsageOutcome = 'completed' | 'incomplete' | 'failed' | 'canceled' | 'interrupted'
+
+/** 请求事件列表使用的用户可见结果分类；拒绝与内容过滤由失败原因进一步细分。 */
+export type UsageResult =
+  | 'completed'
+  | 'incomplete'
+  | 'refused'
+  | 'filtered'
+  | 'failed'
+  | 'canceled'
+  | 'interrupted'
+
 export type MessageStatus = 'complete' | 'streaming' | 'interrupted' | 'error'
 
 export type RunState =

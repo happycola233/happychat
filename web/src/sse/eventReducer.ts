@@ -282,6 +282,27 @@ function finishReasoning(s: LiveMessage): LiveMessage {
   return { ...s, reasoningDurationMs: Math.max(0, Date.now() - s.upstreamStartedAt) }
 }
 
+/** 拒绝或内容过滤会让后端删除生成附件，这里同步清掉所有可见的部分结果引用。 */
+function clearDiscardedOutput(s: LiveMessage): LiveMessage {
+  return {
+    ...s,
+    text: '',
+    reasoning: '',
+    reasoningKind: null,
+    reasoningPartKey: null,
+    annotations: [],
+    searchCalls: [],
+    imageStatus: undefined,
+    imageGenerations: [],
+    imageAttachmentId: undefined,
+    imagePreviewAttachmentId: undefined,
+    imagePreviewIndex: null,
+    imagePreviewUpdatedAt: null,
+    imageRevisedPrompt: undefined,
+    imageStartedAt: null,
+  }
+}
+
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)
 
 function imageGenerationEventId(
@@ -484,15 +505,7 @@ export function reduceEvent(s: LiveMessage, ev: WireEvent): LiveMessage {
         searchCalls: settleSearchCalls(s.searchCalls),
       }
       if (ev.data.discardPartialOutput !== true) return failed
-      return {
-        ...failed,
-        text: '',
-        reasoning: '',
-        reasoningKind: null,
-        reasoningPartKey: null,
-        annotations: [],
-        searchCalls: [],
-      }
+      return clearDiscardedOutput(failed)
     }
     case 'run.canceled':
       return {

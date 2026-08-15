@@ -1,6 +1,6 @@
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
@@ -10,7 +10,9 @@ let schema: typeof import('../db/schema')
 let manager: typeof import('./manager')
 
 beforeAll(async () => {
-  tmpDir = mkdtempSync(join(tmpdir(), 'happychat-manager-'))
+  const tempRoot = fileURLToPath(new URL('../../.tmp/', import.meta.url))
+  mkdirSync(tempRoot, { recursive: true })
+  tmpDir = mkdtempSync(join(tempRoot, 'happychat-manager-'))
   process.env.NODE_ENV = 'test'
   process.env.DATA_DIR = tmpDir
   process.env.DATABASE_URL = join(tmpDir, 'happychat-test.db')
@@ -108,10 +110,28 @@ describe('recoverInterruptedRuns', () => {
     const recoveredMessage = await dbClient.db.query.messages.findFirst({
       where: eq(schema.messages.id, message.id),
     })
+    const recoveredUsage = await dbClient.db.query.usageLogs.findFirst({
+      where: eq(schema.usageLogs.runId, run.id),
+    })
     expect(recoveredRun?.state).toBe('interrupted')
     expect(recoveredMessage).toMatchObject({
       status: 'interrupted',
       providerReplayContext: null,
     })
+    expect(recoveredUsage).toMatchObject({
+      outcome: 'interrupted',
+      terminalReason: 'server_restart',
+      success: true,
+      modelLabel: model.modelId,
+      providerLabel: provider.name,
+    })
+
+    // 恢复流程可重复调用，不会为同一个 run 追加第二条请求事件。
+    await manager.recoverInterruptedRuns()
+    const usageRows = await dbClient.db
+      .select()
+      .from(schema.usageLogs)
+      .where(eq(schema.usageLogs.runId, run.id))
+    expect(usageRows).toHaveLength(1)
   })
 })

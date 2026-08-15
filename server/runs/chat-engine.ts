@@ -5,6 +5,7 @@ import { isReasoningEnabled } from '@shared/util/reasoning'
 import { db } from '../db/client'
 import { runEvents, runs } from '../db/schema'
 import { mapChatUsage } from '../provider/chat'
+import { classifyChatTerminal } from '../provider/chat-terminal'
 import { providerClientFromRow } from '../provider/client'
 import { UpstreamError } from '../provider/errors'
 import { runEmitter } from './emitter'
@@ -47,14 +48,16 @@ export async function runChatEngine(ctx: EngineContext): Promise<void> {
     reasoningTokens: 0,
     totalTokens: 0,
   }
-  let state: 'completed' | 'incomplete' | 'failed' | 'canceled' = 'failed'
+  let state: 'completed' | 'incomplete' | 'failed' | 'canceled'
   let incompleteReason: string | null = null
   let errorMessage: string | null = null
-  let errorType: string | null = null
+  let errorType: string | null
   let errorCode: string | null = null
   let httpStatus: number | null = null
   let finishReason: string | null = null
   let receivedDone = false
+  let refusalObserved = false
+  let toolCallObserved = false
   let discardPartialOutput = false
 
   try {
@@ -79,17 +82,12 @@ export async function runChatEngine(ctx: EngineContext): Promise<void> {
       if (chunk.usage) usage = mapChatUsage(chunk.usage)
 
       if (typeof delta?.refusal === 'string' && delta.refusal.length > 0) {
-        state = 'failed'
-        errorMessage = '模型拒绝了此请求，请调整内容后重试。'
-        errorType = 'refusal'
-        discardPartialOutput = true
+        refusalObserved = true
       } else if (
         (Array.isArray(delta?.tool_calls) && delta.tool_calls.length > 0) ||
         (delta?.function_call !== undefined && delta.function_call !== null)
       ) {
-        state = 'failed'
-        errorMessage = '模型请求了本站不支持的客户端工具，生成已停止。'
-        errorType = 'tool_calls'
+        toolCallObserved = true
       }
 
       if (choice?.finish_reason) finishReason = choice.finish_reason
@@ -103,31 +101,31 @@ export async function runChatEngine(ctx: EngineContext): Promise<void> {
       errorCode = null
       httpStatus = null
       discardPartialOutput = false
-    } else if (errorType === 'refusal' || errorType === 'tool_calls') {
-      // delta 已提供更具体的失败原因，不能再被后续 stop / [DONE] 覆盖。
-    } else if (finishReason === 'length') {
-      state = 'incomplete'
-      incompleteReason = 'max_output_tokens'
-    } else if (finishReason === 'content_filter') {
-      state = 'failed'
-      errorMessage = '上游内容过滤器终止了生成，请调整内容后重试。'
-      errorType = 'content_filter'
-      discardPartialOutput = true
-    } else if (finishReason === 'tool_calls' || finishReason === 'function_call') {
-      state = 'failed'
-      errorMessage = '模型请求了本站不支持的客户端工具，生成已停止。'
-      errorType = 'tool_calls'
-    } else if (finishReason === 'stop' || (finishReason === null && receivedDone)) {
-      // 部分兼容网关只发送 [DONE]，没有最后一个 finish_reason；保留这条兼容路径。
-      state = 'completed'
-    } else if (finishReason) {
-      state = 'failed'
-      errorMessage = `上游返回了不支持的结束原因：${finishReason}`
-      errorType = 'unsupported_finish_reason'
     } else {
-      state = 'failed'
-      errorMessage = '上游响应在终止标记前结束'
-      errorType = 'incomplete_stream'
+      const terminal = classifyChatTerminal({
+        finishReason,
+        refusalObserved,
+        toolCallObserved,
+        doneObserved: receivedDone,
+      })
+      state = terminal.state
+      incompleteReason = terminal.incompleteReason
+      errorType = terminal.errorType
+      discardPartialOutput = terminal.discardPartialOutput
+
+      if (terminal.errorType === 'refusal') {
+        errorMessage = '模型拒绝了此请求，请调整内容后重试。'
+      } else if (terminal.errorType === 'content_filter') {
+        errorMessage = '上游内容过滤器终止了生成，请调整内容后重试。'
+      } else if (terminal.errorType === 'tool_calls') {
+        errorMessage = '模型请求了本站不支持的客户端工具，生成已停止。'
+      } else if (terminal.errorType === 'unsupported_finish_reason') {
+        errorMessage = `上游返回了不支持的结束原因：${finishReason}`
+      } else if (terminal.errorType === 'invalid_response') {
+        // 非流标题保留 invalid_response；流式 EOF 则沿用更具体的传输层原因。
+        errorType = 'incomplete_stream'
+        errorMessage = '上游响应在终止标记前结束'
+      }
     }
   } catch (e) {
     if (ctx.abortController.signal.aborted) {

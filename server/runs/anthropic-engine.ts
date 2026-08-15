@@ -13,6 +13,7 @@ import {
   type AnthropicMessage,
 } from '../provider/anthropic'
 import { AnthropicStreamAccumulator } from '../provider/anthropic-stream'
+import { classifyAnthropicTerminal } from '../provider/anthropic-terminal'
 import { providerClientFromRow } from '../provider/client'
 import { UpstreamError } from '../provider/errors'
 import type { AnthropicReplayContextV1 } from '../provider/reasoning-replay'
@@ -104,14 +105,14 @@ export async function runAnthropicEngine(ctx: EngineContext): Promise<void> {
   const annotations: UrlCitation[] = []
   let searchActions: SearchAction[] = []
   let usage = { ...EMPTY_USAGE }
-  let state: 'completed' | 'incomplete' | 'failed' | 'canceled' = 'completed'
+  let state: 'completed' | 'incomplete' | 'failed' | 'canceled'
   let incompleteReason: string | null = null
   let errorMessage: string | null = null
   let errorType: string | null = null
   let errorCode: string | null = null
   let httpStatus: number | null = null
   let upstreamResponseId: string | null = null
-  let finalStopReason: string | null = null
+  let discardPartialOutput = false
   const rawContent: AnthropicContentBlock[] = []
   const searchActionById = new Map<string, SearchAction>()
   const searchOutputIndexById = new Map<string, number>()
@@ -120,6 +121,7 @@ export async function runAnthropicEngine(ctx: EngineContext): Promise<void> {
     const client = providerClientFromRow(ctx.provider)
     let requestBody = ctx.body
     let messages = continuationMessages(requestBody)
+    let finalStopReason: string | null
 
     for (let continuation = 0; ; continuation++) {
       const accumulator = new AnthropicStreamAccumulator()
@@ -227,25 +229,26 @@ export async function runAnthropicEngine(ctx: EngineContext): Promise<void> {
       requestBody = { ...ctx.body, messages }
     }
 
-    if (finalStopReason === 'max_tokens' || finalStopReason === 'model_context_window_exceeded') {
-      state = 'incomplete'
-      incompleteReason = finalStopReason
-    } else if (finalStopReason === 'refusal') {
+    const terminal = classifyAnthropicTerminal(finalStopReason)
+    state = terminal.state
+    incompleteReason = terminal.incompleteReason
+    errorType = terminal.errorType
+    discardPartialOutput = terminal.discardPartialOutput
+
+    if (terminal.errorType === 'refusal') {
       // 官方要求 refusal 丢弃拒绝前的部分输出；usage 仍保留上游实际计量。
       text = ''
       reasoning = ''
       annotations.length = 0
       searchActions = []
       rawContent.length = 0
-      state = 'failed'
       errorMessage = '模型拒绝了此请求，请调整内容后重试。'
-      errorType = 'refusal'
-    } else if (finalStopReason === 'tool_use') {
-      state = 'failed'
+    } else if (terminal.errorType === 'tool_use') {
       errorMessage = '模型请求了本站不支持的客户端工具，生成已停止。'
-      errorType = 'tool_use'
-    } else if (!finalStopReason) {
-      throw new Error('Anthropic 流未返回 stop_reason')
+    } else if (terminal.errorType === 'invalid_response') {
+      errorMessage = 'Anthropic 流未返回 stop_reason'
+    } else if (terminal.state === 'failed') {
+      errorMessage = `Anthropic 返回了不支持的结束原因：${finalStopReason}`
     }
   } catch (error) {
     if (ctx.abortController.signal.aborted) {
@@ -269,9 +272,7 @@ export async function runAnthropicEngine(ctx: EngineContext): Promise<void> {
     }
   }
 
-  const truncatedWithUnresolvedToolUse =
-    (finalStopReason === 'max_tokens' || finalStopReason === 'model_context_window_exceeded') &&
-    hasUnresolvedToolUse(rawContent)
+  const truncatedWithUnresolvedToolUse = state === 'incomplete' && hasUnresolvedToolUse(rawContent)
 
   await finalizeRun({
     run: ctx.run,
@@ -281,7 +282,7 @@ export async function runAnthropicEngine(ctx: EngineContext): Promise<void> {
     provider: ctx.provider,
     state,
     text,
-    ...(finalStopReason === 'refusal' ? { content: [] } : {}),
+    ...(discardPartialOutput ? { content: [] } : {}),
     reasoningSummary: reasoning || null,
     annotations,
     usage,
@@ -293,7 +294,7 @@ export async function runAnthropicEngine(ctx: EngineContext): Promise<void> {
     httpStatus,
     upstreamResponseId,
     providerReplayContext: truncatedWithUnresolvedToolUse ? null : replayContext(ctx, rawContent),
-    discardPartialOutput: finalStopReason === 'refusal',
+    discardPartialOutput,
     startedAt,
     persistEmit,
   })

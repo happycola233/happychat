@@ -10,6 +10,7 @@ import { computeGenerationDurationMs } from '../services/run-timing'
 import { runEmitter } from './emitter'
 import { storeGeneratedImageAttachment } from './generated-images'
 import type { EngineContext } from './types'
+import { errorTypeForAudit, terminalReasonForUsage } from './usage-audit'
 
 interface ImageResponse {
   data?: { b64_json?: string; revised_prompt?: string }[]
@@ -125,71 +126,88 @@ export async function runImageEngine(ctx: EngineContext): Promise<void> {
     },
     ctx.model.pricing,
   )
+  const terminalReason = terminalReasonForUsage(state, { errorType, errorCode })
+  const persistedErrorType = state === 'failed' ? errorTypeForAudit(errorType, errorCode) : null
 
-  db.update(messages)
-    .set({
-      content,
-      status: msgStatus,
-      runId: ctx.run.id,
-      reasoningDurationMs: null,
-      generationDurationMs,
-      inputTokens,
-      cacheWriteTokens: 0,
-      outputTokens,
-      totalTokens,
-      costUsd: messageCostUsd,
-      errorMessage: errorMessage ?? (state === 'canceled' ? '已停止生成' : null),
-    })
-    .where(eq(messages.id, ctx.assistantMessage.id))
-    .run()
+  const finalized = db.transaction((tx) => {
+    const finalizedRun = tx
+      .update(runs)
+      .set({ state, finishedAt, errorMessage, errorCode })
+      .where(and(eq(runs.id, ctx.run.id), inArray(runs.state, ['queued', 'running'])))
+      .returning({ id: runs.id })
+      .get()
+    if (!finalizedRun) return false
 
-  db.update(runs)
-    .set({ state, finishedAt, errorMessage })
-    .where(and(eq(runs.id, ctx.run.id), inArray(runs.state, ['queued', 'running'])))
-    .run()
+    tx.update(messages)
+      .set({
+        content,
+        status: msgStatus,
+        runId: ctx.run.id,
+        reasoningDurationMs: null,
+        generationDurationMs,
+        inputTokens,
+        cacheWriteTokens: 0,
+        outputTokens,
+        totalTokens,
+        costUsd: messageCostUsd,
+        errorMessage: errorMessage ?? (state === 'canceled' ? '已停止生成' : null),
+      })
+      .where(eq(messages.id, ctx.assistantMessage.id))
+      .run()
 
-  db.update(conversations)
-    .set({ activeLeafId: ctx.assistantMessage.id, modelId: ctx.model.id, updatedAt: new Date() })
-    .where(eq(conversations.id, ctx.conversation.id))
-    .run()
+    tx.update(conversations)
+      .set({ activeLeafId: ctx.assistantMessage.id, modelId: ctx.model.id, updatedAt: finishedAt })
+      .where(eq(conversations.id, ctx.conversation.id))
+      .run()
 
-  db.insert(usageLogs)
-    .values({
-      runId: ctx.run.id,
-      userId: ctx.run.userId,
-      modelId: ctx.model.id,
-      providerId: ctx.provider.id,
-      modelLabel: ctx.model.modelId,
-      providerLabel: ctx.provider.name,
-      pricingSnapshot: ctx.model.pricing,
-      conversationId: ctx.conversation.id,
-      inputTokens,
-      cacheWriteTokens: 0,
-      outputTokens,
-      totalTokens,
-      imageTokens,
-      quotaAt: ctx.run.createdAt,
-      success: state !== 'failed',
-      errorType: state === 'failed' ? (errorType ?? 'error') : null,
-    })
-    .run()
-
-  if (state === 'failed' && errorMessage) {
-    db.insert(errorLogs)
+    tx.insert(usageLogs)
       .values({
         runId: ctx.run.id,
         userId: ctx.run.userId,
-        scope: 'upstream',
-        errorType,
-        code: errorCode,
-        httpStatus,
-        message: errorMessage,
+        modelId: ctx.model.id,
+        providerId: ctx.provider.id,
+        modelLabel: ctx.model.modelId,
+        providerLabel: ctx.provider.name,
+        pricingSnapshot: ctx.model.pricing,
+        conversationId: ctx.conversation.id,
+        inputTokens,
+        cacheWriteTokens: 0,
+        outputTokens,
+        totalTokens,
+        imageTokens,
+        quotaAt: ctx.run.createdAt,
+        outcome: state,
+        terminalReason,
+        success: state !== 'failed',
+        errorType: persistedErrorType,
       })
       .run()
-  }
+
+    if (state === 'failed' && errorMessage) {
+      tx.insert(errorLogs)
+        .values({
+          runId: ctx.run.id,
+          userId: ctx.run.userId,
+          scope: 'upstream',
+          errorType: persistedErrorType,
+          code: errorCode,
+          httpStatus,
+          message: errorMessage,
+        })
+        .run()
+    }
+    return true
+  })
+
+  if (!finalized) return
 
   if (state === 'failed') {
-    persistEmit(RUN_EVENT_TYPE.error, { state: 'failed', message: errorMessage ?? '生成失败' })
+    const terminalErrorCode = errorCode ?? persistedErrorType
+    persistEmit(RUN_EVENT_TYPE.error, {
+      state: 'failed',
+      message: errorMessage ?? '生成失败',
+      ...(terminalErrorCode ? { code: terminalErrorCode } : {}),
+    })
   } else if (state === 'canceled') {
     persistEmit(RUN_EVENT_TYPE.canceled, { state: 'canceled' })
   } else {

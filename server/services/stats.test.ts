@@ -150,8 +150,16 @@ describe('user stats usage time', () => {
     const firstUsageAt = Date.UTC(2026, 5, 26, 13, 48, 0)
     const latestUsageAt = Date.UTC(2026, 5, 26, 15, 5, 30)
     const user = await insertUser(loginAt)
-    await insertUsageLog(firstUsageAt, { userId: user.id, modelLabel: 'gpt-5.5', totalTokens: 43026 })
-    await insertUsageLog(latestUsageAt, { userId: user.id, modelLabel: 'gpt-5.5', totalTokens: 26722 })
+    await insertUsageLog(firstUsageAt, {
+      userId: user.id,
+      modelLabel: 'gpt-5.5',
+      totalTokens: 43026,
+    })
+    await insertUsageLog(latestUsageAt, {
+      userId: user.id,
+      modelLabel: 'gpt-5.5',
+      totalTokens: 26722,
+    })
 
     const [stat] = await stats.getUserStats({ userId: user.id })
 
@@ -197,6 +205,104 @@ describe('usage event duration', () => {
     const result = await stats.listUsageEvents({ userId: user.id })
 
     expect(result.items[0]?.durationMs).toBeNull()
+  })
+})
+
+describe('usage event outcomes', () => {
+  it('filters mutually exclusive visible results while keeping the legacy success filter', async () => {
+    const user = await insertUser()
+    const start = Date.UTC(2026, 6, 1, 10)
+    const fixtures = [
+      { outcome: 'completed', terminalReason: null, result: 'completed', success: true },
+      {
+        outcome: 'incomplete',
+        terminalReason: 'max_output_tokens',
+        result: 'incomplete',
+        success: true,
+      },
+      { outcome: 'failed', terminalReason: 'refusal', result: 'refused', success: false },
+      {
+        outcome: 'failed',
+        terminalReason: 'content_filter',
+        result: 'filtered',
+        success: false,
+      },
+      { outcome: 'failed', terminalReason: 'rate_limit_error', result: 'failed', success: false },
+      { outcome: 'canceled', terminalReason: 'user_cancelled', result: 'canceled', success: true },
+      {
+        outcome: 'interrupted',
+        terminalReason: 'server_restart',
+        result: 'interrupted',
+        success: true,
+      },
+    ] as const
+
+    for (const [index, fixture] of fixtures.entries()) {
+      await insertUsageLog(start + index, {
+        userId: user.id,
+        outcome: fixture.outcome,
+        terminalReason: fixture.terminalReason,
+        success: fixture.success,
+      })
+    }
+
+    for (const fixture of fixtures) {
+      const result = await stats.listUsageEvents({ userId: user.id, result: fixture.result })
+      expect(result.items).toHaveLength(1)
+      expect(result.items[0]).toEqual(
+        expect.objectContaining({
+          outcome: fixture.outcome,
+          terminalReason: fixture.terminalReason,
+          result: fixture.result,
+        }),
+      )
+    }
+
+    const legacyFailures = await stats.listUsageEvents({ userId: user.id, success: false })
+    expect(legacyFailures.items.map((item) => item.result).sort()).toEqual([
+      'failed',
+      'filtered',
+      'refused',
+    ])
+  })
+
+  it('retains the conversation snapshot and terminal details after the run is deleted', async () => {
+    const user = await insertUser()
+    const [conversation] = await dbClient.db
+      .insert(schema.conversations)
+      .values({ userId: user.id })
+      .returning()
+    if (!conversation) throw new Error('failed to insert test conversation')
+
+    const [run] = await dbClient.db
+      .insert(schema.runs)
+      .values({ conversationId: conversation.id, userId: user.id, state: 'failed' })
+      .returning()
+    if (!run) throw new Error('failed to insert test run')
+
+    await insertUsageLog(Date.UTC(2026, 6, 1, 11), {
+      userId: user.id,
+      runId: run.id,
+      conversationId: conversation.id,
+      outcome: 'failed',
+      terminalReason: 'refusal',
+      success: false,
+    })
+    await dbClient.db
+      .delete(schema.conversations)
+      .where(eq(schema.conversations.id, conversation.id))
+
+    const result = await stats.listUsageEvents({ userId: user.id })
+    expect(result.items).toHaveLength(1)
+    expect(result.items[0]).toEqual(
+      expect.objectContaining({
+        runId: null,
+        conversationId: conversation.id,
+        outcome: 'failed',
+        terminalReason: 'refusal',
+        result: 'refused',
+      }),
+    )
   })
 })
 

@@ -3,10 +3,15 @@ import { streamSSE } from 'hono/streaming'
 import { and, asc, desc, eq, gt, inArray } from 'drizzle-orm'
 import { regenerateSchema, sendMessageSchema } from '@shared/schemas/chat'
 import type { ModelParams } from '@shared/types/domain'
-import { RUN_EVENT_TYPE, isTerminalEventType } from '@shared/types/events'
+import {
+  RUN_EVENT_TYPE,
+  isTerminalEventType,
+  type RunErrorData,
+  type RunSimpleTerminalData,
+} from '@shared/types/events'
 import { isReasoningEnabled } from '@shared/util/reasoning'
 import { db } from '../db/client'
-import { models, runEvents, runs } from '../db/schema'
+import { models, runEvents, runs, usageLogs } from '../db/schema'
 import { requireUser } from '../auth/middleware'
 import { jsonValidator } from '../http/validator'
 import { must } from '../lib/assert'
@@ -44,6 +49,23 @@ function terminalTypeFor(state: string): string {
     default:
       return RUN_EVENT_TYPE.done
   }
+}
+
+function terminalDataFor(
+  run: Pick<typeof runs.$inferSelect, 'state' | 'errorMessage' | 'errorCode'>,
+  terminalReason?: string | null,
+): Record<string, unknown> {
+  if (run.state === 'failed') {
+    const terminalErrorCode = run.errorCode ?? terminalReason ?? null
+    const discardPartialOutput = terminalReason === 'refusal' || terminalReason === 'content_filter'
+    return {
+      state: 'failed',
+      message: run.errorMessage ?? '生成失败',
+      ...(terminalErrorCode ? { code: terminalErrorCode } : {}),
+      ...(discardPartialOutput ? { discardPartialOutput: true } : {}),
+    } satisfies RunErrorData
+  }
+  return { state: run.state } satisfies RunSimpleTerminalData
 }
 
 async function getOwnedRun(userId: string, id: string) {
@@ -287,7 +309,20 @@ runRoutes.get('/:id/stream', async (c) => {
             if (isTerminalEventType(row.type)) sawTerminal = true
           }
           if (!sawTerminal) {
-            await writeEvent(terminalTypeFor(fresh.state), lastSeq + 1, { state: fresh.state })
+            const [usageSnapshot] =
+              fresh.state === 'failed'
+                ? await db
+                    .select({ terminalReason: usageLogs.terminalReason })
+                    .from(usageLogs)
+                    .where(eq(usageLogs.runId, fresh.id))
+                    .orderBy(desc(usageLogs.createdAt))
+                    .limit(1)
+                : []
+            await writeEvent(
+              terminalTypeFor(fresh.state),
+              lastSeq + 1,
+              terminalDataFor(fresh, usageSnapshot?.terminalReason),
+            )
           }
           return
         }

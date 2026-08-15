@@ -1,17 +1,20 @@
 import { and, desc, eq } from 'drizzle-orm'
 import { DEFAULT_TITLE_PROMPT } from '@shared/constants'
-import type { MessageUsage } from '@shared/types/domain'
+import type { MessageUsage, UsageOutcome } from '@shared/types/domain'
 import { textFromContent } from '@shared/util/contentText'
 import { anthropicModelProfile } from '@shared/util/anthropic'
 import { titleLocaleFromBrowser } from '@shared/util/titleLocale'
 import { db } from '../db/client'
 import { conversations, models, providers, runs, usageLogs } from '../db/schema'
 import { mapAnthropicUsage, type AnthropicUsage } from '../provider/anthropic'
+import { classifyAnthropicTerminal } from '../provider/anthropic-terminal'
 import { mapChatUsage } from '../provider/chat'
 import type { ChatChunk } from '../provider/chat'
+import { classifyChatTerminal } from '../provider/chat-terminal'
 import { providerClientFromRow } from '../provider/client'
 import { UpstreamError } from '../provider/errors'
 import { parseResponse } from '../provider/normalize'
+import { classifyResponsesTerminal } from '../provider/responses-terminal'
 import { buildPath, getConversationMessages } from './conversations'
 import { getAppConfig } from './appConfig'
 import { conversationEvents } from './conversation-events'
@@ -47,6 +50,8 @@ interface TitleModelResult {
   usage: MessageUsage
   success: boolean
   errorType: string | null
+  outcome: UsageOutcome
+  terminalReason: string | null
 }
 
 const EMPTY_USAGE: MessageUsage = {
@@ -58,25 +63,17 @@ const EMPTY_USAGE: MessageUsage = {
   totalTokens: 0,
 }
 
-function chatTitleTerminal(choice: {
-  message?: { refusal?: string | null }
-  finish_reason?: string | null
-}): Pick<TitleModelResult, 'success' | 'errorType'> {
-  if (choice.message?.refusal) return { success: false, errorType: 'refusal' }
-  if (choice.finish_reason === 'content_filter') {
-    return { success: false, errorType: 'content_filter' }
+function titleTerminalResult(terminal: {
+  state: 'completed' | 'incomplete' | 'failed'
+  incompleteReason: string | null
+  errorType: string | null
+}): Pick<TitleModelResult, 'success' | 'errorType' | 'outcome' | 'terminalReason'> {
+  return {
+    success: terminal.state !== 'failed',
+    errorType: terminal.errorType,
+    outcome: terminal.state,
+    terminalReason: terminal.errorType ?? terminal.incompleteReason,
   }
-  if (choice.finish_reason === 'tool_calls' || choice.finish_reason === 'function_call') {
-    return { success: false, errorType: 'tool_calls' }
-  }
-  if (
-    choice.finish_reason &&
-    choice.finish_reason !== 'stop' &&
-    choice.finish_reason !== 'length'
-  ) {
-    return { success: false, errorType: 'unsupported_finish_reason' }
-  }
-  return { success: true, errorType: null }
 }
 
 async function callTitleModel(
@@ -102,7 +99,12 @@ async function callTitleModel(
     return {
       text: choice.message?.content ?? '',
       usage: mapChatUsage(resp.usage),
-      ...chatTitleTerminal(choice),
+      ...titleTerminalResult(
+        classifyChatTerminal({
+          finishReason: choice.finish_reason,
+          refusalObserved: Boolean(choice.message?.refusal),
+        }),
+      ),
     }
   }
   if (m.kind === 'anthropic') {
@@ -123,15 +125,13 @@ async function callTitleModel(
       usage?: AnthropicUsage
       stop_reason?: string | null
     }
-    const refused = resp.stop_reason === 'refusal'
     return {
       text: (resp.content ?? [])
         .filter((block) => block.type === 'text')
         .map((block) => block.text ?? '')
         .join(''),
       usage: mapAnthropicUsage(resp.usage),
-      success: !refused,
-      errorType: refused ? 'refusal' : null,
+      ...titleTerminalResult(classifyAnthropicTerminal(resp.stop_reason)),
     }
   }
   const resp = await client.createResponse({
@@ -141,21 +141,11 @@ async function callTitleModel(
     store: false,
   })
   const parsed = parseResponse(resp)
-  const refused = resp.output?.some((item) => item.content?.some((part) => part.type === 'refusal'))
-  const contentFiltered =
-    parsed.status === 'incomplete' && parsed.incompleteReason === 'content_filter'
-  const terminalError = refused
-    ? 'refusal'
-    : contentFiltered
-      ? 'content_filter'
-      : parsed.status === 'completed' || parsed.status === 'incomplete'
-        ? null
-        : (parsed.error?.code ?? `response_${parsed.status}`)
+  const terminal = classifyResponsesTerminal(resp)
   return {
     text: parsed.text,
     usage: parsed.usage,
-    success: terminalError === null,
-    errorType: terminalError,
+    ...titleTerminalResult(terminal),
   }
 }
 
@@ -175,6 +165,8 @@ async function logTitleUsage(
   usage: MessageUsage,
   success: boolean,
   errorType: string | null,
+  outcome: UsageOutcome,
+  terminalReason: string | null,
 ): Promise<void> {
   await db.insert(usageLogs).values({
     userId,
@@ -193,11 +185,19 @@ async function logTitleUsage(
     totalTokens: usage.totalTokens,
     success,
     errorType,
+    outcome,
+    terminalReason,
   })
 }
 
-function titleCallErrorType(error: unknown): string {
-  return error instanceof UpstreamError ? (error.type ?? 'upstream_error') : 'upstream_error'
+function titleCallError(error: unknown): { errorType: string; terminalReason: string } {
+  if (error instanceof UpstreamError) {
+    return {
+      errorType: error.type ?? 'upstream_error',
+      terminalReason: error.code ?? error.type ?? 'upstream_error',
+    }
+  }
+  return { errorType: 'upstream_error', terminalReason: 'upstream_error' }
 }
 
 async function titleLocaleForRun(conversationId: string, runId?: string): Promise<string> {
@@ -267,11 +267,14 @@ export async function maybeGenerateTitle(conversationId: string, runId?: string)
       result = await callTitleModel(resolved.model, resolved.provider, prompt)
     } catch (error) {
       console.error('标题模型调用失败:', error)
+      const { errorType, terminalReason } = titleCallError(error)
       result = {
         text: '',
         usage: EMPTY_USAGE,
         success: false,
-        errorType: titleCallErrorType(error),
+        errorType,
+        outcome: 'failed',
+        terminalReason,
       }
     }
     await logTitleUsage(
@@ -282,6 +285,8 @@ export async function maybeGenerateTitle(conversationId: string, runId?: string)
       result.usage,
       result.success,
       result.errorType,
+      result.outcome,
+      result.terminalReason,
     )
     const title = (result.success ? cleanTitle(result.text) : '') || fallback
     const updatedAt = new Date()

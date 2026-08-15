@@ -2,7 +2,13 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import type { StatsQuery } from '../../api/admin'
-import { getAnalytics, getUserStats, listAdminModels, listProviders, listUsers } from '../../api/admin'
+import {
+  getAnalytics,
+  getUserStats,
+  listAdminModels,
+  listProviders,
+  listUsers,
+} from '../../api/admin'
 import { TrendChart, type SeriesDef } from '../../components/charts'
 import { cardSurface } from '../../components/ui/Card'
 import { DateRangePicker } from '../../components/ui/DateRangePicker'
@@ -154,7 +160,9 @@ export default function AnalyticsPage() {
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className={cardClass}>
-          <h2 className="mb-3 text-sm font-medium text-neutral-700 dark:text-neutral-200">请求数</h2>
+          <h2 className="mb-3 text-sm font-medium text-neutral-700 dark:text-neutral-200">
+            请求数
+          </h2>
           {analyticsLoading ? (
             <div className="flex h-[260px] items-center justify-center">
               <Spinner className="h-6 w-6 text-neutral-400" />
@@ -189,7 +197,9 @@ export default function AnalyticsPage() {
 
       {/* 表格外壳自带卡片描边，不再套一层卡片（双重边框显得笨重）。 */}
       <section>
-        <h2 className="mb-3 text-sm font-medium text-neutral-700 dark:text-neutral-200">分用户统计</h2>
+        <h2 className="mb-3 text-sm font-medium text-neutral-700 dark:text-neutral-200">
+          分用户统计
+        </h2>
         {userStatsLoading ? (
           <div className="flex h-40 items-center justify-center">
             <Spinner className="h-6 w-6 text-neutral-400" />
@@ -213,8 +223,8 @@ export default function AnalyticsPage() {
                     <th className={th}>图片</th>
                     <th className={th}>文件</th>
                     <th className={th}>成本</th>
-                    <th className={th}>错误</th>
-                    <th className={th}>成功率</th>
+                    <th className={th}>错误日志总数</th>
+                    <th className={th}>非失败率</th>
                     <th className={th}>最近使用</th>
                     <th className={th}>常用模型</th>
                     <th className={th}>操作</th>
@@ -241,7 +251,9 @@ export default function AnalyticsPage() {
                       <td className={`${td} tabular-nums`}>{formatUsd(u.costUsd)}</td>
                       <td className={`${td} tabular-nums`}>{formatInt(u.errors)}</td>
                       <td className={`${td} tabular-nums`}>{formatPercent(u.successRate)}</td>
-                      <td className={`${td} whitespace-nowrap text-neutral-500 dark:text-neutral-400`}>
+                      <td
+                        className={`${td} whitespace-nowrap text-neutral-500 dark:text-neutral-400`}
+                      >
                         {formatRelative(u.lastUsageAt)}
                       </td>
                       <td className={`${td} text-neutral-500 dark:text-neutral-400`}>

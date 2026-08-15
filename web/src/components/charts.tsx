@@ -125,7 +125,7 @@ interface HealthPoint {
   errors: number
 }
 
-/** 请求健康时间线：堆叠柱（成功绿 + 错误红）。 */
+/** 请求健康时间线：沿用 legacy success 审计口径，堆叠展示非失败与失败。 */
 export function HealthTimeline({
   data,
   bucket,
@@ -140,7 +140,7 @@ export function HealthTimeline({
   const axis = dark ? '#9ca3af' : '#6b7280'
   const rows = data.map((d) => ({
     ts: d.ts,
-    success: Math.max(0, d.requests - d.errors),
+    nonFailure: Math.max(0, d.requests - d.errors),
     errors: d.errors,
   }))
   return (
@@ -165,7 +165,7 @@ export function HealthTimeline({
           width={36}
         />
         <Tooltip content={<ChartTooltip valueFormat={(n) => String(n)} />} />
-        <Bar dataKey="success" name="成功" stackId="a" fill="#10b981" radius={[0, 0, 0, 0]} />
+        <Bar dataKey="nonFailure" name="非失败" stackId="a" fill="#10b981" radius={[0, 0, 0, 0]} />
         <Bar dataKey="errors" name="失败" stackId="a" fill="#ef4444" radius={[3, 3, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>

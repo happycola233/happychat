@@ -1,4 +1,5 @@
 import type { StatsQuery } from '../../api/admin'
+import type { UsageResult } from '@shared/types/domain'
 import { rangeToFilter, type RangeKey } from '../../lib/dateRange'
 
 export interface UsageEventsFilterState {
@@ -6,7 +7,8 @@ export interface UsageEventsFilterState {
   providerId: string
   modelId: string
   userId: string
-  successSel: string
+  /** 用户可见结果分类；比旧 success 布尔值能准确表达截断、取消、拒绝与过滤。 */
+  resultSel: UsageResult | ''
   /** 请求类型：''=全部，'chat'=仅对话，'title'=仅标题总结 */
   kindSel: string
   page: number
@@ -33,7 +35,7 @@ export function usageEventsQueryKey(filter: UsageEventsFilterState) {
     filter.providerId,
     filter.modelId,
     filter.userId,
-    filter.successSel,
+    filter.resultSel,
     filter.kindSel,
     filter.page,
     filter.pageSize,
@@ -46,7 +48,7 @@ export function buildUsageEventsQuery(filter: UsageEventsFilterState): StatsQuer
     providerId: filter.providerId || undefined,
     modelId: filter.modelId || undefined,
     userId: filter.userId || undefined,
-    success: filter.successSel === '' ? undefined : filter.successSel === 'true',
+    result: filter.resultSel || undefined,
     kind: filter.kindSel === 'chat' || filter.kindSel === 'title' ? filter.kindSel : undefined,
     page: filter.page,
     pageSize: filter.pageSize,
