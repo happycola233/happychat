@@ -576,11 +576,13 @@ export interface QuotaBucketUsageDTO {
   /** 已用占比，可能 >1（暂停限额或单次超支）；null=无限额度 */
   percent: number | null
   blocked: boolean
+  /** 首次请求起算窗口是否已有活动周期；其他窗口恒为 true。 */
+  periodActive: boolean
   /** 当前周期起点（窗口的真实起点，与临时额度/重置记录的绑定键一致） */
   periodStart: number
   /** 实际计量起点：手动重置后会晚于 periodStart，用于界面说明「已于某时重置」 */
   usageStart: number
-  /** 下次重置时刻；滚动窗口与永久累计为 null */
+  /** 下次整段重置时刻；滚动窗口、永久累计和未启动的首次请求周期为 null */
   periodEnd: number | null
   grants: QuotaGrantDTO[]
   /** 规则当前失效（如引用了已删除的分组）：不参与拦截，管理端标注 */
@@ -619,8 +621,8 @@ export interface AdminUserQuotaDTO {
   unlimited: boolean
   /** 用户级覆写条数（含专属规则），列表显示「已覆写 N 项」 */
   overrideCount: number
-  /** 进度最紧张的桶，用于列表进度条；无限额度时为 null */
-  highlight: QuotaBucketUsageDTO | null
+  /** 当前全部额度桶；包含失效、被更高优先级接管及显式豁免的规则，管理端不得隐藏。 */
+  rules: QuotaBucketUsageDTO[]
   blocked: boolean
   /** 最近一条模型请求用量日志的时间，与账号登录时间无关。 */
   lastUsageAt: number | null
@@ -631,6 +633,9 @@ export interface AdminUserQuotaDetailDTO {
   userId: string
   username: string
   displayName: string | null
+  /** 本快照的周期边界时区；前端必须用它格式化 periodStart / periodEnd / usageStart。 */
+  quotaTimezone: string
+  warnThreshold: number
   policyId: string | null
   policyName: string | null
   usingDefaultPolicy: boolean

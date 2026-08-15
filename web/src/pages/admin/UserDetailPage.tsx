@@ -1,11 +1,9 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, Gauge, Infinity as InfinityIcon, PauseCircle } from 'lucide-react'
-import { clsx } from 'clsx'
-import type { UsageLogDTO, UserStatDTO } from '@shared/types/api'
-import { formatQuotaAmount, formatQuotaCostUsd } from '@shared/util/quota'
-import { describeQuotaWindow } from '@shared/util/quotaWindow'
+import { ArrowLeft, Gauge, PauseCircle } from 'lucide-react'
+import type { AdminUserQuotaDetailDTO, UsageLogDTO, UserStatDTO } from '@shared/types/api'
+import { formatQuotaCostUsd } from '@shared/util/quota'
 import { getUsageEvents, getUserQuotaDetail, getUserStats } from '../../api/admin'
 import { StatCard } from '../../components/ui/StatCard'
 import { Badge } from '../../components/ui/Badge'
@@ -30,15 +28,52 @@ import {
   formatRelative,
   formatUsd,
 } from '../../lib/format'
+import { resolveQuotaRulesRefetchInterval } from '../../lib/quotaRefetch'
+import { UserQuotaBuckets } from './UserQuotaBuckets'
+import { quotaTimezoneLabel } from './userQuotaDisplay'
 
 /**
  * 限额状态卡：生效规则（含覆写来源）与按模型的消费构成。
  * 具体的编辑动作留在「用户限额」页的配置弹窗里，这里只做只读明细，避免两处实现同一套表单。
  */
+export function UserDetailQuotaCard({ detail }: { detail: AdminUserQuotaDetailDTO }) {
+  return (
+    <div className={`${cardSurface} p-5`}>
+      <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
+        <span>
+          策略：{detail.policyName ?? '无'}
+          {detail.usingDefaultPolicy && '（跟随默认）'}
+        </span>
+        {detail.enforcementPaused && (
+          <span className="inline-flex items-center gap-1 rounded bg-sky-50 px-1.5 py-px font-medium text-sky-600 dark:bg-sky-500/10 dark:text-sky-300">
+            <PauseCircle className="h-3 w-3" /> 限额已暂停（用量仍在累计）
+          </span>
+        )}
+        {detail.note && <span className="text-neutral-400">备注：{detail.note}</span>}
+        <span className="ml-auto">周期时间按 {quotaTimezoneLabel(detail.quotaTimezone)} 显示</span>
+      </div>
+
+      <UserQuotaBuckets
+        rules={detail.rules}
+        warnThreshold={detail.warnThreshold}
+        timezone={detail.quotaTimezone}
+      />
+    </div>
+  )
+}
+
 function UserQuotaSection({ userId }: { userId: string }) {
   const { data: detail } = useQuery({
     queryKey: ['admin', 'quota', 'user', userId],
     queryFn: () => getUserQuotaDetail(userId),
+    refetchInterval: (query) => {
+      const snapshot = query.state.data
+      if (!snapshot) return false
+      return resolveQuotaRulesRefetchInterval(snapshot.rules, {
+        warnThreshold: snapshot.warnThreshold,
+        refreshAllFixedBoundaries: true,
+      })
+    },
   })
   if (!detail) return null
 
@@ -55,66 +90,7 @@ function UserQuotaSection({ userId }: { userId: string }) {
         </Link>
       </div>
 
-      <div className={`${cardSurface} p-5`}>
-        <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
-          <span>
-            策略：{detail.policyName ?? '无'}
-            {detail.usingDefaultPolicy && '（跟随默认）'}
-          </span>
-          {detail.enforcementPaused && (
-            <span className="inline-flex items-center gap-1 rounded bg-sky-50 px-1.5 py-px font-medium text-sky-600 dark:bg-sky-500/10 dark:text-sky-300">
-              <PauseCircle className="h-3 w-3" /> 限额已暂停（用量仍在累计）
-            </span>
-          )}
-          {detail.note && <span className="text-neutral-400">备注：{detail.note}</span>}
-        </div>
-
-        {detail.rules.length === 0 ? (
-          <div className="flex items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400">
-            <InfinityIcon className="h-4 w-4 text-neutral-400" /> 无限额度
-          </div>
-        ) : (
-          <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
-            {detail.rules.map((rule) => (
-              <div key={`${rule.ruleId}:${rule.bucketKey ?? ''}`} className="py-2.5 first:pt-0">
-                <div className="flex items-center gap-2 text-xs">
-                  <span className="min-w-0 flex-1 truncate text-neutral-700 dark:text-neutral-200">
-                    {rule.bucketLabel ? `${rule.bucketLabel} · ` : ''}
-                    {describeQuotaWindow(rule.window)}
-                    {rule.metric === 'cost' ? '消费' : '请求'}
-                    {rule.source !== 'policy' && (
-                      <span className="ml-1.5 text-[10px] text-sky-600 dark:text-sky-400">
-                        {rule.source === 'override' ? '已覆写' : '专属'}
-                      </span>
-                    )}
-                  </span>
-                  <span className="shrink-0 tabular-nums text-neutral-500 dark:text-neutral-400">
-                    {formatQuotaAmount(rule.metric, rule.used)} /{' '}
-                    {rule.effectiveLimit === null
-                      ? '∞'
-                      : formatQuotaAmount(rule.metric, rule.effectiveLimit)}
-                  </span>
-                </div>
-                {rule.effectiveLimit !== null && (
-                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
-                    <div
-                      className={clsx(
-                        'h-full rounded-full',
-                        rule.blocked
-                          ? 'bg-rose-500 dark:bg-rose-400'
-                          : 'bg-sky-500 dark:bg-sky-400',
-                      )}
-                      style={{
-                        width: `${Math.min(100, Math.max(2, Math.round((rule.percent ?? 0) * 100)))}%`,
-                      }}
-                    />
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      <UserDetailQuotaCard detail={detail} />
 
       <div className={`${cardSurface} p-5`}>
         <div className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">

@@ -2,8 +2,8 @@ import { clsx } from 'clsx'
 import { Trash2 } from 'lucide-react'
 import type { AdminModelDTO, AdminModelGroupDTO } from '@shared/types/api'
 import { describeQuotaRule, isQuotaRuleNoOp } from '@shared/util/quota'
-import { QUOTA_MAX_RULE_PRIORITY, QUOTA_ROLLING_PRESET_HOURS } from '@shared/util/quota'
-import { describeRollingHours } from '@shared/util/quotaWindow'
+import { QUOTA_DURATION_PRESET_HOURS, QUOTA_MAX_RULE_PRIORITY } from '@shared/util/quota'
+import { describeQuotaHours } from '@shared/util/quotaWindow'
 import { Checkbox } from '../../components/ui/Checkbox'
 import { Select } from '../../components/ui/Select'
 import { Toggle } from '../../components/ui/Toggle'
@@ -277,38 +277,48 @@ export function QuotaRuleEditor({
               { value: 'day', label: '每天（自然日）' },
               { value: 'week', label: '每周（自然周）' },
               { value: 'month', label: '每月（自然月）' },
-              { value: 'rolling', label: '滚动窗口' },
+              { value: 'anchored', label: '首次请求起算（固定周期）' },
+              { value: 'rolling', label: '滚动窗口（逐步释放）' },
               { value: 'total', label: '永久累计（不重置）' },
             ]}
           />
-          {draft.windowChoice === 'rolling' && (
-            <div className="mt-2 flex items-center gap-1.5">
-              <input
-                value={draft.rollingHoursInput}
-                onChange={(event) => patch({ rollingHoursInput: event.target.value })}
-                inputMode="numeric"
-                aria-label="滚动窗口小时数"
-                className="w-20 rounded-lg border border-neutral-300 bg-white px-2.5 py-1.5 text-sm tabular-nums text-neutral-800 outline-none transition focus:border-sky-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:focus:border-sky-400"
-              />
-              <span className="text-xs text-neutral-400">小时</span>
-              <div className="ml-auto flex gap-1">
-                {QUOTA_ROLLING_PRESET_HOURS.map((hours) => (
-                  <button
-                    key={hours}
-                    type="button"
-                    onClick={() => patch({ rollingHoursInput: String(hours) })}
-                    className={clsx(
-                      'rounded-md px-1.5 py-0.5 text-[11px] transition',
-                      Number(draft.rollingHoursInput) === hours
-                        ? 'bg-sky-50 text-sky-600 dark:bg-sky-500/10 dark:text-sky-300'
-                        : 'text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-300',
-                    )}
-                  >
-                    {describeRollingHours(hours)}
-                  </button>
-                ))}
+          {(draft.windowChoice === 'rolling' || draft.windowChoice === 'anchored') && (
+            <>
+              <div className="mt-2 flex items-center gap-1.5">
+                <input
+                  value={draft.durationHoursInput}
+                  onChange={(event) => patch({ durationHoursInput: event.target.value })}
+                  inputMode="numeric"
+                  aria-label={
+                    draft.windowChoice === 'rolling' ? '滚动窗口小时数' : '固定周期小时数'
+                  }
+                  className="w-20 rounded-lg border border-neutral-300 bg-white px-2.5 py-1.5 text-sm tabular-nums text-neutral-800 outline-none transition focus:border-sky-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:focus:border-sky-400"
+                />
+                <span className="text-xs text-neutral-400">小时</span>
+                <div className="ml-auto flex gap-1">
+                  {QUOTA_DURATION_PRESET_HOURS.map((hours) => (
+                    <button
+                      key={hours}
+                      type="button"
+                      onClick={() => patch({ durationHoursInput: String(hours) })}
+                      className={clsx(
+                        'rounded-md px-1.5 py-0.5 text-[11px] transition',
+                        Number(draft.durationHoursInput) === hours
+                          ? 'bg-sky-50 text-sky-600 dark:bg-sky-500/10 dark:text-sky-300'
+                          : 'text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-300',
+                      )}
+                    >
+                      {describeQuotaHours(hours)}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+              <p className="mt-1.5 text-[11px] leading-4 text-neutral-400 dark:text-neutral-500">
+                {draft.windowChoice === 'anchored'
+                  ? '类似 Codex、Claude Code：首个请求启动整段周期，到期一次性清零；空闲时不计时。'
+                  : '始终统计过去这段时间，用量会随着旧请求滑出窗口而逐步释放。'}
+              </p>
+            </>
           )}
         </div>
 

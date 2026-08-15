@@ -170,6 +170,11 @@ function PreviewRow({
             已失效
           </span>
         )}
+        {!rule.periodActive && (
+          <span className="shrink-0 rounded bg-sky-50 px-1.5 py-px text-[10px] font-medium text-sky-600 dark:bg-sky-500/10 dark:text-sky-300">
+            首次请求后计时
+          </span>
+        )}
         <span className="shrink-0 tabular-nums text-neutral-500 dark:text-neutral-400">
           {formatQuotaAmount(rule.metric, rule.used)} /{' '}
           {rule.effectiveLimit === null ? '∞' : formatQuotaAmount(rule.metric, rule.effectiveLimit)}
@@ -370,9 +375,12 @@ export function UserQuotaDialog({
   const activeGrants = (detail?.adjustments ?? []).filter(
     (row) => row.kind === 'grant' && row.active,
   )
-  // 只有真正在生效的限额桶才能赠送：豁免、失效与被更高优先级接管的桶收到赠送也不会有任何效果。
+  // 只有真正在生效的活动周期才能赠送；未启动的固定周期没有可绑定的到期点。
   const grantableRules = (preview?.rules ?? []).filter(
-    (rule) => rule.limit.kind === 'amount' && !rule.invalid && !rule.shadowed,
+    (rule) => rule.limit.kind === 'amount' && rule.periodActive && !rule.invalid && !rule.shadowed,
+  )
+  const hasResettablePeriods = (preview?.rules ?? []).some(
+    (rule) => rule.limit.kind === 'amount' && rule.periodActive && !rule.invalid && !rule.shadowed,
   )
   const grantRule = grantableRules.find((rule) => rule.ruleId === grantForm.ruleId)
   const grantBuckets = grantableRules.filter((rule) => rule.ruleId === grantForm.ruleId)
@@ -446,7 +454,10 @@ export function UserQuotaDialog({
                 当前策略没有规则（无限额度），可在下方添加只对该用户生效的专属规则。
               </p>
             ) : (
-              <div className="space-y-2">
+              <div
+                role="list"
+                className="divide-y divide-neutral-100 overflow-hidden rounded-xl border border-neutral-200 dark:divide-neutral-800 dark:border-neutral-700"
+              >
                 {templateRules.map((rule) => {
                   const draft = overrideFor(rule)
                   const patch = (changes: Partial<RuleOverrideDraft>) =>
@@ -455,10 +466,7 @@ export function UserQuotaDialog({
                       [rule.id]: { ...draft, ...changes },
                     }))
                   return (
-                    <div
-                      key={rule.id}
-                      className="rounded-xl border border-neutral-200 px-3 py-2.5 dark:border-neutral-700"
-                    >
+                    <div key={rule.id} role="listitem" className="px-3 py-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="min-w-0">
                           <div className="truncate text-sm text-neutral-800 dark:text-neutral-100">
@@ -496,7 +504,7 @@ export function UserQuotaDialog({
                       </div>
 
                       {draft.mode === 'override' && (
-                        <div className="mt-2.5 grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                        <div className="mt-3 grid gap-2 border-t border-neutral-100 pt-3 sm:grid-cols-[1fr_1fr_auto] dark:border-neutral-800">
                           <div className="relative">
                             <input
                               value={draft.limitInput}
@@ -586,6 +594,7 @@ export function UserQuotaDialog({
               </h3>
               <button
                 type="button"
+                disabled={!hasResettablePeriods}
                 onClick={async () => {
                   if (
                     await askConfirm({
@@ -597,7 +606,7 @@ export function UserQuotaDialog({
                     resetPeriod.mutate({})
                   }
                 }}
-                className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
+                className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-neutral-400 transition enabled:hover:bg-neutral-100 enabled:hover:text-neutral-600 disabled:cursor-not-allowed disabled:opacity-40 dark:enabled:hover:bg-neutral-800 dark:enabled:hover:text-neutral-300"
               >
                 <RotateCcw className="h-3 w-3" /> 重置全部周期
               </button>
@@ -618,7 +627,10 @@ export function UserQuotaDialog({
                       key={`${rule.ruleId}:${rule.bucketKey ?? ''}`}
                       rule={rule}
                       onReset={
-                        rule.invalid || rule.shadowed || rule.limit.kind === 'unlimited'
+                        !rule.periodActive ||
+                        rule.invalid ||
+                        rule.shadowed ||
+                        rule.limit.kind === 'unlimited'
                           ? undefined
                           : async () => {
                               if (

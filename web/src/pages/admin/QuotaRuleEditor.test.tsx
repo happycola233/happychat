@@ -109,10 +109,19 @@ describe('QuotaRuleEditor', () => {
   })
 
   it('滚动窗口显示小时输入与预设档位', () => {
-    const html = render(draft({ windowChoice: 'rolling', rollingHoursInput: '5' }))
+    const html = render(draft({ windowChoice: 'rolling', durationHoursInput: '5' }))
     expect(html).toContain('滚动窗口小时数')
     expect(html).toContain('5 小时')
     expect(html).toContain('7 天')
+    expect(html).toContain('逐步释放')
+  })
+
+  it('首次请求起算周期明确说明固定周期语义', () => {
+    const html = render(draft({ windowChoice: 'anchored', durationHoursInput: '5' }))
+    expect(html).toContain('固定周期小时数')
+    expect(html).toContain('类似 Codex、Claude Code')
+    expect(html).toContain('首个请求启动整段周期')
+    expect(html).toContain('空闲时不计时')
   })
 
   it('外层传入的错误信息优先于摘要显示', () => {

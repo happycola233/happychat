@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, sql, type SQL } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, isNull, or, sql, type SQL } from 'drizzle-orm'
 import type {
   AppConfigDTO,
   MyQuotaDTO,
@@ -21,14 +21,16 @@ import {
   normalizeUserQuotaOverrides,
   resolveEffectiveQuota,
 } from '@shared/util/quota'
-import { describeQuotaWindow, resolveQuotaPeriod } from '@shared/util/quotaWindow'
+import { HOUR_MS, describeQuotaWindow, resolveQuotaPeriod } from '@shared/util/quotaWindow'
 import { db } from '../db/client'
+import type { DB } from '../db/client'
 import {
   modelGroups,
   modelUserAccess,
   models,
   providers,
   quotaAdjustments,
+  quotaCycles,
   quotaPolicies,
   runs,
   usageLogs,
@@ -87,6 +89,7 @@ interface QuotaBucket {
   modelIds: string[] | null
   periodStart: number
   periodEnd: number | null
+  periodActive: boolean
   /** 扣除手动重置后的实际统计起点 */
   usageStart: number
   invalid: boolean
@@ -99,6 +102,14 @@ interface UsageAggregate {
   totalCost: number
   requestsByModel: Map<string, number>
   costByModel: Map<string, number>
+}
+
+interface QuotaCycleRow {
+  ruleId: string
+  bucketKey: string
+  windowHours: number
+  startedAt: number
+  endsAt: number
 }
 
 const PENDING_RUN_STATES = ['queued', 'running'] as const
@@ -161,18 +172,54 @@ async function listGroupNames(groupIds: string[]): Promise<Map<string, string>> 
 }
 
 const modelKey = (modelId: string | null) => modelId ?? ''
+const storedBucketKey = (bucketKey: string | null) => bucketKey ?? ''
+const cycleMapKey = (ruleId: string, bucketKey: string | null) =>
+  JSON.stringify([ruleId, storedBucketKey(bucketKey)])
+
+async function listQuotaCycles(userId: string, ruleIds: string[]): Promise<QuotaCycleRow[]> {
+  if (ruleIds.length === 0) return []
+  const rows = await db
+    .select({
+      ruleId: quotaCycles.ruleId,
+      bucketKey: quotaCycles.bucketKey,
+      windowHours: quotaCycles.windowHours,
+      startedAt: quotaCycles.startedAt,
+      endsAt: quotaCycles.endsAt,
+    })
+    .from(quotaCycles)
+    .where(and(eq(quotaCycles.userId, userId), inArray(quotaCycles.ruleId, ruleIds)))
+  return rows.map((row) => ({
+    ...row,
+    startedAt: row.startedAt.getTime(),
+    endsAt: row.endsAt.getTime(),
+  }))
+}
 
 /**
  * 聚合某统计起点之后的用量。
  *
  * - 成本按 `pricing_snapshot` 分组累加，与 `services/stats.ts` 完全同口径；
+ * - 只统计用户对话/生图的 `kind='chat'`；标题总结保留审计与成本日志，但永不占用户额度；
  * - 失败请求（`success=0`）既不计费也不计次，不消耗用户额度；
  * - 队列中/生成中的 run 补计入「请求次数」——`usage_logs` 要等 finalize 才写行，
  *   不补这一段的话并发连发能在计数追上之前突破次数上限。
  */
 async function aggregateUsageSince(userId: string, startMs: number): Promise<UsageAggregate> {
-  const conditions: SQL[] = [eq(usageLogs.userId, userId), eq(usageLogs.success, true)]
-  if (startMs > 0) conditions.push(gte(usageLogs.createdAt, new Date(startMs)))
+  const conditions: SQL[] = [
+    eq(usageLogs.userId, userId),
+    eq(usageLogs.kind, 'chat'),
+    eq(usageLogs.success, true),
+  ]
+  if (startMs > 0) {
+    // 用量日志要等响应结束才写入；限额归属必须固定在请求获准时刻，否则跨周期完成的长请求
+    // 会被算进下一个周期。迁移前的旧行没有 quota_at，安全回退 created_at。
+    conditions.push(
+      or(
+        gte(usageLogs.quotaAt, new Date(startMs)),
+        and(isNull(usageLogs.quotaAt), gte(usageLogs.createdAt, new Date(startMs))),
+      )!,
+    )
+  }
 
   const rows = await db
     .select({
@@ -251,7 +298,7 @@ const targetOfBucket = (bucket: QuotaBucket): AdjustmentTarget => ({
 /**
  * 调整记录（临时额度 / 手动重置）是否作用于某个桶的当前周期。
  *
- * 周期判据是「生效时刻不早于统计窗口起点」，对三种窗口统一成立：日历周期下，上一周期
+ * 周期判据是「生效时刻不早于统计窗口起点」，对各类活动窗口统一成立：日历周期下，上一周期
  * 的记录自然落在本周期 `periodStart` 之前；滚动窗口的 `periodStart` 每毫秒前移，
  * `effectiveFrom >= now - 窗口长度` 恰好等价于「记录还在窗口内」——**不能**改用
  * `periodStart` 相等匹配，那样滚动窗口的赠送与重置写完下一次查询就会失效；
@@ -276,14 +323,14 @@ export function isQuotaAdjustmentActive(
   now: number,
 ): boolean {
   if (row.expiresAt !== null && row.expiresAt <= now) return false
-  return buckets.some((bucket) => adjustmentApplies(row, bucket))
+  return buckets.some((bucket) => bucket.periodActive && adjustmentApplies(row, bucket))
 }
 
 interface BucketContext {
   modelsById: Map<string, QuotaModelRow>
   modelsByGroup: Map<string, string[]>
   groupNames: Map<string, string>
-  period: { startMs: number; endMs: number | null }
+  period: { startMs: number; endMs: number | null; active: boolean }
   /** 该模型是否已被更高优先级规则接管：对本条规则既不计量也不拦截 */
   isShadowed: (modelId: string) => boolean
 }
@@ -322,6 +369,7 @@ function expandRuleBuckets(rule: EffectiveQuotaRule, context: BucketContext): Qu
     rule,
     periodStart: context.period.startMs,
     periodEnd: context.period.endMs,
+    periodActive: context.period.active,
     usageStart: context.period.startMs,
     invalid: false,
     shadowed: false,
@@ -505,47 +553,84 @@ export async function getQuotaSnapshot(
     }
   }
 
-  const modelRows = await listQuotaModels(userId)
+  const groupIds = [
+    ...new Set(rules.flatMap((rule) => (rule.scope.type === 'groups' ? rule.scope.groupIds : []))),
+  ]
+  const anchoredRuleIds = rules
+    .filter((rule) => rule.window.type === 'anchored')
+    .map((rule) => rule.id)
+  const [modelRows, groupNames, adjustments, cycleRows] = await Promise.all([
+    listQuotaModels(userId),
+    listGroupNames(groupIds),
+    options.adjustments ?? listQuotaAdjustments(userId),
+    listQuotaCycles(userId, anchoredRuleIds),
+  ])
   const modelsById = new Map(modelRows.map((row) => [row.id, row]))
   const modelsByGroup = new Map<string, string[]>()
   for (const row of modelRows) {
     if (!row.groupId) continue
     modelsByGroup.set(row.groupId, [...(modelsByGroup.get(row.groupId) ?? []), row.id])
   }
-  const groupNames = await listGroupNames([
-    ...new Set(rules.flatMap((rule) => (rule.scope.type === 'groups' ? rule.scope.groupIds : []))),
-  ])
-  const adjustments = options.adjustments ?? (await listQuotaAdjustments(userId))
+  const cycleByBucket = new Map(
+    cycleRows.map((cycle) => [
+      cycleMapKey(cycle.ruleId, cycle.bucketKey === '' ? null : cycle.bucketKey),
+      cycle,
+    ]),
+  )
 
   // 1) 展开桶，按优先级遮蔽剔除被更高优先级规则接管的模型，并按「手动重置」抬高统计起点
   const sharedContext = {
     modelsById,
     modelsByGroup,
     groupNames,
-    period: { startMs: 0, endMs: null },
+    period: { startMs: 0, endMs: null, active: true },
     isShadowed: () => false,
   }
   const topPriorityByModel = resolveTopPriorityByModel(rules, sharedContext)
   const buckets: QuotaBucket[] = []
   for (const rule of rules) {
-    const period = resolveQuotaPeriod(rule.window, now, {
+    const basePeriod = resolveQuotaPeriod(rule.window, now, {
       timezone: config.quotaTimezone,
       weekStart: config.quotaWeekStart,
     })
-    for (const bucket of expandRuleBuckets(rule, {
+    for (const expandedBucket of expandRuleBuckets(rule, {
       ...sharedContext,
-      period,
+      period: basePeriod,
       isShadowed: (modelId) => (topPriorityByModel.get(modelId) ?? 0) > rule.priority,
     })) {
+      const cycle =
+        rule.window.type === 'anchored'
+          ? cycleByBucket.get(cycleMapKey(rule.id, expandedBucket.bucketKey))
+          : undefined
+      const period =
+        rule.window.type === 'anchored'
+          ? resolveQuotaPeriod(rule.window, now, {
+              timezone: config.quotaTimezone,
+              weekStart: config.quotaWeekStart,
+              anchoredStartMs:
+                cycle?.windowHours === rule.window.hours && cycle.endsAt > now
+                  ? cycle.startedAt
+                  : null,
+            })
+          : basePeriod
+      const bucket: QuotaBucket = {
+        ...expandedBucket,
+        periodStart: period.startMs,
+        periodEnd: period.endMs,
+        periodActive: period.active,
+        usageStart: period.startMs,
+      }
       const target = targetOfBucket(bucket)
-      const latestReset = adjustments.reduce(
-        (max, row) =>
-          row.kind === 'reset' && adjustmentApplies(row, target)
-            ? Math.max(max, row.effectiveFrom)
-            : max,
-        0,
-      )
-      // 聚合条件是 `created_at >= usageStart`，而重置语义是「重置时刻及之前的用量不再计入」，
+      const latestReset = bucket.periodActive
+        ? adjustments.reduce(
+            (max, row) =>
+              row.kind === 'reset' && adjustmentApplies(row, target)
+                ? Math.max(max, row.effectiveFrom)
+                : max,
+            0,
+          )
+        : 0
+      // 聚合条件是 `quota_at >= usageStart`，而重置语义是「重置时刻及之前的用量不再计入」，
       // 因此起点取重置时刻的下一毫秒；同毫秒内先写的用量日志不会侥幸留下。
       buckets.push({
         ...bucket,
@@ -556,24 +641,28 @@ export async function getQuotaSnapshot(
 
   // 2) 按统计起点去重聚合：同一起点的所有桶共用一次查询
   const aggregates = new Map<number, UsageAggregate>()
-  for (const start of new Set(buckets.map((bucket) => bucket.usageStart))) {
+  for (const start of new Set(
+    buckets.filter((bucket) => bucket.periodActive).map((bucket) => bucket.usageStart),
+  )) {
     aggregates.set(start, await aggregateUsageSince(userId, start))
   }
 
   // 3) 叠加当前周期内仍有效的临时额度并评估
   const usageRules: QuotaBucketUsageDTO[] = buckets.map((bucket) => {
-    const aggregate = aggregates.get(bucket.usageStart)!
+    const aggregate = bucket.periodActive ? aggregates.get(bucket.usageStart)! : null
     const used =
-      bucket.invalid || bucket.shadowed
+      !bucket.periodActive || bucket.invalid || bucket.shadowed
         ? 0
-        : sumUsage(aggregate, bucket.modelIds, bucket.rule.metric)
-    const grantRows = adjustments.filter(
-      (row) =>
-        row.kind === 'grant' &&
-        row.metric === bucket.rule.metric &&
-        (row.expiresAt === null || row.expiresAt > now) &&
-        adjustmentApplies(row, targetOfBucket(bucket)),
-    )
+        : sumUsage(aggregate!, bucket.modelIds, bucket.rule.metric)
+    const grantRows = bucket.periodActive
+      ? adjustments.filter(
+          (row) =>
+            row.kind === 'grant' &&
+            row.metric === bucket.rule.metric &&
+            (row.expiresAt === null || row.expiresAt > now) &&
+            adjustmentApplies(row, targetOfBucket(bucket)),
+        )
+      : []
     const granted = grantRows.reduce((sum, row) => sum + (row.amount ?? 0), 0)
     const evaluation = evaluateQuotaLimit({ limit: bucket.rule.limit, used, granted })
     return {
@@ -593,7 +682,9 @@ export async function getQuotaSnapshot(
       remaining: evaluation.remaining,
       percent: evaluation.percent,
       // 失效规则（目标已不存在）与被更高优先级接管的桶永不拦截。
-      blocked: bucket.invalid || bucket.shadowed ? false : evaluation.blocked,
+      blocked:
+        !bucket.periodActive || bucket.invalid || bucket.shadowed ? false : evaluation.blocked,
+      periodActive: bucket.periodActive,
       periodStart: bucket.periodStart,
       usageStart: bucket.usageStart,
       periodEnd: bucket.periodEnd,
@@ -697,24 +788,128 @@ export type QuotaCheckResult =
   | { ok: true }
   | { ok: false; message: string; ruleId: string; bucketKey: string | null }
 
+/** 一次获准请求需要确保已启动的首次请求周期；由读取阶段计算，在写事务中应用。 */
+export interface QuotaCycleClaim {
+  ruleId: string
+  bucketKey: string | null
+  windowHours: number
+}
+
+export interface PreparedQuotaAdmission {
+  check: QuotaCheckResult
+  cycleClaims: QuotaCycleClaim[]
+}
+
+type QuotaTransaction = Parameters<Parameters<DB['transaction']>[0]>[0]
+
 /**
- * 发起生成前的额度校验。两个有意的取舍：
+ * 在调用方的 IMMEDIATE 写事务内原子确保周期锚点存在。
+ *
+ * 相同用户/规则/桶由复合主键串行化：并发通过前置校验的请求会共享首个请求的锚点；
+ * 已过期周期则由首个拿到写锁的请求开启下一周期。
+ */
+export function activateQuotaCyclesInTransaction(
+  tx: QuotaTransaction,
+  userId: string,
+  claims: QuotaCycleClaim[],
+  requestAt: Date,
+): void {
+  for (const claim of claims) {
+    const bucketKey = storedBucketKey(claim.bucketKey)
+    const existing = tx
+      .select({ windowHours: quotaCycles.windowHours, endsAt: quotaCycles.endsAt })
+      .from(quotaCycles)
+      .where(
+        and(
+          eq(quotaCycles.userId, userId),
+          eq(quotaCycles.ruleId, claim.ruleId),
+          eq(quotaCycles.bucketKey, bucketKey),
+        ),
+      )
+      .get()
+    if (
+      existing?.windowHours === claim.windowHours &&
+      existing.endsAt.getTime() > requestAt.getTime()
+    ) {
+      continue
+    }
+
+    const endsAt = new Date(requestAt.getTime() + claim.windowHours * HOUR_MS)
+    tx.insert(quotaCycles)
+      .values({
+        userId,
+        ruleId: claim.ruleId,
+        bucketKey,
+        windowHours: claim.windowHours,
+        startedAt: requestAt,
+        endsAt,
+        updatedAt: requestAt,
+      })
+      .onConflictDoUpdate({
+        target: [quotaCycles.userId, quotaCycles.ruleId, quotaCycles.bucketKey],
+        set: { windowHours: claim.windowHours, startedAt: requestAt, endsAt, updatedAt: requestAt },
+      })
+      .run()
+  }
+}
+
+/** 没有其他业务写入可同事务提交时使用（目前仅供管理动作与服务层测试复用）。 */
+export function activateQuotaCycles(
+  userId: string,
+  claims: QuotaCycleClaim[],
+  requestAt: Date,
+): void {
+  if (claims.length === 0) return
+  db.transaction((tx) => activateQuotaCyclesInTransaction(tx, userId, claims, requestAt), {
+    behavior: 'immediate',
+  })
+}
+
+function cycleClaimsForModel(snapshot: QuotaSnapshot, modelDbId: string): QuotaCycleClaim[] {
+  const claims: QuotaCycleClaim[] = []
+  snapshot.rules.forEach((rule, index) => {
+    if (
+      rule.window.type !== 'anchored' ||
+      rule.limit.kind !== 'amount' ||
+      rule.invalid ||
+      rule.shadowed
+    ) {
+      return
+    }
+    const modelIds = snapshot.bucketModelIds[index] ?? null
+    if (modelIds !== null && !modelIds.includes(modelDbId)) return
+    claims.push({ ruleId: rule.ruleId, bucketKey: rule.bucketKey, windowHours: rule.window.hours })
+  })
+  return claims
+}
+
+/**
+ * 发起生成前同时准备「是否放行」与固定周期声明。两个有意的取舍：
  *
  * - 成本型额度只能事后计量（token 要等响应结束才知道），因此剩余额度极少时仍会放行一次请求、
  *   可能小幅超支；这是「不误拦」优先于「绝不超支」的选择。次数型额度靠在途 run 计数收敛。
  * - 「暂停限额」只跳过这里的判定，用量照常写入 `usage_logs`；恢复后立即按累计值重新判定，
  *   若期间已超支则恢复瞬间进入「已耗尽」。
+ * - 固定周期从首个获准请求开始；即使上游随后失败，周期仍已开始，但失败日志本身不消耗额度。
  */
-export async function checkQuota(userId: string, modelDbId: string): Promise<QuotaCheckResult> {
+export async function prepareQuotaAdmission(
+  userId: string,
+  modelDbId: string,
+): Promise<PreparedQuotaAdmission> {
   const config = await getQuotaConfig()
-  if (!config.quotaEnabled) return { ok: true }
-
   const binding = await getUserQuotaBinding(userId)
-  if (binding.enforcementPaused) return { ok: true }
-  if (isQuotaUnlimited(binding.rules)) return { ok: true }
+  const shouldEnforce =
+    config.quotaEnabled && !binding.enforcementPaused && !isQuotaUnlimited(binding.rules)
+  const needsCycleClaims = binding.rules.some(
+    (rule) => rule.window.type === 'anchored' && rule.limit.kind === 'amount',
+  )
+  if (!shouldEnforce && !needsCycleClaims) return { check: { ok: true }, cycleClaims: [] }
 
   const snapshot = await getQuotaSnapshot(userId, { config, binding })
-  if (!snapshot.blockedModelIds.includes(modelDbId)) return { ok: true }
+  const cycleClaims = cycleClaimsForModel(snapshot, modelDbId)
+  if (!shouldEnforce || !snapshot.blockedModelIds.includes(modelDbId)) {
+    return { check: { ok: true }, cycleClaims }
+  }
 
   const blockingBuckets = snapshot.rules.filter((rule, index) => {
     if (!rule.blocked) return false
@@ -722,11 +917,19 @@ export async function checkQuota(userId: string, modelDbId: string): Promise<Quo
     return modelIds === null || modelIds.includes(modelDbId)
   })
   const bucket = sortQuotaBucketsBySeverity(blockingBuckets)[0]
-  if (!bucket) return { ok: true }
+  if (!bucket) return { check: { ok: true }, cycleClaims }
   return {
-    ok: false,
-    message: describeQuotaBlock(bucket, config.quotaTimezone),
-    ruleId: bucket.ruleId,
-    bucketKey: bucket.bucketKey,
+    check: {
+      ok: false,
+      message: describeQuotaBlock(bucket, config.quotaTimezone),
+      ruleId: bucket.ruleId,
+      bucketKey: bucket.bucketKey,
+    },
+    cycleClaims: [],
   }
+}
+
+/** 兼容只需要判定、不创建 run 的调用方与测试。 */
+export async function checkQuota(userId: string, modelDbId: string): Promise<QuotaCheckResult> {
+  return (await prepareQuotaAdmission(userId, modelDbId)).check
 }

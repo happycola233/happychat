@@ -168,6 +168,7 @@ export async function runImageEngine(ctx: EngineContext): Promise<void> {
       outputTokens,
       totalTokens,
       imageTokens,
+      quotaAt: ctx.run.createdAt,
       success: state !== 'failed',
       errorType: state === 'failed' ? (errorType ?? 'error') : null,
     })

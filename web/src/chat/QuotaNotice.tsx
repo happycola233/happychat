@@ -7,6 +7,7 @@ import { formatQuotaAmount } from '@shared/util/quota'
 import { describeQuotaWindow } from '@shared/util/quotaWindow'
 import { useMyQuota, resolveQuotaNotice, type QuotaNoticeLevel } from '../hooks/useQuota'
 import { useChatPrefs } from '../store/chat'
+import { quotaWarningDismissKey } from './quotaNoticeDismissal'
 
 /** 各状态的配色与图标；浅/深色分别取足够的对比又不抢过输入框。 */
 const LEVEL_STYLES: Record<
@@ -80,8 +81,8 @@ function noticeText(level: Exclude<QuotaNoticeLevel, 'none'>, rule: QuotaBucketU
  * 由 `Composer` 的 `notice` 插槽渲染在视觉盒上方（且位于 Composer 根节点内），
  * 因此它会自动计入 Composer 上报的高度，底部遮罩与「滚动到底部」按钮的位置无需另行调整。
  *
- * 「接近上限」可手动关闭：关闭状态按「规则 + 当前周期」记忆在 sessionStorage，
- * 下个周期或换一条规则时会重新提示；已耗尽/暂停两态不可关闭。
+ * 「接近上限」可手动关闭：整段周期按稳定周期起点记忆；滚动窗口没有稳定起点，
+ * 因而按「规则 + 桶 + 窗口配置」在当前标签页内记忆。已耗尽/暂停两态不可关闭。
  */
 export function QuotaNotice() {
   const { data: quota } = useMyQuota()
@@ -90,7 +91,7 @@ export function QuotaNotice() {
   const { level, rule } = resolveQuotaNotice(quota, activeModelId)
 
   if (level === 'none' || !rule) return null
-  const key = dismissKey(rule)
+  const key = quotaWarningDismissKey(rule)
   const dismissible = level === 'warning'
   if (dismissible && dismissedKey === key) return null
 
@@ -116,7 +117,7 @@ export function QuotaNotice() {
         {dismissible && (
           <button
             type="button"
-            aria-label="不再提示本周期"
+            aria-label="暂不提示"
             onClick={() => {
               writeDismissed(key)
               setDismissedKey(key)
@@ -132,11 +133,6 @@ export function QuotaNotice() {
 }
 
 const DISMISS_STORAGE_KEY = 'happychat-quota-warn-dismissed'
-
-/** 关闭记忆的键含周期起点：新周期自然重新提示，不需要清理旧记录。 */
-function dismissKey(rule: QuotaBucketUsageDTO): string {
-  return `${rule.ruleId}:${rule.bucketKey ?? ''}:${rule.periodStart}`
-}
 
 function readDismissed(): string | null {
   try {

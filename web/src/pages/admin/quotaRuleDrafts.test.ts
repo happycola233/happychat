@@ -58,21 +58,23 @@ describe('ruleFromDraft', () => {
     expect(ruleFromDraft(baseDraft({ metric: 'cost', limitInput: '2.5' })).ok).toBe(true)
   })
 
-  it('滚动窗口校验小时数范围', () => {
-    expect(ruleFromDraft(baseDraft({ windowChoice: 'rolling', rollingHoursInput: '5' })).ok).toBe(
+  it('滚动窗口与首次请求周期校验小时数范围', () => {
+    expect(ruleFromDraft(baseDraft({ windowChoice: 'rolling', durationHoursInput: '5' })).ok).toBe(
       true,
     )
-    expect(ruleFromDraft(baseDraft({ windowChoice: 'rolling', rollingHoursInput: '0' })).ok).toBe(
+    expect(ruleFromDraft(baseDraft({ windowChoice: 'rolling', durationHoursInput: '0' })).ok).toBe(
       false,
     )
     expect(
-      ruleFromDraft(baseDraft({ windowChoice: 'rolling', rollingHoursInput: '9000' })).ok,
+      ruleFromDraft(baseDraft({ windowChoice: 'rolling', durationHoursInput: '9000' })).ok,
     ).toBe(false)
-    expect(ruleFromDraft(baseDraft({ windowChoice: 'rolling', rollingHoursInput: '1.5' })).ok).toBe(
-      false,
-    )
-    // 非滚动窗口时小时数不参与校验
-    expect(ruleFromDraft(baseDraft({ rollingHoursInput: 'oops' })).ok).toBe(true)
+    expect(
+      ruleFromDraft(baseDraft({ windowChoice: 'rolling', durationHoursInput: '1.5' })).ok,
+    ).toBe(false)
+    const anchored = ruleFromDraft(baseDraft({ windowChoice: 'anchored', durationHoursInput: '5' }))
+    expect(anchored.ok && anchored.rule.window).toEqual({ type: 'anchored', hours: 5 })
+    // 非小时型窗口时小时数不参与校验
+    expect(ruleFromDraft(baseDraft({ durationHoursInput: 'oops' })).ok).toBe(true)
   })
 
   it('模型/分组范围携带独立或共享模式', () => {

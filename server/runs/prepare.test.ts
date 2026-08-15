@@ -78,6 +78,28 @@ async function createRunnableModel() {
   return { userId, modelId, providerId, providerBaseUrl, upstreamModelId }
 }
 
+async function bindAnchoredQuota(userId: string): Promise<void> {
+  const appConfig = await import('../services/appConfig')
+  await appConfig.updateAppConfig({ quotaEnabled: true })
+  const policyId = `anchored-policy-${userId}`
+  await dbClient.db.insert(schema.quotaPolicies).values({
+    id: policyId,
+    name: '固定周期',
+    rules: [
+      {
+        id: 'r-anchored',
+        label: null,
+        scope: { type: 'all' },
+        metric: 'requests',
+        limit: { kind: 'amount', value: 5 },
+        window: { type: 'anchored', hours: 5 },
+        priority: 0,
+      },
+    ],
+  })
+  await dbClient.db.insert(schema.userQuotas).values({ userId, policyId })
+}
+
 async function createRunnableImageModel() {
   const n = fixtureSeq++
   const userId = `user-${n}`
@@ -297,6 +319,37 @@ describe('prepareRun active leaf', () => {
     const all = await conversationServices.getConversationMessages(result.conversation.id)
     const path = conversationServices.buildPath(all, result.conversation.activeLeafId)
     expect(path.map((m) => m.id)).toEqual([result.userMessage.id, result.assistantMessage.id])
+  })
+
+  it('固定周期锚点与 run 使用同一事务、同一请求时刻', async () => {
+    const { userId, modelId } = await createRunnableModel()
+    await bindAnchoredQuota(userId)
+
+    const result = assertPrepared(await prepare.prepareRun({ userId, modelId, text: 'hello' }))
+    const [cycle] = await dbClient.db
+      .select()
+      .from(schema.quotaCycles)
+      .where(eq(schema.quotaCycles.userId, userId))
+
+    expect(cycle?.startedAt.getTime()).toBe(result.run.createdAt.getTime())
+    expect(cycle?.endsAt.getTime()).toBe(result.run.createdAt.getTime() + 5 * 3_600_000)
+  })
+
+  it('run 写入失败会连同本次新建的固定周期锚点一起回滚', async () => {
+    const { userId, modelId } = await createRunnableModel()
+    await bindAnchoredQuota(userId)
+    const idempotencyKey = `duplicate-${userId}`
+    await prepare.prepareRun({ userId, modelId, text: 'first', idempotencyKey })
+    await dbClient.db.delete(schema.quotaCycles).where(eq(schema.quotaCycles.userId, userId))
+
+    await expect(
+      prepare.prepareRun({ userId, modelId, text: 'duplicate', idempotencyKey }),
+    ).rejects.toThrow()
+    const cycles = await dbClient.db
+      .select()
+      .from(schema.quotaCycles)
+      .where(eq(schema.quotaCycles.userId, userId))
+    expect(cycles).toHaveLength(0)
   })
 
   it('为 Anthropic 模型构建顶层 system、原生 messages 与可见高级 JSON 默认值', async () => {

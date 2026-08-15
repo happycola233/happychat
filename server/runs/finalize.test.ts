@@ -178,6 +178,7 @@ describe('finalizeRun terminal snapshots', () => {
     })
     expect(persistedMessage?.costUsd).toBeCloseTo(0.00006, 10)
     expect(persistedUsage?.pricingSnapshot).toEqual(model.pricing)
+    expect(persistedUsage?.quotaAt?.getTime()).toBe(run.createdAt.getTime())
     expect(emittedEvents.map((event) => event.type)).toEqual(['run.done'])
     expect(emittedEvents[0]?.data).toMatchObject({ searchActions })
     expect(emittedEvents[0]?.data).not.toHaveProperty('providerReplayContext')

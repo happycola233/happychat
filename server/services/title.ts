@@ -15,7 +15,6 @@ import { buildPath, getConversationMessages } from './conversations'
 import { getAppConfig } from './appConfig'
 import { conversationEvents } from './conversation-events'
 import { getFirstRunnableTextModel, getRunnableModel } from './models'
-import { checkQuota } from './quota'
 
 type ModelRow = typeof models.$inferSelect
 type ProviderRow = typeof providers.$inferSelect
@@ -33,18 +32,12 @@ async function resolveTitleModel(
   titleModelId: string | null,
   userId: string,
 ): Promise<{ model: ModelRow; provider: ProviderRow } | null> {
-  // 标题总结不该顶着用户额度偷跑：额度耗尽时直接放弃模型总结，回退本地切片标题。
-  const withinQuota = async (candidate: { model: ModelRow; provider: ProviderRow } | null) => {
-    if (!candidate) return null
-    return (await checkQuota(userId, candidate.model.id)).ok ? candidate : null
-  }
-
   if (titleModelId) {
     const preferred = await getRunnableModel(titleModelId, userId)
-    if (preferred && preferred.model.kind !== 'image') return withinQuota(preferred)
+    if (preferred && preferred.model.kind !== 'image') return preferred
   }
-  // 回退同样受当前会话所有者的模型范围约束；无可用模型时走本地标题，不做隐藏旁路调用。
-  return withinQuota(await getFirstRunnableTextModel(userId))
+  // 回退仍受当前会话所有者的模型范围约束；无可用模型时走本地标题，不做隐藏旁路调用。
+  return getFirstRunnableTextModel(userId)
 }
 
 /** 标题调用的结果：正文 + 上游用量（用量要落 `usage_logs`，否则标题请求等于免费白跑）。 */
@@ -111,6 +104,7 @@ async function callTitleModel(
  *
  * 标题总结没有 run（不走 `runs` 表，也没有助手消息），因此 `run_id` 为空，
  * 靠 `kind='title'` 与对话请求区分；成本口径与 finalize 完全一致（同一份价格快照）。
+ * 用户额度只聚合 `kind='chat'`，所以这里保留真实审计日志，但不写额度归属时刻。
  * 与「失败请求不计费也不计次」一致：只有成功返回的调用才写行。
  */
 async function logTitleUsage(

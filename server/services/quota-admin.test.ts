@@ -68,15 +68,13 @@ const perModelRequests = (modelIds: string[], value: number, id = 'r-each'): Quo
 async function createUser(role: 'admin' | 'user' = 'user', lastLoginAt?: number) {
   const n = fixtureSeq++
   const id = `qa-user-${n}`
-  await dbClient.db
-    .insert(schema.users)
-    .values({
-      id,
-      username: `qa-user-${n}`,
-      passwordHash: 'hash',
-      role,
-      lastLoginAt: lastLoginAt === undefined ? null : new Date(lastLoginAt),
-    })
+  await dbClient.db.insert(schema.users).values({
+    id,
+    username: `qa-user-${n}`,
+    passwordHash: 'hash',
+    role,
+    lastLoginAt: lastLoginAt === undefined ? null : new Date(lastLoginAt),
+  })
   return id
 }
 
@@ -410,6 +408,10 @@ describe('临时额度与重置', () => {
     const snapshot = await quota.getQuotaSnapshot(userId)
     expect(snapshot.rules.every((rule) => rule.used === 0)).toBe(true)
     const detail = await admin.getAdminUserQuotaDetail(userId)
+    expect(detail).toMatchObject({
+      quotaTimezone: 'Asia/Shanghai',
+      warnThreshold: 0.8,
+    })
     expect(detail?.adjustments.filter((row) => row.kind === 'reset')).toHaveLength(2)
     expect(detail?.adjustments.every((row) => row.active)).toBe(true)
   })
@@ -487,6 +489,48 @@ describe('临时额度与重置', () => {
       code: 'no_rules',
     })
   })
+
+  it('首次请求周期未启动时拒绝赠送与重置，启动后恢复可操作', async () => {
+    const modelId = await createModel()
+    const policy = await admin.createQuotaPolicy({
+      name: '首次请求周期',
+      rules: [
+        {
+          id: 'r-anchored',
+          label: null,
+          scope: { type: 'all' },
+          metric: 'requests',
+          limit: { kind: 'amount', value: 5 },
+          window: { type: 'anchored', hours: 5 },
+          priority: 0,
+        },
+      ],
+    })
+    const userId = await createUser()
+    await admin.updateUserQuota(
+      userId,
+      { policyId: policy.id, overrides: {}, enforcementPaused: false },
+      userId,
+    )
+
+    expect(
+      await admin.createQuotaGrant(userId, { ruleId: 'r-anchored', amount: 1 }, userId),
+    ).toEqual({ ok: false, code: 'period_not_started' })
+    expect(await admin.resetQuotaPeriod(userId, { ruleId: 'r-anchored' }, userId)).toEqual({
+      ok: false,
+      code: 'period_not_started',
+    })
+
+    const admission = await quota.prepareQuotaAdmission(userId, modelId)
+    quota.activateQuotaCycles(userId, admission.cycleClaims, new Date())
+    expect(
+      await admin.createQuotaGrant(userId, { ruleId: 'r-anchored', amount: 1 }, userId),
+    ).toMatchObject({ ok: true })
+    expect(await admin.resetQuotaPeriod(userId, { ruleId: 'r-anchored' }, userId)).toEqual({
+      ok: true,
+      resetRules: 1,
+    })
+  })
 })
 
 describe('列表 / 明细 / 预览', () => {
@@ -507,10 +551,13 @@ describe('列表 / 明细 / 预览', () => {
     expect(row?.lastUsageAt).not.toBe(loginAt)
   })
 
-  it('用户列表给出最紧张的规则与耗尽状态', async () => {
-    const policy = await admin.createQuotaPolicy({ name: 'A', rules: [monthlyCost(10)] })
+  it('用户列表给出全部额度桶，并把已耗尽的桶排在前面', async () => {
     const userId = await createUser()
     const modelId = await createModel()
+    const policy = await admin.createQuotaPolicy({
+      name: 'A',
+      rules: [monthlyCost(10), perModelRequests([modelId], 2)],
+    })
     await admin.updateUserQuota(
       userId,
       { policyId: policy.id, overrides: {}, enforcementPaused: false },
@@ -523,7 +570,9 @@ describe('列表 / 明细 / 预览', () => {
     expect(row?.policyName).toBe('A')
     expect(row?.usingDefaultPolicy).toBe(false)
     expect(row?.blocked).toBe(true)
-    expect(row?.highlight?.percent).toBeCloseTo(1)
+    expect(row?.rules).toHaveLength(2)
+    expect(row?.rules[0]).toMatchObject({ ruleId: 'r-cost', blocked: true, percent: 1 })
+    expect(row?.rules[1]).toMatchObject({ ruleId: 'r-each', used: 1, blocked: false })
   })
 
   it('预览用草稿规则按真实用量算出「保存后立即耗尽」', async () => {

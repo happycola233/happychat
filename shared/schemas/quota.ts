@@ -7,7 +7,7 @@ import {
   QUOTA_POLICY_NAME_MAX_LENGTH,
   QUOTA_RULE_LABEL_MAX_LENGTH,
 } from '../util/quota'
-import { QUOTA_ROLLING_MAX_HOURS } from '../util/quotaWindow'
+import { QUOTA_HOURLY_WINDOW_MAX_HOURS } from '../util/quotaWindow'
 
 const targetIdsSchema = (noun: string) =>
   z
@@ -41,7 +41,15 @@ export const quotaWindowSchema = z.discriminatedUnion('type', [
       .number()
       .int('滚动窗口必须是整数小时')
       .min(1, '滚动窗口至少 1 小时')
-      .max(QUOTA_ROLLING_MAX_HOURS, '滚动窗口最长 8760 小时（1 年）'),
+      .max(QUOTA_HOURLY_WINDOW_MAX_HOURS, '滚动窗口最长 8760 小时（1 年）'),
+  }),
+  z.object({
+    type: z.literal('anchored'),
+    hours: z
+      .number()
+      .int('首次请求起算周期必须是整数小时')
+      .min(1, '首次请求起算周期至少 1 小时')
+      .max(QUOTA_HOURLY_WINDOW_MAX_HOURS, '首次请求起算周期最长 8760 小时（1 年）'),
   }),
   z.object({ type: z.literal('total') }),
 ])

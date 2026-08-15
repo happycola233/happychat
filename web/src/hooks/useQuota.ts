@@ -1,18 +1,33 @@
 import { useQuery, type QueryClient } from '@tanstack/react-query'
 import type { MyQuotaDTO } from '@shared/types/api'
 import { getMyQuota } from '../api/quota'
+import { resolveQuotaRulesRefetchInterval } from '../lib/quotaRefetch'
 
 export const MY_QUOTA_QUERY_KEY = ['quota', 'me'] as const
 
 /**
- * 当前用户的额度。生成结束后由 `ChatView` 主动失效，因此这里给一个较宽的 staleTime——
- * 额度变化的真实触发点是「刚发完一条消息」，而不是定时轮询。
+ * 只有时间流逝本身可能改变提示状态时才自动刷新：
+ * - 滚动窗口在接近/达到上限后每 30 秒检查一次逐步释放；
+ * - 自然周期和首次请求固定周期在精确结束点后刷新一次。
+ * 正常额度仍由生成结束后的主动失效更新，避免所有打开页面无意义轮询。
+ */
+export function resolveQuotaRefetchInterval(
+  quota: MyQuotaDTO | undefined,
+  now = Date.now(),
+): number | false {
+  if (!quota?.enabled || quota.unlimited) return false
+  return resolveQuotaRulesRefetchInterval(quota.rules, { warnThreshold: quota.warnThreshold }, now)
+}
+
+/**
+ * 当前用户的额度。生成结束后由 `ChatView` 主动失效；时间型释放则由上面的窄范围定时器兜底。
  */
 export function useMyQuota() {
   return useQuery({
     queryKey: MY_QUOTA_QUERY_KEY,
     queryFn: getMyQuota,
     staleTime: 30_000,
+    refetchInterval: (query) => resolveQuotaRefetchInterval(query.state.data),
   })
 }
 

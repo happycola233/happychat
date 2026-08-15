@@ -28,7 +28,7 @@ const STATUS_OPTIONS: SelectOption[] = [
   { value: 'false', label: '失败' },
 ]
 
-/** 标题总结是后台自动发起的调用，与用户对话同样计费、同样占额度，但常需要单独过滤。 */
+/** 标题总结是后台自动发起的调用：保留请求与成本审计，但不占用户额度，且常需要单独过滤。 */
 const KIND_OPTIONS: SelectOption[] = [
   { value: '', label: '全部请求' },
   { value: 'chat', label: '仅对话' },

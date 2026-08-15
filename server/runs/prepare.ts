@@ -20,7 +20,11 @@ import { promptCacheKeyForConversation } from '../provider/promptCache'
 import type { AnthropicReplayContextV1, ProviderReplayContext } from '../provider/reasoning-replay'
 import { buildPath, getConversationMessages, getOwnedConversation } from '../services/conversations'
 import { getRunnableModel } from '../services/models'
-import { checkQuota } from '../services/quota'
+import {
+  activateQuotaCyclesInTransaction,
+  prepareQuotaAdmission,
+  type QuotaCycleClaim,
+} from '../services/quota'
 import {
   MAX_FILE_INPUT_BYTES,
   MAX_FILE_INPUT_REQUEST_BYTES,
@@ -377,6 +381,7 @@ async function createAssistantAndRun(opts: {
   userParams?: ModelParams
   clientLocale?: string
   idempotencyKey?: string
+  quotaCycleClaims: QuotaCycleClaim[]
 }): Promise<{
   conversation: ConvRow
   assistantMessage: MsgRow
@@ -392,6 +397,7 @@ async function createAssistantAndRun(opts: {
     userParams,
     clientLocale,
     idempotencyKey,
+    quotaCycleClaims,
   } = opts
   // Chat 路径不提供应用托管的 Web/X Search，避免把无效开关写入运行记录或恢复到 UI。
   const effectiveUserParams = normalizeSearchParamsForModelKind(model.kind, userParams) ?? undefined
@@ -498,48 +504,63 @@ async function createAssistantAndRun(opts: {
   }
 
   // 请求体构建可能因模型参数或附件内容无效而失败，必须在创建 worker 状态前完成。
-  const assistantMessage = must(
-    await db
-      .insert(messages)
-      .values({
-        conversationId: conv.id,
-        parentId: parentMessageId,
-        role: 'assistant',
-        status: 'streaming',
-        modelId: model.id,
-        content: [],
-      })
-      .returning()
-      .then((r) => r[0]),
+  const requestAt = new Date()
+  const persisted = db.transaction(
+    (tx) => {
+      activateQuotaCyclesInTransaction(tx, conv.userId, quotaCycleClaims, requestAt)
+      const assistantMessage = must(
+        tx
+          .insert(messages)
+          .values({
+            conversationId: conv.id,
+            parentId: parentMessageId,
+            role: 'assistant',
+            status: 'streaming',
+            modelId: model.id,
+            content: [],
+          })
+          .returning()
+          .get(),
+      )
+
+      const run = must(
+        tx
+          .insert(runs)
+          .values({
+            conversationId: conv.id,
+            assistantMessageId: assistantMessage.id,
+            userId: conv.userId,
+            modelId: model.id,
+            state: 'queued',
+            requestParams,
+            instructions,
+            idempotencyKey,
+            createdAt: requestAt,
+          })
+          .returning()
+          .get(),
+      )
+
+      const updatedConversation = must(
+        tx
+          .update(conversations)
+          .set({ activeLeafId: assistantMessage.id, modelId: model.id, updatedAt: requestAt })
+          .where(eq(conversations.id, conv.id))
+          .returning()
+          .get(),
+      )
+      return { assistantMessage, run, updatedConversation }
+    },
+    { behavior: 'immediate' },
   )
 
-  const run = must(
-    await db
-      .insert(runs)
-      .values({
-        conversationId: conv.id,
-        assistantMessageId: assistantMessage.id,
-        userId: conv.userId,
-        modelId: model.id,
-        state: 'queued',
-        requestParams,
-        instructions,
-        idempotencyKey,
-      })
-      .returning()
-      .then((r) => r[0]),
-  )
-
-  const updatedConversation = must(
-    await db
-      .update(conversations)
-      .set({ activeLeafId: assistantMessage.id, modelId: model.id, updatedAt: new Date() })
-      .where(eq(conversations.id, conv.id))
-      .returning()
-      .then((r) => r[0]),
-  )
-
-  return { conversation: updatedConversation, assistantMessage, run, body, imageOperation }
+  return {
+    conversation: persisted.updatedConversation,
+    assistantMessage: persisted.assistantMessage,
+    run: persisted.run,
+    body,
+    imageOperation,
+  }
 }
 
 export interface PrepareArgs {
@@ -560,10 +581,18 @@ export interface PrepareArgs {
  * 额度校验放在任何写库之前：拦下的请求不留占位消息、不建 run，
  * 与「请求体构建失败也不留 queued run」的既有约定一致。
  */
-async function checkQuotaOrError(userId: string, modelDbId: string): Promise<PrepareError | null> {
-  const quota = await checkQuota(userId, modelDbId)
-  if (quota.ok) return null
-  return { ok: false, status: 429, message: quota.message, code: 'quota_exceeded' }
+async function prepareQuotaOrError(
+  userId: string,
+  modelDbId: string,
+): Promise<{ ok: true; cycleClaims: QuotaCycleClaim[] } | PrepareError> {
+  const admission = await prepareQuotaAdmission(userId, modelDbId)
+  if (admission.check.ok) return { ok: true, cycleClaims: admission.cycleClaims }
+  return {
+    ok: false,
+    status: 429,
+    message: admission.check.message,
+    code: 'quota_exceeded',
+  }
 }
 
 export async function prepareRun(args: PrepareArgs): Promise<PrepareResult> {
@@ -571,8 +600,8 @@ export async function prepareRun(args: PrepareArgs): Promise<PrepareResult> {
   if (!runnable)
     return { ok: false, status: 400, message: '所选模型不可用', code: 'model_unavailable' }
   const { model, provider } = runnable
-  const quotaError = await checkQuotaOrError(args.userId, model.id)
-  if (quotaError) return quotaError
+  const quotaAdmission = await prepareQuotaOrError(args.userId, model.id)
+  if (!quotaAdmission.ok) return quotaAdmission
   if (model.kind === 'image' && !args.text.trim()) {
     return {
       ok: false,
@@ -808,6 +837,7 @@ export async function prepareRun(args: PrepareArgs): Promise<PrepareResult> {
       userParams: normalizedParams.params,
       clientLocale: args.clientLocale,
       idempotencyKey: args.idempotencyKey,
+      quotaCycleClaims: quotaAdmission.cycleClaims,
     },
   )
 
@@ -851,8 +881,8 @@ export async function prepareRegenerate(args: RegenerateArgs): Promise<PrepareRe
   if (!runnable)
     return { ok: false, status: 400, message: '所选模型不可用', code: 'model_unavailable' }
   const { model, provider } = runnable
-  const quotaError = await checkQuotaOrError(args.userId, model.id)
-  if (quotaError) return quotaError
+  const quotaAdmission = await prepareQuotaOrError(args.userId, model.id)
+  if (!quotaAdmission.ok) return quotaAdmission
   const reasoningParams = normalizeReasoningParamsForModel(model, args.params)
   const normalizedParams = normalizeImageParamsForModel(model, reasoningParams)
   if (!normalizedParams.ok) return normalizedParams
@@ -876,6 +906,7 @@ export async function prepareRegenerate(args: RegenerateArgs): Promise<PrepareRe
       userParams: normalizedParams.params,
       clientLocale: args.clientLocale,
       idempotencyKey: args.idempotencyKey,
+      quotaCycleClaims: quotaAdmission.cycleClaims,
     },
   )
 

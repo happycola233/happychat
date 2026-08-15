@@ -61,6 +61,16 @@ describe('normalizeQuotaRules', () => {
     ])
   })
 
+  it('保留首次请求起算窗口并归一化小时数', () => {
+    const [rule] = normalizeQuotaRules([
+      {
+        ...dailyRequests(10, 'anchored'),
+        window: { type: 'anchored', hours: 4.6 },
+      },
+    ])
+    expect(rule?.window).toEqual({ type: 'anchored', hours: 5 })
+  })
+
   it('非法/脏数据整条丢弃而不是抛错（宁可少一条限制也不误拦）', () => {
     expect(
       normalizeQuotaRules([

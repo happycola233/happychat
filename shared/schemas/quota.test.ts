@@ -18,13 +18,19 @@ const validRule = {
 }
 
 describe('quotaRuleSchema', () => {
-  it('接受三种范围与三种窗口', () => {
+  it('接受三种范围与四种窗口', () => {
     expect(quotaRuleSchema.safeParse(validRule).success).toBe(true)
     expect(
       quotaRuleSchema.safeParse({
         ...validRule,
         scope: { type: 'models', modelIds: ['m1'], mode: 'each' },
         window: { type: 'rolling', hours: 5 },
+      }).success,
+    ).toBe(true)
+    expect(
+      quotaRuleSchema.safeParse({
+        ...validRule,
+        window: { type: 'anchored', hours: 5 },
       }).success,
     ).toBe(true)
     expect(

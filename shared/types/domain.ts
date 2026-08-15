@@ -184,12 +184,14 @@ export type QuotaScope =
 /**
  * 统计窗口。
  * - calendar：自然日/周/月，边界按全局配置的时区与周起始日计算，到点自动重置
- * - rolling：滚动窗口（Codex / Claude Code 风格的 5 小时、周、月限额）
+ * - rolling：真实滑动窗口，任一时刻统计前 N 小时，旧用量逐笔释放
+ * - anchored：首次获准请求启动一个固定 N 小时周期，到期整段重置；空闲时不预先计时
  * - total：永久累计，永不重置
  */
 export type QuotaWindow =
   | { type: 'calendar'; period: 'day' | 'week' | 'month' }
   | { type: 'rolling'; hours: number }
+  | { type: 'anchored'; hours: number }
   | { type: 'total' }
 
 /** 日历周期的周起始日（中文语境默认周一）。 */
@@ -340,7 +342,7 @@ export type UsageTrendGranularity = 'hour' | 'day' | 'month'
 /**
  * 用量日志的请求类型。
  * - chat：用户发起的正常生成（含生图）
- * - title：会话标题总结的后台调用；同样真实花钱、同样占用额度，只是与对话请求分开标识
+ * - title：会话标题总结的后台调用；进入请求审计与成本统计，但不占用户额度
  */
 export type UsageLogKind = 'chat' | 'title'
 

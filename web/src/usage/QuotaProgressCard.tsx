@@ -25,6 +25,7 @@ function ruleTitle(rule: QuotaBucketUsageDTO): string {
 
 function resetHint(rule: QuotaBucketUsageDTO): string | null {
   if (rule.window.type === 'total') return '永久累计，不会重置'
+  if (rule.window.type === 'anchored' && !rule.periodActive) return '首次请求后开始计时'
   if (rule.periodEnd === null) return '滚动窗口，随时间自动释放'
   return `${new Date(rule.periodEnd).toLocaleString('zh-CN', {
     month: 'numeric',
@@ -35,7 +36,13 @@ function resetHint(rule: QuotaBucketUsageDTO): string | null {
   })} 重置`
 }
 
-function QuotaRuleRow({ rule, warnThreshold }: { rule: QuotaBucketUsageDTO; warnThreshold: number }) {
+function QuotaRuleRow({
+  rule,
+  warnThreshold,
+}: {
+  rule: QuotaBucketUsageDTO
+  warnThreshold: number
+}) {
   const unlimited = rule.limit.kind === 'unlimited'
   const percent = Math.min(100, Math.round((rule.percent ?? 0) * 100))
   return (
@@ -64,7 +71,10 @@ function QuotaRuleRow({ rule, warnThreshold }: { rule: QuotaBucketUsageDTO; warn
       ) : (
         <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
           <div
-            className={clsx('h-full rounded-full transition-[width] duration-300', barTone(rule, warnThreshold))}
+            className={clsx(
+              'h-full rounded-full transition-[width] duration-300',
+              barTone(rule, warnThreshold),
+            )}
             style={{ width: `${Math.max(percent > 0 ? 2 : 0, percent)}%` }}
           />
         </div>

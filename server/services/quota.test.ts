@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ModelPricing, QuotaRule } from '@shared/types/domain'
+import type { ModelPricing, QuotaRule, UsageLogKind } from '@shared/types/domain'
 
 let tmpDir: string
 let dbClient: typeof import('../db/client')
@@ -97,16 +97,24 @@ async function createFixture() {
 async function logUsage(
   userId: string,
   modelId: string,
-  options: { costUsd?: number; success?: boolean; createdAt?: Date } = {},
+  options: {
+    costUsd?: number
+    success?: boolean
+    createdAt?: Date
+    quotaAt?: Date
+    kind?: UsageLogKind
+  } = {},
 ) {
   const tokens = Math.round((options.costUsd ?? 0) * 1)
   await dbClient.db.insert(schema.usageLogs).values({
     userId,
     modelId,
+    kind: options.kind ?? 'chat',
     pricingSnapshot: PRICING,
     inputTokens: tokens,
     totalTokens: tokens,
     success: options.success ?? true,
+    quotaAt: options.quotaAt,
     createdAt: options.createdAt ?? new Date(),
   })
 }
@@ -141,6 +149,16 @@ const dailyRequests = (value: number, id = 'r-req'): QuotaRule => ({
   metric: 'requests',
   limit: { kind: 'amount', value },
   window: { type: 'calendar', period: 'day' },
+  priority: 0,
+})
+
+const anchoredRequests = (value: number, hours: number, id = 'r-anchor'): QuotaRule => ({
+  id,
+  label: null,
+  scope: { type: 'all' },
+  metric: 'requests',
+  limit: { kind: 'amount', value },
+  window: { type: 'anchored', hours },
   priority: 0,
 })
 
@@ -192,6 +210,22 @@ describe('额度快照与拦截', () => {
     const snapshot = await quota.getQuotaSnapshot(userId)
     expect(snapshot.rules[0]?.used).toBe(0)
     expect((await quota.checkQuota(userId, modelA)).ok).toBe(true)
+  })
+
+  it('标题日志保留在 usage_logs，但不计入请求次数或成本额度', async () => {
+    const { userId, modelA } = await createFixture()
+    await bindPolicy(userId, [dailyRequests(1), monthlyCost(1)])
+    await logUsage(userId, modelA, { kind: 'title', costUsd: 5 })
+
+    let snapshot = await quota.getQuotaSnapshot(userId)
+    expect(snapshot.rules.map((rule) => rule.used)).toEqual([0, 0])
+    expect((await quota.checkQuota(userId, modelA)).ok).toBe(true)
+
+    // 同模型、同价格的一条用户对话仍会同时消耗两种额度，证明只排除了 title 类型。
+    await logUsage(userId, modelA, { kind: 'chat', costUsd: 1 })
+    snapshot = await quota.getQuotaSnapshot(userId)
+    expect(snapshot.rules.map((rule) => rule.used)).toEqual([1, 1])
+    expect((await quota.checkQuota(userId, modelA)).ok).toBe(false)
   })
 
   it('在途 run 计入请求次数，终态后不双算', async () => {
@@ -590,6 +624,73 @@ describe('滚动窗口的周期调整', () => {
     const snapshot = await quota.getQuotaSnapshot(userId)
     expect(snapshot.rules.map((rule) => rule.used)).toEqual([0, 0])
     expect(snapshot.blockedModelIds).toEqual([])
+  })
+})
+
+describe('首次请求起算的固定周期', () => {
+  it('未请求时不计时；同周期请求复用首个锚点', async () => {
+    const { userId, modelA } = await createFixture()
+    await bindPolicy(userId, [anchoredRequests(2, 5)])
+    const requestAt = new Date('2026-08-15T01:00:00.000Z')
+
+    const before = await quota.getQuotaSnapshot(userId, { now: requestAt.getTime() })
+    expect(before.rules[0]).toMatchObject({
+      periodActive: false,
+      periodStart: 0,
+      periodEnd: null,
+      used: 0,
+      blocked: false,
+    })
+
+    const admission = await quota.prepareQuotaAdmission(userId, modelA)
+    expect(admission.check).toEqual({ ok: true })
+    expect(admission.cycleClaims).toEqual([{ ruleId: 'r-anchor', bucketKey: null, windowHours: 5 }])
+    quota.activateQuotaCycles(userId, admission.cycleClaims, requestAt)
+    quota.activateQuotaCycles(
+      userId,
+      admission.cycleClaims,
+      new Date(requestAt.getTime() + 2 * 3_600_000),
+    )
+
+    const active = await quota.getQuotaSnapshot(userId, {
+      now: requestAt.getTime() + 2 * 3_600_000,
+    })
+    expect(active.rules[0]).toMatchObject({
+      periodActive: true,
+      periodStart: requestAt.getTime(),
+      periodEnd: requestAt.getTime() + 5 * 3_600_000,
+    })
+  })
+
+  it('到期后由下一请求开启新周期，跨边界完成的旧请求不串入新周期', async () => {
+    const { userId, modelA } = await createFixture()
+    await bindPolicy(userId, [anchoredRequests(1, 5)])
+    const firstStart = new Date('2026-08-15T01:00:00.000Z')
+    const admission = await quota.prepareQuotaAdmission(userId, modelA)
+    quota.activateQuotaCycles(userId, admission.cycleClaims, firstStart)
+
+    const nextStart = new Date(firstStart.getTime() + 6 * 3_600_000)
+    quota.activateQuotaCycles(userId, admission.cycleClaims, nextStart)
+    const completedAt = new Date(nextStart.getTime() + 60_000)
+    // 旧请求在新周期开始后才完成：created_at 属于新周期，但 quota_at 仍属于旧周期。
+    await logUsage(userId, modelA, {
+      createdAt: completedAt,
+      quotaAt: new Date(firstStart.getTime() + 60_000),
+    })
+    await logUsage(userId, modelA, {
+      createdAt: completedAt,
+      quotaAt: new Date(nextStart.getTime() + 30_000),
+    })
+
+    const snapshot = await quota.getQuotaSnapshot(userId, {
+      now: nextStart.getTime() + 2 * 60_000,
+    })
+    expect(snapshot.rules[0]).toMatchObject({
+      periodActive: true,
+      periodStart: nextStart.getTime(),
+      used: 1,
+      blocked: true,
+    })
   })
 })
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { MyQuotaDTO, QuotaBucketUsageDTO } from '@shared/types/api'
-import { resolveQuotaNotice } from './useQuota'
+import { resolveQuotaNotice, resolveQuotaRefetchInterval } from './useQuota'
 
 const bucket = (patch: Partial<QuotaBucketUsageDTO> = {}): QuotaBucketUsageDTO => ({
   ruleId: 'r-1',
@@ -19,6 +19,7 @@ const bucket = (patch: Partial<QuotaBucketUsageDTO> = {}): QuotaBucketUsageDTO =
   remaining: 5,
   percent: 0.5,
   blocked: false,
+  periodActive: true,
   periodStart: 0,
   usageStart: 0,
   periodEnd: 1,
@@ -26,6 +27,52 @@ const bucket = (patch: Partial<QuotaBucketUsageDTO> = {}): QuotaBucketUsageDTO =
   invalid: false,
   shadowed: false,
   ...patch,
+})
+
+describe('resolveQuotaRefetchInterval', () => {
+  it('滚动窗口接近或达到上限时每 30 秒刷新，普通状态不轮询', () => {
+    expect(resolveQuotaRefetchInterval(quota())).toBe(false)
+    expect(
+      resolveQuotaRefetchInterval(
+        quota({ rules: [bucket({ window: { type: 'rolling', hours: 5 }, percent: 0.8 })] }),
+      ),
+    ).toBe(30_000)
+  })
+
+  it('固定周期在结束点后刷新，未启动周期不轮询', () => {
+    const now = 1_000_000
+    expect(
+      resolveQuotaRefetchInterval(
+        quota({
+          rules: [
+            bucket({
+              window: { type: 'anchored', hours: 5 },
+              percent: 1,
+              blocked: true,
+              periodEnd: now + 5_000,
+            }),
+          ],
+        }),
+        now,
+      ),
+    ).toBe(5_250)
+    expect(
+      resolveQuotaRefetchInterval(
+        quota({
+          rules: [
+            bucket({
+              window: { type: 'anchored', hours: 5 },
+              periodActive: false,
+              periodStart: 0,
+              periodEnd: null,
+              percent: 0,
+            }),
+          ],
+        }),
+        now,
+      ),
+    ).toBe(false)
+  })
 })
 
 const quota = (patch: Partial<MyQuotaDTO> = {}): MyQuotaDTO => ({

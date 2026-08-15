@@ -117,7 +117,8 @@ export function QuotaPolicyEditor({ open, policy, onClose }: Props) {
                 限额规则
               </h3>
               <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">
-                多条规则同时生效，任意一条达到上限即触发限制。
+                多条规则同时生效，任意一条达到上限即触发限制。仅用户发起的对话与生图计入，
+                标题总结不计入任何额度规则。
               </p>
             </div>
             <Button

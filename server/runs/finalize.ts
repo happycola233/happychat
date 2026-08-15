@@ -140,6 +140,7 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
     outputTokens: a.usage.outputTokens,
     reasoningTokens: a.usage.reasoningTokens,
     totalTokens: a.usage.totalTokens,
+    quotaAt: a.run.createdAt,
     success: a.state !== 'failed',
     errorType: a.state === 'failed' ? (a.errorType ?? 'error') : null,
   })

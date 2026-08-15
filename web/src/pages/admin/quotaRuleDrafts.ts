@@ -1,10 +1,10 @@
 import type { QuotaMetric, QuotaRule } from '@shared/types/domain'
 import { QUOTA_MAX_RULES_PER_POLICY, QUOTA_MAX_RULE_PRIORITY } from '@shared/util/quota'
-import { QUOTA_ROLLING_MAX_HOURS } from '@shared/util/quotaWindow'
+import { QUOTA_HOURLY_WINDOW_MAX_HOURS } from '@shared/util/quotaWindow'
 import { createRandomUuid } from '../../lib/randomUuid'
 
 export type QuotaScopeType = 'all' | 'models' | 'groups'
-export type QuotaWindowChoice = 'day' | 'week' | 'month' | 'rolling' | 'total'
+export type QuotaWindowChoice = 'day' | 'week' | 'month' | 'rolling' | 'anchored' | 'total'
 
 /**
  * 规则编辑草稿：把联合类型摊平成表单字段，数值保留字符串形态
@@ -22,7 +22,7 @@ export interface QuotaRuleDraft {
   unlimited: boolean
   limitInput: string
   windowChoice: QuotaWindowChoice
-  rollingHoursInput: string
+  durationHoursInput: string
   /** 优先级（字符串形态：输入过程中允许为空） */
   priorityInput: string
 }
@@ -40,7 +40,7 @@ export function createQuotaRuleDraft(): QuotaRuleDraft {
     unlimited: false,
     limitInput: '',
     windowChoice: 'month',
-    rollingHoursInput: '5',
+    durationHoursInput: '5',
     priorityInput: '0',
   }
 }
@@ -63,10 +63,13 @@ export function draftFromRule(rule: QuotaRule): QuotaRuleDraft {
     windowChoice:
       rule.window.type === 'calendar'
         ? rule.window.period
-        : rule.window.type === 'rolling'
-          ? 'rolling'
+        : rule.window.type === 'rolling' || rule.window.type === 'anchored'
+          ? rule.window.type
           : 'total',
-    rollingHoursInput: rule.window.type === 'rolling' ? String(rule.window.hours) : '5',
+    durationHoursInput:
+      rule.window.type === 'rolling' || rule.window.type === 'anchored'
+        ? String(rule.window.hours)
+        : '5',
     priorityInput: String(rule.priority),
   }
 }
@@ -90,12 +93,15 @@ export function ruleFromDraft(draft: QuotaRuleDraft): DraftResult {
     return { ok: false, message: '请求次数上限必须是整数' }
   }
 
-  const hours = Number(draft.rollingHoursInput)
+  const hours = Number(draft.durationHoursInput)
   if (
-    draft.windowChoice === 'rolling' &&
-    (!Number.isInteger(hours) || hours < 1 || hours > QUOTA_ROLLING_MAX_HOURS)
+    (draft.windowChoice === 'rolling' || draft.windowChoice === 'anchored') &&
+    (!Number.isInteger(hours) || hours < 1 || hours > QUOTA_HOURLY_WINDOW_MAX_HOURS)
   ) {
-    return { ok: false, message: `滚动窗口需为 1–${QUOTA_ROLLING_MAX_HOURS} 之间的整数小时` }
+    return {
+      ok: false,
+      message: `${draft.windowChoice === 'rolling' ? '滚动窗口' : '首次请求起算周期'}需为 1–${QUOTA_HOURLY_WINDOW_MAX_HOURS} 之间的整数小时`,
+    }
   }
 
   const priority = draft.priorityInput.trim() === '' ? 0 : Number(draft.priorityInput)
@@ -117,8 +123,8 @@ export function ruleFromDraft(draft: QuotaRuleDraft): DraftResult {
       metric: draft.metric,
       limit: draft.unlimited ? { kind: 'unlimited' } : { kind: 'amount', value: amount },
       window:
-        draft.windowChoice === 'rolling'
-          ? { type: 'rolling', hours }
+        draft.windowChoice === 'rolling' || draft.windowChoice === 'anchored'
+          ? { type: draft.windowChoice, hours }
           : draft.windowChoice === 'total'
             ? { type: 'total' }
             : { type: 'calendar', period: draft.windowChoice },

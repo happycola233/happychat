@@ -954,6 +954,7 @@ adminRoutes.post('/quota/users/:id/reset', jsonValidator(quotaResetSchema), asyn
       bucket_required: '这条规则为「各自独立额度」，请选择具体的模型或分组',
       bucket_unknown: '目标模型或分组已不在这条规则的范围内，请刷新后重试',
       no_rules: '该用户当前没有任何限额规则',
+      period_not_started: '首次请求起算周期尚未开始，当前没有可重置的用量',
     } as const
     return c.json({ error: { message: messages[result.code], code: result.code } }, 400)
   }
@@ -970,6 +971,7 @@ adminRoutes.post('/quota/users/:id/grants', jsonValidator(quotaGrantCreateSchema
       bucket_unknown: '目标模型或分组已不在这条规则的范围内，请刷新后重试',
       unlimited_rule: '该规则已是豁免（不限额），无需赠送',
       amount_not_integer: '请求次数只能赠送整数',
+      period_not_started: '首次请求起算周期尚未开始，请在用户首次请求后再赠送临时额度',
     } as const
     return c.json({ error: { message: messages[result.code], code: result.code } }, 400)
   }

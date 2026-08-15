@@ -100,6 +100,7 @@ describe('resolveQuotaPeriod · 滚动窗口与永久累计', () => {
     expect(resolveQuotaPeriod({ type: 'rolling', hours: 5 }, now, SHANGHAI)).toEqual({
       startMs: now - 5 * HOUR_MS,
       endMs: null,
+      active: true,
     })
   })
 
@@ -117,7 +118,34 @@ describe('resolveQuotaPeriod · 滚动窗口与永久累计', () => {
     expect(resolveQuotaPeriod({ type: 'total' }, Date.now(), SHANGHAI)).toEqual({
       startMs: 0,
       endMs: null,
+      active: true,
     })
+  })
+})
+
+describe('resolveQuotaPeriod · 首次请求起算周期', () => {
+  it('未提供持久化锚点时保持未启动', () => {
+    expect(resolveQuotaPeriod({ type: 'anchored', hours: 5 }, 10 * HOUR_MS, SHANGHAI)).toEqual({
+      startMs: 0,
+      endMs: null,
+      active: false,
+    })
+  })
+
+  it('从锚点开始固定计时，到期后回到未启动', () => {
+    const startedAt = Date.parse('2026-03-18T09:17:33Z')
+    expect(
+      resolveQuotaPeriod({ type: 'anchored', hours: 5 }, startedAt + HOUR_MS, {
+        ...SHANGHAI,
+        anchoredStartMs: startedAt,
+      }),
+    ).toEqual({ startMs: startedAt, endMs: startedAt + 5 * HOUR_MS, active: true })
+    expect(
+      resolveQuotaPeriod({ type: 'anchored', hours: 5 }, startedAt + 5 * HOUR_MS, {
+        ...SHANGHAI,
+        anchoredStartMs: startedAt,
+      }).active,
+    ).toBe(false)
   })
 })
 
@@ -127,6 +155,7 @@ describe('describeQuotaWindow', () => {
     expect(describeQuotaWindow({ type: 'calendar', period: 'month' })).toBe('每月')
     expect(describeQuotaWindow({ type: 'rolling', hours: 5 })).toBe('滚动 5 小时')
     expect(describeQuotaWindow({ type: 'rolling', hours: 168 })).toBe('滚动 7 天')
+    expect(describeQuotaWindow({ type: 'anchored', hours: 5 })).toBe('首次请求起 5 小时')
     expect(describeQuotaWindow({ type: 'total' })).toBe('永久累计')
   })
 })

@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MyQuotaDTO, QuotaBucketUsageDTO } from '@shared/types/api'
+import { quotaWarningDismissKey } from './quotaNoticeDismissal'
 
 const quotaState: { data: MyQuotaDTO | undefined } = { data: undefined }
 
@@ -34,6 +35,7 @@ const bucket = (patch: Partial<QuotaBucketUsageDTO> = {}): QuotaBucketUsageDTO =
   remaining: 1,
   percent: 0.9,
   blocked: false,
+  periodActive: true,
   periodStart: Date.parse('2026-03-01T00:00:00Z'),
   usageStart: Date.parse('2026-03-01T00:00:00Z'),
   periodEnd: Date.parse('2026-04-01T00:00:00Z'),
@@ -84,7 +86,7 @@ describe('QuotaNotice', () => {
     expect(html).toContain('额度即将用尽')
     expect(html).toContain('$9.00 / $10.00')
     expect(html).toContain('重置')
-    expect(html).toContain('不再提示本周期')
+    expect(html).toContain('暂不提示')
   })
 
   it('已耗尽时用 alert 角色且不可关闭', () => {
@@ -95,7 +97,7 @@ describe('QuotaNotice', () => {
     const html = render()
     expect(html).toContain('role="alert"')
     expect(html).toContain('额度已用尽')
-    expect(html).not.toContain('不再提示本周期')
+    expect(html).not.toContain('暂不提示')
   })
 
   it('按模型的独立额度耗尽时提示可切换模型', () => {
@@ -131,5 +133,16 @@ describe('QuotaNotice', () => {
   it('提供「使用情况」入口', () => {
     quotaState.data = quota()
     expect(render()).toContain('href="/usage"')
+  })
+
+  it('滚动窗口关闭键不使用不断移动的 periodStart', () => {
+    const first = bucket({ window: { type: 'rolling', hours: 5 }, periodStart: 100 })
+    const refreshed = bucket({ window: { type: 'rolling', hours: 5 }, periodStart: 200 })
+    expect(quotaWarningDismissKey(first)).toBe(quotaWarningDismissKey(refreshed))
+
+    const anchored = bucket({ window: { type: 'anchored', hours: 5 }, periodStart: 100 })
+    expect(quotaWarningDismissKey(anchored)).not.toBe(
+      quotaWarningDismissKey({ ...anchored, periodStart: 200 }),
+    )
   })
 })

@@ -8,7 +8,7 @@ import type {
   QuotaWindow,
   UserQuotaOverrides,
 } from '../types/domain'
-import { QUOTA_ROLLING_MAX_HOURS, describeQuotaWindow } from './quotaWindow'
+import { QUOTA_HOURLY_WINDOW_MAX_HOURS, describeQuotaWindow } from './quotaWindow'
 
 export const QUOTA_MAX_RULES_PER_POLICY = 12
 export const QUOTA_MAX_SCOPE_TARGETS = 200
@@ -17,8 +17,8 @@ export const QUOTA_POLICY_NAME_MAX_LENGTH = 40
 export const QUOTA_NOTE_MAX_LENGTH = 200
 /** 规则优先级上限；0 为默认档，够用又不至于让管理员在几十个档位里迷路。 */
 export const QUOTA_MAX_RULE_PRIORITY = 99
-/** 滚动窗口在管理端提供的预设档位（对齐 Codex / Claude Code 的 5 小时 / 周 / 月）。 */
-export const QUOTA_ROLLING_PRESET_HOURS = [5, 24, 168, 720] as const
+/** 两种按小时窗口在管理端共用的常见预设档位。 */
+export const QUOTA_DURATION_PRESET_HOURS = [5, 24, 168, 720] as const
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -58,10 +58,10 @@ function normalizeScope(value: unknown): QuotaScope | null {
 function normalizeWindow(value: unknown): QuotaWindow | null {
   if (!isRecord(value)) return null
   if (value.type === 'total') return { type: 'total' }
-  if (value.type === 'rolling') {
+  if (value.type === 'rolling' || value.type === 'anchored') {
     if (!isPositiveNumber(value.hours)) return null
-    const hours = Math.min(QUOTA_ROLLING_MAX_HOURS, Math.round(value.hours))
-    return { type: 'rolling', hours }
+    const hours = Math.min(QUOTA_HOURLY_WINDOW_MAX_HOURS, Math.round(value.hours))
+    return { type: value.type, hours }
   }
   if (value.type === 'calendar') {
     const period = value.period

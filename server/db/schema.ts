@@ -145,7 +145,7 @@ export const appSettings = sqliteTable('app_settings', {
   titlePrompt: text('title_prompt'),
   // 用户限额总开关：关闭时完全不判定，策略/覆写/用量计数全部保留，用户端零感知。
   quotaEnabled: integer('quota_enabled', { mode: 'boolean' }).notNull().default(false),
-  // 日历周期（天/周/月）的边界时区与周起始日；滚动窗口与之无关。
+  // 日历周期（天/周/月）的边界时区与周起始日；两种按小时窗口与之无关。
   quotaTimezone: text('quota_timezone').notNull().default('Asia/Shanghai'),
   quotaWeekStart: text('quota_week_start').$type<QuotaWeekStart>().notNull().default('mon'),
   // 用户端「即将用尽」提示的触发占比。
@@ -403,6 +403,29 @@ export const quotaAdjustments = sqliteTable(
   ],
 )
 
+/**
+ * 「首次请求起算」窗口的活动周期锚点。
+ *
+ * `bucket_key` 用空字符串表示单桶规则，避免 SQLite 复合主键里的 NULL 破坏唯一性。
+ * 周期到期后保留最后一行：下一次获准请求会在同一事务内覆写为新周期。
+ */
+export const quotaCycles = sqliteTable(
+  'quota_cycles',
+  {
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    // 规则存于 JSON，没有可引用的数据库外键；规则 id 在编辑生命周期内保持稳定。
+    ruleId: text('rule_id').notNull(),
+    bucketKey: text('bucket_key').notNull().default(''),
+    windowHours: integer('window_hours').notNull(),
+    startedAt: ts('started_at').notNull(),
+    endsAt: ts('ends_at').notNull(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.ruleId, t.bucketKey] })],
+)
+
 // ========================= 会话 / 消息（合并节点+内容的单表分支树）=========================
 
 /** 聊天文件夹（每用户私有）：名称 + 可选主题色/Emoji 图标，支持置顶。 */
@@ -618,7 +641,7 @@ export const usageLogs = sqliteTable(
     // 请求发起时的价格快照；后续改价或删除模型不得改写历史成本。
     pricingSnapshot: text('pricing_snapshot', { mode: 'json' }).$type<ModelPricing>(),
     conversationId: text('conversation_id'),
-    // 请求类型：标题总结与用户对话都要计费计额度，但后台需要能分开看。
+    // 请求类型：两者都进入成本/审计统计；只有 chat 会被用户额度规则聚合。
     kind: text('kind').$type<UsageLogKind>().notNull().default('chat'),
     inputTokens: integer('input_tokens').notNull().default(0),
     cacheWriteTokens: integer('cache_write_tokens').notNull().default(0),
@@ -629,10 +652,14 @@ export const usageLogs = sqliteTable(
     imageTokens: integer('image_tokens').notNull().default(0),
     success: integer('success', { mode: 'boolean' }).notNull().default(true),
     errorType: text('error_type'),
+    // chat 的额度归属按请求获准/入队时刻计算；title 不参与额度并保持为空。
+    // 迁移前的 chat 旧数据为空时，额度聚合安全回退 created_at。
+    quotaAt: ts('quota_at'),
     createdAt: createdAt(),
   },
   (t) => [
     index('usage_logs_user_created_idx').on(t.userId, t.createdAt),
+    index('usage_logs_user_quota_idx').on(t.userId, t.quotaAt),
     index('usage_logs_created_idx').on(t.createdAt),
     index('usage_logs_provider_idx').on(t.providerId),
   ],

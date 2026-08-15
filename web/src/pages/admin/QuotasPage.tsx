@@ -14,7 +14,7 @@ import {
 import { Link } from 'react-router-dom'
 import type { AdminQuotaPolicyDTO, AdminUserQuotaDTO } from '@shared/types/api'
 import type { AppConfigUpdateInput } from '@shared/schemas/app-config'
-import { describeQuotaRule, formatQuotaAmount } from '@shared/util/quota'
+import { describeQuotaRule } from '@shared/util/quota'
 import {
   batchAssignQuotaPolicy,
   deleteQuotaPolicy,
@@ -36,25 +36,13 @@ import { cardSurface } from '../../components/ui/Card'
 import { askConfirm } from '../../store/confirm'
 import { toast } from '../../store/toast'
 import { formatRelative } from '../../lib/format'
+import { resolveQuotaRulesRefetchInterval } from '../../lib/quotaRefetch'
 import { QuotaPolicyEditor } from './QuotaPolicyEditor'
+import { UserQuotaBuckets } from './UserQuotaBuckets'
 import { UserQuotaDialog } from './UserQuotaDialog'
+import { QUOTA_TIMEZONE_OPTIONS, quotaTimezoneLabel } from './userQuotaDisplay'
 
 type View = 'policies' | 'users'
-
-/**
- * 周期边界时区选项。只列常用时区：这个设置决定「每天/每周/每月」几点重置，
- * 需要的是「站点所在地区」而不是一份完整的 IANA 目录。
- */
-const QUOTA_TIMEZONE_OPTIONS = [
-  { value: 'Asia/Shanghai', label: '中国标准时间（UTC+8）' },
-  { value: 'Asia/Tokyo', label: '日本标准时间（UTC+9）' },
-  { value: 'Asia/Singapore', label: '新加坡时间（UTC+8）' },
-  { value: 'Europe/London', label: '英国时间（UTC+0/+1）' },
-  { value: 'Europe/Berlin', label: '中欧时间（UTC+1/+2）' },
-  { value: 'America/New_York', label: '美东时间（UTC-5/-4）' },
-  { value: 'America/Los_Angeles', label: '美西时间（UTC-8/-7）' },
-  { value: 'UTC', label: 'UTC' },
-]
 
 /** 用户行的状态徽标：已耗尽 / 接近上限 / 暂停 / 正常 / 无限额度。 */
 function statusBadge(row: AdminUserQuotaDTO, warnThreshold: number) {
@@ -76,7 +64,10 @@ function statusBadge(row: AdminUserQuotaDTO, warnThreshold: number) {
       className: 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-300',
     }
   }
-  if ((row.highlight?.percent ?? 0) >= warnThreshold) {
+  const nearest = row.rules.find(
+    (rule) => rule.limit.kind === 'amount' && !rule.invalid && !rule.shadowed,
+  )
+  if ((nearest?.percent ?? 0) >= warnThreshold) {
     return {
       label: '接近上限',
       className: 'bg-amber-50 text-amber-600 dark:bg-amber-400/10 dark:text-amber-200',
@@ -216,6 +207,17 @@ export default function QuotasPage() {
     queryKey: ['admin', 'quota', 'users'],
     queryFn: listUserQuotas,
     enabled: view === 'users',
+    refetchInterval: (query) => {
+      const rows = query.state.data
+      if (!rows) return false
+      return resolveQuotaRulesRefetchInterval(
+        rows.flatMap((row) => row.rules),
+        {
+          warnThreshold: config?.quotaWarnThreshold ?? 0.8,
+          refreshAllFixedBoundaries: true,
+        },
+      )
+    },
   })
 
   const invalidate = () => {
@@ -308,6 +310,8 @@ export default function QuotasPage() {
   })
 
   const warnThreshold = config?.quotaWarnThreshold ?? 0.8
+  const quotaTimezone = config?.quotaTimezone ?? 'UTC'
+  const timezoneLabel = quotaTimezoneLabel(quotaTimezone)
   const filteredUsers = useMemo(() => {
     const keyword = search.trim().toLowerCase()
     if (!keyword) return users ?? []
@@ -399,38 +403,61 @@ export default function QuotasPage() {
         )}
       </div>
 
-      {/* 视图切换 */}
-      <div className="flex items-center gap-1 rounded-xl bg-neutral-100 p-1 dark:bg-neutral-800">
-        {(
-          [
-            ['policies', '策略'],
-            ['users', '用户'],
-          ] as const
-        ).map(([value, label]) => (
-          <button
-            key={value}
-            type="button"
-            aria-pressed={view === value}
-            onClick={() => setView(value)}
-            className={clsx(
-              'rounded-lg px-3 py-1.5 text-sm font-medium transition',
-              view === value
-                ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-100'
-                : 'text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200',
-            )}
-          >
-            {label}
-          </button>
-        ))}
+      {/* 视图与当前主操作共用一行，避免短标签撑满整条背景、操作按钮另起一行。 */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="inline-flex w-fit items-center gap-1 rounded-xl border border-neutral-200 bg-neutral-100/80 p-1 dark:border-neutral-700 dark:bg-neutral-800/80">
+          {(
+            [
+              ['policies', '策略'],
+              ['users', '用户'],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={view === value}
+              onClick={() => setView(value)}
+              className={clsx(
+                'min-w-16 rounded-lg px-3 py-1.5 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/40',
+                view === value
+                  ? 'bg-white text-neutral-900 shadow-xs dark:bg-neutral-700 dark:text-neutral-100'
+                  : 'text-neutral-500 hover:bg-white/60 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-700/60 dark:hover:text-neutral-200',
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {view === 'policies' ? (
+          <Button className="w-full sm:w-auto" onClick={() => setEditingPolicy(null)}>
+            <Plus className="h-4 w-4" /> 新建策略
+          </Button>
+        ) : (
+          <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto">
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="搜索用户或策略"
+              className="h-10 min-w-0 flex-1 rounded-xl border border-neutral-300 bg-white px-3 text-sm text-neutral-800 outline-none transition focus:border-sky-500 sm:w-72 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+            />
+            <Button
+              variant={batchMode ? 'primary' : 'secondary'}
+              className="shrink-0"
+              aria-pressed={batchMode}
+              onClick={() => {
+                setBatchMode((current) => !current)
+                setSelectedUserIds([])
+              }}
+            >
+              <ListChecks className="h-4 w-4" /> 批量管理
+            </Button>
+          </div>
+        )}
       </div>
 
       {view === 'policies' ? (
         <div className="space-y-3">
-          <div className="flex justify-end">
-            <Button onClick={() => setEditingPolicy(null)}>
-              <Plus className="h-4 w-4" /> 新建策略
-            </Button>
-          </div>
           {loadingPolicies ? (
             <div className="py-16 text-center">
               <Spinner className="h-6 w-6 text-neutral-400" />
@@ -470,24 +497,9 @@ export default function QuotasPage() {
         </div>
       ) : (
         <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="搜索用户或策略"
-              className="min-w-0 flex-1 rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-sm text-neutral-800 outline-none transition focus:border-sky-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
-            />
-            <Button
-              variant={batchMode ? 'primary' : 'secondary'}
-              className="shrink-0"
-              aria-pressed={batchMode}
-              onClick={() => {
-                setBatchMode((current) => !current)
-                setSelectedUserIds([])
-              }}
-            >
-              <ListChecks className="h-4 w-4" /> 批量管理
-            </Button>
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-xl bg-neutral-50 px-3 py-2 text-[11px] leading-5 text-neutral-500 dark:bg-neutral-800/50 dark:text-neutral-400">
+            <span>每位用户均展示全部额度桶，包括豁免、未开始、失效和被接管的规则。</span>
+            <span className="shrink-0">周期时间按 {timezoneLabel} 显示</span>
           </div>
 
           {loadingUsers ? (
@@ -495,9 +507,7 @@ export default function QuotasPage() {
               <Spinner className="h-6 w-6 text-neutral-400" />
             </div>
           ) : (
-            <div
-              className={clsx(cardSurface, 'divide-y divide-neutral-100 dark:divide-neutral-800')}
-            >
+            <div className="space-y-3">
               {filteredUsers.map((row) => {
                 const badge = statusBadge(row, warnThreshold)
                 const selected = selectedUserIds.includes(row.userId)
@@ -519,126 +529,98 @@ export default function QuotasPage() {
                         : undefined
                     }
                     className={clsx(
-                      'flex flex-wrap items-center gap-3 px-4 py-3 transition',
+                      cardSurface,
+                      'px-4 py-3 transition',
                       batchMode && 'cursor-pointer',
-                      selected && 'bg-sky-50/60 dark:bg-sky-500/5',
+                      selected &&
+                        'border-sky-200 bg-sky-50/60 ring-1 ring-sky-200/70 dark:border-sky-800 dark:bg-sky-500/5 dark:ring-sky-800/70',
                     )}
                   >
-                    {batchMode && (
-                      // 复选框自身已经会切换一次；阻止冒泡，避免整行再切换一次导致「点了没反应」。
-                      <span onClick={(event) => event.stopPropagation()}>
-                        <Checkbox
-                          checked={selected}
-                          onChange={() => toggleUser(row.userId)}
-                          ariaLabel={`选择 ${row.username}`}
-                        />
-                      </span>
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
-                          {row.username}
+                    <div className="flex flex-wrap items-center gap-3">
+                      {batchMode && (
+                        // 复选框自身已经会切换一次；阻止冒泡，避免整行再切换一次导致「点了没反应」。
+                        <span onClick={(event) => event.stopPropagation()}>
+                          <Checkbox
+                            checked={selected}
+                            onChange={() => toggleUser(row.userId)}
+                            ariaLabel={`选择 ${row.username}`}
+                          />
                         </span>
-                        {row.displayName && (
-                          <span className="truncate text-xs text-neutral-400">
-                            {row.displayName}
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
+                            {row.username}
                           </span>
-                        )}
-                        <span
-                          className={clsx(
-                            'shrink-0 rounded px-1.5 py-px text-[10px] font-medium',
-                            badge.className,
-                          )}
-                        >
-                          {badge.label}
-                        </span>
-                      </div>
-                      <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-neutral-400 dark:text-neutral-500">
-                        <span>
-                          {row.policyName ?? '无策略'}
-                          {row.usingDefaultPolicy && '（默认）'}
-                        </span>
-                        {row.overrideCount > 0 && <span>已覆写 {row.overrideCount} 项</span>}
-                        <span>最近使用 {formatRelative(row.lastUsageAt)}</span>
-                      </div>
-                    </div>
-
-                    {/* 关键规则进度：无限额度不画进度条 */}
-                    <div className="w-full sm:w-44">
-                      {row.highlight ? (
-                        <>
-                          <div className="flex items-baseline justify-between gap-2 text-[11px] tabular-nums text-neutral-500 dark:text-neutral-400">
-                            <span className="truncate">
-                              {formatQuotaAmount(row.highlight.metric, row.highlight.used)} /{' '}
-                              {formatQuotaAmount(
-                                row.highlight.metric,
-                                row.highlight.effectiveLimit ?? 0,
-                              )}
+                          {row.displayName && (
+                            <span className="truncate text-xs text-neutral-400">
+                              {row.displayName}
                             </span>
-                            <span>{Math.round((row.highlight.percent ?? 0) * 100)}%</span>
-                          </div>
-                          <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
-                            <div
-                              className={clsx(
-                                'h-full rounded-full',
-                                row.blocked
-                                  ? 'bg-rose-500 dark:bg-rose-400'
-                                  : (row.highlight.percent ?? 0) >= warnThreshold
-                                    ? 'bg-amber-500 dark:bg-amber-400'
-                                    : 'bg-sky-500 dark:bg-sky-400',
-                              )}
-                              style={{
-                                width: `${Math.min(
-                                  100,
-                                  Math.max(2, Math.round((row.highlight.percent ?? 0) * 100)),
-                                )}%`,
-                              }}
-                            />
-                          </div>
-                        </>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-[11px] text-neutral-400 dark:text-neutral-500">
-                          <InfinityIcon className="h-3 w-3" /> 不限额度
-                        </span>
+                          )}
+                          <span
+                            className={clsx(
+                              'shrink-0 rounded px-1.5 py-px text-[10px] font-medium',
+                              badge.className,
+                            )}
+                          >
+                            {badge.label}
+                          </span>
+                        </div>
+                        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-neutral-400 dark:text-neutral-500">
+                          <span>
+                            {row.policyName ?? '无策略'}
+                            {row.usingDefaultPolicy && '（默认）'}
+                          </span>
+                          {row.overrideCount > 0 && <span>已覆写 {row.overrideCount} 项</span>}
+                          <span>最近使用 {formatRelative(row.lastUsageAt)}</span>
+                        </div>
+                      </div>
+
+                      {!batchMode && (
+                        <div className="flex shrink-0 items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => togglePause.mutate(row)}
+                            title={row.enforcementPaused ? '恢复限额' : '暂停限额'}
+                            aria-label={row.enforcementPaused ? '恢复限额' : '暂停限额'}
+                            className={clsx(
+                              'rounded-lg p-1.5 transition',
+                              row.enforcementPaused
+                                ? 'text-sky-500 hover:bg-sky-50 dark:hover:bg-sky-500/10'
+                                : 'text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-300',
+                            )}
+                          >
+                            <PauseCircle className="h-4 w-4" />
+                          </button>
+                          <Button
+                            variant="secondary"
+                            className="px-2.5 py-1.5 text-xs"
+                            onClick={() => setDialogUser(row)}
+                          >
+                            配置
+                          </Button>
+                          <Link
+                            to={`/admin/users/${row.userId}`}
+                            className="rounded-lg px-2 py-1.5 text-xs text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
+                          >
+                            明细
+                          </Link>
+                        </div>
                       )}
                     </div>
 
-                    {!batchMode && (
-                      <div className="flex shrink-0 items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => togglePause.mutate(row)}
-                          title={row.enforcementPaused ? '恢复限额' : '暂停限额'}
-                          aria-label={row.enforcementPaused ? '恢复限额' : '暂停限额'}
-                          className={clsx(
-                            'rounded-lg p-1.5 transition',
-                            row.enforcementPaused
-                              ? 'text-sky-500 hover:bg-sky-50 dark:hover:bg-sky-500/10'
-                              : 'text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-300',
-                          )}
-                        >
-                          <PauseCircle className="h-4 w-4" />
-                        </button>
-                        <Button
-                          variant="secondary"
-                          className="px-2.5 py-1.5 text-xs"
-                          onClick={() => setDialogUser(row)}
-                        >
-                          配置
-                        </Button>
-                        <Link
-                          to={`/admin/users/${row.userId}`}
-                          className="rounded-lg px-2 py-1.5 text-xs text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
-                        >
-                          明细
-                        </Link>
-                      </div>
-                    )}
+                    <UserQuotaBuckets
+                      rules={row.rules}
+                      warnThreshold={warnThreshold}
+                      timezone={quotaTimezone}
+                    />
                   </div>
                 )
               })}
               {filteredUsers.length === 0 && (
-                <div className="py-12 text-center text-sm text-neutral-400">没有匹配的用户</div>
+                <div className="rounded-2xl border border-dashed border-neutral-300 py-12 text-center text-sm text-neutral-400 dark:border-neutral-700">
+                  没有匹配的用户
+                </div>
               )}
             </div>
           )}
