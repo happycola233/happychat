@@ -37,6 +37,7 @@ import {
   draftsToRules,
   type QuotaRuleDraft,
 } from './quotaRuleDrafts'
+import { hasUnsavedQuotaDefinitionChanges, hiddenQuotaRuleOverrides } from './userQuotaDraftState'
 
 type OverrideMode = 'inherit' | 'override' | 'disabled'
 
@@ -273,7 +274,10 @@ export function UserQuotaDialog({
     overrideDrafts[rule.id] ?? initialOverrideDraft(rule, detail?.overrides ?? {})
 
   const buildOverrides = (): UserQuotaOverrides => {
-    const rules: NonNullable<UserQuotaOverrides['rules']> = {}
+    const rules: NonNullable<UserQuotaOverrides['rules']> = hiddenQuotaRuleOverrides(
+      detail?.overrides ?? {},
+      templateRules.map((rule) => rule.id),
+    )
     for (const rule of templateRules) {
       const payload = overridePayload(overrideFor(rule))
       if (payload) rules[rule.id] = payload
@@ -292,7 +296,7 @@ export function UserQuotaDialog({
   const overridesSnapshot = JSON.stringify(draftOverrides)
   const debouncedOverridesSnapshot = useDebouncedValue(overridesSnapshot, 350)
 
-  const { data: preview } = useQuery<QuotaPreviewDTO>({
+  const { data: preview, isFetching: isPreviewFetching } = useQuery<QuotaPreviewDTO>({
     queryKey: [
       'admin',
       'quota',
@@ -312,6 +316,12 @@ export function UserQuotaDialog({
     enabled: open && Boolean(detail),
     placeholderData: (previousData) => previousData,
   })
+  const quotaDefinitionDirty = detail
+    ? hasUnsavedQuotaDefinitionChanges(detail.policyId, policyId, detail.overrides, draftOverrides)
+    : false
+  const canAdjustSavedQuota = !quotaDefinitionDirty
+  const previewActionsReady =
+    canAdjustSavedQuota && overridesSnapshot === debouncedOverridesSnapshot && !isPreviewFetching
 
   const save = useMutation({
     mutationFn: () => {
@@ -375,11 +385,11 @@ export function UserQuotaDialog({
   const activeGrants = (detail?.adjustments ?? []).filter(
     (row) => row.kind === 'grant' && row.active,
   )
-  // 只有真正在生效的活动周期才能赠送；未启动的固定周期没有可绑定的到期点。
-  const grantableRules = (preview?.rules ?? []).filter(
+  // 周期调整只使用已保存快照；预览可能包含尚未落库的策略、专属规则或周期改动。
+  const grantableRules = (detail?.rules ?? []).filter(
     (rule) => rule.limit.kind === 'amount' && rule.periodActive && !rule.invalid && !rule.shadowed,
   )
-  const hasResettablePeriods = (preview?.rules ?? []).some(
+  const hasResettablePeriods = (detail?.rules ?? []).some(
     (rule) => rule.limit.kind === 'amount' && rule.periodActive && !rule.invalid && !rule.shadowed,
   )
   const grantRule = grantableRules.find((rule) => rule.ruleId === grantForm.ruleId)
@@ -594,7 +604,8 @@ export function UserQuotaDialog({
               </h3>
               <button
                 type="button"
-                disabled={!hasResettablePeriods}
+                disabled={!hasResettablePeriods || !canAdjustSavedQuota}
+                title={quotaDefinitionDirty ? '请先保存当前配置，再重置周期' : undefined}
                 onClick={async () => {
                   if (
                     await askConfirm({
@@ -611,6 +622,11 @@ export function UserQuotaDialog({
                 <RotateCcw className="h-3 w-3" /> 重置全部周期
               </button>
             </div>
+            {quotaDefinitionDirty && (
+              <p className="mb-2 rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] leading-5 text-amber-700 dark:bg-amber-400/10 dark:text-amber-200">
+                当前策略或规则尚未保存；请先保存，再重置周期或赠送临时额度。
+              </p>
+            )}
             {!preview ? (
               <div className="py-4 text-center">
                 <Spinner className="h-5 w-5 text-neutral-400" />
@@ -627,6 +643,7 @@ export function UserQuotaDialog({
                       key={`${rule.ruleId}:${rule.bucketKey ?? ''}`}
                       rule={rule}
                       onReset={
+                        !previewActionsReady ||
                         !rule.periodActive ||
                         rule.invalid ||
                         rule.shadowed ||
@@ -705,6 +722,7 @@ export function UserQuotaDialog({
               <Select
                 className="w-full"
                 aria-label="目标规则"
+                disabled={!canAdjustSavedQuota}
                 value={grantForm.ruleId}
                 onChange={(event) =>
                   setGrantForm((current) => ({
@@ -727,18 +745,20 @@ export function UserQuotaDialog({
               />
               <input
                 value={grantForm.amount}
+                disabled={!canAdjustSavedQuota}
                 onChange={(event) =>
                   setGrantForm((current) => ({ ...current, amount: event.target.value }))
                 }
                 inputMode="decimal"
                 placeholder={grantRule?.metric === 'requests' ? '增加次数' : '增加金额（$）'}
-                className="w-full rounded-lg border border-neutral-300 bg-white px-2.5 py-1.5 text-sm tabular-nums text-neutral-800 outline-none transition focus:border-sky-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+                className="w-full rounded-lg border border-neutral-300 bg-white px-2.5 py-1.5 text-sm tabular-nums text-neutral-800 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
               />
               <Button
                 variant="secondary"
                 className="px-3 py-1.5 text-xs"
                 loading={addGrant.isPending}
                 disabled={
+                  !canAdjustSavedQuota ||
                   !grantForm.ruleId ||
                   !(Number(grantForm.amount) > 0) ||
                   (requiresBucket && !grantForm.bucketKey)
@@ -753,6 +773,7 @@ export function UserQuotaDialog({
               <Select
                 className="mt-2 w-full"
                 aria-label="目标模型或分组"
+                disabled={!canAdjustSavedQuota}
                 value={grantForm.bucketKey}
                 onChange={(event) =>
                   setGrantForm((current) => ({ ...current, bucketKey: event.target.value }))

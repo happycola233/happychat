@@ -201,6 +201,16 @@ describe('额度快照与拦截', () => {
     expect(result.message).toContain('重置')
   })
 
+  it('覆盖全部模型的额度耗尽时明确报告没有其他模型可用', async () => {
+    const { userId, modelA } = await createFixture()
+    await bindPolicy(userId, [dailyRequests(1)])
+    await logUsage(userId, modelA)
+
+    const snapshot = await quota.getQuotaSnapshot(userId)
+    expect(snapshot.allModelsBlocked).toBe(true)
+    expect((await quota.getMyQuota(userId)).allModelsBlocked).toBe(true)
+  })
+
   it('失败请求既不计费也不计次', async () => {
     const { userId, modelA } = await createFixture()
     await bindPolicy(userId, [dailyRequests(2)])
@@ -307,6 +317,9 @@ describe('额度快照与拦截', () => {
     expect(snapshot.rules).toHaveLength(1)
     expect(snapshot.rules[0]?.used).toBe(2)
     expect(snapshot.blockedModelIds).toEqual(expect.arrayContaining([modelA, modelB]))
+    // 这条显式模型规则不影响账号可见的其他模型，因此不是全局耗尽。
+    expect(snapshot.allModelsBlocked).toBe(false)
+    expect((await quota.getMyQuota(userId)).allModelsBlocked).toBe(false)
   })
 
   it('按分组设限只统计组内模型；分组被删除后规则失效且不拦截', async () => {
@@ -487,6 +500,40 @@ describe('周期调整（临时额度 / 手动重置）', () => {
       .prepare('select count(*) as count from usage_logs where user_id = ?')
       .all(userId) as { count: number }[]
     expect(usageRows[0]?.count).toBe(1)
+  })
+
+  it.each([
+    ['月度', { type: 'calendar', period: 'month' }],
+    ['永久累计', { type: 'total' }],
+  ] as const)('日额度重置过期后，同 ID 规则改为%s不会沿用旧统计起点', async (_label, window) => {
+    const { userId, modelA } = await createFixture()
+    const policyId = await bindPolicy(userId, [dailyRequests(10)])
+    const now = new Date('2026-08-15T04:00:00.000Z')
+    const usageAt = new Date('2026-08-14T01:00:00.000Z')
+    const resetAt = new Date('2026-08-14T04:00:00.000Z')
+    await logUsage(userId, modelA, { createdAt: usageAt })
+    const dailyPeriodStart = (await quota.getQuotaSnapshot(userId, { now: resetAt.getTime() }))
+      .rules[0]!.periodStart
+
+    await dbClient.db.insert(schema.quotaAdjustments).values({
+      id: `expired-daily-reset-${userId}`,
+      userId,
+      kind: 'reset',
+      ruleId: 'r-req',
+      metric: 'requests',
+      amount: null,
+      effectiveFrom: resetAt,
+      periodStart: new Date(dailyPeriodStart),
+      expiresAt: new Date('2026-08-14T16:00:00.000Z'),
+    })
+    await dbClient.db
+      .update(schema.quotaPolicies)
+      .set({ rules: [{ ...dailyRequests(10), window }] })
+      .where(eq(schema.quotaPolicies.id, policyId))
+
+    const snapshot = await quota.getQuotaSnapshot(userId, { now: now.getTime() })
+    expect(snapshot.rules[0]?.usageStart).toBe(snapshot.rules[0]?.periodStart)
+    expect(snapshot.rules[0]?.used).toBe(1)
   })
 
   it('「各自独立」规则的赠送只作用于指定模型', async () => {
@@ -781,17 +828,36 @@ describe('规则优先级遮蔽', () => {
     expect(low?.used).toBe(0)
     expect(low?.blocked).toBe(false)
     expect(snapshot.blockedModelIds).toEqual([])
+    expect(snapshot.unlimited).toBe(true)
+    const myQuota = await quota.getMyQuota(userId)
+    expect(myQuota).toMatchObject({
+      unlimited: true,
+      allModelsBlocked: false,
+    })
+    expect(myQuota.rules.map((rule) => rule.ruleId)).toEqual(['r-exempt'])
   })
 
-  it('「全部模型」规则在出现遮蔽后只统计未被接管的模型', async () => {
+  it('「全部模型」规则部分被遮蔽后只限制其余模型，并准确报告仍有模型可用', async () => {
     const { userId, modelA, modelB } = await createFixture()
-    await bindPolicy(userId, [dailyRequests(2), exempt(modelB, 3)])
+    await bindPolicy(userId, [dailyRequests(1), exempt(modelB, 3)])
     await logUsage(userId, modelA)
     await logUsage(userId, modelB)
     await logUsage(userId, modelB)
 
     const snapshot = await quota.getQuotaSnapshot(userId)
     expect(snapshot.rules.find((rule) => rule.ruleId === 'r-req')?.used).toBe(1)
+    expect(snapshot.unlimited).toBe(false)
+    expect(snapshot.blockedModelIds).toContain(modelA)
+    expect(snapshot.blockedModelIds).not.toContain(modelB)
+    expect(snapshot.allModelsBlocked).toBe(false)
+    const myQuota = await quota.getMyQuota(userId)
+    expect(myQuota.allModelsBlocked).toBe(false)
+    const effectiveModelIds = myQuota.rules.find(
+      (rule) => rule.ruleId === 'r-req',
+    )?.effectiveModelIds
+    expect(effectiveModelIds).toContain(modelA)
+    expect(effectiveModelIds).not.toContain(modelB)
+    expect((await quota.checkQuota(userId, modelA)).ok).toBe(false)
     expect((await quota.checkQuota(userId, modelB)).ok).toBe(true)
   })
 })

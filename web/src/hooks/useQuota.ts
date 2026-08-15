@@ -8,6 +8,7 @@ export const MY_QUOTA_QUERY_KEY = ['quota', 'me'] as const
 /**
  * 只有时间流逝本身可能改变提示状态时才自动刷新：
  * - 滚动窗口在接近/达到上限后每 30 秒检查一次逐步释放；
+ * - 临时额度到期后刷新一次，恢复基础额度的真实状态；
  * - 自然周期和首次请求固定周期在精确结束点后刷新一次。
  * 正常额度仍由生成结束后的主动失效更新，避免所有打开页面无意义轮询。
  */
@@ -67,7 +68,7 @@ export function resolveQuotaNotice(
     if (quota.paused) return { level: 'paused', rule: blocked[0] ?? null, modelScoped: false }
     const modelBlocked = Boolean(activeModelId && quota.blockedModelIds.includes(activeModelId))
     // 只有部分模型被限时，明确告诉用户「换个模型还能继续」。
-    const someModelsAvailable = blocked.every((rule) => rule.scope.type !== 'all')
+    const someModelsAvailable = !quota.allModelsBlocked
     if (modelBlocked) {
       return {
         level: someModelsAvailable ? 'model-exhausted' : 'exhausted',

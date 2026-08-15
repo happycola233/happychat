@@ -195,6 +195,57 @@ describe('个人使用情况统计', () => {
     expect(year.granularity).toBe('month')
   })
 
+  it('IANA 时区的 DST 开始日使用 23 小时窗口并跳过不存在的小时', async () => {
+    const userId = await createUser()
+    const now = Date.parse('2026-03-09T03:30:00Z') // 纽约 3/8 23:30
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(now)
+    try {
+      await logUsage(userId, { at: new Date('2026-03-08T04:59:59Z'), tokens: 9 })
+      await logUsage(userId, { at: new Date('2026-03-08T06:30:00Z'), tokens: 1 }) // 01:30
+      await logUsage(userId, { at: new Date('2026-03-08T07:30:00Z'), tokens: 2 }) // 03:30
+
+      const stats = await usageStats.getMyUsageStats(userId, {
+        timezone: 'America/New_York',
+        view: 'day',
+      })
+      expect(new Date(stats.windowStart).toISOString()).toBe('2026-03-08T05:00:00.000Z')
+      expect(new Date(stats.windowEnd).toISOString()).toBe('2026-03-09T04:00:00.000Z')
+      expect(stats.windowEnd - stats.windowStart).toBe(23 * 3_600_000)
+      expect(stats.totals.requests).toBe(2)
+      expect(stats.byHour[1]).toBe(1)
+      expect(stats.byHour[2]).toBe(0)
+      expect(stats.byHour[3]).toBe(1)
+      expect(stats.trend).toHaveLength(23)
+    } finally {
+      nowSpy.mockRestore()
+    }
+  })
+
+  it('IANA 时区的 DST 结束日保留两个真实的重复小时桶', async () => {
+    const userId = await createUser()
+    const now = Date.parse('2026-11-02T04:30:00Z') // 纽约 11/1 23:30
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(now)
+    try {
+      await logUsage(userId, { at: new Date('2026-11-01T05:30:00Z') }) // 01:30 EDT
+      await logUsage(userId, { at: new Date('2026-11-01T06:30:00Z') }) // 01:30 EST
+
+      const stats = await usageStats.getMyUsageStats(userId, {
+        timezone: 'America/New_York',
+        view: 'day',
+      })
+      expect(stats.windowEnd - stats.windowStart).toBe(25 * 3_600_000)
+      expect(stats.totals.requests).toBe(2)
+      expect(stats.byHour[1]).toBe(2)
+      expect(stats.trend).toHaveLength(25)
+      expect(stats.trend.filter((point) => point.requests > 0).map((point) => point.ts)).toEqual([
+        Date.parse('2026-11-01T05:00:00Z'),
+        Date.parse('2026-11-01T06:00:00Z'),
+      ])
+    } finally {
+      nowSpy.mockRestore()
+    }
+  })
+
   it('本周起点跟随站点配置（周一 / 周日）', async () => {
     const userId = await createUser()
     const monday = await usageStats.getMyUsageStats(userId, {

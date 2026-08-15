@@ -473,15 +473,13 @@ function toGrantDTO(row: QuotaAdjustmentRow): QuotaGrantDTO {
 export interface QuotaSnapshot {
   config: QuotaConfig
   binding: UserQuotaBinding
+  /** 优先级遮蔽与失效目标解析后，是否没有实际覆盖模型的有限额度桶 */
   unlimited: boolean
   rules: QuotaBucketUsageDTO[]
-  /**
-   * 与 `rules` 一一对应的模型集合（null=全部模型）。留在服务层内部使用：
-   * 拦截判定需要精确知道某条规则覆盖哪些模型，DTO 不适合暴露展开后的成员。
-   */
-  bucketModelIds: (string[] | null)[]
   /** 额度已用尽、当前不可用的模型；`enforcementPaused` 时为空（暂停期间不拦截） */
   blockedModelIds: string[]
+  /** 当前限额是否阻塞该用户可用的全部模型；没有可用模型时为 false */
+  allModelsBlocked: boolean
 }
 
 export interface SnapshotOptions {
@@ -548,8 +546,8 @@ export async function getQuotaSnapshot(
       binding,
       unlimited: true,
       rules: [],
-      bucketModelIds: [],
       blockedModelIds: [],
+      allModelsBlocked: false,
     }
   }
 
@@ -624,7 +622,9 @@ export async function getQuotaSnapshot(
       const latestReset = bucket.periodActive
         ? adjustments.reduce(
             (max, row) =>
-              row.kind === 'reset' && adjustmentApplies(row, target)
+              row.kind === 'reset' &&
+              (row.expiresAt === null || row.expiresAt > now) &&
+              adjustmentApplies(row, target)
                 ? Math.max(max, row.effectiveFrom)
                 : max,
             0,
@@ -669,6 +669,7 @@ export async function getQuotaSnapshot(
       ruleId: bucket.rule.id,
       bucketKey: bucket.bucketKey,
       bucketLabel: bucket.bucketLabel,
+      effectiveModelIds: bucket.modelIds,
       label: bucket.rule.label,
       source: bucket.rule.source,
       scope: bucket.rule.scope,
@@ -693,28 +694,37 @@ export async function getQuotaSnapshot(
       shadowed: bucket.shadowed,
     }
   })
-  const bucketModelIds = buckets.map((bucket) => bucket.modelIds)
-
   // 4) 派生「哪些模型当前不可用」：per-model 规则耗尽只影响自己
   const blockedModelIds: string[] = []
   if (!paused) {
     for (const model of modelRows) {
       const blocked = usageRules.some(
-        (rule, index) =>
+        (rule) =>
           rule.blocked &&
-          (bucketModelIds[index] === null || bucketModelIds[index]!.includes(model.id)),
+          (rule.effectiveModelIds === null || rule.effectiveModelIds.includes(model.id)),
       )
       if (blocked) blockedModelIds.push(model.id)
     }
   }
 
+  // 只有仍实际覆盖至少一个模型的有限桶才表示账号受限；被高优先级规则完全接管的旧桶
+  // 继续留在管理端用于解释配置，但不应让用户端误以为账号存在额度上限。
+  const unlimited = buckets.every(
+    (bucket) =>
+      bucket.rule.limit.kind === 'unlimited' ||
+      bucket.invalid ||
+      bucket.shadowed ||
+      (bucket.modelIds !== null && bucket.modelIds.length === 0),
+  )
+  const allModelsBlocked = modelRows.length > 0 && blockedModelIds.length === modelRows.length
+
   return {
     config,
     binding,
-    unlimited: isQuotaUnlimited(rules),
+    unlimited,
     rules: usageRules,
-    bucketModelIds,
     blockedModelIds,
+    allModelsBlocked,
   }
 }
 
@@ -734,6 +744,7 @@ export async function getMyQuota(userId: string): Promise<MyQuotaDTO> {
       enabled: false,
       paused: false,
       unlimited: true,
+      allModelsBlocked: false,
       policyName: null,
       warnThreshold: config.quotaWarnThreshold,
       rules: [],
@@ -745,9 +756,11 @@ export async function getMyQuota(userId: string): Promise<MyQuotaDTO> {
     enabled: true,
     paused: snapshot.binding.enforcementPaused,
     unlimited: snapshot.unlimited,
+    allModelsBlocked: snapshot.allModelsBlocked,
     policyName: snapshot.binding.policyName,
     warnThreshold: config.quotaWarnThreshold,
-    rules: sortQuotaBucketsBySeverity(snapshot.rules),
+    // 用户只看实际生效的额度；完全被接管的桶仍留在管理快照中解释配置。
+    rules: sortQuotaBucketsBySeverity(snapshot.rules.filter((rule) => !rule.shadowed)),
     blockedModelIds: snapshot.blockedModelIds,
   }
 }
@@ -867,7 +880,7 @@ export function activateQuotaCycles(
 
 function cycleClaimsForModel(snapshot: QuotaSnapshot, modelDbId: string): QuotaCycleClaim[] {
   const claims: QuotaCycleClaim[] = []
-  snapshot.rules.forEach((rule, index) => {
+  snapshot.rules.forEach((rule) => {
     if (
       rule.window.type !== 'anchored' ||
       rule.limit.kind !== 'amount' ||
@@ -876,7 +889,7 @@ function cycleClaimsForModel(snapshot: QuotaSnapshot, modelDbId: string): QuotaC
     ) {
       return
     }
-    const modelIds = snapshot.bucketModelIds[index] ?? null
+    const modelIds = rule.effectiveModelIds
     if (modelIds !== null && !modelIds.includes(modelDbId)) return
     claims.push({ ruleId: rule.ruleId, bucketKey: rule.bucketKey, windowHours: rule.window.hours })
   })
@@ -911,9 +924,9 @@ export async function prepareQuotaAdmission(
     return { check: { ok: true }, cycleClaims }
   }
 
-  const blockingBuckets = snapshot.rules.filter((rule, index) => {
+  const blockingBuckets = snapshot.rules.filter((rule) => {
     if (!rule.blocked) return false
-    const modelIds = snapshot.bucketModelIds[index] ?? null
+    const modelIds = rule.effectiveModelIds
     return modelIds === null || modelIds.includes(modelDbId)
   })
   const bucket = sortQuotaBucketsBySeverity(blockingBuckets)[0]

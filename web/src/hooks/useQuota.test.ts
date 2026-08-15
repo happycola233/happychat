@@ -6,6 +6,7 @@ const bucket = (patch: Partial<QuotaBucketUsageDTO> = {}): QuotaBucketUsageDTO =
   ruleId: 'r-1',
   bucketKey: null,
   bucketLabel: null,
+  effectiveModelIds: null,
   label: null,
   source: 'policy',
   scope: { type: 'all' },
@@ -79,6 +80,7 @@ const quota = (patch: Partial<MyQuotaDTO> = {}): MyQuotaDTO => ({
   enabled: true,
   paused: false,
   unlimited: false,
+  allModelsBlocked: false,
   policyName: '默认用户',
   warnThreshold: 0.8,
   rules: [bucket()],
@@ -119,6 +121,7 @@ describe('resolveQuotaNotice', () => {
       quota({
         rules: [bucket({ blocked: true, used: 10, remaining: 0, percent: 1 })],
         blockedModelIds: ['m1', 'm2'],
+        allModelsBlocked: true,
       }),
       'm1',
     )
@@ -144,6 +147,27 @@ describe('resolveQuotaNotice', () => {
     expect(state.level).toBe('model-exhausted')
     expect(state.modelScoped).toBe(true)
     expect(state.rule?.bucketLabel).toBe('GPT-5.5')
+  })
+
+  it('原始全模型规则被高优先级规则部分接管时，按实际可用模型提示切换', () => {
+    const state = resolveQuotaNotice(
+      quota({
+        rules: [
+          bucket({
+            scope: { type: 'all' },
+            blocked: true,
+            used: 10,
+            remaining: 0,
+            percent: 1,
+          }),
+        ],
+        blockedModelIds: ['m1'],
+        allModelsBlocked: false,
+      }),
+      'm1',
+    )
+    expect(state.level).toBe('model-exhausted')
+    expect(state.modelScoped).toBe(true)
   })
 
   it('别的模型额度用尽但当前模型可用时不打扰用户', () => {

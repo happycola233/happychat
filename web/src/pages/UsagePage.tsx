@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { clsx } from 'clsx'
@@ -10,6 +10,8 @@ import { getMyUsageStats } from '../api/quota'
 import { useMyQuota } from '../hooks/useQuota'
 import { Spinner } from '../components/ui/Spinner'
 import { formatCompact, formatInt, formatRelative } from '../lib/format'
+import { getBrowserTimezone } from '../lib/browserLocale'
+import { displayedUsageView, usageWindowTimerDelay } from '../lib/usageWindow'
 import { ActivityRhythm } from '../usage/ActivityRhythm'
 import { ModelUsageTable } from '../usage/ModelUsageTable'
 import { QuotaProgressCard } from '../usage/QuotaProgressCard'
@@ -17,7 +19,7 @@ import { UsageHeatmap } from '../usage/UsageHeatmap'
 import { UsageTrendCard } from '../usage/UsageTrendCard'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 
-/** 服务端按用户本地日分格热力图，因此必须把浏览器时区偏移带上（东八区 = +480）。 */
+/** 固定偏移只随请求附带给旧服务端；新服务端以 IANA 时区为准。 */
 const timezoneOffsetMinutes = () => -new Date().getTimezoneOffset()
 
 /** 窗口视图与中文名；窗口边界按浏览器本地时区的自然周期计算。 */
@@ -104,18 +106,46 @@ export default function UsagePage() {
   useDocumentTitle('使用情况')
   const { data: quota } = useMyQuota()
   const [view, setView] = useState<UsageStatsView>('month')
-  const viewLabel = viewLabelOf(view)
+  const timezone = getBrowserTimezone()
   const {
     data: stats,
     isLoading,
     isError,
+    refetch,
   } = useQuery({
-    queryKey: ['usage', 'me', view],
-    queryFn: () => getMyUsageStats({ tzOffsetMinutes: timezoneOffsetMinutes(), view }),
+    queryKey: ['usage', 'me', view, timezone],
+    queryFn: () =>
+      getMyUsageStats({
+        timezone,
+        tzOffsetMinutes: timezoneOffsetMinutes(),
+        view,
+      }),
     staleTime: 60_000,
     // 切换窗口时先留住上一份数据，避免整页闪回 loading。
     placeholderData: (previousData) => previousData,
   })
+  const displayedView = displayedUsageView(view, stats?.view)
+  const viewLabel = viewLabelOf(displayedView)
+
+  useEffect(() => {
+    if (!stats?.windowEnd) return
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let canceled = false
+    const schedule = () => {
+      if (canceled) return
+      const delay = usageWindowTimerDelay(stats.windowEnd, Date.now())
+      if (delay === null) {
+        void refetch()
+        return
+      }
+      timer = setTimeout(schedule, delay)
+    }
+    schedule()
+    return () => {
+      canceled = true
+      if (timer) clearTimeout(timer)
+    }
+  }, [refetch, stats?.windowEnd])
 
   return (
     <div className="hc-scrollbar h-dvh overflow-y-auto bg-neutral-50 dark:bg-neutral-950">
@@ -186,7 +216,7 @@ export default function UsagePage() {
               byWeekday={stats.byWeekday}
               busiestHour={stats.busiestHour}
               busiestWeekday={stats.busiestWeekday}
-              showWeekday={view !== 'day'}
+              showWeekday={displayedView !== 'day'}
             />
           </div>
         )}

@@ -7,15 +7,20 @@ export const getMyQuota = () =>
   apiGet<{ quota: MyQuotaDTO }>('/quota/me').then((response) => response.quota)
 
 /**
- * 个人使用情况统计。热力图按用户本地日分格，因此必须把浏览器时区偏移带上
- * （`-getTimezoneOffset()`：东八区为 +480）。
+ * 个人使用情况统计。IANA 时区让服务端按历史 DST 规则分桶；固定偏移仅用于兼容
+ * 尚不认识 `timezone` 的旧服务端。
  */
 export const getMyUsageStats = (params: {
-  tzOffsetMinutes: number
+  timezone?: string
+  tzOffsetMinutes?: number
   days?: number
   view?: UsageStatsView
 }) => {
-  const search = new URLSearchParams({ tzOffsetMinutes: String(params.tzOffsetMinutes) })
+  const search = new URLSearchParams()
+  if (params.timezone) search.set('timezone', params.timezone)
+  if (params.tzOffsetMinutes !== undefined) {
+    search.set('tzOffsetMinutes', String(params.tzOffsetMinutes))
+  }
   if (params.days) search.set('days', String(params.days))
   if (params.view) search.set('view', params.view)
   return apiGet<{ stats: UsageStatsDTO }>(`/quota/usage?${search.toString()}`).then(

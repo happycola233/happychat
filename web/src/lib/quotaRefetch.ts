@@ -13,6 +13,7 @@ export interface QuotaRefetchOptions {
  * 计算时间流逝本身会让额度快照失真的最近时刻。
  *
  * - 滚动窗口没有固定重置点，仅在接近/达到上限时短轮询，及时展示逐步释放；
+ * - 临时额度在到期点后刷新，避免赠送额度掩盖基础额度已耗尽的状态；
  * - 自然周期和首次请求固定周期在精确结束点后刷新一次；
  * - 未启动周期、永久累计和豁免规则无需定时刷新。
  */
@@ -29,6 +30,14 @@ export function resolveQuotaRulesRefetchInterval(
     const isEffective = !rule.invalid && !rule.shadowed
     const isNearLimit =
       isEffective && (rule.blocked || (rule.percent ?? 0) >= options.warnThreshold)
+
+    if (isEffective) {
+      for (const grant of rule.grants) {
+        if (grant.expiresAt !== null) {
+          nextDelay = Math.min(nextDelay, Math.max(1_000, grant.expiresAt - now + 250))
+        }
+      }
+    }
 
     if (rule.window.type === 'rolling') {
       if (isNearLimit) nextDelay = Math.min(nextDelay, ROLLING_QUOTA_POLL_MS)

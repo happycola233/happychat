@@ -6,6 +6,7 @@ const bucket = (patch: Partial<QuotaBucketUsageDTO> = {}): QuotaBucketUsageDTO =
   ruleId: 'rule-1',
   bucketKey: null,
   bucketLabel: null,
+  effectiveModelIds: null,
   label: null,
   source: 'policy',
   scope: { type: 'all' },
@@ -57,6 +58,40 @@ describe('resolveQuotaRulesRefetchInterval', () => {
         { warnThreshold: 0.8, refreshAllFixedBoundaries: true },
       ),
     ).toBe(30_000)
+  })
+
+  it('大额临时额度压低占比时，仍在额度到期点后刷新滚动窗口', () => {
+    const now = 10_000
+    expect(
+      resolveQuotaRulesRefetchInterval(
+        [
+          bucket({
+            window: { type: 'rolling', hours: 5 },
+            periodEnd: null,
+            used: 50,
+            granted: 100,
+            effectiveLimit: 110,
+            remaining: 60,
+            percent: 50 / 110,
+            grants: [
+              {
+                id: 'grant-1',
+                ruleId: 'rule-1',
+                bucketKey: null,
+                metric: 'cost',
+                amount: 100,
+                note: null,
+                expiresAt: now + 5_000,
+                createdAt: now - 1_000,
+                createdByName: 'admin',
+              },
+            ],
+          }),
+        ],
+        { warnThreshold: 0.8 },
+        now,
+      ),
+    ).toBe(5_250)
   })
 
   it('未开始、永久累计与豁免规则不会启动定时器', () => {

@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
+import { timezoneSchema } from '@shared/schemas/app-config'
 import { requireUser } from '../auth/middleware'
 import { getAppConfig } from '../services/appConfig'
 import { getMyQuota } from '../services/quota'
@@ -19,8 +20,10 @@ quotaRoutes.get('/me', async (c) => {
 })
 
 const usageQuerySchema = z.object({
-  // 浏览器传 `-new Date().getTimezoneOffset()`：热力图必须按用户本地日分格。
-  tzOffsetMinutes: z.coerce.number().int().min(-840).max(840).default(0),
+  // 新客户端传 IANA 时区，服务端才能按每条历史记录发生时的 DST 偏移分桶。
+  timezone: timezoneSchema.optional(),
+  // 兼容旧客户端；没有 IANA 时区时才退回这个固定偏移。
+  tzOffsetMinutes: z.coerce.number().int().min(-840).max(840).optional(),
   days: z.coerce.number().int().min(7).max(USAGE_STATS_MAX_DAYS).optional(),
   /** 窗口视图；默认本月。 */
   view: z.enum(['day', 'week', 'month', 'year']).default('month'),
@@ -35,6 +38,7 @@ quotaRoutes.get('/usage', async (c) => {
   // 「本周」的起点沿用站点限额配置，让个人面板与额度周期是同一个周一/周日。
   const config = await getAppConfig()
   const stats = await getMyUsageStats(c.get('user').id, {
+    timezone: parsed.data.timezone,
     tzOffsetMinutes: parsed.data.tzOffsetMinutes,
     days: parsed.data.days,
     view: parsed.data.view,

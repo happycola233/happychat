@@ -172,7 +172,10 @@ describe('GET /api/quota/me', () => {
 describe('GET /api/quota/usage', () => {
   it('返回热力图与总量，并校验查询参数', async () => {
     await logUsage()
-    const response = await request('/api/quota/usage?tzOffsetMinutes=480&days=30', userCookie)
+    const response = await request(
+      '/api/quota/usage?timezone=Asia%2FShanghai&tzOffsetMinutes=480&days=30',
+      userCookie,
+    )
     const { stats } = (await response.json()) as { stats: UsageStatsDTO }
     expect(stats.rangeDays).toBe(30)
     expect(stats.heatmap).toHaveLength(30)
@@ -180,6 +183,7 @@ describe('GET /api/quota/usage', () => {
 
     expect((await request('/api/quota/usage?days=3', userCookie)).status).toBe(400)
     expect((await request('/api/quota/usage?tzOffsetMinutes=9999', userCookie)).status).toBe(400)
+    expect((await request('/api/quota/usage?timezone=Not%2FAZone', userCookie)).status).toBe(400)
   })
 
   it('只能看到自己的用量', async () => {

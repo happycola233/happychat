@@ -10,6 +10,7 @@ import { mapAnthropicUsage, type AnthropicUsage } from '../provider/anthropic'
 import { mapChatUsage } from '../provider/chat'
 import type { ChatChunk } from '../provider/chat'
 import { providerClientFromRow } from '../provider/client'
+import { UpstreamError } from '../provider/errors'
 import { parseResponse } from '../provider/normalize'
 import { buildPath, getConversationMessages } from './conversations'
 import { getAppConfig } from './appConfig'
@@ -40,10 +41,42 @@ async function resolveTitleModel(
   return getFirstRunnableTextModel(userId)
 }
 
-/** 标题调用的结果：正文 + 上游用量（用量要落 `usage_logs`，否则标题请求等于免费白跑）。 */
+/** 标题调用的结果：正文、上游用量与终态，成功和失败都必须进入请求审计。 */
 interface TitleModelResult {
   text: string
   usage: MessageUsage
+  success: boolean
+  errorType: string | null
+}
+
+const EMPTY_USAGE: MessageUsage = {
+  inputTokens: 0,
+  cacheWriteTokens: 0,
+  cachedTokens: 0,
+  outputTokens: 0,
+  reasoningTokens: 0,
+  totalTokens: 0,
+}
+
+function chatTitleTerminal(choice: {
+  message?: { refusal?: string | null }
+  finish_reason?: string | null
+}): Pick<TitleModelResult, 'success' | 'errorType'> {
+  if (choice.message?.refusal) return { success: false, errorType: 'refusal' }
+  if (choice.finish_reason === 'content_filter') {
+    return { success: false, errorType: 'content_filter' }
+  }
+  if (choice.finish_reason === 'tool_calls' || choice.finish_reason === 'function_call') {
+    return { success: false, errorType: 'tool_calls' }
+  }
+  if (
+    choice.finish_reason &&
+    choice.finish_reason !== 'stop' &&
+    choice.finish_reason !== 'length'
+  ) {
+    return { success: false, errorType: 'unsupported_finish_reason' }
+  }
+  return { success: true, errorType: null }
 }
 
 async function callTitleModel(
@@ -58,10 +91,18 @@ async function callTitleModel(
       messages: [{ role: 'user', content: prompt }],
       max_completion_tokens: 512,
       stream: false,
-    })) as { choices?: { message?: { content?: string } }[]; usage?: ChatChunk['usage'] }
+    })) as {
+      choices?: {
+        message?: { content?: string | null; refusal?: string | null }
+        finish_reason?: string | null
+      }[]
+      usage?: ChatChunk['usage']
+    }
+    const choice = resp.choices?.[0] ?? {}
     return {
-      text: resp.choices?.[0]?.message?.content ?? '',
+      text: choice.message?.content ?? '',
       usage: mapChatUsage(resp.usage),
+      ...chatTitleTerminal(choice),
     }
   }
   if (m.kind === 'anthropic') {
@@ -80,13 +121,17 @@ async function callTitleModel(
     const resp = (await client.createAnthropicMessage(body)) as {
       content?: { type?: string; text?: string }[]
       usage?: AnthropicUsage
+      stop_reason?: string | null
     }
+    const refused = resp.stop_reason === 'refusal'
     return {
       text: (resp.content ?? [])
         .filter((block) => block.type === 'text')
         .map((block) => block.text ?? '')
         .join(''),
       usage: mapAnthropicUsage(resp.usage),
+      success: !refused,
+      errorType: refused ? 'refusal' : null,
     }
   }
   const resp = await client.createResponse({
@@ -96,7 +141,22 @@ async function callTitleModel(
     store: false,
   })
   const parsed = parseResponse(resp)
-  return { text: parsed.text, usage: parsed.usage }
+  const refused = resp.output?.some((item) => item.content?.some((part) => part.type === 'refusal'))
+  const contentFiltered =
+    parsed.status === 'incomplete' && parsed.incompleteReason === 'content_filter'
+  const terminalError = refused
+    ? 'refusal'
+    : contentFiltered
+      ? 'content_filter'
+      : parsed.status === 'completed' || parsed.status === 'incomplete'
+        ? null
+        : (parsed.error?.code ?? `response_${parsed.status}`)
+  return {
+    text: parsed.text,
+    usage: parsed.usage,
+    success: terminalError === null,
+    errorType: terminalError,
+  }
 }
 
 /**
@@ -105,7 +165,7 @@ async function callTitleModel(
  * 标题总结没有 run（不走 `runs` 表，也没有助手消息），因此 `run_id` 为空，
  * 靠 `kind='title'` 与对话请求区分；成本口径与 finalize 完全一致（同一份价格快照）。
  * 用户额度只聚合 `kind='chat'`，所以这里保留真实审计日志，但不写额度归属时刻。
- * 与「失败请求不计费也不计次」一致：只有成功返回的调用才写行。
+ * 失败调用也写审计行，但标记 `success=false`；拿不到上游用量的网络/HTTP 异常以 0 记账。
  */
 async function logTitleUsage(
   conversationId: string,
@@ -113,6 +173,8 @@ async function logTitleUsage(
   model: ModelRow,
   provider: ProviderRow,
   usage: MessageUsage,
+  success: boolean,
+  errorType: string | null,
 ): Promise<void> {
   await db.insert(usageLogs).values({
     userId,
@@ -129,8 +191,13 @@ async function logTitleUsage(
     outputTokens: usage.outputTokens,
     reasoningTokens: usage.reasoningTokens,
     totalTokens: usage.totalTokens,
-    success: true,
+    success,
+    errorType,
   })
+}
+
+function titleCallErrorType(error: unknown): string {
+  return error instanceof UpstreamError ? (error.type ?? 'upstream_error') : 'upstream_error'
 }
 
 async function titleLocaleForRun(conversationId: string, runId?: string): Promise<string> {
@@ -195,9 +262,28 @@ export async function maybeGenerateTitle(conversationId: string, runId?: string)
     const prompt = (cfg.titlePrompt || DEFAULT_TITLE_PROMPT)
       .replaceAll('{locale}', titleLocale)
       .replaceAll('{content}', content)
-    const { text: raw, usage } = await callTitleModel(resolved.model, resolved.provider, prompt)
-    await logTitleUsage(conversationId, conv.userId, resolved.model, resolved.provider, usage)
-    const title = cleanTitle(raw) || fallback
+    let result: TitleModelResult
+    try {
+      result = await callTitleModel(resolved.model, resolved.provider, prompt)
+    } catch (error) {
+      console.error('标题模型调用失败:', error)
+      result = {
+        text: '',
+        usage: EMPTY_USAGE,
+        success: false,
+        errorType: titleCallErrorType(error),
+      }
+    }
+    await logTitleUsage(
+      conversationId,
+      conv.userId,
+      resolved.model,
+      resolved.provider,
+      result.usage,
+      result.success,
+      result.errorType,
+    )
+    const title = (result.success ? cleanTitle(result.text) : '') || fallback
     const updatedAt = new Date()
     await db
       .update(conversations)

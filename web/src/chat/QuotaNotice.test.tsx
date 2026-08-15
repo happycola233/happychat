@@ -22,6 +22,7 @@ const bucket = (patch: Partial<QuotaBucketUsageDTO> = {}): QuotaBucketUsageDTO =
   ruleId: 'r-1',
   bucketKey: null,
   bucketLabel: null,
+  effectiveModelIds: null,
   label: null,
   source: 'policy',
   scope: { type: 'all' },
@@ -49,6 +50,7 @@ const quota = (patch: Partial<MyQuotaDTO> = {}): MyQuotaDTO => ({
   enabled: true,
   paused: false,
   unlimited: false,
+  allModelsBlocked: false,
   policyName: '默认用户',
   warnThreshold: 0.8,
   rules: [bucket()],
@@ -93,6 +95,7 @@ describe('QuotaNotice', () => {
     quotaState.data = quota({
       rules: [bucket({ used: 10, percent: 1, blocked: true, remaining: 0 })],
       blockedModelIds: ['m1'],
+      allModelsBlocked: true,
     })
     const html = render()
     expect(html).toContain('role="alert"')

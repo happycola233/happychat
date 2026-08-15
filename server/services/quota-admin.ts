@@ -18,7 +18,6 @@ import type {
   UserQuotaUpdateInput,
 } from '@shared/schemas/quota'
 import {
-  isQuotaUnlimited,
   normalizeQuotaRules,
   normalizeUserQuotaOverrides,
   quotaRuleRequiresBucketKey,
@@ -420,6 +419,18 @@ export type CreateGrantResult =
       code: AdjustmentTargetError | 'unlimited_rule' | 'amount_not_integer' | 'period_not_started'
     }
 
+/** 周期调整的绝对失效点；滚动窗口没有 periodEnd，按写入时刻补成窗口长度。 */
+function adjustmentExpiresAt(
+  rule: EffectiveQuotaRule,
+  periodEnd: number | null,
+  now: Date,
+): Date | null {
+  if (periodEnd !== null) return new Date(periodEnd)
+  return rule.window.type === 'rolling'
+    ? new Date(now.getTime() + rule.window.hours * HOUR_MS)
+    : null
+}
+
 /**
  * 临时增加额度：只作用于**当前周期**。
  *
@@ -449,12 +460,7 @@ export async function createQuotaGrant(
   }
 
   const now = new Date()
-  const expiresAt =
-    found.bucket.periodEnd !== null
-      ? new Date(found.bucket.periodEnd)
-      : found.rule.window.type === 'rolling'
-        ? new Date(now.getTime() + found.rule.window.hours * HOUR_MS)
-        : null
+  const expiresAt = adjustmentExpiresAt(found.rule, found.bucket.periodEnd, now)
 
   const row = must(
     await db
@@ -575,7 +581,7 @@ export async function resetQuotaPeriod(
           amount: null,
           effectiveFrom: now,
           periodStart: new Date(target.periodStart),
-          expiresAt: target.periodEnd !== null ? new Date(target.periodEnd) : null,
+          expiresAt: adjustmentExpiresAt(target.rule, target.periodEnd, now),
           note: input.note ?? null,
           createdBy: actorId,
         })
@@ -735,7 +741,7 @@ export async function previewUserQuota(input: QuotaPreviewInput): Promise<QuotaP
   })
   const sorted = sortQuotaBucketsBySeverity(snapshot.rules)
   return {
-    unlimited: isQuotaUnlimited(rules),
+    unlimited: snapshot.unlimited,
     rules: sorted,
     blockedRules: sorted.filter((rule) => rule.blocked && !rule.invalid),
   }

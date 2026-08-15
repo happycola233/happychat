@@ -560,6 +560,8 @@ export interface QuotaBucketUsageDTO {
   bucketKey: string | null
   /** 桶的展示名（模型显示名 / 分组名）；单桶规则为 null */
   bucketLabel: string | null
+  /** 优先级接管后该桶实际覆盖的模型；null 表示仍覆盖全部可用模型。 */
+  effectiveModelIds: string[] | null
   label: string | null
   source: QuotaRuleSource
   scope: QuotaScope
@@ -597,6 +599,8 @@ export interface MyQuotaDTO {
   /** 管理员已暂停限额：不拦截，但用量仍在累计 */
   paused: boolean
   unlimited: boolean
+  /** 当前限额是否阻塞该用户可用的全部模型；暂停限额或没有可用模型时为 false */
+  allModelsBlocked: boolean
   policyName: string | null
   warnThreshold: number
   rules: QuotaBucketUsageDTO[]

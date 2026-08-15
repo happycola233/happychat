@@ -482,6 +482,38 @@ describe('临时额度与重置', () => {
     expect(snapshot.blockedModelIds).toEqual([second])
   })
 
+  it('滚动窗口重置按原窗口长度到期，改为永久累计后不会复活', async () => {
+    const modelId = await createModel()
+    const rollingRule: QuotaRule = {
+      ...monthlyCost(10, 'r-rolling'),
+      window: { type: 'rolling', hours: 5 },
+    }
+    const policy = await admin.createQuotaPolicy({ name: '滚动窗口', rules: [rollingRule] })
+    const userId = await createUser()
+    await admin.updateUserQuota(
+      userId,
+      { policyId: policy.id, overrides: {}, enforcementPaused: false },
+      userId,
+    )
+    await logUsage(userId, modelId, 1)
+
+    expect(await admin.resetQuotaPeriod(userId, { ruleId: rollingRule.id }, userId)).toEqual({
+      ok: true,
+      resetRules: 1,
+    })
+    const reset = (await admin.getAdminUserQuotaDetail(userId))?.adjustments.find(
+      (row) => row.kind === 'reset',
+    )
+    expect(reset?.expiresAt).toBe((reset?.effectiveFrom ?? 0) + 5 * 3_600_000)
+
+    await admin.updateQuotaPolicy(policy.id, {
+      rules: [{ ...rollingRule, window: { type: 'total' } }],
+    })
+    const snapshot = await quota.getQuotaSnapshot(userId, { now: (reset?.expiresAt ?? 0) + 1 })
+    expect(snapshot.rules[0]?.usageStart).toBe(0)
+    expect(snapshot.rules[0]?.used).toBe(1)
+  })
+
   it('没有任何规则时重置给出明确错误', async () => {
     const userId = await createUser()
     expect(await admin.resetQuotaPeriod(userId, {}, userId)).toEqual({

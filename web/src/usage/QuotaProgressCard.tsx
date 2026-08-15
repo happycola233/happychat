@@ -15,11 +15,13 @@ function ruleTitle(rule: QuotaBucketUsageDTO): string {
   const metric = rule.metric === 'cost' ? '消费' : '请求'
   const scope = rule.bucketLabel
     ? rule.bucketLabel
-    : rule.scope.type === 'all'
-      ? '全部模型'
-      : rule.scope.type === 'models'
-        ? '指定模型'
-        : '指定分组'
+    : rule.scope.type === 'all' && rule.effectiveModelIds !== null
+      ? '部分模型'
+      : rule.scope.type === 'all'
+        ? '全部模型'
+        : rule.scope.type === 'models'
+          ? '指定模型'
+          : '指定分组'
   return `${describeQuotaWindow(rule.window)}${metric} · ${scope}`
 }
 

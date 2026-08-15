@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { eq } from 'drizzle-orm'
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ModelPricing, QuotaRule } from '@shared/types/domain'
 
 let tmpDir: string
@@ -12,15 +12,41 @@ let title: typeof import('./title')
 let appConfig: typeof import('./appConfig')
 let fixtureSeq = 0
 
+const providerMocks = vi.hoisted(() => ({
+  createAnthropicMessage: vi.fn(),
+  createChat: vi.fn(),
+  createResponse: vi.fn(),
+}))
+
 /** 标题调用只需要一个会返回文本与用量的假上游；其余协议共用同一批映射函数。 */
 vi.mock('../provider/client', () => ({
   providerClientFromRow: () => ({
-    createResponse: async () => ({
-      output: [{ type: 'message', content: [{ type: 'output_text', text: '关于限额的讨论' }] }],
-      usage: { input_tokens: 120, output_tokens: 8, total_tokens: 128 },
-    }),
+    createAnthropicMessage: providerMocks.createAnthropicMessage,
+    createChat: providerMocks.createChat,
+    createResponse: providerMocks.createResponse,
   }),
 }))
+
+beforeEach(async () => {
+  providerMocks.createAnthropicMessage.mockReset()
+  providerMocks.createChat.mockReset()
+  providerMocks.createResponse.mockReset()
+  providerMocks.createAnthropicMessage.mockResolvedValue({
+    content: [{ type: 'text', text: '关于限额的讨论' }],
+    stop_reason: 'end_turn',
+    usage: { input_tokens: 120, output_tokens: 8 },
+  })
+  providerMocks.createChat.mockResolvedValue({
+    choices: [{ message: { content: '关于限额的讨论' }, finish_reason: 'stop' }],
+    usage: { prompt_tokens: 120, completion_tokens: 8, total_tokens: 128 },
+  })
+  providerMocks.createResponse.mockResolvedValue({
+    status: 'completed',
+    output: [{ type: 'message', content: [{ type: 'output_text', text: '关于限额的讨论' }] }],
+    usage: { input_tokens: 120, output_tokens: 8, total_tokens: 128 },
+  })
+  await appConfig.updateAppConfig({ titleModelId: null })
+})
 
 beforeAll(async () => {
   tmpDir = mkdtempSync(join(tmpdir(), 'happychat-title-'))
@@ -47,7 +73,7 @@ afterAll(() => {
 const PRICING: ModelPricing = { input: 1_000_000, output: 1_000_000 }
 
 /** 用户 + 可用模型 + 一轮问答（会话尚无标题）。 */
-async function createFixture() {
+async function createFixture(kind: 'responses' | 'chat' | 'anthropic' = 'responses') {
   const n = fixtureSeq++
   const userId = `title-user-${n}`
   const providerId = `title-provider-${n}`
@@ -67,7 +93,7 @@ async function createFixture() {
     providerId,
     modelId: 'gpt-test',
     displayName: 'GPT Test',
-    kind: 'responses',
+    kind,
     pricing: PRICING,
     capabilities: {
       vision: false,
@@ -194,5 +220,164 @@ describe('标题总结', () => {
       .from(schema.usageLogs)
       .where(eq(schema.usageLogs.userId, userId))
     expect(logs.map((row) => row.kind).sort()).toEqual(['chat', 'title'])
+  })
+
+  it('Responses 返回失败终态时记为失败事件并使用本地回退标题', async () => {
+    providerMocks.createResponse.mockResolvedValueOnce({
+      status: 'failed',
+      error: { code: 'server_error', message: 'failed' },
+      usage: { input_tokens: 12, output_tokens: 0, total_tokens: 12 },
+    })
+    const { userId, conversationId } = await createFixture()
+
+    await title.maybeGenerateTitle(conversationId)
+
+    const [conversation] = await dbClient.db
+      .select({ title: schema.conversations.title })
+      .from(schema.conversations)
+      .where(eq(schema.conversations.id, conversationId))
+    expect(conversation?.title).toBe('新聊天')
+
+    const [log] = await dbClient.db
+      .select()
+      .from(schema.usageLogs)
+      .where(eq(schema.usageLogs.userId, userId))
+    expect(log).toMatchObject({
+      kind: 'title',
+      inputTokens: 12,
+      totalTokens: 12,
+      success: false,
+      errorType: 'server_error',
+    })
+  })
+
+  it.each([
+    [
+      '拒绝内容',
+      {
+        status: 'completed',
+        output: [{ type: 'message', content: [{ type: 'refusal', refusal: 'refused' }] }],
+        usage: { input_tokens: 14, output_tokens: 0, total_tokens: 14 },
+      },
+      'refusal',
+    ],
+    [
+      '内容过滤截断',
+      {
+        status: 'incomplete',
+        incomplete_details: { reason: 'content_filter' },
+        output: [],
+        usage: { input_tokens: 15, output_tokens: 0, total_tokens: 15 },
+      },
+      'content_filter',
+    ],
+  ] as const)('Responses %s时记为失败事件', async (_label, response, errorType) => {
+    providerMocks.createResponse.mockResolvedValueOnce(response)
+    const { userId, conversationId } = await createFixture()
+
+    await title.maybeGenerateTitle(conversationId)
+
+    const [conversation] = await dbClient.db
+      .select({ title: schema.conversations.title })
+      .from(schema.conversations)
+      .where(eq(schema.conversations.id, conversationId))
+    expect(conversation?.title).toBe('新聊天')
+
+    const [log] = await dbClient.db
+      .select()
+      .from(schema.usageLogs)
+      .where(eq(schema.usageLogs.userId, userId))
+    expect(log).toMatchObject({
+      kind: 'title',
+      success: false,
+      errorType,
+    })
+  })
+
+  it('上游请求异常时仍写失败事件并使用本地回退标题', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    providerMocks.createResponse.mockRejectedValueOnce(new Error('network down'))
+    const { userId, conversationId } = await createFixture()
+
+    await title.maybeGenerateTitle(conversationId)
+
+    const [conversation] = await dbClient.db
+      .select({ title: schema.conversations.title })
+      .from(schema.conversations)
+      .where(eq(schema.conversations.id, conversationId))
+    expect(conversation?.title).toBe('新聊天')
+
+    const [log] = await dbClient.db
+      .select()
+      .from(schema.usageLogs)
+      .where(eq(schema.usageLogs.userId, userId))
+    expect(log).toMatchObject({
+      kind: 'title',
+      inputTokens: 0,
+      totalTokens: 0,
+      success: false,
+      errorType: 'upstream_error',
+    })
+    expect(consoleError).toHaveBeenCalledOnce()
+    consoleError.mockRestore()
+  })
+
+  it('Chat Completions 内容过滤终态记为失败并使用本地回退标题', async () => {
+    providerMocks.createChat.mockResolvedValueOnce({
+      choices: [{ message: { content: null }, finish_reason: 'content_filter' }],
+      usage: { prompt_tokens: 20, completion_tokens: 0, total_tokens: 20 },
+    })
+    const { userId, conversationId, modelId } = await createFixture('chat')
+    await appConfig.updateAppConfig({ titleModelId: modelId })
+
+    await title.maybeGenerateTitle(conversationId)
+
+    const [conversation] = await dbClient.db
+      .select({ title: schema.conversations.title })
+      .from(schema.conversations)
+      .where(eq(schema.conversations.id, conversationId))
+    expect(conversation?.title).toBe('新聊天')
+
+    const [log] = await dbClient.db
+      .select()
+      .from(schema.usageLogs)
+      .where(eq(schema.usageLogs.userId, userId))
+    expect(log).toMatchObject({
+      kind: 'title',
+      inputTokens: 20,
+      totalTokens: 20,
+      success: false,
+      errorType: 'content_filter',
+    })
+  })
+
+  it('Anthropic 拒绝终态记为失败并使用本地回退标题', async () => {
+    providerMocks.createAnthropicMessage.mockResolvedValueOnce({
+      content: [],
+      stop_reason: 'refusal',
+      usage: { input_tokens: 16, output_tokens: 0 },
+    })
+    const { userId, conversationId, modelId } = await createFixture('anthropic')
+    await appConfig.updateAppConfig({ titleModelId: modelId })
+
+    await title.maybeGenerateTitle(conversationId)
+
+    const [conversation] = await dbClient.db
+      .select({ title: schema.conversations.title })
+      .from(schema.conversations)
+      .where(eq(schema.conversations.id, conversationId))
+    expect(conversation?.title).toBe('新聊天')
+
+    const [log] = await dbClient.db
+      .select()
+      .from(schema.usageLogs)
+      .where(eq(schema.usageLogs.userId, userId))
+    expect(log).toMatchObject({
+      kind: 'title',
+      inputTokens: 16,
+      totalTokens: 16,
+      success: false,
+      errorType: 'refusal',
+    })
   })
 })

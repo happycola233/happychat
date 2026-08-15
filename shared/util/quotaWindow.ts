@@ -1,4 +1,12 @@
 import type { QuotaWeekStart, QuotaWindow } from '../types/domain'
+import {
+  addZonedDays,
+  canonicalizeIanaTimezone,
+  startOfZonedDay,
+  zonedDateParts,
+  zonedMidnightMs,
+  zonedWeekday,
+} from './timezone'
 
 export const HOUR_MS = 3_600_000
 export const DAY_MS = 86_400_000
@@ -21,88 +29,6 @@ export interface QuotaPeriod {
   endMs: number | null
   /** anchored 尚未被首次请求启动或上一周期已到期时为 false；其他窗口恒为 true。 */
   active: boolean
-}
-
-/** 取某时刻在指定时区的 UTC 偏移（分钟，东为正）。时区非法时按 UTC 处理。 */
-function timezoneOffsetMinutes(timeMs: number, timezone: string): number {
-  const parts = localDateParts(timeMs, timezone)
-  if (!parts) return 0
-  // Date.UTC(本地墙上时间) - 真实时刻 = 该时刻的 UTC 偏移
-  const asUtc = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, 0, 0)
-  return Math.round((asUtc - Math.floor(timeMs / 60_000) * 60_000) / 60_000)
-}
-
-interface LocalDateParts {
-  year: number
-  month: number
-  day: number
-  hour: number
-  minute: number
-}
-
-/** 用 Intl 解析某时刻在指定时区的墙上时间；时区非法返回 null（调用方按 UTC 处理）。 */
-function localDateParts(timeMs: number, timezone: string): LocalDateParts | null {
-  let formatter: Intl.DateTimeFormat
-  try {
-    formatter = new Intl.DateTimeFormat('en-US', {
-      timeZone: timezone,
-      hour12: false,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-  } catch {
-    return null
-  }
-  const values: Record<string, number> = {}
-  for (const part of formatter.formatToParts(new Date(timeMs))) {
-    if (part.type === 'literal') continue
-    values[part.type] = Number(part.value)
-  }
-  const { year, month, day } = values
-  if (year === undefined || month === undefined || day === undefined) return null
-  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null
-  // Intl 在午夜可能给出 24 时制的 "24"，归一为 0 以免推到次日。
-  const hour = (values.hour ?? 0) % 24
-  return { year, month, day, hour, minute: values.minute ?? 0 }
-}
-
-/**
- * 求「某时区某个墙上日期 00:00」对应的 UTC 毫秒。
- *
- * 先按目标日期附近的偏移试算，再用试算结果所在时刻的真实偏移校正一次——
- * DST 切换日的偏移在当天内会变化，只算一次会偏移 1 小时。
- */
-function localMidnightMs(year: number, month: number, day: number, timezone: string): number {
-  const wallClockMs = Date.UTC(year, month - 1, day, 0, 0, 0, 0)
-  let guess = wallClockMs - timezoneOffsetMinutes(wallClockMs, timezone) * 60_000
-  const corrected = wallClockMs - timezoneOffsetMinutes(guess, timezone) * 60_000
-  if (corrected !== guess) guess = corrected
-  return guess
-}
-
-/** 该时刻在指定时区所处「本地日」的 0 点。 */
-function startOfLocalDay(timeMs: number, timezone: string): number {
-  const parts = localDateParts(timeMs, timezone)
-  if (!parts) return Math.floor(timeMs / DAY_MS) * DAY_MS
-  return localMidnightMs(parts.year, parts.month, parts.day, timezone)
-}
-
-/** 加 n 天后再取本地 0 点：跨 DST 时天长不是恒定 24h，必须按墙上日期推进。 */
-function addLocalDays(startOfDayMs: number, days: number, timezone: string): number {
-  const parts = localDateParts(startOfDayMs, timezone)
-  if (!parts) return startOfDayMs + days * DAY_MS
-  return localMidnightMs(parts.year, parts.month, parts.day + days, timezone)
-}
-
-/** 本地星期（0=周日……6=周六）。 */
-function localWeekday(timeMs: number, timezone: string): number {
-  const parts = localDateParts(timeMs, timezone)
-  if (!parts) return new Date(timeMs).getUTCDay()
-  // 用 UTC 构造同一墙上日期即可取到正确星期，与时区偏移无关。
-  return new Date(Date.UTC(parts.year, parts.month - 1, parts.day)).getUTCDay()
 }
 
 /**
@@ -139,30 +65,24 @@ export function resolveQuotaPeriod(
       : { startMs: 0, endMs: null, active: false }
   }
 
-  const timezone = options.timezone
-  const dayStart = startOfLocalDay(nowMs, timezone)
+  // 配额设置的非法时区沿用既有契约回退 UTC；后续共享 helper 因而只处理有效 IANA 名。
+  const timezone = canonicalizeIanaTimezone(options.timezone) ?? 'UTC'
+  const dayStart = startOfZonedDay(nowMs, timezone)
   if (window.period === 'day') {
-    return { startMs: dayStart, endMs: addLocalDays(dayStart, 1, timezone), active: true }
+    return { startMs: dayStart, endMs: addZonedDays(dayStart, 1, timezone), active: true }
   }
   if (window.period === 'week') {
-    const weekday = localWeekday(dayStart, timezone)
+    const weekday = zonedWeekday(dayStart, timezone)
     const back = options.weekStart === 'sun' ? weekday : (weekday + 6) % 7
-    const weekStart = addLocalDays(dayStart, -back, timezone)
-    return { startMs: weekStart, endMs: addLocalDays(weekStart, 7, timezone), active: true }
+    const weekStart = addZonedDays(dayStart, -back, timezone)
+    return { startMs: weekStart, endMs: addZonedDays(weekStart, 7, timezone), active: true }
   }
 
-  const parts = localDateParts(nowMs, timezone)
-  if (!parts) {
-    // 时区不可用时退化为 UTC 月，仍保证 start < end 且边界稳定。
-    const utc = new Date(nowMs)
-    const start = Date.UTC(utc.getUTCFullYear(), utc.getUTCMonth(), 1)
-    const end = Date.UTC(utc.getUTCFullYear(), utc.getUTCMonth() + 1, 1)
-    return { startMs: start, endMs: end, active: true }
-  }
-  const monthStart = localMidnightMs(parts.year, parts.month, 1, timezone)
+  const parts = zonedDateParts(nowMs, timezone)
+  const monthStart = zonedMidnightMs(parts.year, parts.month, 1, timezone)
   // Date.UTC 会自然处理 12 月 → 次年 1 月的进位。
   const nextMonth = new Date(Date.UTC(parts.year, parts.month, 1))
-  const monthEnd = localMidnightMs(
+  const monthEnd = zonedMidnightMs(
     nextMonth.getUTCFullYear(),
     nextMonth.getUTCMonth() + 1,
     1,

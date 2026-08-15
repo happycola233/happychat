@@ -12,11 +12,19 @@ import type {
   UsageTrendGranularity,
 } from '@shared/types/domain'
 import { costUsd } from '@shared/util/cost'
+import {
+  canonicalizeIanaTimezone,
+  zonedDateParts,
+  zonedMidnightMs,
+  zonedOffsetMinutes,
+  type ZonedDateParts,
+} from '@shared/util/timezone'
 import { db } from '../db/client'
 import { conversations, messages, usageLogs } from '../db/schema'
 
 const HOUR_MS = 3_600_000
 const DAY_MS = 86_400_000
+const MINUTE_MS = 60_000
 /** 热力图默认覆盖一年（GitHub 贡献图同口径）。 */
 export const USAGE_STATS_DEFAULT_DAYS = 371
 export const USAGE_STATS_MAX_DAYS = 731
@@ -24,7 +32,9 @@ export const USAGE_STATS_MAX_DAYS = 731
 export const USAGE_TREND_DAYS = 30
 
 export interface UsageStatsOptions {
-  /** 用户本地时区相对 UTC 的偏移分钟数（`-new Date().getTimezoneOffset()`，东为正）。 */
+  /** 用户浏览器报告的 IANA 时区；历史分桶会使用每个时刻各自的 DST 偏移。 */
+  timezone?: string
+  /** 旧客户端兼容：未提供有效 IANA 时区时使用的固定 UTC 偏移（东为正）。 */
   tzOffsetMinutes?: number
   /** 热力图覆盖天数；与 `view` 无关，热力图恒为「近一年」视角。 */
   days?: number
@@ -40,27 +50,73 @@ function normalizeOffsetMinutes(value: number | undefined): number {
   return Math.max(-14 * 60, Math.min(14 * 60, Math.round(value!)))
 }
 
-/** 本地日 key（YYYY-MM-DD）：把「本地日 0 点」平移到 UTC 0 点后再取 ISO 日期部分。 */
-function localDateKey(timeMs: number, offsetMs: number): string {
-  return new Date(timeMs + offsetMs).toISOString().slice(0, 10)
+interface UsageClock {
+  /** 有值时按 IANA 历史规则换算；null 表示兼容旧客户端的固定偏移。 */
+  timezone: string | null
+  fixedOffsetMs: number
 }
 
-/** 按本地日回推 n 天的 key 序列（含今天），供热力图补齐空白格。 */
-function dateKeySeries(endMs: number, offsetMs: number, days: number): string[] {
-  const keys: string[] = []
-  for (let index = days - 1; index >= 0; index--) {
-    keys.push(localDateKey(endMs - index * DAY_MS, offsetMs))
+function resolveUsageClock(options: UsageStatsOptions): UsageClock {
+  const timezone = canonicalizeIanaTimezone(options.timezone)
+  return {
+    timezone,
+    fixedOffsetMs: timezone ? 0 : normalizeOffsetMinutes(options.tzOffsetMinutes) * MINUTE_MS,
   }
-  return keys
 }
 
-/**
- * 窗口区间。**起止都在「平移后」的时间轴上**（真实时刻 + 时区偏移），
- * 与聚合行的 `bucket` 同一坐标系，因此可以直接比较；对外暴露时再减回偏移。
- */
+function fixedOffsetDateParts(timeMs: number, offsetMs: number): ZonedDateParts {
+  const date = new Date(timeMs + offsetMs)
+  return {
+    year: date.getUTCFullYear(),
+    month: date.getUTCMonth() + 1,
+    day: date.getUTCDate(),
+    hour: date.getUTCHours(),
+    minute: date.getUTCMinutes(),
+  }
+}
+
+function localDateParts(timeMs: number, clock: UsageClock): ZonedDateParts {
+  return clock.timezone
+    ? zonedDateParts(timeMs, clock.timezone)
+    : fixedOffsetDateParts(timeMs, clock.fixedOffsetMs)
+}
+
+function localOffsetMs(timeMs: number, clock: UsageClock): number {
+  return clock.timezone
+    ? zonedOffsetMinutes(timeMs, clock.timezone) * MINUTE_MS
+    : clock.fixedOffsetMs
+}
+
+function localMidnightMs(year: number, month: number, day: number, clock: UsageClock): number {
+  return clock.timezone
+    ? zonedMidnightMs(year, month, day, clock.timezone)
+    : Date.UTC(year, month - 1, day) - clock.fixedOffsetMs
+}
+
+function wallDateKey(wallClockMs: number): string {
+  return new Date(wallClockMs).toISOString().slice(0, 10)
+}
+
+function localDateKey(timeMs: number, clock: UsageClock): string {
+  const parts = localDateParts(timeMs, clock)
+  return wallDateKey(Date.UTC(parts.year, parts.month - 1, parts.day))
+}
+
+/** 按墙上日期回推 n 天（含今天），跨 DST 时不会用固定 24 小时推真实时刻。 */
+function dateKeySeries(endMs: number, clock: UsageClock, days: number): string[] {
+  const parts = localDateParts(endMs, clock)
+  const endWallDate = Date.UTC(parts.year, parts.month - 1, parts.day)
+  return Array.from({ length: days }, (_, index) =>
+    wallDateKey(endWallDate - (days - index - 1) * DAY_MS),
+  )
+}
+
+/** 窗口同时保留真实边界和墙上时间轴边界；后者用于与本地小时桶比较。 */
 interface UsageWindow {
-  shiftedStart: number
-  shiftedEnd: number
+  startMs: number
+  endMs: number
+  wallStart: number
+  wallEnd: number
   granularity: UsageTrendGranularity
 }
 
@@ -74,64 +130,180 @@ interface UsageWindow {
 function resolveUsageWindow(
   view: UsageStatsView,
   nowMs: number,
-  offsetMs: number,
+  clock: UsageClock,
   weekStart: QuotaWeekStart,
 ): UsageWindow {
-  const shiftedNow = nowMs + offsetMs
-  const dayStart = Math.floor(shiftedNow / DAY_MS) * DAY_MS
+  const parts = localDateParts(nowMs, clock)
+  let wallStart = Date.UTC(parts.year, parts.month - 1, parts.day)
+  let wallEnd: number
+  let granularity: UsageTrendGranularity
   if (view === 'day') {
-    return { shiftedStart: dayStart, shiftedEnd: dayStart + DAY_MS, granularity: 'hour' }
-  }
-  if (view === 'week') {
-    const weekday = new Date(dayStart).getUTCDay()
+    wallEnd = wallStart + DAY_MS
+    granularity = 'hour'
+  } else if (view === 'week') {
+    const weekday = new Date(wallStart).getUTCDay()
     const back = weekStart === 'sun' ? weekday : (weekday + 6) % 7
-    const start = dayStart - back * DAY_MS
-    return { shiftedStart: start, shiftedEnd: start + 7 * DAY_MS, granularity: 'day' }
+    wallStart -= back * DAY_MS
+    wallEnd = wallStart + 7 * DAY_MS
+    granularity = 'day'
+  } else if (view === 'month') {
+    wallStart = Date.UTC(parts.year, parts.month - 1, 1)
+    wallEnd = Date.UTC(parts.year, parts.month, 1)
+    granularity = 'day'
+  } else {
+    wallStart = Date.UTC(parts.year, 0, 1)
+    wallEnd = Date.UTC(parts.year + 1, 0, 1)
+    granularity = 'month'
   }
-  const shifted = new Date(shiftedNow)
-  const year = shifted.getUTCFullYear()
-  if (view === 'month') {
-    const month = shifted.getUTCMonth()
-    return {
-      shiftedStart: Date.UTC(year, month, 1),
-      shiftedEnd: Date.UTC(year, month + 1, 1),
-      granularity: 'day',
-    }
-  }
+  const startDate = new Date(wallStart)
+  const endDate = new Date(wallEnd)
   return {
-    shiftedStart: Date.UTC(year, 0, 1),
-    shiftedEnd: Date.UTC(year + 1, 0, 1),
-    granularity: 'month',
+    startMs: localMidnightMs(
+      startDate.getUTCFullYear(),
+      startDate.getUTCMonth() + 1,
+      startDate.getUTCDate(),
+      clock,
+    ),
+    endMs: localMidnightMs(
+      endDate.getUTCFullYear(),
+      endDate.getUTCMonth() + 1,
+      endDate.getUTCDate(),
+      clock,
+    ),
+    wallStart,
+    wallEnd,
+    granularity,
   }
 }
 
-/** 平移时间轴上某时刻所属趋势桶的起点。 */
-function trendBucketStart(shiftedMs: number, granularity: UsageTrendGranularity): number {
-  if (granularity === 'hour') return Math.floor(shiftedMs / HOUR_MS) * HOUR_MS
-  if (granularity === 'day') return Math.floor(shiftedMs / DAY_MS) * DAY_MS
-  const date = new Date(shiftedMs)
+/** 墙上时间轴里某时刻所属趋势桶的起点。 */
+function trendWallBucketStart(wallMs: number, granularity: UsageTrendGranularity): number {
+  if (granularity === 'hour') return Math.floor(wallMs / HOUR_MS) * HOUR_MS
+  if (granularity === 'day') return Math.floor(wallMs / DAY_MS) * DAY_MS
+  const date = new Date(wallMs)
   return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1)
 }
 
-/** 枚举窗口内已经发生过的趋势桶，用于把没有用量的时段补成 0（折线不断档）。 */
-function trendBucketSeries(window: UsageWindow, shiftedNow: number): number[] {
-  const last = trendBucketStart(Math.min(shiftedNow, window.shiftedEnd - 1), window.granularity)
-  const buckets: number[] = []
-  let cursor = trendBucketStart(window.shiftedStart, window.granularity)
-  while (cursor <= last) {
-    buckets.push(cursor)
-    if (window.granularity === 'month') {
-      const date = new Date(cursor)
-      cursor = Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1)
-    } else {
-      cursor += window.granularity === 'hour' ? HOUR_MS : DAY_MS
+function nextTrendWallBucket(wallMs: number, granularity: UsageTrendGranularity): number {
+  if (granularity === 'hour') return wallMs + HOUR_MS
+  if (granularity === 'day') return wallMs + DAY_MS
+  const date = new Date(wallMs)
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1)
+}
+
+interface OffsetPeriod {
+  startMs: number
+  endMs: number
+  offsetMs: number
+}
+
+/** 找到两个采样点之间 UTC 偏移首次变化的分钟边界。 */
+function findOffsetTransition(
+  clock: UsageClock,
+  startMs: number,
+  endMs: number,
+  previousOffsetMs: number,
+): number {
+  let low = Math.floor(startMs / MINUTE_MS)
+  let high = Math.ceil(endMs / MINUTE_MS)
+  while (low + 1 < high) {
+    const middle = Math.floor((low + high) / 2)
+    if (localOffsetMs(middle * MINUTE_MS, clock) === previousOffsetMs) low = middle
+    else high = middle
+  }
+  return high * MINUTE_MS
+}
+
+/**
+ * 把查询范围切成 UTC 偏移稳定的少量区段。通常一年只有 2 次 DST 切换，随后 SQL
+ * 可按每条日志发生时的区段平移本地小时，而不必把原始请求逐条读进内存。
+ */
+function resolveOffsetPeriods(clock: UsageClock, startMs: number, endMs: number): OffsetPeriod[] {
+  if (!clock.timezone) {
+    return [{ startMs, endMs, offsetMs: clock.fixedOffsetMs }]
+  }
+  const periods: OffsetPeriod[] = []
+  let periodStart = startMs
+  let cursor = startMs
+  let offsetMs = localOffsetMs(cursor, clock)
+  while (cursor < endMs) {
+    const probe = Math.min(endMs, cursor + 6 * HOUR_MS)
+    const probeOffset = localOffsetMs(probe, clock)
+    if (probeOffset === offsetMs) {
+      cursor = probe
+      continue
+    }
+    const transition = findOffsetTransition(clock, cursor, probe, offsetMs)
+    periods.push({ startMs: periodStart, endMs: transition, offsetMs })
+    periodStart = transition
+    cursor = transition
+    offsetMs = localOffsetMs(transition, clock)
+  }
+  periods.push({ startMs: periodStart, endMs, offsetMs })
+  return periods
+}
+
+/**
+ * 墙上小时在各个偏移区段中的真实起点。用区间相交而不是只反解整点，因此既能
+ * 保留秋季回拨的重复小时，也能覆盖 Lord Howe 一类半小时 DST 跳变后的半个小时桶。
+ */
+function realHourStarts(wallHour: number, periods: OffsetPeriod[]): number[] {
+  const starts: number[] = []
+  for (const period of periods) {
+    const periodWallStart = period.startMs + period.offsetMs
+    const periodWallEnd = period.endMs + period.offsetMs
+    const intersectionStart = Math.max(wallHour, periodWallStart)
+    if (intersectionStart < Math.min(wallHour + HOUR_MS, periodWallEnd)) {
+      starts.push(intersectionStart - period.offsetMs)
     }
   }
-  return buckets
+  return starts
+}
+
+/** 枚举窗口内已经发生的趋势桶，补齐零值并正确保留 DST 回拨时的重复小时。 */
+function trendBucketSeries(
+  window: UsageWindow,
+  nowMs: number,
+  clock: UsageClock,
+  periods: OffsetPeriod[],
+): number[] {
+  const nowParts = localDateParts(nowMs, clock)
+  const nowWall = Date.UTC(
+    nowParts.year,
+    nowParts.month - 1,
+    nowParts.day,
+    nowParts.hour,
+    nowParts.minute,
+  )
+  const lastWall = trendWallBucketStart(Math.min(nowWall, window.wallEnd - 1), window.granularity)
+  const buckets: number[] = []
+  let wallCursor = trendWallBucketStart(window.wallStart, window.granularity)
+  while (wallCursor <= lastWall) {
+    if (window.granularity === 'hour') {
+      for (const realStart of realHourStarts(wallCursor, periods)) {
+        if (realStart >= window.startMs && realStart < window.endMs && realStart <= nowMs) {
+          buckets.push(realStart)
+        }
+      }
+    } else {
+      const date = new Date(wallCursor)
+      const realStart = localMidnightMs(
+        date.getUTCFullYear(),
+        date.getUTCMonth() + 1,
+        date.getUTCDate(),
+        clock,
+      )
+      if (realStart <= nowMs) buckets.push(realStart)
+    }
+    wallCursor = nextTrendWallBucket(wallCursor, window.granularity)
+  }
+  return [...new Set(buckets)].sort((a, b) => a - b)
 }
 
 interface AggregatedRow {
+  /** 把日志按其历史 UTC 偏移平移后的墙上小时起点。 */
   bucket: number
+  offsetMs: number
   modelId: string | null
   modelLabel: string | null
   pricingSnapshot: ModelPricing | null
@@ -155,15 +327,22 @@ interface AggregatedRow {
 async function aggregate(
   userId: string,
   since: number,
-  offsetMs: number,
+  until: number,
+  offsetPeriods: OffsetPeriod[],
 ): Promise<AggregatedRow[]> {
-  const shifted = sql<number>`(${usageLogs.createdAt} + ${offsetMs})`
+  let offset = sql<number>`${offsetPeriods[0]?.offsetMs ?? 0}`
+  for (const period of offsetPeriods.slice(1)) {
+    offset = sql<number>`case when ${usageLogs.createdAt} >= ${period.startMs} then ${period.offsetMs} else ${offset} end`
+  }
+  const shifted = sql<number>`(${usageLogs.createdAt} + ${offset})`
   const conditions: SQL[] = [eq(usageLogs.userId, userId), eq(usageLogs.success, true)]
   if (since > 0) conditions.push(gte(usageLogs.createdAt, new Date(since)))
+  conditions.push(lt(usageLogs.createdAt, new Date(until)))
 
   const rows = await db
     .select({
       bucket: sql<number>`${shifted} - (${shifted} % 3600000)`,
+      offsetMs: offset,
       modelId: usageLogs.modelId,
       modelLabel: usageLogs.modelLabel,
       pricingSnapshot: usageLogs.pricingSnapshot,
@@ -180,6 +359,7 @@ async function aggregate(
     .where(and(...conditions))
     .groupBy(
       sql`${shifted} - (${shifted} % 3600000)`,
+      offset,
       usageLogs.modelId,
       usageLogs.modelLabel,
       usageLogs.pricingSnapshot,
@@ -225,8 +405,11 @@ export async function getUserModelUsage(
   userId: string,
   days: number,
 ): Promise<UsageModelStatDTO[]> {
-  const since = days > 0 ? Date.now() - days * DAY_MS : 0
-  const rows = await aggregate(userId, since, 0)
+  const now = Date.now()
+  const since = days > 0 ? now - days * DAY_MS : 0
+  const rows = await aggregate(userId, since, now + 1, [
+    { startMs: since, endMs: now + 1, offsetMs: 0 },
+  ])
   return summarizeByModel(rows)
 }
 
@@ -295,27 +478,27 @@ export async function getMyUsageStats(
   userId: string,
   options: UsageStatsOptions = {},
 ): Promise<UsageStatsDTO> {
-  const offsetMs = normalizeOffsetMinutes(options.tzOffsetMinutes) * 60_000
+  const clock = resolveUsageClock(options)
   const rangeDays = Math.max(
     7,
     Math.min(USAGE_STATS_MAX_DAYS, Math.round(options.days ?? USAGE_STATS_DEFAULT_DAYS)),
   )
   const view = options.view ?? 'month'
   const now = Date.now()
-  const window = resolveUsageWindow(view, now, offsetMs, options.weekStart ?? 'mon')
+  const window = resolveUsageWindow(view, now, clock, options.weekStart ?? 'mon')
   // 热力图多取一天，避免用户本地日与 UTC 日错位时把最早那一格截掉。
   const heatmapSince = now - (rangeDays + 1) * DAY_MS
-  const windowStart = window.shiftedStart - offsetMs
-  const windowEnd = window.shiftedEnd - offsetMs
-
-  const rows = await aggregate(userId, Math.min(heatmapSince, windowStart), offsetMs)
+  const querySince = Math.min(heatmapSince, window.startMs)
+  // 两侧多覆盖一天，让墙上小时反解真实起点时在窗口边缘也能命中所属偏移区段。
+  const offsetPeriods = resolveOffsetPeriods(clock, querySince - DAY_MS, now + DAY_MS)
+  const rows = await aggregate(userId, querySince, now + 1, offsetPeriods)
 
   const heatmapByDate = new Map<string, UsageHeatmapCellDTO>()
   const byHour = Array.from({ length: 24 }, () => 0)
   const byWeekday = Array.from({ length: 7 }, () => 0)
   const trendByBucket = new Map<number, UsageTrendPointDTO>()
-  for (const bucket of trendBucketSeries(window, now + offsetMs)) {
-    trendByBucket.set(bucket, { ts: bucket - offsetMs, requests: 0, totalTokens: 0, costUsd: 0 })
+  for (const bucket of trendBucketSeries(window, now, clock, offsetPeriods)) {
+    trendByBucket.set(bucket, { ts: bucket, requests: 0, totalTokens: 0, costUsd: 0 })
   }
   const windowRows: AggregatedRow[] = []
   const windowActiveDates = new Set<string>()
@@ -341,7 +524,7 @@ export async function getMyUsageStats(
     cell.costUsd += cost
     heatmapByDate.set(dateKey, cell)
 
-    if (row.bucket < window.shiftedStart || row.bucket >= window.shiftedEnd) continue
+    if (row.bucket < window.wallStart || row.bucket >= window.wallEnd) continue
 
     windowRows.push(row)
     if (row.requests > 0) windowActiveDates.add(dateKey)
@@ -353,9 +536,21 @@ export async function getMyUsageStats(
     byHour[hour] = (byHour[hour] ?? 0) + row.requests
     byWeekday[bucketDate.getUTCDay()] = (byWeekday[bucketDate.getUTCDay()] ?? 0) + row.requests
 
-    const bucketStart = trendBucketStart(row.bucket, window.granularity)
+    const wallBucketStart = trendWallBucketStart(row.bucket, window.granularity)
+    const wallDate = new Date(wallBucketStart)
+    const bucketStart =
+      window.granularity === 'hour'
+        ? (realHourStarts(wallBucketStart, offsetPeriods).find(
+            (candidate) => localOffsetMs(candidate, clock) === row.offsetMs,
+          ) ?? wallBucketStart - row.offsetMs)
+        : localMidnightMs(
+            wallDate.getUTCFullYear(),
+            wallDate.getUTCMonth() + 1,
+            wallDate.getUTCDate(),
+            clock,
+          )
     const point = trendByBucket.get(bucketStart) ?? {
-      ts: bucketStart - offsetMs,
+      ts: bucketStart,
       requests: 0,
       totalTokens: 0,
       costUsd: 0,
@@ -366,7 +561,7 @@ export async function getMyUsageStats(
     trendByBucket.set(bucketStart, point)
   }
 
-  const dateKeys = dateKeySeries(now, offsetMs, rangeDays)
+  const dateKeys = dateKeySeries(now, clock, rangeDays)
   const heatmap: UsageHeatmapCellDTO[] = dateKeys.map(
     (date) => heatmapByDate.get(date) ?? { date, requests: 0, totalTokens: 0, costUsd: 0 },
   )
@@ -376,12 +571,12 @@ export async function getMyUsageStats(
   )
   const { currentStreak, longestStreak } = computeStreaks(
     activeKeys,
-    localDateKey(now, offsetMs),
-    localDateKey(now - DAY_MS, offsetMs),
+    localDateKey(now, clock),
+    dateKeys.at(-2) ?? '',
     dateKeys,
   )
 
-  const counts = await countConversationsAndMessages(userId, windowStart, windowEnd)
+  const counts = await countConversationsAndMessages(userId, window.startMs, window.endMs)
   const [firstUsage] = await db
     .select({ ts: sql<number | null>`min(${usageLogs.createdAt})` })
     .from(usageLogs)
@@ -393,8 +588,8 @@ export async function getMyUsageStats(
 
   return {
     view,
-    windowStart,
-    windowEnd,
+    windowStart: window.startMs,
+    windowEnd: window.endMs,
     granularity: window.granularity,
     rangeDays,
     totals: {
