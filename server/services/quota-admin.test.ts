@@ -703,6 +703,18 @@ describe('列表 / 明细 / 预览', () => {
     expect(row?.lastUsageAt).not.toBe(loginAt)
   })
 
+  it('用户列表头像地址与账号中心同源，未上传则为空', async () => {
+    const userId = await createUser()
+    await dbClient.db
+      .update(schema.users)
+      .set({ avatarPath: join('data', 'uploads', userId, 'fresh-avatar.webp') })
+      .where(eq(schema.users.id, userId))
+
+    const rows = await admin.listAdminUserQuotas()
+    const row = rows.find((item) => item.userId === userId)
+    expect(row?.avatarUrl).toBe(`/api/auth/avatar/${userId}?v=fresh-avatar.webp`)
+  })
+
   it('用户列表给出全部额度桶，并保持策略展示顺序', async () => {
     const userId = await createUser()
     const modelId = await createModel()
@@ -720,6 +732,7 @@ describe('列表 / 明细 / 预览', () => {
     const rows = await admin.listAdminUserQuotas()
     const row = rows.find((item) => item.userId === userId)
     expect(row?.policyName).toBe('A')
+    expect(row?.avatarUrl).toBeNull()
     expect(row?.usingDefaultPolicy).toBe(false)
     expect(row?.blocked).toBe(true)
     expect(row?.rules.map((rule) => rule.ruleId)).toEqual(['r-each', 'r-cost'])

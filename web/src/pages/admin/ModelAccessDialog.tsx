@@ -20,6 +20,7 @@ import {
   sameModelAccess,
   setModelAccessSelection,
 } from './modelAccessSelection'
+import { userDisplayInitial } from './userDisplayInitial'
 
 interface Props {
   model: AdminModelDTO
@@ -28,10 +29,6 @@ interface Props {
 
 function sameIds(left: ReadonlySet<string>, right: readonly string[]): boolean {
   return left.size === right.length && right.every((id) => left.has(id))
-}
-
-function userInitial(user: AdminUserDTO): string {
-  return [...(user.displayName || user.username).trim()][0]?.toLocaleUpperCase('zh-CN') ?? '?'
 }
 
 /** 优先展示用户上传的头像；缺失或加载失败时回退为角色配色的姓名首字母。 */
@@ -66,7 +63,7 @@ function UserAvatar({ user, className }: { user: AdminUserDTO; className?: strin
         className,
       )}
     >
-      {userInitial(user)}
+      {userDisplayInitial(user.username, user.displayName)}
     </span>
   )
 }

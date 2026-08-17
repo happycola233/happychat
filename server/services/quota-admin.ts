@@ -26,6 +26,7 @@ import {
 import { HOUR_MS } from '@shared/util/quotaWindow'
 import { db } from '../db/client'
 import { quotaAdjustments, quotaPolicies, usageLogs, userQuotas, users } from '../db/schema'
+import { getUserAvatarUrl } from '../auth/users'
 import { must } from '../lib/assert'
 import { newId } from '../lib/id'
 import {
@@ -636,6 +637,7 @@ export async function listAdminUserQuotas(): Promise<AdminUserQuotaDTO[]> {
         id: users.id,
         username: users.username,
         displayName: users.displayName,
+        avatarPath: users.avatarPath,
         role: users.role,
         disabled: users.disabled,
       })
@@ -663,6 +665,7 @@ export async function listAdminUserQuotas(): Promise<AdminUserQuotaDTO[]> {
       userId: user.id,
       username: user.username,
       displayName: user.displayName,
+      avatarUrl: getUserAvatarUrl(user),
       role: user.role,
       disabled: user.disabled,
       policyId: binding.policyId,

@@ -1,16 +1,16 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { clsx } from 'clsx'
 import { ListChecks, PauseCircle, Plus } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import type { AdminQuotaPolicyDTO, AdminUserQuotaDTO } from '@shared/types/api'
-import { pickTightestQuotaBucket } from '@shared/util/quota'
 import type { AppConfigUpdateInput } from '@shared/schemas/app-config'
 import {
   batchAssignQuotaPolicy,
   deleteQuotaPolicy,
   duplicateQuotaPolicy,
   getUserQuotaDetail,
+  getUserStats,
   listQuotaPolicies,
   listUserQuotas,
   setDefaultQuotaPolicy,
@@ -27,49 +27,25 @@ import { cardSurface } from '../../components/ui/Card'
 import { askConfirm } from '../../store/confirm'
 import { toast } from '../../store/toast'
 import { formatRelative } from '../../lib/format'
+import { rangeToFilter } from '../../lib/dateRange'
 import { resolveQuotaRulesRefetchInterval } from '../../lib/quotaRefetch'
 import { QuotaPolicyCard } from './QuotaPolicyCard'
 import { QuotaPolicyEditor } from './QuotaPolicyEditor'
 import { UserQuotaBuckets } from './UserQuotaBuckets'
 import { UserQuotaDialog } from './UserQuotaDialog'
+import { AdminUserAvatar } from './AdminUserAvatar'
+import { UserQuotaOverview } from './UserQuotaOverview'
 import { QUOTA_TIMEZONE_OPTIONS, quotaTimezoneLabel } from './userQuotaDisplay'
+import {
+  USER_QUOTA_STATUS_META,
+  classifyUserQuotaStatus,
+  userMatchesQuotaOverviewFilter,
+  userQuotaStatusBadge,
+  type QuotaOverviewRangeKey,
+  type UserQuotaOverviewFilter,
+} from './quotaOverview'
 
 type View = 'policies' | 'users'
-
-/** 用户行的状态徽标：已耗尽 / 接近上限 / 暂停 / 正常 / 无限额度。 */
-function statusBadge(row: AdminUserQuotaDTO, warnThreshold: number) {
-  if (row.enforcementPaused) {
-    return {
-      label: '限额已暂停',
-      className: 'bg-sky-50 text-sky-600 dark:bg-sky-500/10 dark:text-sky-300',
-    }
-  }
-  if (row.unlimited) {
-    return {
-      label: '无限额度',
-      className: 'bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400',
-    }
-  }
-  if (row.blocked) {
-    return {
-      label: '已耗尽',
-      className: 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-300',
-    }
-  }
-  const nearest = pickTightestQuotaBucket(
-    row.rules.filter((rule) => rule.limit.kind === 'amount' && !rule.invalid && !rule.shadowed),
-  )
-  if ((nearest?.percent ?? 0) >= warnThreshold) {
-    return {
-      label: '接近上限',
-      className: 'bg-amber-50 text-amber-600 dark:bg-amber-400/10 dark:text-amber-200',
-    }
-  }
-  return {
-    label: '正常',
-    className: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300',
-  }
-}
 
 /**
  * 用户限额管理页：策略模板与逐用户配置两个视图。
@@ -88,6 +64,9 @@ export default function QuotasPage() {
   const [batchPolicyId, setBatchPolicyId] = useState('')
   const [dialogUser, setDialogUser] = useState<AdminUserQuotaDTO | null>(null)
   const [search, setSearch] = useState('')
+  const [overviewFilter, setOverviewFilter] = useState<UserQuotaOverviewFilter | null>(null)
+  const [usageRange, setUsageRange] = useState<QuotaOverviewRangeKey>('7d')
+  const [highlightUserId, setHighlightUserId] = useState<string | null>(null)
 
   const { data: config } = useQuery({ queryKey: ['admin', 'app-config'], queryFn: getAppConfig })
   const { data: policies, isLoading: loadingPolicies } = useQuery({
@@ -109,6 +88,12 @@ export default function QuotasPage() {
         },
       )
     },
+  })
+  // 用量排行必须用可比时间窗：无限额度用户的快照没有计量桶，不能拿额度 used 相加。
+  const { data: userStats, isLoading: loadingUserStats } = useQuery({
+    queryKey: ['admin', 'quota', 'user-stats', usageRange],
+    queryFn: () => getUserStats({ ...rangeToFilter(usageRange), kind: 'chat' }),
+    enabled: view === 'users',
   })
 
   const invalidate = () => {
@@ -205,14 +190,41 @@ export default function QuotasPage() {
   const timezoneLabel = quotaTimezoneLabel(quotaTimezone)
   const filteredUsers = useMemo(() => {
     const keyword = search.trim().toLowerCase()
-    if (!keyword) return users ?? []
-    return (users ?? []).filter(
-      (row) =>
+    return (users ?? []).filter((row) => {
+      if (!userMatchesQuotaOverviewFilter(row, overviewFilter, warnThreshold)) return false
+      if (!keyword) return true
+      return (
         row.username.toLowerCase().includes(keyword) ||
         (row.displayName ?? '').toLowerCase().includes(keyword) ||
-        (row.policyName ?? '').toLowerCase().includes(keyword),
-    )
-  }, [users, search])
+        (row.policyName ?? '').toLowerCase().includes(keyword)
+      )
+    })
+  }, [users, search, overviewFilter, warnThreshold])
+
+  useEffect(() => {
+    if (!highlightUserId) return
+    document
+      .getElementById(`quota-user-${highlightUserId}`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    const timer = window.setTimeout(() => setHighlightUserId(null), 1800)
+    return () => window.clearTimeout(timer)
+  }, [highlightUserId])
+
+  const revealUser = (userId: string) => {
+    const row = users?.find((user) => user.userId === userId)
+    const keyword = search.trim().toLowerCase()
+    if (
+      row &&
+      keyword &&
+      !row.username.toLowerCase().includes(keyword) &&
+      !(row.displayName ?? '').toLowerCase().includes(keyword) &&
+      !(row.policyName ?? '').toLowerCase().includes(keyword)
+    ) {
+      setSearch('')
+    }
+    setOverviewFilter(null)
+    setHighlightUserId(userId)
+  }
 
   const allSelected =
     filteredUsers.length > 0 && filteredUsers.every((row) => selectedUserIds.includes(row.userId))
@@ -405,25 +417,40 @@ export default function QuotasPage() {
         </div>
       ) : (
         <div className="space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-xl bg-neutral-50 px-3 py-2 text-[11px] leading-5 text-neutral-500 dark:bg-neutral-800/50 dark:text-neutral-400">
-            <span>
-              按策略展示顺序列出全部规则；「各自独立」的目标收在同一条下。豁免、未开始、失效和被接管的规则都会显示。
-            </span>
-            <span className="shrink-0">周期时间按 {timezoneLabel} 显示</span>
-          </div>
-
           {loadingUsers ? (
             <div className="py-16 text-center">
               <Spinner className="h-6 w-6 text-neutral-400" />
             </div>
           ) : (
-            <div className="space-y-3">
+            <>
+              <UserQuotaOverview
+                users={users ?? []}
+                stats={userStats}
+                statsLoading={loadingUserStats}
+                rangeKey={usageRange}
+                onRangeKeyChange={setUsageRange}
+                warnThreshold={warnThreshold}
+                filter={overviewFilter}
+                onFilterChange={setOverviewFilter}
+                onSelectUser={revealUser}
+              />
+
+              <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-xl bg-neutral-50 px-3 py-2 text-[11px] leading-5 text-neutral-500 dark:bg-neutral-800/50 dark:text-neutral-400">
+                <span>
+                  按策略展示顺序列出全部规则；「各自独立」的目标收在同一条下。豁免、未开始、失效和被接管的规则都会显示。
+                </span>
+                <span className="shrink-0">周期时间按 {timezoneLabel} 显示</span>
+              </div>
+
+              <div className="space-y-3">
               {filteredUsers.map((row) => {
-                const badge = statusBadge(row, warnThreshold)
+                const status = classifyUserQuotaStatus(row, warnThreshold)
+                const badge = userQuotaStatusBadge(status)
                 const selected = selectedUserIds.includes(row.userId)
                 return (
                   <div
                     key={row.userId}
+                    id={`quota-user-${row.userId}`}
                     role={batchMode ? 'checkbox' : undefined}
                     aria-checked={batchMode ? selected : undefined}
                     tabIndex={batchMode ? 0 : undefined}
@@ -440,10 +467,12 @@ export default function QuotasPage() {
                     }
                     className={clsx(
                       cardSurface,
-                      'px-4 py-3 transition',
+                      'scroll-mt-4 px-4 py-3 transition',
                       batchMode && 'cursor-pointer',
                       selected &&
                         'border-sky-200 bg-sky-50/60 ring-1 ring-sky-200/70 dark:border-sky-800 dark:bg-sky-500/5 dark:ring-sky-800/70',
+                      highlightUserId === row.userId &&
+                        'border-sky-300 ring-2 ring-sky-300/80 dark:border-sky-700 dark:ring-sky-700/80',
                     )}
                   >
                     <div className="flex flex-wrap items-center gap-3">
@@ -457,6 +486,13 @@ export default function QuotasPage() {
                           />
                         </span>
                       )}
+                      <AdminUserAvatar
+                        username={row.username}
+                        displayName={row.displayName}
+                        avatarUrl={row.avatarUrl}
+                        className="h-9 w-9 text-xs"
+                        fallbackClassName={USER_QUOTA_STATUS_META[status].glyphClass}
+                      />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <span className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
@@ -532,7 +568,8 @@ export default function QuotasPage() {
                   没有匹配的用户
                 </div>
               )}
-            </div>
+              </div>
+            </>
           )}
 
           {/* 批量操作条：与模型页同一套语言（不透明胶囊 + 单行） */}

@@ -629,6 +629,8 @@ export interface AdminUserQuotaDTO {
   userId: string
   username: string
   displayName: string | null
+  /** 与账号中心同源；未上传时为 null，前端回退姓名首字母。 */
+  avatarUrl: string | null
   role: UserRole
   disabled: boolean
   policyId: string | null
