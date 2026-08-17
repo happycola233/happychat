@@ -74,35 +74,20 @@ interface BatchContext {
   onToggleSelect: (id: string) => void
 }
 
-function Avatar({
-  label,
-  src,
-  size = 'compact',
-}: {
-  label: string
-  src?: string | null
-  size?: 'compact' | 'menu'
-}) {
-  const sizeClass = size === 'menu' ? 'h-[34px] w-[34px]' : 'h-7 w-7'
-  const fallbackTextClass = size === 'menu' ? 'text-[13px]' : 'text-xs'
-
+function Avatar({ label, src }: { label: string; src?: string | null }) {
   if (src) {
     return (
       <img
         src={src}
         alt={`${label}的头像`}
-        className={clsx(sizeClass, 'shrink-0 rounded-full object-cover')}
+        className="h-7 w-7 shrink-0 rounded-full object-cover"
       />
     )
   }
   return (
     <span
       aria-hidden
-      className={clsx(
-        sizeClass,
-        fallbackTextClass,
-        'flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-sky-300 via-indigo-300 to-fuchsia-300 font-semibold text-white',
-      )}
+      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-sky-300 via-indigo-300 to-fuchsia-300 text-xs font-semibold text-white"
     >
       {label.slice(0, 1).toLocaleUpperCase()}
     </span>
@@ -110,15 +95,11 @@ function Avatar({
 }
 
 function AccountMenu({
-  userLabel,
-  avatarUrl,
   isAdmin,
   onClose,
   onOpenSettings,
   onLogout,
 }: {
-  userLabel: string
-  avatarUrl?: string | null
   isAdmin: boolean
   onClose: () => void
   onOpenSettings: () => void
@@ -133,7 +114,6 @@ function AccountMenu({
   // 图标统一放进与文字行高相同的 20px 槽位；SVG 自身缩为 16px，三种轮廓都能与文字视觉居中。
   const iconSlotClass = 'flex h-5 w-[18px] shrink-0 items-center justify-center'
   const regularIconClass = 'h-4 w-4 text-neutral-400 dark:text-neutral-500'
-  const roleLabel = isAdmin ? '管理员' : 'Plus'
 
   return (
     <div
@@ -141,31 +121,6 @@ function AccountMenu({
       aria-label="账号操作"
       className="overflow-hidden rounded-2xl border border-neutral-200 bg-white p-1 shadow-[0_18px_50px_-12px_rgb(0_0_0/0.2)] dark:border-neutral-700 dark:bg-neutral-900 dark:shadow-[0_18px_50px_-12px_rgb(0_0_0/0.65)]"
     >
-      <div className="flex min-w-0 items-center gap-3 px-2 py-[9px]">
-        <Avatar label={userLabel} src={avatarUrl} size="menu" />
-        <div className="-translate-y-px min-w-0">
-          <div
-            className="truncate text-[14px] font-medium leading-5 text-neutral-900 dark:text-neutral-100"
-            title={userLabel}
-          >
-            {userLabel}
-          </div>
-          {/* 角色说明共用纯文字布局；管理员只以文字色区分，不再使用胶囊底板。 */}
-          <span
-            className={clsx(
-              'mt-0.5 block text-[11px] font-normal leading-[15px]',
-              isAdmin
-                ? 'text-[#a85d3b] dark:text-[#ce7952]'
-                : 'text-neutral-500 dark:text-neutral-400',
-            )}
-          >
-            {roleLabel}
-          </span>
-        </div>
-      </div>
-
-      <div className="mx-1 border-t border-neutral-100 dark:border-neutral-800" />
-
       <div className="flex flex-col gap-0.5 py-0.5">
         <Link to="/usage" aria-label="使用情况" onClick={onClose} className={regularItemClass}>
           <span className={iconSlotClass}>
@@ -196,7 +151,7 @@ function AccountMenu({
 
       <div className="mx-1 border-t border-neutral-100 dark:border-neutral-800" />
 
-      <div className="pb-2 pt-0.5">
+      <div className="py-0.5">
         <button
           type="button"
           aria-label="退出登录"
@@ -1017,8 +972,6 @@ export function Sidebar() {
               // 底边与头像按钮下缘对齐（头像区 pb-2），避免菜单悬在半空显得「偏上」。
               <div ref={accountMenuRef} className="absolute bottom-2 left-[42px] z-50 w-[224px]">
                 <AccountMenu
-                  userLabel={userLabel}
-                  avatarUrl={user?.avatarUrl}
                   isAdmin={isAdmin}
                   onClose={() => setAccountMenuOpen(false)}
                   onOpenSettings={openSettings}
@@ -1235,12 +1188,10 @@ export function Sidebar() {
               </div>
             )}
 
-            <div className="relative border-t border-neutral-200 px-2 py-2 dark:border-neutral-800">
+            <div className="relative border-t border-neutral-200 px-2 py-1.5 dark:border-neutral-800">
               {accountMenuOpen && (
-                <div ref={accountMenuRef} className="absolute bottom-[66px] left-2 z-50 w-[224px]">
+                <div ref={accountMenuRef} className="absolute bottom-full left-2 z-50 mb-1.5 w-[224px]">
                   <AccountMenu
-                    userLabel={userLabel}
-                    avatarUrl={user?.avatarUrl}
                     isAdmin={isAdmin}
                     onClose={() => setAccountMenuOpen(false)}
                     onOpenSettings={openSettings}
@@ -1270,15 +1221,15 @@ export function Sidebar() {
                     <div className="truncate text-[13px] text-neutral-900 dark:text-neutral-100">
                       {userLabel}
                     </div>
-                    <div className="truncate text-xs text-neutral-400">
-                      {isAdmin ? '管理员' : 'Plus'}
-                    </div>
+                    {isAdmin && (
+                      <div className="truncate text-xs text-neutral-400">管理员</div>
+                    )}
                   </div>
                 </button>
                 <button
                   type="button"
                   onClick={cycleTheme}
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-neutral-700 transition hover:bg-neutral-300 hover:text-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-700 dark:hover:text-neutral-100"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-neutral-700 transition hover:bg-neutral-300 hover:text-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-700 dark:hover:text-neutral-100"
                   title={`主题：${theme === 'system' ? '跟随系统' : theme === 'light' ? '浅色' : '深色'}`}
                   aria-label="切换主题"
                 >
