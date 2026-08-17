@@ -45,6 +45,8 @@ const REQUEST_SERIES: SeriesDef[] = [{ key: 'requests', name: '请求', color: '
 const COST_SERIES: SeriesDef[] = [{ key: 'costUsd', name: '成本', color: '#10b981' }]
 
 const cardClass = `${cardSurface} p-5`
+/** 图表卡片左上角标题：近黑加粗，比轴标签明显一级。 */
+const chartTitleClass = 'mb-5 text-sm font-semibold text-neutral-900 dark:text-neutral-100'
 
 export default function AnalyticsPage() {
   const [rangeKey, setRangeKey] = useState<RangeKey>('7d')
@@ -141,9 +143,7 @@ export default function AnalyticsPage() {
       </div>
 
       <div className={cardClass}>
-        <h2 className="mb-3 text-sm font-medium text-neutral-700 dark:text-neutral-200">
-          Token 趋势
-        </h2>
+        <h2 className={chartTitleClass}>Token 趋势</h2>
         {analyticsLoading ? (
           <div className="flex h-[260px] items-center justify-center">
             <Spinner className="h-6 w-6 text-neutral-400" />
@@ -160,9 +160,7 @@ export default function AnalyticsPage() {
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className={cardClass}>
-          <h2 className="mb-3 text-sm font-medium text-neutral-700 dark:text-neutral-200">
-            请求数
-          </h2>
+          <h2 className={chartTitleClass}>请求数</h2>
           {analyticsLoading ? (
             <div className="flex h-[260px] items-center justify-center">
               <Spinner className="h-6 w-6 text-neutral-400" />
@@ -177,9 +175,7 @@ export default function AnalyticsPage() {
           )}
         </div>
         <div className={cardClass}>
-          <h2 className="mb-3 text-sm font-medium text-neutral-700 dark:text-neutral-200">
-            成本(USD)
-          </h2>
+          <h2 className={chartTitleClass}>成本(USD)</h2>
           {analyticsLoading ? (
             <div className="flex h-[260px] items-center justify-center">
               <Spinner className="h-6 w-6 text-neutral-400" />
