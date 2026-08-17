@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import type { QuotaRule } from '@shared/types/domain'
 import {
+  countQuotaRulePriorityTiers,
   createQuotaRuleDraft,
   draftFromRule,
   draftsToRules,
+  moveQuotaRuleDraft,
   ruleFromDraft,
+  summarizeQuotaRuleDraft,
   type QuotaRuleDraft,
 } from './quotaRuleDrafts'
 
@@ -148,5 +151,83 @@ describe('createQuotaRuleDraft', () => {
     const second = createQuotaRuleDraft()
     expect(first.id).not.toBe(second.id)
     expect(first).toMatchObject({ scopeType: 'all', metric: 'cost', windowChoice: 'month' })
+  })
+})
+
+describe('summarizeQuotaRuleDraft', () => {
+  it('有备注时用备注作标题，右侧给出格式化额度', () => {
+    const summary = summarizeQuotaRuleDraft(
+      baseDraft({ label: '日常上限', limitInput: '30', windowChoice: 'month' }),
+    )
+    expect(summary).toMatchObject({
+      title: '日常上限',
+      subtitle: '全部模型 · 消费金额',
+      limitText: '$30.00',
+      windowText: '每月',
+      priority: null,
+      incomplete: false,
+    })
+  })
+
+  it('没备注时用范围短称作标题；未完成的规则标出来', () => {
+    const summary = summarizeQuotaRuleDraft(
+      baseDraft({ scopeType: 'models', targetIds: [], limitInput: '' }),
+    )
+    expect(summary.title).toBe('未选模型')
+    expect(summary.subtitle).toBe('消费金额 · 各自独立')
+    expect(summary.limitText).toBe('未设上限')
+    expect(summary.incomplete).toBe(true)
+  })
+
+  it('小时型窗口在芯片里用短标签', () => {
+    expect(
+      summarizeQuotaRuleDraft(baseDraft({ windowChoice: 'rolling', durationHoursInput: '5' }))
+        .windowText,
+    ).toBe('滚动 5 小时')
+    expect(
+      summarizeQuotaRuleDraft(baseDraft({ windowChoice: 'anchored', durationHoursInput: '24' }))
+        .windowText,
+    ).toBe('起算 1 天')
+    expect(summarizeQuotaRuleDraft(baseDraft({ windowChoice: 'total' })).windowText).toBe('永久')
+  })
+
+  it('豁免与非零优先级出现在折叠行摘要里', () => {
+    const summary = summarizeQuotaRuleDraft(
+      baseDraft({ unlimited: true, priorityInput: '10', label: 'mini 豁免' }),
+    )
+    expect(summary).toMatchObject({
+      title: 'mini 豁免',
+      limitText: '豁免',
+      unlimited: true,
+      priority: 10,
+      incomplete: false,
+    })
+  })
+})
+
+describe('moveQuotaRuleDraft', () => {
+  it('按 id 重排，对不上的 id 原样返回', () => {
+    const a = baseDraft({ id: 'a' })
+    const b = baseDraft({ id: 'b' })
+    const c = baseDraft({ id: 'c' })
+    expect(moveQuotaRuleDraft([a, b, c], 'a', 'c').map((draft) => draft.id)).toEqual([
+      'b',
+      'c',
+      'a',
+    ])
+    expect(moveQuotaRuleDraft([a, b], 'a', 'missing')).toEqual([a, b])
+  })
+})
+
+describe('countQuotaRulePriorityTiers', () => {
+  it('按有效整数优先档去重', () => {
+    expect(
+      countQuotaRulePriorityTiers([
+        baseDraft({ priorityInput: '0' }),
+        baseDraft({ id: '2', priorityInput: '10' }),
+        baseDraft({ id: '3', priorityInput: '10' }),
+      ]),
+    ).toBe(2)
+    expect(countQuotaRulePriorityTiers([baseDraft(), baseDraft({ id: '2' })])).toBe(1)
   })
 })

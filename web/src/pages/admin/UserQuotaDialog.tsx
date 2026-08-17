@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { clsx } from 'clsx'
-import { Gift, Plus, RotateCcw, Trash2 } from 'lucide-react'
+import { Gift, RotateCcw, Trash2 } from 'lucide-react'
 import type { AdminQuotaPolicyDTO, QuotaBucketUsageDTO, QuotaPreviewDTO } from '@shared/types/api'
 import type {
   QuotaLimit,
@@ -30,13 +30,8 @@ import { Toggle } from '../../components/ui/Toggle'
 import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 import { askConfirm } from '../../store/confirm'
 import { toast } from '../../store/toast'
-import { QuotaRuleEditor } from './QuotaRuleEditor'
-import {
-  createQuotaRuleDraft,
-  draftFromRule,
-  draftsToRules,
-  type QuotaRuleDraft,
-} from './quotaRuleDrafts'
+import { QuotaRuleList } from './QuotaRuleList'
+import { draftFromRule, draftsToRules, type QuotaRuleDraft } from './quotaRuleDrafts'
 import { hasUnsavedQuotaDefinitionChanges, hiddenQuotaRuleOverrides } from './userQuotaDraftState'
 
 type OverrideMode = 'inherit' | 'override' | 'disabled'
@@ -243,6 +238,7 @@ export function UserQuotaDialog({
   const [note, setNote] = useState<string | undefined>(undefined)
   const [overrideDrafts, setOverrideDrafts] = useState<Record<string, RuleOverrideDraft>>({})
   const [extraDrafts, setExtraDrafts] = useState<QuotaRuleDraft[] | undefined>(undefined)
+  const [extraInvalid, setExtraInvalid] = useState<{ index: number; message: string } | null>(null)
   const [grantForm, setGrantForm] = useState<{ ruleId: string; bucketKey: string; amount: string }>(
     {
       ruleId: '',
@@ -262,6 +258,7 @@ export function UserQuotaDialog({
     setPaused(detail.enforcementPaused)
     setNote(detail.note ?? '')
     setExtraDrafts((detail.overrides.extraRules ?? []).map(draftFromRule))
+    setExtraInvalid(null)
     setOverrideDrafts({})
   }
 
@@ -326,7 +323,11 @@ export function UserQuotaDialog({
   const save = useMutation({
     mutationFn: () => {
       const extras = draftsToRules(extraDrafts ?? [])
-      if (!extras.ok) throw new Error(`专属规则第 ${extras.index + 1} 条：${extras.message}`)
+      if (!extras.ok) {
+        setExtraInvalid({ index: extras.index, message: extras.message })
+        throw new Error(`专属规则第 ${extras.index + 1} 条：${extras.message}`)
+      }
+      setExtraInvalid(null)
       return updateUserQuota(userId, {
         policyId: policyId ?? null,
         overrides: buildOverrides(),
@@ -556,44 +557,21 @@ export function UserQuotaDialog({
 
           {/* 3. 专属规则 */}
           <section>
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <h3 className="text-sm font-medium text-neutral-800 dark:text-neutral-100">
-                用户专属规则
-              </h3>
-              <Button
-                variant="secondary"
-                className="px-3 py-1.5 text-xs"
-                onClick={() =>
-                  setExtraDrafts((current) => [...(current ?? []), createQuotaRuleDraft()])
-                }
-              >
-                <Plus className="h-3.5 w-3.5" /> 添加
-              </Button>
-            </div>
-            {(extraDrafts ?? []).length === 0 ? (
-              <p className="text-xs text-neutral-400 dark:text-neutral-500">
-                只对该用户生效的额外限制，不影响策略里的其他人。
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {(extraDrafts ?? []).map((draft, index) => (
-                  <QuotaRuleEditor
-                    key={draft.id}
-                    draft={draft}
-                    models={models ?? []}
-                    groups={groups ?? []}
-                    onChange={(next) =>
-                      setExtraDrafts((current) =>
-                        (current ?? []).map((item, i) => (i === index ? next : item)),
-                      )
-                    }
-                    onRemove={() =>
-                      setExtraDrafts((current) => (current ?? []).filter((_, i) => i !== index))
-                    }
-                  />
-                ))}
-              </div>
-            )}
+            <QuotaRuleList
+              title="用户专属规则"
+              description="只对该用户生效的额外限制，不影响策略里的其他人。拖动调整展示顺序，覆盖关系由优先级决定。"
+              emptyMessage="还没有专属规则。需要给这个人加一条别人没有的限制或豁免时，从下方添加。"
+              addLabel="添加专属规则"
+              drafts={extraDrafts ?? []}
+              onChange={(next) => {
+                setExtraDrafts(next)
+                setExtraInvalid(null)
+              }}
+              models={models ?? []}
+              groups={groups ?? []}
+              invalidIndex={extraInvalid?.index ?? null}
+              invalidMessage={extraInvalid?.message}
+            />
           </section>
 
           {/* 4. 生效预览（真实用量） */}

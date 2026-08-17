@@ -1,6 +1,10 @@
 import type { QuotaMetric, QuotaRule } from '@shared/types/domain'
-import { QUOTA_MAX_RULES_PER_POLICY, QUOTA_MAX_RULE_PRIORITY } from '@shared/util/quota'
-import { QUOTA_HOURLY_WINDOW_MAX_HOURS } from '@shared/util/quotaWindow'
+import {
+  QUOTA_MAX_RULES_PER_POLICY,
+  QUOTA_MAX_RULE_PRIORITY,
+  formatQuotaAmount,
+} from '@shared/util/quota'
+import { QUOTA_HOURLY_WINDOW_MAX_HOURS, describeQuotaHours } from '@shared/util/quotaWindow'
 import { createRandomUuid } from '../../lib/randomUuid'
 
 export type QuotaScopeType = 'all' | 'models' | 'groups'
@@ -146,4 +150,117 @@ export function draftsToRules(drafts: QuotaRuleDraft[]): DraftsResult {
     rules.push(result.rule)
   }
   return { ok: true, rules }
+}
+
+/** 折叠行右侧芯片用的短周期，避免「首次请求起算」把额度挤出视口。 */
+const WINDOW_CHIP: Record<QuotaWindowChoice, string> = {
+  day: '每天',
+  week: '每周',
+  month: '每月',
+  rolling: '滚动',
+  anchored: '起算',
+  total: '永久',
+}
+
+export interface QuotaRuleDraftSummary {
+  /** 折叠行主标题：有备注用备注，否则用范围短称 */
+  title: string
+  /** 计量 · 周期 · 独立/共享，供第二行扫读 */
+  subtitle: string
+  /** 右侧额度芯片：$30.00 / 300 次 / 豁免 / 未设上限 */
+  limitText: string
+  windowText: string
+  /** 大于 0 才展示「优先 N」；非法输入视为未设 */
+  priority: number | null
+  unlimited: boolean
+  incomplete: boolean
+}
+
+function parseDraftPriority(input: string): number | null {
+  const priority = input.trim() === '' ? 0 : Number(input)
+  return Number.isInteger(priority) && priority >= 0 && priority <= QUOTA_MAX_RULE_PRIORITY
+    ? priority
+    : null
+}
+
+function describeDraftWindow(draft: QuotaRuleDraft): string {
+  if (draft.windowChoice !== 'rolling' && draft.windowChoice !== 'anchored') {
+    return WINDOW_CHIP[draft.windowChoice]
+  }
+  const hours = Number(draft.durationHoursInput)
+  if (!Number.isInteger(hours) || hours < 1) return WINDOW_CHIP[draft.windowChoice]
+  return `${WINDOW_CHIP[draft.windowChoice]} ${describeQuotaHours(hours)}`
+}
+
+function describeDraftScope(draft: QuotaRuleDraft): string {
+  if (draft.scopeType === 'all') return '全部模型'
+  const noun = draft.scopeType === 'models' ? '模型' : '分组'
+  if (draft.targetIds.length === 0) return draft.scopeType === 'models' ? '未选模型' : '未选分组'
+  return `${draft.targetIds.length} 个${noun}`
+}
+
+function describeDraftLimit(draft: QuotaRuleDraft): { text: string; incomplete: boolean } {
+  if (draft.unlimited) return { text: '豁免', incomplete: false }
+  const amount = Number(draft.limitInput)
+  if (!draft.limitInput.trim() || !Number.isFinite(amount) || amount <= 0) {
+    return { text: '未设上限', incomplete: true }
+  }
+  if (draft.metric === 'requests' && !Number.isInteger(amount)) {
+    return { text: '未设上限', incomplete: true }
+  }
+  return { text: formatQuotaAmount(draft.metric, amount), incomplete: false }
+}
+
+/**
+ * 折叠行展示用的结构化摘要。不要求草稿已经能通过校验，
+ * 好让管理员在填到一半时仍能扫读「这条规则大概是什么」。
+ */
+export function summarizeQuotaRuleDraft(draft: QuotaRuleDraft): QuotaRuleDraftSummary {
+  const windowText = describeDraftWindow(draft)
+  const scopeText = describeDraftScope(draft)
+  const limit = describeDraftLimit(draft)
+  const priority = parseDraftPriority(draft.priorityInput)
+  const modeText =
+    draft.scopeType === 'all' ? null : draft.mode === 'each' ? '各自独立' : '共享额度'
+  const titled = Boolean(draft.label.trim())
+  // 有备注时标题让给备注，第二行补回范围；没备注时标题就是范围，第二行不再重复。
+  const subtitle = [
+    titled ? scopeText : null,
+    draft.metric === 'cost' ? '消费金额' : '请求次数',
+    modeText,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+
+  return {
+    title: titled ? draft.label.trim() : scopeText,
+    subtitle,
+    limitText: limit.text,
+    windowText,
+    priority: priority && priority > 0 ? priority : null,
+    unlimited: draft.unlimited,
+    incomplete: limit.incomplete || (draft.scopeType !== 'all' && draft.targetIds.length === 0),
+  }
+}
+
+/** 拖拽落点后重排；id 对不上时原样返回，避免半成品状态。 */
+export function moveQuotaRuleDraft(
+  drafts: QuotaRuleDraft[],
+  fromId: string,
+  toId: string,
+): QuotaRuleDraft[] {
+  if (fromId === toId) return drafts
+  const from = drafts.findIndex((draft) => draft.id === fromId)
+  const to = drafts.findIndex((draft) => draft.id === toId)
+  if (from < 0 || to < 0) return drafts
+  const next = [...drafts]
+  const [moved] = next.splice(from, 1)
+  if (!moved) return drafts
+  next.splice(to, 0, moved)
+  return next
+}
+
+/** 当前草稿里有几个不同的优先档（非法输入按 0 计）。用来决定要不要提示遮蔽关系。 */
+export function countQuotaRulePriorityTiers(drafts: QuotaRuleDraft[]): number {
+  return new Set(drafts.map((draft) => parseDraftPriority(draft.priorityInput) ?? 0)).size
 }

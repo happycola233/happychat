@@ -57,7 +57,6 @@ const render = (draft: QuotaRuleDraft, invalidMessage?: string) =>
       models={[model('m1', 'GPT-5.5'), model('m2', 'Claude')]}
       groups={[group('g1', 'Claude 系列')]}
       onChange={vi.fn()}
-      onRemove={vi.fn()}
       invalidMessage={invalidMessage}
     />,
   )
@@ -131,5 +130,15 @@ describe('QuotaRuleEditor', () => {
   it('请求次数口径显示「次」单位而不是美元符号', () => {
     const html = render(draft({ metric: 'requests', limitInput: '300' }))
     expect(html).toContain('300 次')
+  })
+
+  it('适用范围与计量都用分段控件，优先级用步进器', () => {
+    const html = render(draft())
+    expect(html).toContain('全部')
+    expect(html).toContain('指定模型')
+    expect(html).toContain('模型分组')
+    expect(html).toContain('降低优先级')
+    expect(html).toContain('提高优先级')
+    expect(html).toContain('覆盖优先级')
   })
 })

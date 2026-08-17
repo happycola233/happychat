@@ -1,5 +1,5 @@
 import { clsx } from 'clsx'
-import { Trash2 } from 'lucide-react'
+import { Minus, Plus } from 'lucide-react'
 import type { AdminModelDTO, AdminModelGroupDTO } from '@shared/types/api'
 import { describeQuotaRule, isQuotaRuleNoOp } from '@shared/util/quota'
 import { QUOTA_DURATION_PRESET_HOURS, QUOTA_MAX_RULE_PRIORITY } from '@shared/util/quota'
@@ -90,27 +90,66 @@ function TargetPicker({
   )
 }
 
+function PriorityStepper({ value, onChange }: { value: string; onChange: (next: string) => void }) {
+  const parsed = value.trim() === '' ? 0 : Number(value)
+  const current = Number.isInteger(parsed) ? parsed : 0
+  const bump = (delta: number) => {
+    onChange(String(Math.min(QUOTA_MAX_RULE_PRIORITY, Math.max(0, current + delta))))
+  }
+
+  return (
+    <div className="inline-flex items-center overflow-hidden rounded-lg border border-neutral-300 dark:border-neutral-700">
+      <button
+        type="button"
+        aria-label="降低优先级"
+        disabled={current <= 0}
+        onClick={() => bump(-1)}
+        className="flex h-8 w-8 items-center justify-center text-neutral-400 transition hover:bg-neutral-50 hover:text-neutral-600 disabled:opacity-30 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
+      >
+        <Minus className="h-3.5 w-3.5" />
+      </button>
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        inputMode="numeric"
+        aria-label="规则优先级"
+        className="h-8 w-11 border-x border-neutral-300 bg-white text-center text-sm tabular-nums text-neutral-800 outline-none focus:bg-sky-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:focus:bg-sky-950/40"
+      />
+      <button
+        type="button"
+        aria-label="提高优先级"
+        disabled={current >= QUOTA_MAX_RULE_PRIORITY}
+        onClick={() => bump(1)}
+        className="flex h-8 w-8 items-center justify-center text-neutral-400 transition hover:bg-neutral-50 hover:text-neutral-600 disabled:opacity-30 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
+      >
+        <Plus className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  )
+}
+
 /**
- * 单条限额规则的编辑器。
+ * 单条限额规则的展开表单。
  *
- * 四个维度横向铺开：适用范围 × 计量口径 × 上限 × 周期；底部实时给出中文摘要，
- * 让管理员在保存前就读懂这条规则的含义（与用户端进度条同一份文案函数）。
+ * 外层列表负责折叠行、拖拽与删除；这里只铺四个维度：
+ * 适用范围 × 计量口径 × 上限 × 周期，外加覆盖优先级。
+ * 底部实时摘要与用户端进度条共用 `describeQuotaRule`。
  */
 export function QuotaRuleEditor({
   draft,
   models,
   groups,
   onChange,
-  onRemove,
   invalidMessage,
+  autoFocus = false,
 }: {
   draft: QuotaRuleDraft
   models: AdminModelDTO[]
   groups: AdminModelGroupDTO[]
   onChange: (next: QuotaRuleDraft) => void
-  onRemove: () => void
   /** 保存时由外层填入的错误提示 */
   invalidMessage?: string
+  autoFocus?: boolean
 }) {
   const patch = (changes: Partial<QuotaRuleDraft>) => onChange({ ...draft, ...changes })
   const preview = ruleFromDraft(draft)
@@ -123,40 +162,39 @@ export function QuotaRuleEditor({
       : null
 
   return (
-    <div className="rounded-xl border border-neutral-200 p-3.5 dark:border-neutral-700">
-      <div className="mb-3 flex items-center gap-2">
+    <div className="space-y-3">
+      <div>
+        <span className={FIELD_LABEL_CLASS}>规则备注</span>
         <input
           value={draft.label}
           onChange={(event) => patch({ label: event.target.value })}
-          placeholder="规则备注（可选，如「日常上限」）"
+          placeholder="可选，如「日常上限」「mini 豁免」"
           maxLength={40}
-          className="min-w-0 flex-1 rounded-lg border border-transparent bg-neutral-100 px-2.5 py-1.5 text-sm text-neutral-800 outline-none transition placeholder:text-neutral-400 focus:border-neutral-300 focus:bg-white dark:bg-neutral-800 dark:text-neutral-100 dark:focus:border-neutral-600 dark:focus:bg-neutral-900"
+          autoFocus={autoFocus}
+          className="w-full rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-sm text-neutral-800 outline-none transition placeholder:text-neutral-400 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:focus:border-sky-400"
         />
-        <button
-          type="button"
-          onClick={onRemove}
-          aria-label="删除这条规则"
-          className="rounded-lg p-1.5 text-neutral-400 transition hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/40 dark:hover:text-red-400"
-        >
-          <Trash2 className="h-4 w-4" />
-        </button>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
           <span className={FIELD_LABEL_CLASS}>适用范围</span>
-          <Select
-            className="w-full"
-            value={draft.scopeType}
-            onChange={(event) =>
-              patch({ scopeType: event.target.value as QuotaScopeType, targetIds: [] })
-            }
-            options={[
-              { value: 'all', label: '全部模型' },
-              { value: 'models', label: '指定模型' },
-              { value: 'groups', label: '模型分组' },
-            ]}
-          />
+          <div className={SEGMENT_CLASS}>
+            {(
+              [
+                ['all', '全部'],
+                ['models', '指定模型'],
+                ['groups', '模型分组'],
+              ] as const
+            ).map(([value, label]) => (
+              <SegmentButton
+                key={value}
+                active={draft.scopeType === value}
+                onClick={() => patch({ scopeType: value as QuotaScopeType, targetIds: [] })}
+              >
+                {label}
+              </SegmentButton>
+            ))}
+          </div>
         </div>
         <div>
           <span className={FIELD_LABEL_CLASS}>计量口径</span>
@@ -325,19 +363,15 @@ export function QuotaRuleEditor({
         </div>
 
         <div className="sm:col-span-2">
-          <span className={FIELD_LABEL_CLASS}>优先级</span>
-          <div className="flex items-center gap-2">
-            <input
+          <span className={FIELD_LABEL_CLASS}>覆盖优先级</span>
+          <div className="flex items-center gap-3">
+            <PriorityStepper
               value={draft.priorityInput}
-              onChange={(event) => patch({ priorityInput: event.target.value })}
-              inputMode="numeric"
-              aria-label="规则优先级"
-              className="w-20 rounded-lg border border-neutral-300 bg-white px-2.5 py-1.5 text-sm tabular-nums text-neutral-800 outline-none transition focus:border-sky-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:focus:border-sky-400"
+              onChange={(priorityInput) => patch({ priorityInput })}
             />
             <p className="min-w-0 flex-1 text-[11px] leading-4 text-neutral-400 dark:text-neutral-500">
               0–{QUOTA_MAX_RULE_PRIORITY}
-              ，数字越大越优先。一个模型只受「命中它的最高优先级」那一档规则约束，
-              更低优先级的规则对它既不计量也不拦截；全部留 0 则各条规则共同生效。
+              ，数字越大越优先。一个模型只受「命中它的最高优先档」约束；全部留 0 则各条同时生效。
             </p>
           </div>
         </div>
@@ -346,9 +380,9 @@ export function QuotaRuleEditor({
       {/* 实时摘要 / 校验：与用户端进度条共用 describeQuotaRule，所见即所得。 */}
       <div
         className={clsx(
-          'mt-3 rounded-lg px-2.5 py-1.5 text-[11px] leading-5',
+          'rounded-lg px-2.5 py-1.5 text-[11px] leading-5',
           preview.ok && !invalidMessage && !noOpHint
-            ? 'bg-neutral-50 text-neutral-500 dark:bg-neutral-800/60 dark:text-neutral-400'
+            ? 'bg-neutral-100/80 text-neutral-500 dark:bg-neutral-800/80 dark:text-neutral-400'
             : 'bg-amber-50 text-amber-700 dark:bg-amber-400/10 dark:text-amber-200',
         )}
       >
