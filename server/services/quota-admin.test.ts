@@ -563,6 +563,126 @@ describe('临时额度与重置', () => {
       resetRules: 1,
     })
   })
+
+  it('首次请求周期手动重置后清空锚点，等下一次请求再起算', async () => {
+    const modelId = await createModel()
+    const policy = await admin.createQuotaPolicy({
+      name: '首次请求周期',
+      rules: [
+        {
+          id: 'r-anchored',
+          label: null,
+          scope: { type: 'all' },
+          metric: 'requests',
+          limit: { kind: 'amount', value: 1 },
+          window: { type: 'anchored', hours: 5 },
+          priority: 0,
+        },
+      ],
+    })
+    const userId = await createUser()
+    await admin.updateUserQuota(
+      userId,
+      { policyId: policy.id, overrides: {}, enforcementPaused: false },
+      userId,
+    )
+
+    const firstStart = new Date()
+    const admission = await quota.prepareQuotaAdmission(userId, modelId)
+    quota.activateQuotaCycles(userId, admission.cycleClaims, firstStart)
+    await logUsage(userId, modelId, 0, { createdAt: firstStart.getTime() })
+
+    const before = await quota.getQuotaSnapshot(userId)
+    expect(before.rules[0]).toMatchObject({
+      periodActive: true,
+      periodStart: firstStart.getTime(),
+      used: 1,
+      blocked: true,
+    })
+
+    expect(await admin.resetQuotaPeriod(userId, { ruleId: 'r-anchored' }, userId)).toEqual({
+      ok: true,
+      resetRules: 1,
+    })
+
+    const afterReset = await quota.getQuotaSnapshot(userId)
+    expect(afterReset.rules[0]).toMatchObject({
+      periodActive: false,
+      periodStart: 0,
+      periodEnd: null,
+      usageStart: 0,
+      used: 0,
+      blocked: false,
+    })
+    expect(
+      await dbClient.db
+        .select({ ruleId: schema.quotaCycles.ruleId })
+        .from(schema.quotaCycles)
+        .where(eq(schema.quotaCycles.userId, userId)),
+    ).toEqual([])
+    expect(
+      (await admin.getAdminUserQuotaDetail(userId))?.adjustments.filter((row) => row.kind === 'reset'),
+    ).toEqual([])
+
+    const nextStart = new Date()
+    quota.activateQuotaCycles(userId, admission.cycleClaims, nextStart)
+    const afterNext = await quota.getQuotaSnapshot(userId)
+    expect(afterNext.rules[0]).toMatchObject({
+      periodActive: true,
+      periodStart: nextStart.getTime(),
+      periodEnd: nextStart.getTime() + 5 * 3_600_000,
+      usageStart: nextStart.getTime(),
+      used: 0,
+      blocked: false,
+    })
+  })
+
+  it('首次请求周期只重置一个独立桶时，其他桶的锚点保持', async () => {
+    const modelA = await createModel()
+    const modelB = await createModel()
+    const policy = await admin.createQuotaPolicy({
+      name: '各自独立固定周期',
+      rules: [
+        {
+          id: 'r-each',
+          label: null,
+          scope: { type: 'models', modelIds: [modelA, modelB], mode: 'each' },
+          metric: 'requests',
+          limit: { kind: 'amount', value: 1 },
+          window: { type: 'anchored', hours: 5 },
+          priority: 0,
+        },
+      ],
+    })
+    const userId = await createUser()
+    await admin.updateUserQuota(
+      userId,
+      { policyId: policy.id, overrides: {}, enforcementPaused: false },
+      userId,
+    )
+
+    const startedAt = new Date()
+    quota.activateQuotaCycles(
+      userId,
+      [
+        { ruleId: 'r-each', bucketKey: modelA, windowHours: 5 },
+        { ruleId: 'r-each', bucketKey: modelB, windowHours: 5 },
+      ],
+      startedAt,
+    )
+
+    expect(
+      await admin.resetQuotaPeriod(userId, { ruleId: 'r-each', bucketKey: modelA }, userId),
+    ).toEqual({ ok: true, resetRules: 1 })
+
+    const snapshot = await quota.getQuotaSnapshot(userId)
+    const byBucket = new Map(snapshot.rules.map((rule) => [rule.bucketKey, rule]))
+    expect(byBucket.get(modelA)).toMatchObject({ periodActive: false, usageStart: 0 })
+    expect(byBucket.get(modelB)).toMatchObject({
+      periodActive: true,
+      periodStart: startedAt.getTime(),
+    })
+  })
 })
 
 describe('列表 / 明细 / 预览', () => {

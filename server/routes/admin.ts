@@ -945,7 +945,7 @@ adminRoutes.post('/quota/users/batch-assign', jsonValidator(quotaBatchAssignSche
   return c.json({ ok: true, updated: result.updated })
 })
 
-/** 手动重置当前周期：只抬高统计起点，不删除任何用量日志。 */
+/** 手动重置当前周期：日历/滚动/永久抬高统计起点；首次请求起算清空锚点。不删除用量日志。 */
 adminRoutes.post('/quota/users/:id/reset', jsonValidator(quotaResetSchema), async (c) => {
   const result = await resetQuotaPeriod(c.req.param('id'), c.req.valid('json'), c.get('user').id)
   if (!result.ok) {

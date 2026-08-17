@@ -598,7 +598,7 @@ export interface QuotaBucketUsageDTO {
   periodActive: boolean
   /** 当前周期起点（窗口的真实起点，与临时额度/重置记录的绑定键一致） */
   periodStart: number
-  /** 实际计量起点：手动重置后会晚于 periodStart，用于界面说明「已于某时重置」 */
+  /** 实际计量起点：日历/滚动/永久累计被手动重置后会晚于 periodStart；首次请求周期重置后回到未启动（与 periodStart 同为 0） */
   usageStart: number
   /** 下次整段重置时刻；滚动窗口、永久累计和未启动的首次请求周期为 null */
   periodEnd: number | null

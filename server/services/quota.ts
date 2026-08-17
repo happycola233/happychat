@@ -872,6 +872,31 @@ export function activateQuotaCycles(
   })
 }
 
+/**
+ * 管理员手动重置首次请求周期：删除锚点，回到未启动。
+ *
+ * `bucketKey=null` 表示该规则的全部桶（「重置全部」或单桶规则），否则只清指定桶。
+ */
+export function clearQuotaCyclesInTransaction(
+  tx: QuotaTransaction,
+  userId: string,
+  targets: Array<{ ruleId: string; bucketKey: string | null }>,
+): void {
+  for (const target of targets) {
+    tx.delete(quotaCycles)
+      .where(
+        and(
+          eq(quotaCycles.userId, userId),
+          eq(quotaCycles.ruleId, target.ruleId),
+          ...(target.bucketKey !== null
+            ? [eq(quotaCycles.bucketKey, storedBucketKey(target.bucketKey))]
+            : []),
+        ),
+      )
+      .run()
+  }
+}
+
 function cycleClaimsForModel(snapshot: QuotaSnapshot, modelDbId: string): QuotaCycleClaim[] {
   const claims: QuotaCycleClaim[] = []
   snapshot.rules.forEach((rule) => {

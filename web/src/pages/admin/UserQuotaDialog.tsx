@@ -607,7 +607,8 @@ export function UserQuotaDialog({
                   if (
                     await askConfirm({
                       title: '重置当前周期',
-                      description: '该用户全部规则的本周期用量将从此刻重新计算，历史统计不受影响。',
+                      description:
+                        '该用户全部规则的本周期用量将重新计算，历史统计不受影响。首次请求起算的固定周期会清空，等下次请求后再开始。',
                       confirmLabel: '重置',
                     })
                   ) {
@@ -647,7 +648,10 @@ export function UserQuotaDialog({
                             if (
                               await askConfirm({
                                 title: '重置这个额度',
-                                description: `「${describeBucket(rule)}」的本周期用量将从此刻重新计算，其他额度与历史统计不受影响。`,
+                                description:
+                                  rule.window.type === 'anchored'
+                                    ? `「${describeBucket(rule)}」将回到未启动，下次请求后再开始计时，其他额度与历史统计不受影响。`
+                                    : `「${describeBucket(rule)}」的本周期用量将从此刻重新计算，其他额度与历史统计不受影响。`,
                                 confirmLabel: '重置',
                               })
                             ) {

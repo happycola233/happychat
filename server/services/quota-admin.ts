@@ -29,6 +29,7 @@ import { quotaAdjustments, quotaPolicies, usageLogs, userQuotas, users } from '.
 import { must } from '../lib/assert'
 import { newId } from '../lib/id'
 import {
+  clearQuotaCyclesInTransaction,
   getQuotaConfig,
   getQuotaSnapshot,
   getUserQuotaBinding,
@@ -513,8 +514,13 @@ export type ResetPeriodResult =
   | { ok: false; code: AdjustmentTargetError | 'no_rules' | 'period_not_started' }
 
 /**
- * 手动重置当前周期：写 `reset` 记录把统计起点抬到此刻，**不删除任何用量日志**，
- * 因此后台统计与审计口径完全不受影响。ruleId 省略时重置该用户的全部规则。
+ * 手动重置当前周期：**不删除任何用量日志**，后台统计与审计口径不受影响。
+ *
+ * - 日历 / 滚动 / 永久累计：写 `reset` 记录把统计起点抬到此刻；
+ * - 首次请求起算：删除 `quota_cycles` 锚点，周期回到未启动，等下一次获准请求再起算。
+ *   不能只抬高计量起点，否则界面会留下「管理员已重置」时间，且周期不会按首次请求重新计时。
+ *
+ * ruleId 省略时重置该用户的全部规则。
  */
 export async function resetQuotaPeriod(
   userId: string,
@@ -570,6 +576,13 @@ export async function resetQuotaPeriod(
   const now = new Date()
   db.transaction((tx) => {
     for (const target of targets) {
+      if (target.rule.window.type === 'anchored') {
+        // 清空锚点即结束当前周期；不写 reset，避免新周期被旧「计量起点」污染。
+        clearQuotaCyclesInTransaction(tx, userId, [
+          { ruleId: target.rule.id, bucketKey: target.bucketKey },
+        ])
+        continue
+      }
       tx.insert(quotaAdjustments)
         .values({
           userId,

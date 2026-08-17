@@ -370,7 +370,8 @@ export const userQuotas = sqliteTable('user_quotas', {
 /**
  * 周期内调整，表达两个只影响「当前周期」的管理动作，绝不改写历史用量：
  * - `grant`：临时增加额度（`amount` 叠加到上限），到期或周期切换后自动失效；
- * - `reset`：手动重置当前周期（把统计起点抬到 `effectiveFrom`）。
+ * - `reset`：手动重置当前周期（日历 / 滚动 / 永久累计把统计起点抬到 `effectiveFrom`；
+ *   首次请求起算不写这条记录，而是删除 `quota_cycles` 锚点）。
  *
  * `periodStart` 记录创建时所处周期的起点：当前周期起点与之不同即视为失效，
  * 因此即使 `expiresAt` 因时区/配置调整而失准，赠送额度也不会跨周期复活。
@@ -409,6 +410,7 @@ export const quotaAdjustments = sqliteTable(
  *
  * `bucket_key` 用空字符串表示单桶规则，避免 SQLite 复合主键里的 NULL 破坏唯一性。
  * 周期到期后保留最后一行：下一次获准请求会在同一事务内覆写为新周期。
+ * 管理员手动重置会删除对应行，周期回到未启动，等下一次获准请求再起算。
  */
 export const quotaCycles = sqliteTable(
   'quota_cycles',
