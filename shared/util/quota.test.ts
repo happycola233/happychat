@@ -4,13 +4,16 @@ import {
   QUOTA_MAX_RULES_PER_POLICY,
   QUOTA_MAX_RULE_PRIORITY,
   describeQuotaRule,
+  describeQuotaRuleGroupTitle,
   evaluateQuotaLimit,
   formatQuotaAmount,
   formatQuotaLimit,
+  groupQuotaBucketsByRule,
   isQuotaRuleNoOp,
   isQuotaUnlimited,
   normalizeQuotaRules,
   normalizeUserQuotaOverrides,
+  pickTightestQuotaBucket,
   quotaRuleRequiresBucketKey,
   resolveEffectiveQuota,
 } from './quota'
@@ -306,6 +309,14 @@ describe('文案', () => {
       '优先 10 · 每月 · 全部模型 · $30.00',
     )
     expect(
+      describeQuotaRule({
+        ...monthlyCost(30),
+        limit: { kind: 'unlimited' },
+        priority: 10,
+        window: { type: 'calendar', period: 'month' },
+      }),
+    ).toBe('优先 10 · 全部模型 · 豁免（不限额）')
+    expect(
       describeQuotaRule(
         {
           scope: { type: 'models', modelIds: ['m1', 'm2', 'm3'], mode: 'each' },
@@ -327,6 +338,100 @@ describe('文案', () => {
         { groups: { g1: 'Claude' } },
       ),
     ).toBe('每月 · Claude·共享额度 · $20.00')
+  })
+})
+
+describe('groupQuotaBucketsByRule', () => {
+  it('按首次出现的规则顺序收拢独立桶，不按紧张程度重排', () => {
+    const groups = groupQuotaBucketsByRule([
+      { ruleId: 'week', bucketKey: null, percent: 0.1, blocked: false },
+      { ruleId: 'each', bucketKey: 'grok', percent: 0.9, blocked: true },
+      { ruleId: 'each', bucketKey: 'deepseek', percent: 0, blocked: false },
+      { ruleId: 'month', bucketKey: null, percent: 0.8, blocked: false },
+    ])
+    expect(groups.map((group) => group.ruleId)).toEqual(['week', 'each', 'month'])
+    expect(groups[1]?.buckets.map((bucket) => bucket.bucketKey)).toEqual(['grok', 'deepseek'])
+  })
+})
+
+describe('pickTightestQuotaBucket', () => {
+  it('已耗尽优先于高占比，无限额度垫底', () => {
+    expect(
+      pickTightestQuotaBucket([
+        { ruleId: 'ok', blocked: false, percent: 0.9 },
+        { ruleId: 'dead', blocked: true, percent: 1 },
+        { ruleId: 'free', blocked: false, percent: null },
+      ])?.ruleId,
+    ).toBe('dead')
+    expect(
+      pickTightestQuotaBucket([
+        { blocked: false, percent: 0.2 },
+        { blocked: false, percent: 0.8 },
+        { blocked: false, percent: null },
+      ])?.percent,
+    ).toBe(0.8)
+  })
+})
+
+describe('describeQuotaRuleGroupTitle', () => {
+  it('有备注用备注；多目标独立额度不把某个模型名抬成整条标题', () => {
+    expect(
+      describeQuotaRuleGroupTitle([
+        {
+          label: '其他模型（每周）',
+          bucketLabel: 'Grok',
+          scope: { type: 'models', modelIds: ['g', 'd'], mode: 'each' },
+          window: { type: 'calendar', period: 'week' },
+          metric: 'cost',
+          limit: { kind: 'amount', value: 0.5 },
+          effectiveModelIds: ['g'],
+        },
+        {
+          label: '其他模型（每周）',
+          bucketLabel: 'DeepSeek',
+          scope: { type: 'models', modelIds: ['g', 'd'], mode: 'each' },
+          window: { type: 'calendar', period: 'week' },
+          metric: 'cost',
+          limit: { kind: 'amount', value: 0.5 },
+          effectiveModelIds: ['d'],
+        },
+      ]),
+    ).toBe('其他模型（每周）')
+    expect(
+      describeQuotaRuleGroupTitle([
+        {
+          label: null,
+          bucketLabel: 'Grok',
+          scope: { type: 'models', modelIds: ['g', 'd'], mode: 'each' },
+          window: { type: 'calendar', period: 'week' },
+          metric: 'cost',
+          limit: { kind: 'amount', value: 0.5 },
+          effectiveModelIds: ['g'],
+        },
+        {
+          label: null,
+          bucketLabel: 'DeepSeek',
+          scope: { type: 'models', modelIds: ['g', 'd'], mode: 'each' },
+          window: { type: 'calendar', period: 'week' },
+          metric: 'cost',
+          limit: { kind: 'amount', value: 0.5 },
+          effectiveModelIds: ['d'],
+        },
+      ]),
+    ).toBe('每周消费 · 指定模型')
+    expect(
+      describeQuotaRuleGroupTitle([
+        {
+          label: null,
+          bucketLabel: null,
+          scope: { type: 'all' },
+          window: { type: 'calendar', period: 'month' },
+          metric: 'cost',
+          limit: { kind: 'unlimited' },
+          effectiveModelIds: null,
+        },
+      ]),
+    ).toBe('全部模型')
   })
 })
 

@@ -85,6 +85,8 @@ describe('QuotaRuleList', () => {
     ])
     expect(html).toContain('当前有 2 个优先档')
     expect(html).toContain('优先 10')
+    expect(html).toContain('豁免')
+    expect(html).not.toContain('豁免 · 每月')
   })
 
   it('保存失败时展开对应规则并显示外层错误', () => {

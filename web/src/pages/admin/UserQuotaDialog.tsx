@@ -10,7 +10,13 @@ import type {
   QuotaWindow,
   UserQuotaOverrides,
 } from '@shared/types/domain'
-import { describeQuotaRule, formatQuotaAmount, formatQuotaLimit } from '@shared/util/quota'
+import {
+  describeQuotaRule,
+  describeQuotaRuleGroupTitle,
+  formatQuotaAmount,
+  formatQuotaLimit,
+  groupQuotaBucketsByRule,
+} from '@shared/util/quota'
 import { describeQuotaWindow } from '@shared/util/quotaWindow'
 import {
   createUserQuotaGrant,
@@ -88,7 +94,7 @@ function overridePayload(draft: RuleOverrideDraft): QuotaRuleOverride | null {
       ? { kind: 'amount', value: Number(draft.limitInput) }
       : undefined
   const window: QuotaWindow | undefined =
-    draft.windowChoice === ''
+    draft.limitUnlimited || draft.windowChoice === ''
       ? undefined
       : draft.windowChoice === 'total'
         ? { type: 'total' }
@@ -115,24 +121,26 @@ const SOURCE_BADGE: Record<string, { label: string; className: string }> = {
 
 /** 桶的一行中文说明，用于重置确认框与无障碍名称。 */
 function describeBucket(rule: QuotaBucketUsageDTO): string {
-  return `${rule.bucketLabel ? `${rule.bucketLabel} · ` : ''}${describeQuotaWindow(rule.window)}${
-    rule.metric === 'cost' ? '消费' : '请求'
-  }`
+  const target = rule.bucketLabel ? `${rule.bucketLabel} · ` : ''
+  if (rule.limit.kind === 'unlimited') return `${target}豁免`
+  return `${target}${describeQuotaWindow(rule.window)}${rule.metric === 'cost' ? '消费' : '请求'}`
 }
 
 /** 预览里的一条桶用量（保存后会立即生效的真实数字）。 */
 function PreviewRow({
   rule,
   onReset,
+  nested = false,
 }: {
   rule: QuotaBucketUsageDTO
   /** 提供时显示单桶重置按钮；失效桶与被接管的桶不给（重置它们没有意义） */
   onReset?: () => void
+  nested?: boolean
 }) {
   const percent = Math.min(100, Math.round((rule.percent ?? 0) * 100))
   const badge = SOURCE_BADGE[rule.source]!
   return (
-    <div className="py-2">
+    <div className={clsx('py-2', nested && 'pl-3')}>
       <div className="flex items-center gap-2 text-xs">
         <span
           className={clsx('shrink-0 rounded px-1.5 py-px text-[10px] font-medium', badge.className)}
@@ -166,7 +174,7 @@ function PreviewRow({
             已失效
           </span>
         )}
-        {!rule.periodActive && (
+        {rule.limit.kind !== 'unlimited' && !rule.periodActive && (
           <span className="shrink-0 rounded bg-sky-50 px-1.5 py-px text-[10px] font-medium text-sky-600 dark:bg-sky-500/10 dark:text-sky-300">
             首次请求后计时
           </span>
@@ -484,8 +492,10 @@ export function UserQuotaDialog({
                             {rule.label || describeQuotaRule(rule)}
                           </div>
                           <div className="mt-0.5 text-[11px] text-neutral-400 dark:text-neutral-500">
-                            模板：{formatQuotaLimit(rule.metric, rule.limit)} ·{' '}
-                            {describeQuotaWindow(rule.window)}
+                            模板：{formatQuotaLimit(rule.metric, rule.limit)}
+                            {rule.limit.kind === 'unlimited'
+                              ? ''
+                              : ` · ${describeQuotaWindow(rule.window)}`}
                           </div>
                         </div>
                         <div className="flex shrink-0 items-center gap-0.5 rounded-lg bg-neutral-100 p-0.5 dark:bg-neutral-800">
@@ -515,7 +525,14 @@ export function UserQuotaDialog({
                       </div>
 
                       {draft.mode === 'override' && (
-                        <div className="mt-3 grid gap-2 border-t border-neutral-100 pt-3 sm:grid-cols-[1fr_1fr_auto] dark:border-neutral-800">
+                        <div
+                          className={clsx(
+                            'mt-3 grid gap-2 border-t border-neutral-100 pt-3 dark:border-neutral-800',
+                            draft.limitUnlimited
+                              ? 'sm:grid-cols-[1fr_auto]'
+                              : 'sm:grid-cols-[1fr_1fr_auto]',
+                          )}
+                        >
                           <div className="relative">
                             <input
                               value={draft.limitInput}
@@ -526,18 +543,20 @@ export function UserQuotaDialog({
                               className="w-full rounded-lg border border-neutral-300 bg-white px-2.5 py-1.5 text-sm tabular-nums text-neutral-800 outline-none transition focus:border-sky-500 disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
                             />
                           </div>
-                          <Select
-                            className="w-full"
-                            aria-label="覆写周期"
-                            value={draft.windowChoice}
-                            onChange={(event) =>
-                              patch({
-                                windowChoice: event.target
-                                  .value as RuleOverrideDraft['windowChoice'],
-                              })
-                            }
-                            options={WINDOW_OPTIONS}
-                          />
+                          {!draft.limitUnlimited && (
+                            <Select
+                              className="w-full"
+                              aria-label="覆写周期"
+                              value={draft.windowChoice}
+                              onChange={(event) =>
+                                patch({
+                                  windowChoice: event.target
+                                    .value as RuleOverrideDraft['windowChoice'],
+                                })
+                              }
+                              options={WINDOW_OPTIONS}
+                            />
+                          )}
                           <label className="flex items-center gap-1.5 whitespace-nowrap text-[11px] text-neutral-500 dark:text-neutral-400">
                             不限
                             <Toggle
@@ -616,40 +635,57 @@ export function UserQuotaDialog({
             ) : (
               <div className="rounded-xl border border-neutral-200 px-3 py-1 dark:border-neutral-700">
                 <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
-                  {preview.rules.map((rule) => (
-                    <PreviewRow
-                      key={`${rule.ruleId}:${rule.bucketKey ?? ''}`}
-                      rule={rule}
-                      onReset={
-                        !previewActionsReady ||
-                        !rule.periodActive ||
-                        rule.invalid ||
-                        rule.shadowed ||
-                        rule.limit.kind === 'unlimited'
-                          ? undefined
-                          : async () => {
-                              if (
-                                await askConfirm({
-                                  title: '重置这个额度',
-                                  description: `「${describeBucket(rule)}」的本周期用量将从此刻重新计算，其他额度与历史统计不受影响。`,
-                                  confirmLabel: '重置',
-                                })
-                              ) {
-                                resetPeriod.mutate({
-                                  ruleId: rule.ruleId,
-                                  bucketKey: rule.bucketKey ?? undefined,
-                                })
-                              }
+                  {groupQuotaBucketsByRule(preview.rules).map((group) => {
+                    const resetFor = (rule: QuotaBucketUsageDTO) =>
+                      !previewActionsReady ||
+                      !rule.periodActive ||
+                      rule.invalid ||
+                      rule.shadowed ||
+                      rule.limit.kind === 'unlimited'
+                        ? undefined
+                        : async () => {
+                            if (
+                              await askConfirm({
+                                title: '重置这个额度',
+                                description: `「${describeBucket(rule)}」的本周期用量将从此刻重新计算，其他额度与历史统计不受影响。`,
+                                confirmLabel: '重置',
+                              })
+                            ) {
+                              resetPeriod.mutate({
+                                ruleId: rule.ruleId,
+                                bucketKey: rule.bucketKey ?? undefined,
+                              })
                             }
-                      }
-                    />
-                  ))}
+                          }
+                    if (group.buckets.length === 1) {
+                      const rule = group.buckets[0]!
+                      return <PreviewRow key={group.ruleId} rule={rule} onReset={resetFor(rule)} />
+                    }
+                    return (
+                      <div key={group.ruleId} className="py-1">
+                        <div className="flex items-center justify-between gap-2 pt-1.5 text-[11px] text-neutral-400 dark:text-neutral-500">
+                          <span className="truncate font-medium text-neutral-600 dark:text-neutral-300">
+                            {describeQuotaRuleGroupTitle(group.buckets)}
+                          </span>
+                          <span className="shrink-0">各自独立</span>
+                        </div>
+                        {group.buckets.map((rule) => (
+                          <PreviewRow
+                            key={`${rule.ruleId}:${rule.bucketKey ?? ''}`}
+                            rule={rule}
+                            nested
+                            onReset={resetFor(rule)}
+                          />
+                        ))}
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
             )}
             {preview && preview.blockedRules.length > 0 && (
               <p className="mt-2 rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] leading-5 text-amber-700 dark:bg-amber-400/10 dark:text-amber-200">
-                保存后该用户将立即处于「额度已用尽」状态（{preview.blockedRules.length} 条规则触顶）
+                {`保存后该用户将立即处于「额度已用尽」状态（${groupQuotaBucketsByRule(preview.blockedRules).length} 条规则触顶）`}
                 {paused ? '；不过限额当前处于暂停状态，仍不会被拦截。' : '。'}
               </p>
             )}

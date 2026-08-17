@@ -78,6 +78,12 @@ describe('ruleFromDraft', () => {
     expect(anchored.ok && anchored.rule.window).toEqual({ type: 'anchored', hours: 5 })
     // 非小时型窗口时小时数不参与校验
     expect(ruleFromDraft(baseDraft({ durationHoursInput: 'oops' })).ok).toBe(true)
+    // 豁免不读周期，隐藏字段里的非法小时不能挡住保存
+    expect(
+      ruleFromDraft(
+        baseDraft({ unlimited: true, windowChoice: 'rolling', durationHoursInput: 'oops' }),
+      ).ok,
+    ).toBe(true)
   })
 
   it('模型/分组范围携带独立或共享模式', () => {
@@ -198,6 +204,7 @@ describe('summarizeQuotaRuleDraft', () => {
     expect(summary).toMatchObject({
       title: 'mini 豁免',
       limitText: '豁免',
+      windowText: '',
       unlimited: true,
       priority: 10,
       incomplete: false,

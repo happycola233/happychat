@@ -5,6 +5,7 @@ import { AlertTriangle, CircleSlash, PauseCircle, X } from 'lucide-react'
 import type { QuotaBucketUsageDTO } from '@shared/types/api'
 import { formatQuotaAmount } from '@shared/util/quota'
 import { describeQuotaWindow } from '@shared/util/quotaWindow'
+import { describeQuotaReset } from '../lib/quotaResetDisplay'
 import { useMyQuota, resolveQuotaNotice, type QuotaNoticeLevel } from '../hooks/useQuota'
 import { useChatPrefs } from '../store/chat'
 import { quotaWarningDismissKey } from './quotaNoticeDismissal'
@@ -49,30 +50,20 @@ function usagePhrase(rule: QuotaBucketUsageDTO): string {
   return `${scope}${describeQuotaWindow(rule.window)}${metric} ${used} / ${limit}`
 }
 
-function resetPhrase(rule: QuotaBucketUsageDTO): string | null {
-  if (rule.periodEnd === null) return null
-  return `${new Date(rule.periodEnd).toLocaleString('zh-CN', {
-    month: 'numeric',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  })} 重置`
-}
-
 function noticeText(level: Exclude<QuotaNoticeLevel, 'none'>, rule: QuotaBucketUsageDTO): string {
-  const reset = resetPhrase(rule)
+  const reset = describeQuotaReset(rule)
+  const resetText = reset?.kind === 'scheduled' ? reset.label : null
   const usage = usagePhrase(rule)
   if (level === 'warning') {
-    return `额度即将用尽：${usage}${reset ? `，${reset}` : ''}`
+    return `额度即将用尽：${usage}${resetText ? `，${resetText}` : ''}`
   }
   if (level === 'model-exhausted') {
-    return `当前模型额度已用尽：${usage}${reset ? `，${reset}` : ''}。可切换到其他仍有额度的模型继续对话。`
+    return `当前模型额度已用尽：${usage}${resetText ? `，${resetText}` : ''}。可切换到其他仍有额度的模型继续对话。`
   }
   if (level === 'paused') {
     return `额度已超出上限（${usage}），但管理员已暂停限额，当前仍可正常使用。`
   }
-  return `额度已用尽：${usage}${reset ? `，${reset}` : ''}。请联系管理员调整额度。`
+  return `额度已用尽：${usage}${resetText ? `，${resetText}` : ''}。请联系管理员调整额度。`
 }
 
 /**

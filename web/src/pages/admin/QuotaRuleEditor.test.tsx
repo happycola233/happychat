@@ -75,13 +75,16 @@ describe('QuotaRuleEditor', () => {
   it('「豁免」开关下不再渲染数值输入框，0 档豁免提示这条规则没有作用', () => {
     const html = render(draft({ unlimited: true }))
     expect(html).toContain('豁免（不限额）')
+    expect(html).toContain('豁免不按周期统计，也不重置')
     expect(html).not.toContain('placeholder="10"')
+    expect(html).not.toContain('每天（自然日）')
     expect(html).toContain('这条规则不产生任何限制')
   })
 
   it('高优先级豁免是有效配置：摘要标出优先级，不再提示无作用', () => {
     const html = render(draft({ unlimited: true, priorityInput: '10' }))
-    expect(html).toContain('优先 10 · 每月 · 全部模型 · 豁免（不限额）')
+    expect(html).toContain('优先 10 · 全部模型 · 豁免（不限额）')
+    expect(html).not.toContain('优先 10 · 每月 · 全部模型 · 豁免（不限额）')
     expect(html).not.toContain('这条规则不产生任何限制')
   })
 

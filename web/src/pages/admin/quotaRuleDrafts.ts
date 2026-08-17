@@ -98,7 +98,9 @@ export function ruleFromDraft(draft: QuotaRuleDraft): DraftResult {
   }
 
   const hours = Number(draft.durationHoursInput)
+  // 豁免不计量也不重置，隐藏的周期字段即使是非法小时也不能挡住保存。
   if (
+    !draft.unlimited &&
     (draft.windowChoice === 'rolling' || draft.windowChoice === 'anchored') &&
     (!Number.isInteger(hours) || hours < 1 || hours > QUOTA_HOURLY_WINDOW_MAX_HOURS)
   ) {
@@ -126,12 +128,7 @@ export function ruleFromDraft(draft: QuotaRuleDraft): DraftResult {
             : { type: 'groups', groupIds: draft.targetIds, mode: draft.mode },
       metric: draft.metric,
       limit: draft.unlimited ? { kind: 'unlimited' } : { kind: 'amount', value: amount },
-      window:
-        draft.windowChoice === 'rolling' || draft.windowChoice === 'anchored'
-          ? { type: draft.windowChoice, hours }
-          : draft.windowChoice === 'total'
-            ? { type: 'total' }
-            : { type: 'calendar', period: draft.windowChoice },
+      window: windowFromDraft(draft, hours),
       priority,
     },
   }
@@ -165,10 +162,11 @@ const WINDOW_CHIP: Record<QuotaWindowChoice, string> = {
 export interface QuotaRuleDraftSummary {
   /** 折叠行主标题：有备注用备注，否则用范围短称 */
   title: string
-  /** 计量 · 周期 · 独立/共享，供第二行扫读 */
+  /** 范围 / 计量 / 独立或共享，供第二行扫读 */
   subtitle: string
   /** 右侧额度芯片：$30.00 / 300 次 / 豁免 / 未设上限 */
   limitText: string
+  /** 右侧周期短称；豁免为空，调用方不要再拼「· 每月」 */
   windowText: string
   /** 大于 0 才展示「优先 N」；非法输入视为未设 */
   priority: number | null
@@ -181,6 +179,22 @@ function parseDraftPriority(input: string): number | null {
   return Number.isInteger(priority) && priority >= 0 && priority <= QUOTA_MAX_RULE_PRIORITY
     ? priority
     : null
+}
+
+/** 草稿里的周期；豁免时只在合法时原样保留，非法小时改用永久占位以免写出坏数据。 */
+function windowFromDraft(
+  draft: QuotaRuleDraft,
+  hours: number,
+): QuotaRule['window'] {
+  if (draft.windowChoice === 'rolling' || draft.windowChoice === 'anchored') {
+    if (Number.isInteger(hours) && hours >= 1 && hours <= QUOTA_HOURLY_WINDOW_MAX_HOURS) {
+      return { type: draft.windowChoice, hours }
+    }
+    return { type: 'total' }
+  }
+  return draft.windowChoice === 'total'
+    ? { type: 'total' }
+    : { type: 'calendar', period: draft.windowChoice }
 }
 
 function describeDraftWindow(draft: QuotaRuleDraft): string {
@@ -216,7 +230,7 @@ function describeDraftLimit(draft: QuotaRuleDraft): { text: string; incomplete: 
  * 好让管理员在填到一半时仍能扫读「这条规则大概是什么」。
  */
 export function summarizeQuotaRuleDraft(draft: QuotaRuleDraft): QuotaRuleDraftSummary {
-  const windowText = describeDraftWindow(draft)
+  const windowText = draft.unlimited ? '' : describeDraftWindow(draft)
   const scopeText = describeDraftScope(draft)
   const limit = describeDraftLimit(draft)
   const priority = parseDraftPriority(draft.priorityInput)

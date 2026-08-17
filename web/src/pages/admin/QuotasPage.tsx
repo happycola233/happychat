@@ -4,6 +4,7 @@ import { clsx } from 'clsx'
 import { ListChecks, PauseCircle, Plus } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import type { AdminQuotaPolicyDTO, AdminUserQuotaDTO } from '@shared/types/api'
+import { pickTightestQuotaBucket } from '@shared/util/quota'
 import type { AppConfigUpdateInput } from '@shared/schemas/app-config'
 import {
   batchAssignQuotaPolicy,
@@ -55,8 +56,8 @@ function statusBadge(row: AdminUserQuotaDTO, warnThreshold: number) {
       className: 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-300',
     }
   }
-  const nearest = row.rules.find(
-    (rule) => rule.limit.kind === 'amount' && !rule.invalid && !rule.shadowed,
+  const nearest = pickTightestQuotaBucket(
+    row.rules.filter((rule) => rule.limit.kind === 'amount' && !rule.invalid && !rule.shadowed),
   )
   if ((nearest?.percent ?? 0) >= warnThreshold) {
     return {
@@ -405,7 +406,9 @@ export default function QuotasPage() {
       ) : (
         <div className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-xl bg-neutral-50 px-3 py-2 text-[11px] leading-5 text-neutral-500 dark:bg-neutral-800/50 dark:text-neutral-400">
-            <span>每位用户均展示全部额度桶，包括豁免、未开始、失效和被接管的规则。</span>
+            <span>
+              按策略展示顺序列出全部规则；「各自独立」的目标收在同一条下。豁免、未开始、失效和被接管的规则都会显示。
+            </span>
             <span className="shrink-0">周期时间按 {timezoneLabel} 显示</span>
           </div>
 

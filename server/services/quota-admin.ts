@@ -34,7 +34,6 @@ import {
   getUserQuotaBinding,
   isQuotaAdjustmentActive,
   listQuotaAdjustments,
-  sortQuotaBucketsBySeverity,
   type QuotaAdjustmentRow,
 } from './quota'
 import { getUserModelUsage } from './usage-stats'
@@ -615,7 +614,7 @@ function toAdjustmentDTO(
   }
 }
 
-/** 管理端用户列表：每人一次完整快照，所有额度桶都下发，前端不得只展示最紧张的一条。 */
+/** 管理端用户列表：每人一次完整快照，所有额度桶都下发，顺序与策略展示顺序一致。 */
 export async function listAdminUserQuotas(): Promise<AdminUserQuotaDTO[]> {
   const config = await getQuotaConfig()
   const [userRows, latestUsageRows] = await Promise.all([
@@ -647,7 +646,6 @@ export async function listAdminUserQuotas(): Promise<AdminUserQuotaDTO[]> {
   for (const user of userRows) {
     const binding = await getUserQuotaBinding(user.id)
     const snapshot = await getQuotaSnapshot(user.id, { config, binding })
-    const sortedRules = sortQuotaBucketsBySeverity(snapshot.rules)
     result.push({
       userId: user.id,
       username: user.username,
@@ -664,7 +662,7 @@ export async function listAdminUserQuotas(): Promise<AdminUserQuotaDTO[]> {
       overrideCount:
         Object.keys(binding.overrides.rules ?? {}).length +
         (binding.overrides.extraRules?.length ?? 0),
-      rules: sortedRules,
+      rules: snapshot.rules,
       blocked: snapshot.blockedModelIds.length > 0,
       lastUsageAt: lastUsageAtByUser.get(user.id) ?? null,
     })
@@ -703,7 +701,7 @@ export async function getAdminUserQuotaDetail(
     note: binding.note,
     overrides: binding.overrides,
     effectiveRules: binding.rules,
-    rules: sortQuotaBucketsBySeverity(snapshot.rules),
+    rules: snapshot.rules,
     adjustments: adjustments.map((row) => toAdjustmentDTO(row, snapshot.rules, now)),
     byModel: await getUserModelUsage(userId, options.days ?? 30),
   }
@@ -739,11 +737,10 @@ export async function previewUserQuota(input: QuotaPreviewInput): Promise<QuotaP
     rulesOverride: rules,
     pausedOverride: input.enforcementPaused,
   })
-  const sorted = sortQuotaBucketsBySeverity(snapshot.rules)
   return {
     unlimited: snapshot.unlimited,
-    rules: sorted,
-    blockedRules: sorted.filter((rule) => rule.blocked && !rule.invalid),
+    rules: snapshot.rules,
+    blockedRules: snapshot.rules.filter((rule) => rule.blocked && !rule.invalid),
   }
 }
 

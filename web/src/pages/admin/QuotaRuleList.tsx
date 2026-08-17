@@ -131,10 +131,12 @@ function RuleRow({
             )}
           >
             {summary.limitText}
-            <span className="font-normal text-neutral-400 dark:text-neutral-500">
-              {' '}
-              · {summary.windowText}
-            </span>
+            {summary.windowText ? (
+              <span className="font-normal text-neutral-400 dark:text-neutral-500">
+                {' '}
+                · {summary.windowText}
+              </span>
+            ) : null}
           </span>
           <ChevronDown
             aria-hidden

@@ -133,6 +133,7 @@ function PriorityStepper({ value, onChange }: { value: string; onChange: (next: 
  *
  * 外层列表负责折叠行、拖拽与删除；这里只铺四个维度：
  * 适用范围 × 计量口径 × 上限 × 周期，外加覆盖优先级。
+ * 豁免不计量也不重置，周期控件改为说明，避免让人以为窗口还在跑。
  * 底部实时摘要与用户端进度条共用 `describeQuotaRule`。
  */
 export function QuotaRuleEditor({
@@ -309,55 +310,65 @@ export function QuotaRuleEditor({
 
         <div>
           <span className={FIELD_LABEL_CLASS}>统计周期</span>
-          <Select
-            className="w-full"
-            value={draft.windowChoice}
-            onChange={(event) => patch({ windowChoice: event.target.value as QuotaWindowChoice })}
-            options={[
-              { value: 'day', label: '每天（自然日）' },
-              { value: 'week', label: '每周（自然周）' },
-              { value: 'month', label: '每月（自然月）' },
-              { value: 'anchored', label: '首次请求起算（固定周期）' },
-              { value: 'rolling', label: '滚动窗口（逐步释放）' },
-              { value: 'total', label: '永久累计（不重置）' },
-            ]}
-          />
-          {(draft.windowChoice === 'rolling' || draft.windowChoice === 'anchored') && (
+          {draft.unlimited ? (
+            <div className="rounded-lg border border-dashed border-neutral-200 px-3 py-2 text-sm text-neutral-400 dark:border-neutral-700">
+              豁免不按周期统计，也不重置
+            </div>
+          ) : (
             <>
-              <div className="mt-2 flex items-center gap-1.5">
-                <input
-                  value={draft.durationHoursInput}
-                  onChange={(event) => patch({ durationHoursInput: event.target.value })}
-                  inputMode="numeric"
-                  aria-label={
-                    draft.windowChoice === 'rolling' ? '滚动窗口小时数' : '固定周期小时数'
-                  }
-                  className="w-20 rounded-lg border border-neutral-300 bg-white px-2.5 py-1.5 text-sm tabular-nums text-neutral-800 outline-none transition focus:border-sky-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:focus:border-sky-400"
-                />
-                <span className="text-xs text-neutral-400">小时</span>
-                <div className="ml-auto flex gap-1">
-                  {QUOTA_DURATION_PRESET_HOURS.map((hours) => (
-                    <button
-                      key={hours}
-                      type="button"
-                      onClick={() => patch({ durationHoursInput: String(hours) })}
-                      className={clsx(
-                        'rounded-md px-1.5 py-0.5 text-[11px] transition',
-                        Number(draft.durationHoursInput) === hours
-                          ? 'bg-sky-50 text-sky-600 dark:bg-sky-500/10 dark:text-sky-300'
-                          : 'text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-300',
-                      )}
-                    >
-                      {describeQuotaHours(hours)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <p className="mt-1.5 text-[11px] leading-4 text-neutral-400 dark:text-neutral-500">
-                {draft.windowChoice === 'anchored'
-                  ? '类似 Codex、Claude Code：首个请求启动整段周期，到期一次性清零；空闲时不计时。'
-                  : '始终统计过去这段时间，用量会随着旧请求滑出窗口而逐步释放。'}
-              </p>
+              <Select
+                className="w-full"
+                value={draft.windowChoice}
+                onChange={(event) =>
+                  patch({ windowChoice: event.target.value as QuotaWindowChoice })
+                }
+                options={[
+                  { value: 'day', label: '每天（自然日）' },
+                  { value: 'week', label: '每周（自然周）' },
+                  { value: 'month', label: '每月（自然月）' },
+                  { value: 'anchored', label: '首次请求起算（固定周期）' },
+                  { value: 'rolling', label: '滚动窗口（逐步释放）' },
+                  { value: 'total', label: '永久累计（不重置）' },
+                ]}
+              />
+              {(draft.windowChoice === 'rolling' || draft.windowChoice === 'anchored') && (
+                <>
+                  <div className="mt-2 flex items-center gap-1.5">
+                    <input
+                      value={draft.durationHoursInput}
+                      onChange={(event) => patch({ durationHoursInput: event.target.value })}
+                      inputMode="numeric"
+                      aria-label={
+                        draft.windowChoice === 'rolling' ? '滚动窗口小时数' : '固定周期小时数'
+                      }
+                      className="w-20 rounded-lg border border-neutral-300 bg-white px-2.5 py-1.5 text-sm tabular-nums text-neutral-800 outline-none transition focus:border-sky-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:focus:border-sky-400"
+                    />
+                    <span className="text-xs text-neutral-400">小时</span>
+                    <div className="ml-auto flex gap-1">
+                      {QUOTA_DURATION_PRESET_HOURS.map((hours) => (
+                        <button
+                          key={hours}
+                          type="button"
+                          onClick={() => patch({ durationHoursInput: String(hours) })}
+                          className={clsx(
+                            'rounded-md px-1.5 py-0.5 text-[11px] transition',
+                            Number(draft.durationHoursInput) === hours
+                              ? 'bg-sky-50 text-sky-600 dark:bg-sky-500/10 dark:text-sky-300'
+                              : 'text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-300',
+                          )}
+                        >
+                          {describeQuotaHours(hours)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <p className="mt-1.5 text-[11px] leading-4 text-neutral-400 dark:text-neutral-500">
+                    {draft.windowChoice === 'anchored'
+                      ? '类似 Codex、Claude Code：首个请求启动整段周期，到期一次性清零；空闲时不计时。'
+                      : '始终统计过去这段时间，用量会随着旧请求滑出窗口而逐步释放。'}
+                  </p>
+                </>
+              )}
             </>
           )}
         </div>

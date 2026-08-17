@@ -837,6 +837,28 @@ describe('规则优先级遮蔽', () => {
     expect(myQuota.rules.map((rule) => rule.ruleId)).toEqual(['r-exempt'])
   })
 
+  it('用户端额度列表保持策略展示顺序，不按紧张程度重排', async () => {
+    const { userId, modelA } = await createFixture()
+    await bindPolicy(userId, [
+      monthlyCost(160, 'r-month'),
+      {
+        id: 'r-week',
+        label: null,
+        scope: { type: 'all' },
+        metric: 'cost',
+        limit: { kind: 'amount', value: 100 },
+        window: { type: 'calendar', period: 'week' },
+        priority: 0,
+      },
+    ])
+    await logUsage(userId, modelA, { costUsd: 10 })
+
+    const view = await quota.getMyQuota(userId)
+    expect(view.rules.map((rule) => rule.ruleId)).toEqual(['r-month', 'r-week'])
+    // 同一笔 $10：每周 $100 比每月 $160 更紧，但仍排在策略里更靠后的位置。
+    expect(view.rules[1]?.percent ?? 0).toBeGreaterThan(view.rules[0]?.percent ?? 0)
+  })
+
   it('「全部模型」规则部分被遮蔽后只限制其余模型，并准确报告仍有模型可用', async () => {
     const { userId, modelA, modelB } = await createFixture()
     await bindPolicy(userId, [dailyRequests(1), exempt(modelB, 3)])

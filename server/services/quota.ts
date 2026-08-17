@@ -20,6 +20,7 @@ import {
   normalizeQuotaRules,
   normalizeUserQuotaOverrides,
   resolveEffectiveQuota,
+  sortQuotaBucketsBySeverity,
 } from '@shared/util/quota'
 import { HOUR_MS, describeQuotaWindow, resolveQuotaPeriod } from '@shared/util/quotaWindow'
 import { db } from '../db/client'
@@ -728,14 +729,6 @@ export async function getQuotaSnapshot(
   }
 }
 
-/** 把最紧张的桶排在前：已耗尽 > 占比高 > 无限额度垫底，供列表与提示条取第一条。 */
-export function sortQuotaBucketsBySeverity(rules: QuotaBucketUsageDTO[]): QuotaBucketUsageDTO[] {
-  return [...rules].sort((a, b) => {
-    if (a.blocked !== b.blocked) return a.blocked ? -1 : 1
-    return (b.percent ?? -1) - (a.percent ?? -1)
-  })
-}
-
 /** 用户端视图：全局关闭时不返回任何额度数字。 */
 export async function getMyQuota(userId: string): Promise<MyQuotaDTO> {
   const config = await getQuotaConfig()
@@ -760,7 +753,8 @@ export async function getMyQuota(userId: string): Promise<MyQuotaDTO> {
     policyName: snapshot.binding.policyName,
     warnThreshold: config.quotaWarnThreshold,
     // 用户只看实际生效的额度；完全被接管的桶仍留在管理快照中解释配置。
-    rules: sortQuotaBucketsBySeverity(snapshot.rules.filter((rule) => !rule.shadowed)),
+    // 顺序与策略 / 专属规则的展示顺序一致，不再按紧张程度重排。
+    rules: snapshot.rules.filter((rule) => !rule.shadowed),
     blockedModelIds: snapshot.blockedModelIds,
   }
 }

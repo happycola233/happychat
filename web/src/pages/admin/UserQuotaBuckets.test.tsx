@@ -93,6 +93,15 @@ describe('额度周期文案', () => {
       ),
     ).toEqual({ headline: '永久累计', detail: '不会自动重置' })
   })
+
+  it('豁免规则不展示统计周期', () => {
+    expect(
+      quotaPeriodCopy(bucket({ limit: { kind: 'unlimited' } }), 'Asia/Shanghai'),
+    ).toEqual({
+      headline: '无统计周期',
+      detail: '豁免不计量，也不按周期重置',
+    })
+  })
 })
 
 describe('UserQuotaBuckets', () => {
@@ -132,7 +141,7 @@ describe('UserQuotaBuckets', () => {
     )
 
     expect(html).toContain('全部额度')
-    expect(html).toContain('3 项')
+    expect(html).toContain('3 条')
     expect(html).toContain('月度成本')
     expect(html).toContain('$2.60')
     expect(html).toContain('自然月周期')
@@ -142,7 +151,55 @@ describe('UserQuotaBuckets', () => {
     expect(html).toContain('计量起点：2026/08/10 10:30（管理员已重置）')
     expect(html).toContain('模型豁免')
     expect(html).toContain('无限额度')
-    expect(html).toContain('aria-label="全部额度，共 3 项"')
+    expect(html).toContain('无统计周期')
+    expect(html).toContain('豁免不计量，也不按周期重置')
+    expect(html).toContain('aria-label="全部额度，共 3 条"')
     expect(html).not.toContain('overflow-hidden rounded-xl border')
+  })
+
+  it('各自独立的多个目标收在同一条规则下，不拆成并列顶行', () => {
+    const html = renderToStaticMarkup(
+      <UserQuotaBuckets
+        timezone="Asia/Shanghai"
+        warnThreshold={0.8}
+        rules={[
+          bucket({ label: '月度成本' }),
+          bucket({
+            ruleId: 'rule-each',
+            label: '其他模型（每周）',
+            bucketKey: 'grok',
+            bucketLabel: 'Grok',
+            scope: { type: 'models', modelIds: ['grok', 'ds'], mode: 'each' },
+            window: { type: 'calendar', period: 'week' },
+            used: 0,
+            effectiveLimit: 0.5,
+            remaining: 0.5,
+            percent: 0,
+          }),
+          bucket({
+            ruleId: 'rule-each',
+            label: '其他模型（每周）',
+            bucketKey: 'ds',
+            bucketLabel: 'DeepSeek',
+            scope: { type: 'models', modelIds: ['grok', 'ds'], mode: 'each' },
+            window: { type: 'calendar', period: 'week' },
+            used: 0,
+            effectiveLimit: 0.5,
+            remaining: 0.5,
+            percent: 0,
+          }),
+        ]}
+      />,
+    )
+
+    expect(html).toContain('全部额度')
+    expect(html).toContain('2 条')
+    expect(html).toContain('其他模型（每周）')
+    expect(html).toContain('Grok')
+    expect(html).toContain('DeepSeek')
+    expect(html).toContain('各自独立')
+    expect(html).toContain('aria-label="全部额度，共 2 条"')
+    expect(html.indexOf('月度成本')).toBeLessThan(html.indexOf('其他模型（每周）'))
+    expect(html.indexOf('其他模型（每周）')).toBeLessThan(html.indexOf('Grok'))
   })
 })

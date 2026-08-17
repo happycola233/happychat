@@ -569,6 +569,7 @@ export interface QuotaAdjustmentDTO extends QuotaGrantDTO {
  * 一个「额度桶」的实时用量。
  * 「各自独立」的规则会按目标展开成多个桶（每个模型/分组一条），
  * 「共享额度」与「全部模型」只有一个桶（bucketKey=null）。
+ * 数组顺序与策略 / 专属规则的展示顺序一致；前端按 ruleId 收拢后再渲染。
  */
 export interface QuotaBucketUsageDTO {
   ruleId: string
@@ -640,7 +641,7 @@ export interface AdminUserQuotaDTO {
   unlimited: boolean
   /** 用户级覆写条数（含专属规则），列表显示「已覆写 N 项」 */
   overrideCount: number
-  /** 当前全部额度桶；包含失效、被更高优先级接管及显式豁免的规则，管理端不得隐藏。 */
+  /** 当前全部额度桶；包含失效、被更高优先级接管及显式豁免的规则，管理端不得隐藏。顺序与策略展示顺序一致。 */
   rules: QuotaBucketUsageDTO[]
   blocked: boolean
   /** 最近一条模型请求用量日志的时间，与账号登录时间无关。 */

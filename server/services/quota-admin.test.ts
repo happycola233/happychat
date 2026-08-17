@@ -583,12 +583,12 @@ describe('列表 / 明细 / 预览', () => {
     expect(row?.lastUsageAt).not.toBe(loginAt)
   })
 
-  it('用户列表给出全部额度桶，并把已耗尽的桶排在前面', async () => {
+  it('用户列表给出全部额度桶，并保持策略展示顺序', async () => {
     const userId = await createUser()
     const modelId = await createModel()
     const policy = await admin.createQuotaPolicy({
       name: 'A',
-      rules: [monthlyCost(10), perModelRequests([modelId], 2)],
+      rules: [perModelRequests([modelId], 100), monthlyCost(10)],
     })
     await admin.updateUserQuota(
       userId,
@@ -602,9 +602,9 @@ describe('列表 / 明细 / 预览', () => {
     expect(row?.policyName).toBe('A')
     expect(row?.usingDefaultPolicy).toBe(false)
     expect(row?.blocked).toBe(true)
-    expect(row?.rules).toHaveLength(2)
-    expect(row?.rules[0]).toMatchObject({ ruleId: 'r-cost', blocked: true, percent: 1 })
-    expect(row?.rules[1]).toMatchObject({ ruleId: 'r-each', used: 1, blocked: false })
+    expect(row?.rules.map((rule) => rule.ruleId)).toEqual(['r-each', 'r-cost'])
+    expect(row?.rules[0]).toMatchObject({ ruleId: 'r-each', used: 1, blocked: false })
+    expect(row?.rules[1]).toMatchObject({ ruleId: 'r-cost', blocked: true, percent: 1 })
   })
 
   it('预览用草稿规则按真实用量算出「保存后立即耗尽」', async () => {

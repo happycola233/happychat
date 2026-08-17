@@ -1,5 +1,5 @@
 import type { QuotaBucketUsageDTO } from '@shared/types/api'
-import { describeQuotaHours, describeQuotaWindow } from '@shared/util/quotaWindow'
+import { describeQuotaHours } from '@shared/util/quotaWindow'
 
 const timestampFormatters = new Map<string, Intl.DateTimeFormat>()
 
@@ -76,8 +76,8 @@ export interface QuotaPeriodCopy {
 export function quotaPeriodCopy(rule: QuotaBucketUsageDTO, timezone: string): QuotaPeriodCopy {
   if (rule.limit.kind === 'unlimited') {
     return {
-      headline: describeQuotaWindow(rule.window),
-      detail: '豁免规则不计量，也不会触发周期重置',
+      headline: '无统计周期',
+      detail: '豁免不计量，也不按周期重置',
     }
   }
   if (rule.window.type === 'total') {

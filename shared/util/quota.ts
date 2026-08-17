@@ -295,15 +295,16 @@ export function describeQuotaScope(scope: QuotaScope, names?: QuotaScopeNames): 
   return `${head}·${suffix}`
 }
 
-/** 规则的一行中文摘要，如「每月 · 全部模型 · $30」；优先级非默认档时前置「优先 N」。 */
+/** 规则的一行中文摘要，如「每月 · 全部模型 · $30」；优先级非默认档时前置「优先 N」。豁免省略周期。 */
 export function describeQuotaRule(
   rule: Pick<QuotaRule, 'scope' | 'metric' | 'limit' | 'window'> &
     Partial<Pick<QuotaRule, 'priority'>>,
   names?: QuotaScopeNames,
 ): string {
+  // 豁免不计量也不重置，周期写进去只会让人以为它还在跑窗口。
   return [
     ...(rule.priority ? [`优先 ${rule.priority}`] : []),
-    describeQuotaWindow(rule.window),
+    ...(rule.limit.kind === 'unlimited' ? [] : [describeQuotaWindow(rule.window)]),
     describeQuotaScope(rule.scope, names),
     formatQuotaLimit(rule.metric, rule.limit),
   ].join(' · ')
@@ -322,4 +323,82 @@ export function isQuotaRuleNoOp(rule: Pick<QuotaRule, 'limit' | 'priority'>): bo
 /** 「各自独立」的规则必须把临时额度/重置绑定到具体目标，否则一份赠送会被每个桶重复享用。 */
 export function quotaRuleRequiresBucketKey(rule: Pick<QuotaRule, 'scope'>): boolean {
   return rule.scope.type !== 'all' && rule.scope.mode === 'each'
+}
+
+/** 按规则 id 收拢展开后的额度桶，首次出现的顺序即策略 / 专属规则的展示顺序。 */
+export function groupQuotaBucketsByRule<T extends { ruleId: string }>(
+  rules: T[],
+): { ruleId: string; buckets: T[] }[] {
+  const groups: { ruleId: string; buckets: T[] }[] = []
+  const indexById = new Map<string, number>()
+  for (const bucket of rules) {
+    const existing = indexById.get(bucket.ruleId)
+    if (existing === undefined) {
+      indexById.set(bucket.ruleId, groups.length)
+      groups.push({ ruleId: bucket.ruleId, buckets: [bucket] })
+      continue
+    }
+    groups[existing]!.buckets.push(bucket)
+  }
+  return groups
+}
+
+type QuotaSeverityBucket = { blocked: boolean; percent: number | null }
+
+/** 已耗尽优先，其次用量占比高；无限额度（percent=null）垫底。 */
+export function compareQuotaBucketSeverity(a: QuotaSeverityBucket, b: QuotaSeverityBucket): number {
+  if (a.blocked !== b.blocked) return a.blocked ? -1 : 1
+  return (b.percent ?? -1) - (a.percent ?? -1)
+}
+
+/** 把最紧张的桶排在前，供拦截文案与提示条取一条代表，不用于列表展示。 */
+export function sortQuotaBucketsBySeverity<T extends QuotaSeverityBucket>(rules: T[]): T[] {
+  return [...rules].sort(compareQuotaBucketSeverity)
+}
+
+export function pickTightestQuotaBucket<T extends QuotaSeverityBucket>(rules: T[]): T | undefined {
+  return sortQuotaBucketsBySeverity(rules)[0]
+}
+
+type QuotaGroupTitleBucket = {
+  label: string | null
+  bucketLabel: string | null
+  scope: QuotaScope
+  window: QuotaWindow
+  metric: QuotaMetric
+  limit: QuotaLimit
+  effectiveModelIds: string[] | null
+}
+
+/** 单桶范围短称：有目标名用目标名，全模型被部分接管时写成「部分模型」。 */
+export function describeQuotaBucketScope(bucket: {
+  bucketLabel: string | null
+  scope: QuotaScope
+  effectiveModelIds: string[] | null
+}): string {
+  if (bucket.bucketLabel) return bucket.bucketLabel
+  if (bucket.scope.type === 'all' && bucket.effectiveModelIds !== null) return '部分模型'
+  if (bucket.scope.type === 'all') return '全部模型'
+  return bucket.scope.type === 'models' ? '指定模型' : '指定分组'
+}
+
+/**
+ * 一条规则（可能含多个独立桶）的列表标题。
+ * 有备注用备注；多目标独立额度不把某个模型名抬成整条标题。
+ */
+export function describeQuotaRuleGroupTitle(buckets: QuotaGroupTitleBucket[]): string {
+  const first = buckets[0]
+  if (!first) return ''
+  if (first.label) return first.label
+  const scope =
+    buckets.length > 1
+      ? first.scope.type === 'models'
+        ? '指定模型'
+        : first.scope.type === 'groups'
+          ? '指定分组'
+          : '全部模型'
+      : describeQuotaBucketScope(first)
+  if (first.limit.kind === 'unlimited') return scope
+  const metric = first.metric === 'cost' ? '消费' : '请求'
+  return `${describeQuotaWindow(first.window)}${metric} · ${scope}`
 }

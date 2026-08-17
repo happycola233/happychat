@@ -1,5 +1,6 @@
 import { useQuery, type QueryClient } from '@tanstack/react-query'
 import type { MyQuotaDTO } from '@shared/types/api'
+import { pickTightestQuotaBucket } from '@shared/util/quota'
 import { getMyQuota } from '../api/quota'
 import { resolveQuotaRulesRefetchInterval } from '../lib/quotaRefetch'
 
@@ -65,14 +66,15 @@ export function resolveQuotaNotice(
 
   const blocked = limited.filter((rule) => rule.blocked)
   if (blocked.length > 0) {
-    if (quota.paused) return { level: 'paused', rule: blocked[0] ?? null, modelScoped: false }
+    const tightest = pickTightestQuotaBucket(blocked) ?? null
+    if (quota.paused) return { level: 'paused', rule: tightest, modelScoped: false }
     const modelBlocked = Boolean(activeModelId && quota.blockedModelIds.includes(activeModelId))
     // 只有部分模型被限时，明确告诉用户「换个模型还能继续」。
     const someModelsAvailable = !quota.allModelsBlocked
     if (modelBlocked) {
       return {
         level: someModelsAvailable ? 'model-exhausted' : 'exhausted',
-        rule: blocked[0] ?? null,
+        rule: tightest,
         modelScoped: someModelsAvailable,
       }
     }
@@ -80,10 +82,7 @@ export function resolveQuotaNotice(
     return idle
   }
 
-  const nearest = limited.reduce<MyQuotaDTO['rules'][number] | null>(
-    (max, rule) => ((rule.percent ?? 0) > (max?.percent ?? 0) ? rule : max),
-    null,
-  )
+  const nearest = pickTightestQuotaBucket(limited) ?? null
   if (nearest && (nearest.percent ?? 0) >= quota.warnThreshold) {
     return { level: 'warning', rule: nearest, modelScoped: nearest.scope.type !== 'all' }
   }

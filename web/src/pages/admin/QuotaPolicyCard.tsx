@@ -34,10 +34,12 @@ function PolicyRuleRow({ rule }: { rule: QuotaRule }) {
         )}
       >
         {summary.limitText}
-        <span className="font-normal text-neutral-400 dark:text-neutral-500">
-          {' '}
-          · {summary.windowText}
-        </span>
+        {summary.windowText ? (
+          <span className="font-normal text-neutral-400 dark:text-neutral-500">
+            {' '}
+            · {summary.windowText}
+          </span>
+        ) : null}
       </div>
     </div>
   )

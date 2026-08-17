@@ -63,6 +63,7 @@ describe('QuotaPolicyCard', () => {
     expect(html).toContain('1 个分组 · 消费金额 · 各自独立')
     expect(html).toContain('优先 1')
     expect(html).toContain('豁免')
+    expect(html).not.toContain('豁免 · 永久')
     expect(html).toContain('10 位用户使用中')
     expect(html).not.toContain('未知分组')
     expect(html).not.toContain('首次请求起 5 小时')

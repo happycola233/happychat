@@ -116,6 +116,22 @@ describe('resolveQuotaNotice', () => {
     expect(state.rule?.ruleId).toBe('high')
   })
 
+  it('多条已耗尽时提示最紧张的那一条，不取列表第一项', () => {
+    const state = resolveQuotaNotice(
+      quota({
+        rules: [
+          bucket({ ruleId: 'mild', blocked: true, used: 10, remaining: 0, percent: 1 }),
+          bucket({ ruleId: 'worse', blocked: true, used: 20, remaining: 0, percent: 2 }),
+        ],
+        blockedModelIds: ['m1'],
+        allModelsBlocked: true,
+      }),
+      'm1',
+    )
+    expect(state.level).toBe('exhausted')
+    expect(state.rule?.ruleId).toBe('worse')
+  })
+
   it('全局规则耗尽 → 已耗尽（不区分模型）', () => {
     const state = resolveQuotaNotice(
       quota({
