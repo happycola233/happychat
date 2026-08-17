@@ -492,7 +492,7 @@ export default function ModelsPage() {
             />
           </div>
           <Select
-            className="h-9 !py-0"
+            className="h-9"
             options={providerOptions}
             value={providerFilter}
             onChange={(e) => setProviderFilter(e.target.value)}

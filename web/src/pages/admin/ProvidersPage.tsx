@@ -13,6 +13,7 @@ import { EmptyState } from '../../components/ui/EmptyState'
 import { Checkbox } from '../../components/ui/Checkbox'
 import { Modal } from '../../components/ui/Modal'
 import { PageHeader } from '../../components/ui/PageHeader'
+import { Select } from '../../components/ui/Select'
 import { TextField } from '../../components/ui/TextField'
 import { Toggle } from '../../components/ui/Toggle'
 import { Spinner } from '../../components/ui/Spinner'
@@ -339,10 +340,7 @@ function PickModelsModal({ provider, onClose }: { provider: ProviderDTO; onClose
                       checked && 'bg-sky-50/60 dark:bg-sky-500/5',
                     )}
                   >
-                    <Checkbox
-                      checked={checked}
-                      onChange={() => toggleOne(m.modelId)}
-                    />
+                    <Checkbox checked={checked} onChange={() => toggleOne(m.modelId)} />
                     <span className="min-w-0 flex-1 truncate font-mono text-xs text-neutral-800 dark:text-neutral-100">
                       {m.modelId}
                     </span>
@@ -468,14 +466,16 @@ function ProviderModal({
         />
         <label className="block space-y-1.5">
           <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">协议</span>
-          <select
+          <Select
+            size="md"
+            className="w-full"
             value={protocol}
             onChange={(event) => setProtocol(event.target.value as ProviderProtocol)}
-            className="w-full rounded-xl border border-neutral-300 bg-white px-3.5 py-2.5 text-sm outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
-          >
-            <option value="openai">OpenAI 兼容</option>
-            <option value="anthropic">Anthropic Messages 原生</option>
-          </select>
+            options={[
+              { value: 'openai', label: 'OpenAI 兼容' },
+              { value: 'anthropic', label: 'Anthropic Messages 原生' },
+            ]}
+          />
         </label>
         <TextField
           label="API Key"

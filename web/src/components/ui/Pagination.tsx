@@ -1,5 +1,6 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { clsx } from 'clsx'
+import { Select } from './Select'
 
 interface Props {
   page: number
@@ -53,17 +54,13 @@ export function Pagination({
         {onPageSizeChange && (
           <label className="flex items-center gap-1.5">
             <span className="hidden sm:inline">每页</span>
-            <select
-              value={pageSize}
-              onChange={(e) => onPageSizeChange(Number(e.target.value))}
-              className="rounded-lg border border-neutral-300 bg-white px-2 py-1 text-sm text-neutral-700 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200 dark:focus:border-sky-400"
-            >
-              {pageSizeOptions.map((n) => (
-                <option key={n} value={n}>
-                  {n} 条
-                </option>
-              ))}
-            </select>
+            <Select
+              aria-label="每页条数"
+              className="min-w-[6.5rem]"
+              value={String(pageSize)}
+              onChange={(event) => onPageSizeChange(Number(event.target.value))}
+              options={pageSizeOptions.map((n) => ({ value: String(n), label: `${n} 条` }))}
+            />
           </label>
         )}
       </div>

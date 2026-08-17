@@ -26,6 +26,7 @@ import { IconPicker } from '../../components/IconPicker'
 import { DEFAULT_MODEL_ICON_TONE_CLASS, ModelIconMark } from '../../components/ModelIcon'
 import { Button } from '../../components/ui/Button'
 import { Modal } from '../../components/ui/Modal'
+import { Select } from '../../components/ui/Select'
 import { Toggle } from '../../components/ui/Toggle'
 import { toast } from '../../store/toast'
 import { ReasoningEffortEditor } from './ReasoningEffortEditor'
@@ -461,18 +462,16 @@ export function ModelEditor({
         <FormSection title="基本信息">
           {isCreate && (
             <Field label="所属供应商">
-              <select
-                className={fieldClass}
+              <Select
+                size="md"
+                className="w-full"
                 value={providerId}
                 onChange={(e) => changeProvider(e.target.value)}
-              >
-                <option value="">请选择供应商</option>
-                {(providers ?? []).map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
+                options={[
+                  { value: '', label: '请选择供应商' },
+                  ...(providers ?? []).map((p) => ({ value: p.id, label: p.name })),
+                ]}
+              />
             </Field>
           )}
 
@@ -503,15 +502,17 @@ export function ModelEditor({
 
           {selectedProviderProtocol === 'openai' && (
             <Field label="类型">
-              <select
-                className={fieldClass}
+              <Select
+                size="md"
+                className="w-full"
                 value={kind}
                 onChange={(e) => changeKind(e.target.value as ModelKind)}
-              >
-                <option value="responses">对话模型（Responses API）</option>
-                <option value="chat">对话模型（chat/completions）</option>
-                <option value="image">生图模型（/images/generations）</option>
-              </select>
+                options={[
+                  { value: 'responses', label: '对话模型（Responses API）' },
+                  { value: 'chat', label: '对话模型（chat/completions）' },
+                  { value: 'image', label: '生图模型（/images/generations）' },
+                ]}
+              />
             </Field>
           )}
 
@@ -578,18 +579,16 @@ export function ModelEditor({
           />
 
           <Field label="所属分组（可选）">
-            <select
-              className={fieldClass}
+            <Select
+              size="md"
+              className="w-full"
               value={groupId}
               onChange={(e) => setGroupId(e.target.value)}
-            >
-              <option value="">未分组</option>
-              {modelGroups?.map((group) => (
-                <option key={group.id} value={group.id}>
-                  {group.name}
-                </option>
-              ))}
-            </select>
+              options={[
+                { value: '', label: '未分组' },
+                ...(modelGroups ?? []).map((group) => ({ value: group.id, label: group.name })),
+              ]}
+            />
           </Field>
         </FormSection>
 
@@ -741,8 +740,8 @@ export function ModelEditor({
               </SmallField>
               {kind === 'responses' && (
                 <SmallField label="verbosity">
-                  <select
-                    className={compactFieldClass}
+                  <Select
+                    className="w-full"
                     value={params.verbosity ?? ''}
                     onChange={(e) =>
                       setParams((p) => ({
@@ -750,12 +749,13 @@ export function ModelEditor({
                         verbosity: (e.target.value || undefined) as ModelParams['verbosity'],
                       }))
                     }
-                  >
-                    <option value="">默认</option>
-                    <option value="low">low</option>
-                    <option value="medium">medium</option>
-                    <option value="high">high</option>
-                  </select>
+                    options={[
+                      { value: '', label: '默认' },
+                      { value: 'low', label: 'low' },
+                      { value: 'medium', label: 'medium' },
+                      { value: 'high', label: 'high' },
+                    ]}
+                  />
                 </SmallField>
               )}
               <SmallField

@@ -146,6 +146,7 @@ export function QuotaRuleEditor({
         <div>
           <span className={FIELD_LABEL_CLASS}>适用范围</span>
           <Select
+            className="w-full"
             value={draft.scopeType}
             onChange={(event) =>
               patch({ scopeType: event.target.value as QuotaScopeType, targetIds: [] })
@@ -271,6 +272,7 @@ export function QuotaRuleEditor({
         <div>
           <span className={FIELD_LABEL_CLASS}>统计周期</span>
           <Select
+            className="w-full"
             value={draft.windowChoice}
             onChange={(event) => patch({ windowChoice: event.target.value as QuotaWindowChoice })}
             options={[
