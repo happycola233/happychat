@@ -1,20 +1,10 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { clsx } from 'clsx'
-import {
-  Copy,
-  Infinity as InfinityIcon,
-  ListChecks,
-  PauseCircle,
-  Pencil,
-  Plus,
-  Star,
-  Trash2,
-} from 'lucide-react'
+import { ListChecks, PauseCircle, Plus } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import type { AdminQuotaPolicyDTO, AdminUserQuotaDTO } from '@shared/types/api'
 import type { AppConfigUpdateInput } from '@shared/schemas/app-config'
-import { describeQuotaRule } from '@shared/util/quota'
 import {
   batchAssignQuotaPolicy,
   deleteQuotaPolicy,
@@ -37,6 +27,7 @@ import { askConfirm } from '../../store/confirm'
 import { toast } from '../../store/toast'
 import { formatRelative } from '../../lib/format'
 import { resolveQuotaRulesRefetchInterval } from '../../lib/quotaRefetch'
+import { QuotaPolicyCard } from './QuotaPolicyCard'
 import { QuotaPolicyEditor } from './QuotaPolicyEditor'
 import { UserQuotaBuckets } from './UserQuotaBuckets'
 import { UserQuotaDialog } from './UserQuotaDialog'
@@ -77,107 +68,6 @@ function statusBadge(row: AdminUserQuotaDTO, warnThreshold: number) {
     label: '正常',
     className: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300',
   }
-}
-
-function PolicyCard({
-  policy,
-  onEdit,
-  onDuplicate,
-  onDelete,
-  onSetDefault,
-}: {
-  policy: AdminQuotaPolicyDTO
-  onEdit: () => void
-  onDuplicate: () => void
-  onDelete: () => void
-  onSetDefault: () => void
-}) {
-  return (
-    <div className={clsx(cardSurface, 'p-4')}>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <h3 className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
-              {policy.name}
-            </h3>
-            {policy.isDefault && (
-              <span className="shrink-0 rounded bg-sky-50 px-1.5 py-px text-[10px] font-medium text-sky-600 dark:bg-sky-500/10 dark:text-sky-300">
-                默认
-              </span>
-            )}
-          </div>
-          {policy.description && (
-            <p className="mt-0.5 truncate text-xs text-neutral-400 dark:text-neutral-500">
-              {policy.description}
-            </p>
-          )}
-        </div>
-        <div className="flex shrink-0 items-center gap-1">
-          {!policy.isDefault && (
-            <button
-              type="button"
-              onClick={onSetDefault}
-              title="设为默认策略"
-              aria-label="设为默认策略"
-              className="rounded-lg p-1.5 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
-            >
-              <Star className="h-4 w-4" />
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={onDuplicate}
-            title="复制策略"
-            aria-label="复制策略"
-            className="rounded-lg p-1.5 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
-          >
-            <Copy className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={onEdit}
-            title="编辑策略"
-            aria-label="编辑策略"
-            className="rounded-lg p-1.5 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
-          >
-            <Pencil className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={onDelete}
-            title="删除策略"
-            aria-label="删除策略"
-            className="rounded-lg p-1.5 text-neutral-400 transition hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/40 dark:hover:text-red-400"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
-        </div>
-      </div>
-
-      <div className="mt-3 flex flex-wrap gap-1.5">
-        {policy.rules.length === 0 ? (
-          <span className="inline-flex items-center gap-1 rounded-md bg-neutral-100 px-2 py-1 text-[11px] text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
-            <InfinityIcon className="h-3 w-3" /> 无限额度
-          </span>
-        ) : (
-          policy.rules.map((rule) => (
-            <span
-              key={rule.id}
-              className="rounded-md bg-neutral-100 px-2 py-1 text-[11px] text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300"
-            >
-              {rule.label ? `${rule.label}：` : ''}
-              {describeQuotaRule(rule)}
-            </span>
-          ))
-        )}
-      </div>
-
-      <div className="mt-3 text-[11px] text-neutral-400 dark:text-neutral-500">
-        {policy.boundUserCount} 位用户使用中
-        {policy.isDefault && '（含未单独指派的用户）'}
-      </div>
-    </div>
-  )
 }
 
 /**
@@ -344,15 +234,27 @@ export default function QuotasPage() {
       />
 
       {/* 总开关 + 周期口径：关闭时全站不做任何判定 */}
-      <div className={clsx(cardSurface, 'p-4')}>
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <div className="text-sm text-neutral-800 dark:text-neutral-100">启用用户限额</div>
-            <div className="mt-0.5 text-xs leading-5 text-neutral-400 dark:text-neutral-500">
-              {config?.quotaEnabled
-                ? '已启用：超出额度的请求会被拦截，用户能看到自己的额度进度。'
-                : '未启用：不做任何限制，用户端完全看不到额度信息（策略与用量计数仍保留）。'}
+      <div className={clsx(cardSurface, 'p-4 sm:p-5')}>
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="text-sm font-medium text-neutral-800 dark:text-neutral-100">
+                启用用户限额
+              </div>
+              <span
+                className={clsx(
+                  'rounded-md px-1.5 py-px text-[10px] font-medium',
+                  config?.quotaEnabled
+                    ? 'bg-sky-50 text-sky-600 dark:bg-sky-500/10 dark:text-sky-300'
+                    : 'bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400',
+                )}
+              >
+                {config?.quotaEnabled ? '已启用' : '未启用'}
+              </span>
             </div>
+            <p className="mt-1 text-xs leading-5 text-neutral-400 dark:text-neutral-500">
+              关闭后不做拦截，用户端也看不到额度；策略配置与用量计数会完整保留。
+            </p>
           </div>
           <Toggle
             checked={config?.quotaEnabled ?? false}
@@ -363,42 +265,47 @@ export default function QuotasPage() {
         </div>
 
         {config?.quotaEnabled && (
-          <div className="mt-4 grid gap-3 border-t border-neutral-100 pt-4 sm:grid-cols-3 dark:border-neutral-800">
-            <Select
-              label="周期边界时区"
-              className="w-full"
-              value={config.quotaTimezone}
-              onChange={(event) => saveConfig.mutate({ quotaTimezone: event.target.value })}
-              options={QUOTA_TIMEZONE_OPTIONS}
-            />
-            <Select
-              label="每周起始日"
-              className="w-full"
-              value={config.quotaWeekStart}
-              onChange={(event) =>
-                saveConfig.mutate({
-                  quotaWeekStart: event.target.value as 'mon' | 'sun',
-                })
-              }
-              options={[
-                { value: 'mon', label: '周一' },
-                { value: 'sun', label: '周日' },
-              ]}
-            />
-            <Select
-              label="用户预警阈值"
-              className="w-full"
-              value={String(config.quotaWarnThreshold)}
-              onChange={(event) =>
-                saveConfig.mutate({ quotaWarnThreshold: Number(event.target.value) })
-              }
-              options={[
-                { value: '0.7', label: '已用 70%' },
-                { value: '0.8', label: '已用 80%' },
-                { value: '0.9', label: '已用 90%' },
-                { value: '0.95', label: '已用 95%' },
-              ]}
-            />
+          <div className="mt-4 border-t border-neutral-100 pt-4 dark:border-neutral-800">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Select
+                label="周期边界时区"
+                className="w-full"
+                value={config.quotaTimezone}
+                onChange={(event) => saveConfig.mutate({ quotaTimezone: event.target.value })}
+                options={QUOTA_TIMEZONE_OPTIONS}
+              />
+              <Select
+                label="每周起始日"
+                className="w-full"
+                value={config.quotaWeekStart}
+                onChange={(event) =>
+                  saveConfig.mutate({
+                    quotaWeekStart: event.target.value as 'mon' | 'sun',
+                  })
+                }
+                options={[
+                  { value: 'mon', label: '周一' },
+                  { value: 'sun', label: '周日' },
+                ]}
+              />
+              <Select
+                label="用户预警阈值"
+                className="w-full"
+                value={String(config.quotaWarnThreshold)}
+                onChange={(event) =>
+                  saveConfig.mutate({ quotaWarnThreshold: Number(event.target.value) })
+                }
+                options={[
+                  { value: '0.7', label: '已用 70%' },
+                  { value: '0.8', label: '已用 80%' },
+                  { value: '0.9', label: '已用 90%' },
+                  { value: '0.95', label: '已用 95%' },
+                ]}
+              />
+            </div>
+            <p className="mt-2 text-[11px] leading-5 text-neutral-400 dark:text-neutral-500">
+              切换即保存，影响全站自然日 / 周 / 月的周期边界。
+            </p>
           </div>
         )}
       </div>
@@ -469,7 +376,7 @@ export default function QuotasPage() {
           ) : (
             <div className="grid gap-3 lg:grid-cols-2">
               {(policies ?? []).map((policy) => (
-                <PolicyCard
+                <QuotaPolicyCard
                   key={policy.id}
                   policy={policy}
                   onEdit={() => setEditingPolicy(policy)}
