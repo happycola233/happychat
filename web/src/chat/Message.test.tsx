@@ -125,7 +125,7 @@ describe('assistant message branch action', () => {
 })
 
 describe('assistant citation source chips', () => {
-  it('shows the original source required by native search citations', () => {
+  it('hides source chips while the code-level display switch is off', () => {
     const message: MessageDTO = {
       ...assistantMessage(),
       annotations: [
@@ -141,8 +141,8 @@ describe('assistant citation source chips', () => {
 
     const html = renderMessage(message)
 
-    expect(html).toContain('https://example.com/source')
-    expect(html).toContain('示例来源')
+    expect(html).not.toContain('https://example.com/source')
+    expect(html).not.toContain('示例来源')
   })
 
   it('never turns non-http citation schemes into clickable links', () => {
