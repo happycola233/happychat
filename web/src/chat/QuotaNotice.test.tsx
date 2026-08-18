@@ -82,13 +82,16 @@ describe('QuotaNotice', () => {
     expect(render()).toBe('')
   })
 
-  it('接近上限时提示用量与重置时间，并提供关闭按钮', () => {
+  it('接近上限时标题、用量、窗口与重置分行展示，并提供关闭按钮', () => {
     quotaState.data = quota()
     const html = render()
     expect(html).toContain('额度即将用尽')
-    expect(html).toContain('$9.00 / $10.00')
+    expect(html).toContain('$9.00')
+    expect(html).toContain('$10.00')
+    expect(html).toContain('每月消费')
     expect(html).toContain('重置')
     expect(html).toContain('暂不提示')
+    expect(html).toContain('width:90%')
   })
 
   it('已耗尽时用 alert 角色且不可关闭', () => {
@@ -123,7 +126,7 @@ describe('QuotaNotice', () => {
     expect(html).toContain('可切换到其他仍有额度的模型')
   })
 
-  it('暂停限额时说明仍可使用', () => {
+  it('暂停限额时说明仍可使用，并提供关闭按钮', () => {
     quotaState.data = quota({
       paused: true,
       rules: [bucket({ used: 15, percent: 1.5, blocked: true })],
@@ -131,6 +134,8 @@ describe('QuotaNotice', () => {
     const html = render()
     expect(html).toContain('管理员已暂停限额')
     expect(html).toContain('仍可正常使用')
+    expect(html).toContain('暂不提示')
+    expect(html).not.toContain('role="alert"')
   })
 
   it('提供「使用情况」入口', () => {
