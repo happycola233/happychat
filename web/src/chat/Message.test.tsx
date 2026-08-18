@@ -2,9 +2,13 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import type { MessageDTO } from '@shared/types/api'
-import { Message } from './Message'
+import { initialLive, type LiveMessage } from '../sse/eventReducer'
+import { Message, type BranchInfo } from './Message'
 
-function assistantMessage(status: MessageDTO['status'] = 'complete'): MessageDTO {
+function assistantMessage(
+  status: MessageDTO['status'] = 'complete',
+  overrides: Partial<MessageDTO> = {},
+): MessageDTO {
   return {
     id: 'assistant-1',
     conversationId: 'conversation-1',
@@ -22,16 +26,41 @@ function assistantMessage(status: MessageDTO['status'] = 'complete'): MessageDTO
     usage: null,
     errorMessage: null,
     createdAt: 1,
+    ...overrides,
   }
 }
 
-function renderMessage(message: MessageDTO) {
+function siblingBranch(index = 0): BranchInfo {
+  return {
+    index,
+    total: 2,
+    siblings: [assistantMessage(), assistantMessage('complete', { id: 'assistant-2' })],
+    onSelect: () => undefined,
+  }
+}
+
+function renderMessage(
+  message: MessageDTO,
+  extras: { live?: LiveMessage; branch?: BranchInfo } = {},
+) {
   const queryClient = new QueryClient()
   return renderToStaticMarkup(
     <QueryClientProvider client={queryClient}>
-      <Message message={message} onRegenerate={() => undefined} onCreateBranch={() => undefined} />
+      <Message
+        message={message}
+        live={extras.live}
+        branch={extras.branch}
+        onRegenerate={() => undefined}
+        onCreateBranch={() => undefined}
+      />
     </QueryClientProvider>,
   )
+}
+
+function expectAssistantRecoveryActions(html: string) {
+  expect(html).toContain('aria-label="重新生成"')
+  expect(html).toContain('aria-label="上一个分支"')
+  expect(html).toContain('1 / 2')
 }
 
 describe('assistant message branch action', () => {
@@ -45,11 +74,40 @@ describe('assistant message branch action', () => {
     )
   })
 
-  it('does not expose actions while persisted streaming state is waiting for SSE recovery', () => {
-    const html = renderMessage(assistantMessage('streaming'))
+  it('does not expose actions while live streaming is in progress', () => {
+    const html = renderMessage(assistantMessage('streaming'), {
+      live: initialLive(),
+      branch: siblingBranch(),
+    })
 
     expect(html).not.toContain('aria-label="重新生成"')
     expect(html).not.toContain('aria-label="创建新的分支对话"')
+    expect(html).not.toContain('aria-label="上一个分支"')
+  })
+
+  it('still shows retry and branch switch after a failed generation', () => {
+    expectAssistantRecoveryActions(
+      renderMessage(assistantMessage('error', { errorMessage: '上游失败', content: [] }), {
+        branch: siblingBranch(),
+      }),
+    )
+  })
+
+  it('still shows retry and branch switch when live stream failed', () => {
+    expectAssistantRecoveryActions(
+      renderMessage(assistantMessage('streaming'), {
+        live: { ...initialLive(), status: 'failed', error: '上游失败' },
+        branch: siblingBranch(),
+      }),
+    )
+  })
+
+  it('still shows retry and branch switch when persisted streaming has no live stream', () => {
+    expectAssistantRecoveryActions(
+      renderMessage(assistantMessage('streaming', { content: [] }), {
+        branch: siblingBranch(),
+      }),
+    )
   })
 
   it('never renders the assistant-only branch action on a user message', () => {

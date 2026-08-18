@@ -192,8 +192,10 @@ export function Message({
   }
 
   // assistant
-  // 恢复 SSE 之前 live 可能尚未建立，持久化 streaming 状态同样不能暴露消息操作。
-  const streaming = live ? live.status === 'streaming' : message.status === 'streaming'
+  // 只有正在推流时隐藏操作区。失败、以及没有 live 的卡住 streaming 仍要露出
+  // 分支切换和重试，否则重新生成失败后用户无法回到并未被覆盖的上一轮回复。
+  const liveStreaming = live?.status === 'streaming'
+  const streaming = live ? liveStreaming : message.status === 'streaming'
   const text = live ? live.text : textFromContent(message.content)
   const reasoning = live ? live.reasoning : message.reasoningSummary
   const hasReasoningText = Boolean(reasoning?.trim())
@@ -265,7 +267,7 @@ export function Message({
         <AttachmentParts content={message.content} onUseImageSource={onUseImageSource} />
       )}
       {SHOW_CITATION_SOURCE_CHIPS && annotations.length > 0 && <Citations items={annotations} />}
-      {!streaming && !error && (
+      {!liveStreaming && (
         <div className="space-y-1.5">
           <div className="flex items-center gap-1.5 text-neutral-400">
             {branch && branch.total > 1 && <BranchSwitch branch={branch} />}
