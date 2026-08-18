@@ -370,6 +370,12 @@ type QuotaGroupTitleBucket = {
   effectiveModelIds: string[] | null
 }
 
+/** 共享池内的模型名单；没有可列目标时不展示。 */
+export function formatQuotaTargetLabels(labels: string[] | null | undefined): string | null {
+  if (!labels?.length) return null
+  return labels.join('、')
+}
+
 /** 单桶范围短称：有目标名用目标名，全模型被部分接管时写成「部分模型」。 */
 export function describeQuotaBucketScope(bucket: {
   bucketLabel: string | null

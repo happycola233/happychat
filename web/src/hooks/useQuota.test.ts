@@ -6,6 +6,7 @@ const bucket = (patch: Partial<QuotaBucketUsageDTO> = {}): QuotaBucketUsageDTO =
   ruleId: 'r-1',
   bucketKey: null,
   bucketLabel: null,
+  targetLabels: null,
   effectiveModelIds: null,
   label: null,
   source: 'policy',

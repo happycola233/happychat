@@ -5,6 +5,7 @@ import {
   describeQuotaRuleGroupTitle,
   formatQuotaAmount,
   formatQuotaLimit,
+  formatQuotaTargetLabels,
   groupQuotaBucketsByRule,
   QUOTA_METRIC_LABELS,
 } from '@shared/util/quota'
@@ -196,8 +197,11 @@ function ruleMetadata(rule: QuotaBucketUsageDTO, options?: { includeTarget?: boo
         ? rule.scope.groupIds.length
         : null
   const noun = rule.scope.type === 'groups' ? '分组' : '模型'
+  const targets = formatQuotaTargetLabels(rule.targetLabels)
   return [
-    ...(options?.includeTarget && rule.label ? [targetLabel(rule)] : []),
+    // 标题已是自定义备注时，独立桶补上目标名；共享池用 targetLabels，避免再写一遍「N 个共享」。
+    ...(options?.includeTarget && rule.label && rule.bucketLabel ? [rule.bucketLabel] : []),
+    ...(targets ? [targets] : []),
     ...(count && rule.scope.type !== 'all'
       ? [`${count} 个${noun}${rule.scope.mode === 'shared' ? '共享' : '各自独立'}`]
       : []),
@@ -221,6 +225,8 @@ function QuotaBucketRow({
   metadata?: string
 }) {
   const status = bucketStatus(rule, warnThreshold)
+  const rowTitle = title ?? (rule.label || targetLabel(rule))
+  const rowMeta = metadata ?? ruleMetadata(rule, { includeTarget: Boolean(rule.label) })
   return (
     <div
       role="row"
@@ -228,13 +234,19 @@ function QuotaBucketRow({
     >
       <div role="cell" className="min-w-0">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="truncate text-xs font-medium text-neutral-800 dark:text-neutral-100">
-            {title ?? (rule.label || targetLabel(rule))}
+          <span
+            title={rowTitle}
+            className="truncate text-xs font-medium text-neutral-800 dark:text-neutral-100"
+          >
+            {rowTitle}
           </span>
           <StatusChip status={status} />
         </div>
-        <div className="mt-0.5 truncate text-[11px] text-neutral-400 dark:text-neutral-500">
-          {metadata ?? ruleMetadata(rule, { includeTarget: Boolean(rule.label) })}
+        <div
+          title={rowMeta}
+          className="mt-0.5 truncate text-[11px] text-neutral-400 dark:text-neutral-500"
+        >
+          {rowMeta}
         </div>
       </div>
       <UsageCell rule={rule} warnThreshold={warnThreshold} />
@@ -255,6 +267,8 @@ function IndependentQuotaGroup({
   const first = buckets[0]!
   const status = groupStatus(buckets, warnThreshold)
   const aligned = periodsAlign(buckets)
+  const groupTitle = describeQuotaRuleGroupTitle(buckets)
+  const groupMeta = ruleMetadata(first)
   return (
     <div className="py-2.5">
       <div
@@ -263,13 +277,19 @@ function IndependentQuotaGroup({
       >
         <div role="cell" className="min-w-0">
           <div className="flex min-w-0 items-center gap-2">
-            <span className="truncate text-xs font-medium text-neutral-800 dark:text-neutral-100">
-              {describeQuotaRuleGroupTitle(buckets)}
+            <span
+              title={groupTitle}
+              className="truncate text-xs font-medium text-neutral-800 dark:text-neutral-100"
+            >
+              {groupTitle}
             </span>
             <StatusChip status={status} />
           </div>
-          <div className="mt-0.5 truncate text-[11px] text-neutral-400 dark:text-neutral-500">
-            {ruleMetadata(first)}
+          <div
+            title={groupMeta}
+            className="mt-0.5 truncate text-[11px] text-neutral-400 dark:text-neutral-500"
+          >
+            {groupMeta}
           </div>
         </div>
         <div role="cell" className="text-[11px] text-neutral-500 dark:text-neutral-400">
@@ -287,7 +307,10 @@ function IndependentQuotaGroup({
           >
             <div role="cell" className="min-w-0">
               <div className="flex min-w-0 items-center gap-2">
-                <span className="truncate text-xs text-neutral-700 dark:text-neutral-200">
+                <span
+                  title={rule.bucketLabel ?? '未命名目标'}
+                  className="truncate text-xs text-neutral-700 dark:text-neutral-200"
+                >
                   {rule.bucketLabel ?? '未命名目标'}
                 </span>
                 <StatusChip status={bucketStatus(rule, warnThreshold)} />

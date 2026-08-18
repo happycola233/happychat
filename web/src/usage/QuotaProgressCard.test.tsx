@@ -7,6 +7,7 @@ const bucket = (patch: Partial<QuotaBucketUsageDTO> = {}): QuotaBucketUsageDTO =
   ruleId: 'rule-all',
   bucketKey: null,
   bucketLabel: null,
+  targetLabels: null,
   effectiveModelIds: null,
   label: null,
   source: 'policy',
@@ -100,7 +101,7 @@ describe('QuotaProgressCard', () => {
     expect(html).toContain('其他模型（每周）')
     expect(html).toContain('Grok')
     expect(html).toContain('DeepSeek')
-    expect(html).toContain('各自独立')
+    expect(html).not.toContain('各自独立')
     expect(html).not.toContain('每项')
     expect(html).not.toContain('border-l')
     expect(html.indexOf('OpenAI（每月）')).toBeLessThan(html.indexOf('其他模型（每周）'))
@@ -131,7 +132,7 @@ describe('QuotaProgressCard', () => {
     expect(html).not.toContain('重置')
   })
 
-  it('固定边界的重置时刻用相对时间芯片放在窗口说明同一行右侧', () => {
+  it('固定边界的重置时刻用相对时间芯片紧跟窗口说明，不靠右对齐', () => {
     const html = renderToStaticMarkup(
       <QuotaProgressCard
         quota={quota([
@@ -145,6 +146,7 @@ describe('QuotaProgressCard', () => {
     )
     expect(html).toContain('4 天后重置')
     expect(html).toContain('首次请求起 7 天消费')
+    expect(html.indexOf('首次请求起 7 天消费')).toBeLessThan(html.indexOf('4 天后重置'))
     expect(html).not.toContain('首次请求后开始计时')
   })
 
@@ -168,5 +170,31 @@ describe('QuotaProgressCard', () => {
     )
     expect(html).toContain('首次请求后开始')
     expect(html).not.toContain('重置')
+  })
+
+  it('共享额度在进度条上方列出池内模型', () => {
+    const html = renderToStaticMarkup(
+      <QuotaProgressCard
+        quota={quota([
+          bucket({
+            label: '其他模型（每周）',
+            scope: { type: 'models', modelIds: ['grok', 'ds'], mode: 'shared' },
+            window: { type: 'calendar', period: 'week' },
+            targetLabels: ['Grok', 'DeepSeek'],
+            effectiveModelIds: ['grok', 'ds'],
+            used: 0,
+            effectiveLimit: 0.5,
+            remaining: 0.5,
+            percent: 0,
+          }),
+        ])}
+      />,
+    )
+    expect(html).toContain('其他模型（每周）')
+    expect(html).toContain('Grok、DeepSeek')
+    expect(html).toContain('title="Grok、DeepSeek"')
+    expect(html).toContain('$0')
+    expect(html).toContain('$0.500')
+    expect(html).not.toContain('各自独立')
   })
 })

@@ -8,6 +8,7 @@ import {
   evaluateQuotaLimit,
   formatQuotaAmount,
   formatQuotaLimit,
+  formatQuotaTargetLabels,
   groupQuotaBucketsByRule,
   isQuotaRuleNoOp,
   isQuotaUnlimited,
@@ -432,6 +433,14 @@ describe('describeQuotaRuleGroupTitle', () => {
         },
       ]),
     ).toBe('全部模型')
+  })
+})
+
+describe('formatQuotaTargetLabels', () => {
+  it('用顿号连接共享池内的模型名', () => {
+    expect(formatQuotaTargetLabels(null)).toBeNull()
+    expect(formatQuotaTargetLabels([])).toBeNull()
+    expect(formatQuotaTargetLabels(['Grok', 'DeepSeek'])).toBe('Grok、DeepSeek')
   })
 })
 

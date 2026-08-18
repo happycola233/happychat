@@ -15,6 +15,7 @@ import {
   describeQuotaRuleGroupTitle,
   formatQuotaAmount,
   formatQuotaLimit,
+  formatQuotaTargetLabels,
   groupQuotaBucketsByRule,
 } from '@shared/util/quota'
 import { describeQuotaWindow } from '@shared/util/quotaWindow'
@@ -121,9 +122,10 @@ const SOURCE_BADGE: Record<string, { label: string; className: string }> = {
 
 /** 桶的一行中文说明，用于重置确认框与无障碍名称。 */
 function describeBucket(rule: QuotaBucketUsageDTO): string {
-  const target = rule.bucketLabel ? `${rule.bucketLabel} · ` : ''
-  if (rule.limit.kind === 'unlimited') return `${target}豁免`
-  return `${target}${describeQuotaWindow(rule.window)}${rule.metric === 'cost' ? '消费' : '请求'}`
+  const target = rule.bucketLabel ?? formatQuotaTargetLabels(rule.targetLabels)
+  const prefix = target ? `${target} · ` : ''
+  if (rule.limit.kind === 'unlimited') return `${prefix}豁免`
+  return `${prefix}${describeQuotaWindow(rule.window)}${rule.metric === 'cost' ? '消费' : '请求'}`
 }
 
 /** 预览里的一条桶用量（保存后会立即生效的真实数字）。 */

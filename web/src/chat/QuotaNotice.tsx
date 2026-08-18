@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { clsx } from 'clsx'
 import { AlertTriangle, ChevronRight, CircleSlash, Clock3, PauseCircle, X } from 'lucide-react'
 import type { QuotaBucketUsageDTO } from '@shared/types/api'
-import { formatQuotaAmount } from '@shared/util/quota'
+import { formatQuotaAmount, formatQuotaTargetLabels } from '@shared/util/quota'
 import { describeQuotaWindow } from '@shared/util/quotaWindow'
 import { describeQuotaReset, type QuotaResetDisplay } from '../lib/quotaResetDisplay'
 import { useMyQuota, resolveQuotaNotice, type QuotaNoticeLevel } from '../hooks/useQuota'
@@ -122,7 +122,7 @@ export function QuotaNotice() {
   const reset = describeQuotaReset(rule)
   const figures = usageFigures(rule)
   const hint = noticeHint(level)
-  const scope = rule.bucketLabel
+  const scope = rule.bucketLabel ?? formatQuotaTargetLabels(rule.targetLabels)
 
   return (
     <div className="pointer-events-auto pb-2">
@@ -157,7 +157,9 @@ export function QuotaNotice() {
                 <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] leading-4 text-neutral-500 dark:text-neutral-400">
                   {scope && (
                     <>
-                      <span className="min-w-0 truncate">{scope}</span>
+                      <span className="min-w-0 truncate" title={scope}>
+                        {scope}
+                      </span>
                       <span className="text-neutral-300 dark:text-neutral-600" aria-hidden="true">
                         ·
                       </span>

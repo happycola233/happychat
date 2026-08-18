@@ -4,6 +4,7 @@ import type { MyQuotaDTO, QuotaBucketUsageDTO } from '@shared/types/api'
 import {
   describeQuotaRuleGroupTitle,
   formatQuotaAmount,
+  formatQuotaTargetLabels,
   groupQuotaBucketsByRule,
 } from '@shared/util/quota'
 import { describeQuotaWindow } from '@shared/util/quotaWindow'
@@ -109,43 +110,41 @@ function QuotaFootnotes({
 }) {
   return (
     <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-neutral-400 dark:text-neutral-500">
-      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
-        {extras?.filter(Boolean).map((item) => (
-          <span key={item}>{item}</span>
-        ))}
-        {rule.granted > 0 && (
-          <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-            <Gift className="h-3 w-3" />
-            含临时额度 {formatQuotaAmount(rule.metric, rule.granted)}
-            {rule.grants[0]?.expiresAt
-              ? `（${new Date(rule.grants[0].expiresAt).toLocaleDateString('zh-CN', {
-                  month: 'numeric',
-                  day: 'numeric',
-                })} 失效）`
-              : ''}
-          </span>
-        )}
-        {rule.limit.kind !== 'unlimited' && rule.usageStart > rule.periodStart && (
-          <span>
-            已于{' '}
-            {new Date(rule.usageStart).toLocaleString('zh-CN', {
-              month: 'numeric',
-              day: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit',
-              hour12: false,
-            })}{' '}
-            由管理员重置
-          </span>
-        )}
-        {rule.invalid && <span className="text-rose-500 dark:text-rose-400">规则目标已不存在</span>}
-      </div>
+      {extras?.filter(Boolean).map((item) => (
+        <span key={item}>{item}</span>
+      ))}
       {reset && (
         <QuotaResetChip
           reset={reset}
           emphasize={warnThreshold === undefined ? undefined : resetEmphasis(rule, warnThreshold)}
         />
       )}
+      {rule.granted > 0 && (
+        <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+          <Gift className="h-3 w-3" />
+          含临时额度 {formatQuotaAmount(rule.metric, rule.granted)}
+          {rule.grants[0]?.expiresAt
+            ? `（${new Date(rule.grants[0].expiresAt).toLocaleDateString('zh-CN', {
+                month: 'numeric',
+                day: 'numeric',
+              })} 失效）`
+            : ''}
+        </span>
+      )}
+      {rule.limit.kind !== 'unlimited' && rule.usageStart > rule.periodStart && (
+        <span>
+          已于{' '}
+          {new Date(rule.usageStart).toLocaleString('zh-CN', {
+            month: 'numeric',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+          })}{' '}
+          由管理员重置
+        </span>
+      )}
+      {rule.invalid && <span className="text-rose-500 dark:text-rose-400">规则目标已不存在</span>}
     </div>
   )
 }
@@ -158,6 +157,7 @@ function SingleQuotaRow({
   warnThreshold: number
 }) {
   const reset = describeQuotaReset(rule)
+  const targetNames = formatQuotaTargetLabels(rule.targetLabels)
   return (
     <div className="py-3 first:pt-0 last:pb-0">
       <div className="flex items-baseline justify-between gap-3">
@@ -168,6 +168,14 @@ function SingleQuotaRow({
           <UsageFigure rule={rule} />
         </span>
       </div>
+      {targetNames && (
+        <div
+          title={targetNames}
+          className="mt-0.5 text-[11px] leading-4 text-neutral-400 dark:text-neutral-500"
+        >
+          {targetNames}
+        </div>
+      )}
       <div className="mt-2">
         <QuotaBar rule={rule} warnThreshold={warnThreshold} />
       </div>
@@ -207,9 +215,6 @@ function IndependentQuotaGroup({
         <span className="min-w-0 truncate text-sm text-neutral-800 dark:text-neutral-100">
           {title}
         </span>
-        <span className="shrink-0 rounded-md bg-neutral-100 px-1.5 py-px text-[10px] font-medium text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
-          各自独立
-        </span>
         {exhausted > 0 && (
           <span className="shrink-0 rounded-md bg-rose-50 px-1.5 py-px text-[10px] font-medium text-rose-600 dark:bg-rose-500/10 dark:text-rose-300">
             {exhausted === buckets.length ? '已耗尽' : `部分耗尽 ${exhausted}`}
@@ -246,7 +251,7 @@ function IndependentQuotaGroup({
       </div>
 
       {first.limit.kind !== 'unlimited' && (
-        <div className="mt-1.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px] text-neutral-400 dark:text-neutral-500">
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-neutral-400 dark:text-neutral-500">
           <span>
             {describeQuotaWindow(first.window)}
             {first.metric === 'cost' ? '消费' : '请求'}

@@ -457,6 +457,18 @@ function expandRuleBuckets(rule: EffectiveQuotaRule, context: BucketContext): Qu
   })
 }
 
+/**
+ * 共享池与「全部模型被部分接管」列出实际还覆盖哪些模型。
+ * 各自独立桶用 bucketLabel；仍覆盖全部可用模型时不必枚举。
+ */
+function targetLabelsOf(bucket: QuotaBucket, context: BucketContext): string[] | null {
+  if (bucket.bucketKey !== null || bucket.modelIds === null) return null
+  return bucket.modelIds.flatMap((id) => {
+    const name = context.modelsById.get(id)?.displayName
+    return name ? [name] : []
+  })
+}
+
 function toGrantDTO(row: QuotaAdjustmentRow): QuotaGrantDTO {
   return {
     id: row.id,
@@ -670,6 +682,7 @@ export async function getQuotaSnapshot(
       ruleId: bucket.rule.id,
       bucketKey: bucket.bucketKey,
       bucketLabel: bucket.bucketLabel,
+      targetLabels: targetLabelsOf(bucket, sharedContext),
       effectiveModelIds: bucket.modelIds,
       label: bucket.rule.label,
       source: bucket.rule.source,

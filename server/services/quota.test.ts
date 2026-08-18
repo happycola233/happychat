@@ -316,6 +316,10 @@ describe('额度快照与拦截', () => {
     const snapshot = await quota.getQuotaSnapshot(userId)
     expect(snapshot.rules).toHaveLength(1)
     expect(snapshot.rules[0]?.used).toBe(2)
+    expect(snapshot.rules[0]?.targetLabels).toEqual([
+      expect.stringMatching(/^Model A/),
+      expect.stringMatching(/^Model B/),
+    ])
     expect(snapshot.blockedModelIds).toEqual(expect.arrayContaining([modelA, modelB]))
     // 这条显式模型规则不影响账号可见的其他模型，因此不是全局耗尽。
     expect(snapshot.allModelsBlocked).toBe(false)
@@ -785,6 +789,8 @@ describe('规则优先级遮蔽', () => {
     // 分组桶只统计未被接管的 modelA
     expect(groupBucket?.used).toBe(1)
     expect(groupBucket?.blocked).toBe(false)
+    expect(groupBucket?.targetLabels).toEqual([expect.stringMatching(/^Model A/)])
+    expect(groupBucket?.targetLabels?.some((name) => name.startsWith('Model B'))).toBe(false)
     expect(snapshot.blockedModelIds).toEqual([])
     expect((await quota.checkQuota(userId, modelB)).ok).toBe(true)
 

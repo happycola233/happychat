@@ -11,6 +11,7 @@ const bucket = (patch: Partial<QuotaBucketUsageDTO> = {}): QuotaBucketUsageDTO =
   ruleId: 'rule-1',
   bucketKey: null,
   bucketLabel: null,
+  targetLabels: null,
   effectiveModelIds: null,
   label: null,
   source: 'policy',
@@ -201,5 +202,32 @@ describe('UserQuotaBuckets', () => {
     expect(html).toContain('aria-label="全部额度，共 2 条"')
     expect(html.indexOf('月度成本')).toBeLessThan(html.indexOf('其他模型（每周）'))
     expect(html.indexOf('其他模型（每周）')).toBeLessThan(html.indexOf('Grok'))
+  })
+
+  it('共享额度列出池内模型名', () => {
+    const html = renderToStaticMarkup(
+      <UserQuotaBuckets
+        timezone="Asia/Shanghai"
+        warnThreshold={0.8}
+        rules={[
+          bucket({
+            label: '其他模型（每周）',
+            scope: { type: 'models', modelIds: ['grok', 'ds'], mode: 'shared' },
+            window: { type: 'calendar', period: 'week' },
+            targetLabels: ['Grok', 'DeepSeek'],
+            effectiveModelIds: ['grok', 'ds'],
+            used: 0,
+            effectiveLimit: 0.5,
+            remaining: 0.5,
+            percent: 0,
+          }),
+        ]}
+      />,
+    )
+    expect(html).toContain('其他模型（每周）')
+    expect(html).toContain('Grok、DeepSeek')
+    expect(html).toContain('2 个模型共享')
+    expect(html).toContain('title="Grok、DeepSeek · 2 个模型共享 · 消费金额 · 策略规则"')
+    expect(html).toContain('aria-label="全部额度，共 1 条"')
   })
 })

@@ -576,6 +576,11 @@ export interface QuotaBucketUsageDTO {
   bucketKey: string | null
   /** 桶的展示名（模型显示名 / 分组名）；单桶规则为 null */
   bucketLabel: string | null
+  /**
+   * 共享额度（或「全部模型」被部分接管后）实际覆盖的模型展示名。
+   * 各自独立桶为 null（每个桶已有 `bucketLabel`）；仍覆盖全部可用模型时也为 null。
+   */
+  targetLabels: string[] | null
   /** 优先级接管后该桶实际覆盖的模型；null 表示仍覆盖全部可用模型。 */
   effectiveModelIds: string[] | null
   label: string | null

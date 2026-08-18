@@ -10,6 +10,7 @@ const rule: QuotaBucketUsageDTO = {
   ruleId: 'monthly-cost',
   bucketKey: null,
   bucketLabel: null,
+  targetLabels: null,
   effectiveModelIds: null,
   label: '月度成本',
   source: 'policy',
