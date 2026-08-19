@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { RouterProvider } from 'react-router-dom'
 import { router } from './router'
 import { ConfirmDialogHost } from './components/ui/ConfirmDialogHost'
+import { ConversationCompletionToaster } from './components/ui/ConversationCompletionToaster'
 import { Toaster } from './components/ui/Toaster'
 import { applyTheme } from './lib/theme'
 import { useSettings } from './store/settings'
@@ -24,6 +25,9 @@ export default function App() {
   return (
     <>
       <RouterProvider router={router} />
+      <ConversationCompletionToaster
+        onOpenConversation={(conversationId) => void router.navigate(`/c/${conversationId}`)}
+      />
       <Toaster />
       <ConfirmDialogHost />
     </>

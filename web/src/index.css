@@ -68,9 +68,8 @@ html.hc-accent-default {
   --hc-accent-strong: #000000;
   --hc-accent-strong-fg: #ffffff;
 }
-/* 默认（灰）重点色的光晕沿用蓝色重点色的色调（灰色光晕观感偏脏）；
-   仅光晕（.hc-hero-glow / .hc-auth-glow）读取该变量，其余重点色不定义、
-   回退到自身 swatch，不影响其他 UI。 */
+/* 默认（灰）重点色的光晕与“后台回复完成”未读点沿用蓝色重点色的色调；
+   其余重点色不定义该变量，统一回退到自身 swatch。 */
 html.hc-accent-default {
   --hc-accent-glow-tint: #3a83f7;
 }
@@ -179,6 +178,19 @@ html.dark.hc-accent-purple {
   --hc-user-bubble-text: #f8f5fd;
   --hc-accent-strong: #7849d1;
   --hc-accent-strong-fg: #ffffff;
+}
+@keyframes hc-conversation-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.hc-conversation-spinner {
+  transform-origin: center;
+  will-change: transform;
+  animation: hc-conversation-spin 1.2s linear infinite;
+}
+.hc-conversation-unread-dot {
+  background: var(--hc-accent-glow-tint, var(--hc-accent-swatch));
 }
 .hc-user-bubble {
   background: var(--hc-user-bubble-bg);
@@ -1524,8 +1536,10 @@ html.hc-ios .hc-chat-scroll {
   .hc-reasoning-dot-in,
   .hc-search-step-in,
   .hc-search-chip-in,
-  .hc-search-skeleton {
+  .hc-search-skeleton,
+  .hc-conversation-spinner {
     animation: none;
+    will-change: auto;
   }
   /* 行扩展直接落位；没有过渡就不会触发 transitionend，动画标记会残留，须保持不裁切。 */
   .hc-composer-expand {

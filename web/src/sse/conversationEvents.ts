@@ -7,6 +7,7 @@ import {
   type WireEvent,
 } from '@shared/types/events'
 import { getConversation } from '../api/chat'
+import { useConversationActivityStore } from '../store/conversationActivity'
 import { useTitleTypingStore } from '../store/titleTyping'
 
 function isTitleUpdatedData(data: unknown): data is ConversationTitleUpdatedData {
@@ -53,6 +54,7 @@ export function applyConversationTitleUpdate(
         }
       : old,
   )
+  useConversationActivityStore.getState().updateConversationTitle(conversationId, title)
 
   // 详情补刷可能先于事件拿到完整标题，因此始终交给动画层；同标题会在 store 内幂等去重。
   if (options.animate !== false) {

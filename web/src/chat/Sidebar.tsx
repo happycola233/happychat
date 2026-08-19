@@ -33,6 +33,12 @@ import { useIsMobile, useSidebarStore } from '../store/sidebar'
 import { useFolderEditor } from '../store/folderEditor'
 import { useSettings } from '../store/settings'
 import { useSettingsDialog } from '../store/settingsDialog'
+import {
+  conversationActivityLabel,
+  useConversationActivityStore,
+  type ConversationActivityState,
+} from '../store/conversationActivity'
+import { useStreamStore } from '../store/stream'
 import { useTitleTypingStore } from '../store/titleTyping'
 import { HOVER_ACTION_PADDING_CLASS, HOVER_REVEAL_CLASS, useRowMenu } from './rowMenu'
 import {
@@ -47,6 +53,7 @@ import {
   UnpinIcon,
 } from './icons'
 import { SearchDialog } from './SearchDialog'
+import { ConversationActivityIndicator } from './ConversationActivityIndicator'
 
 type PopoverKind = 'pinned' | 'recent'
 
@@ -293,7 +300,21 @@ function ConversationRow({
   const [renaming, setRenaming] = useState(false)
   const [draft, setDraft] = useState('')
   const typingTitle = useTitleTypingStore((state) => state.byConversation[conversation.id])
+  const streamStatus = useStreamStore((state) => state.byConversation[conversation.id]?.status)
+  const hasUnreadReply = useConversationActivityStore((state) =>
+    Boolean(state.unreadRunByConversation[conversation.id]),
+  )
   const displayTitle = typingTitle?.text ?? titleOf(conversation)
+  const activityState: ConversationActivityState | null = active
+    ? null
+    : streamStatus === 'streaming'
+      ? 'generating'
+      : hasUnreadReply
+        ? 'unread'
+        : null
+  const accessibleTitle = activityState
+    ? `${displayTitle}，${conversationActivityLabel(activityState)}`
+    : displayTitle
 
   const startRename = () => {
     setDraft(titleOf(conversation))
@@ -314,6 +335,7 @@ function ConversationRow({
           type="button"
           onClick={() => batch.onToggleSelect(conversation.id)}
           aria-pressed={batch.selected}
+          aria-label={accessibleTitle}
           title={titleOf(conversation)}
           className={clsx(
             'flex w-full items-center rounded-lg px-2.5 py-1.5 text-left text-[13px] transition',
@@ -326,6 +348,9 @@ function ConversationRow({
           <span className="min-w-0 flex-1 truncate text-neutral-900 dark:text-neutral-100">
             {displayTitle}
           </span>
+          {activityState && (
+            <ConversationActivityIndicator state={activityState} className="ml-2" />
+          )}
         </button>
       </li>
     )
@@ -367,8 +392,13 @@ function ConversationRow({
             onClick={() => onOpen(conversation.id)}
             className={clsx(
               'min-w-0 flex-1 text-left text-neutral-900 transition-[padding] dark:text-neutral-100',
-              actions && HOVER_ACTION_PADDING_CLASS,
+              activityState
+                ? actions
+                  ? 'pr-14 md:[@media(hover:hover)]:pr-7'
+                  : 'pr-7'
+                : actions && HOVER_ACTION_PADDING_CLASS,
             )}
+            aria-label={accessibleTitle}
             title={titleOf(conversation)}
           >
             <span className="flex min-w-0 items-center">
@@ -381,6 +411,17 @@ function ConversationRow({
               )}
             </span>
           </button>
+        )}
+        {activityState && !renaming && (
+          <ConversationActivityIndicator
+            state={activityState}
+            className={clsx(
+              'absolute transition-[right,opacity]',
+              actions
+                ? 'right-8 md:[@media(hover:hover)]:right-2 md:[@media(hover:hover)]:group-hover:opacity-0 md:[@media(hover:hover)]:group-focus-within:opacity-0'
+                : 'right-2',
+            )}
+          />
         )}
         {actions && !renaming && (
           <button

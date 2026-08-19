@@ -1,6 +1,7 @@
 import { QueryClient } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ConversationDTO } from '@shared/types/api'
+import { useConversationActivityStore } from '../store/conversationActivity'
 import { useTitleTypingStore } from '../store/titleTyping'
 import { applyConversationTitleUpdate } from './conversationEvents'
 
@@ -27,10 +28,12 @@ beforeEach(() => {
     clearTimeout: (timer: number) => globalThis.clearTimeout(timer),
   })
   useTitleTypingStore.getState().clear(CONVERSATION_ID)
+  useConversationActivityStore.getState().reset()
 })
 
 afterEach(() => {
   useTitleTypingStore.getState().clear(CONVERSATION_ID)
+  useConversationActivityStore.getState().reset()
   vi.clearAllTimers()
   vi.useRealTimers()
   vi.unstubAllGlobals()
@@ -74,5 +77,26 @@ describe('applyConversationTitleUpdate', () => {
     // 即使轮询响应迟到动画结束之后，同一标题也不能从头重播。
     applyConversationTitleUpdate(queryClient, update)
     expect(useTitleTypingStore.getState().byConversation[CONVERSATION_ID]).toBeUndefined()
+  })
+
+  it('keeps a visible completion notice in sync with the generated title', () => {
+    const queryClient = new QueryClient()
+    useConversationActivityStore.getState().recordBackgroundCompletion({
+      id: 'run-title-test',
+      runId: 'run-title-test',
+      conversationId: CONVERSATION_ID,
+      title: '首条消息临时标题',
+      message: '回复正文',
+    })
+
+    applyConversationTitleUpdate(queryClient, {
+      conversationId: CONVERSATION_ID,
+      title: '自动生成的标题',
+      updatedAt: 2,
+    })
+
+    expect(useConversationActivityStore.getState().completionNotices[0]?.title).toBe(
+      '自动生成的标题',
+    )
   })
 })

@@ -104,12 +104,12 @@
 ### 3.4 web/src/
 
 - `main.tsx`：挂 `QueryClientProvider`，引入 `katex` 与 `highlight.js/styles/github-dark.css`。
-- `App.tsx`：`RouterProvider` + `Toaster` + 主题 `applyTheme` 副作用。
+- `App.tsx`：`RouterProvider` + 通用 `Toaster` + 后台回复完成 `ConversationCompletionToaster` + 主题 `applyTheme` 副作用。
 - `router.tsx`：守卫 `RequireAuth`/`RequireAdmin`/`RedirectIfAuthed`；聊天路由 `/` 与 `/c/:id` 共用 `ChatLayout`；后台 `/admin/*` 共用 `AdminLayout`。
 - `api/`：`client.ts`(fetch 封装 + `ApiRequestError` + `apiUpload` 多部分) + 各域 API。
 - `hooks/`：`useAuth`(useMe/useLogin/useRegister/useLogout) / `useModels` / `useConversations` / `useFolders`(+`useFolderActions`) / `useConversationActions`(删除/置顶/重命名/移动到文件夹/批量删除/批量移动)。
-- `store/`(zustand)：`chat.ts`(用户偏好，**persist 到 localStorage**：模型/联网/思考/图片选项) / `stream.ts`(按会话 id 存活动流) / `theme.ts` / `toast.ts` / `folderEditor.ts`(文件夹设置弹窗全局状态) / `sidebar.ts`(侧栏折叠/分区折叠/**文件夹展开状态持久化**/移动端抽屉) / `adminSidebar.ts`(管理后台桌面侧栏折叠，与聊天侧栏分开持久化)。
-- `sse/`：`eventReducer.ts`(纯函数折叠事件→`LiveMessage`) / `streamManager.ts`(Run EventSource 生命周期) / `conversationEvents.ts`(会话级元数据事件，如标题更新)。
+- `store/`(zustand)：`chat.ts`(用户偏好，**persist 到 localStorage**：模型/联网/思考/图片选项) / `stream.ts`(按会话 id 存活动流) / `conversationActivity.ts`(当前浏览器会话内的后台回复未读 run + 完成通知) / `theme.ts` / `toast.ts` / `folderEditor.ts`(文件夹设置弹窗全局状态) / `sidebar.ts`(侧栏折叠/分区折叠/**文件夹展开状态持久化**/移动端抽屉) / `adminSidebar.ts`(管理后台桌面侧栏折叠，与聊天侧栏分开持久化)。
+- `sse/`：`eventReducer.ts`(纯函数折叠事件→`LiveMessage`) / `streamManager.ts`(Run EventSource 生命周期) / `conversationEvents.ts`(会话级元数据事件，如标题更新；自动标题到达时同步尚在显示的完成通知)。
 - `chat/`：聊天 UI，见 §7。
 - `pages/`：`LoginPage`/`RegisterPage`（外壳与表单控件在 `components/auth/*`，见 §7.5）+ `admin/*` 10 个页面。
 
@@ -199,6 +199,8 @@
 
 - `startStream({runId,conversationId,assistantMessageId,fromSeq,onTerminal})`：开 `EventSource('/api/runs/:id/stream?from=N', {withCredentials})`，`onmessage` 解析 `WireEvent`、`reduceEvent` 折叠进 `useStreamStore.byConversation[convId]`、更新 `lastSeq`、遇终止事件 `finish()`；`onerror` 自管退避重连（`1s→30s`，`MAX_ATTEMPTS=6`，超限置 `interrupted`）。**不靠浏览器自动重连**（fresh 连接不带 Last-Event-ID，所以总带 `?from`）。
 - `ChatView.tsx` 是编排中枢：`onSend`/`onEdit`(带 parentId)/`onRegenerate`/`onSwitch`；`applyRunResult` 把新消息塞进 react-query 缓存并 `startStream`；`useEffect([id])` 做 **resume-on-load**（`getActiveRun` 查到未完成 run 就续传）；另一个 `useEffect` 做**交接**（流终止且 DB 消息已最终化 → `clearStream`，从内存流切回持久化内容）。
+- 后台会话活动直接从 `store/stream.ts` 派生：当前未打开的会话处于 `streaming` 时，`Sidebar` 行尾显示中性转圈；匹配 run 进入 `completed`/`incomplete` 后，`ChatView` 向 `store/conversationActivity.ts` 记录一次未读完成，行尾改为重点色圆点，并由 App 级 `ConversationCompletionToaster` 在右上角展示标题与回复摘要。失败、取消、连接中断不伪装成“生成完成”；打开目标会话会同时清除圆点与仍在显示的通知。通知 7 秒后自动收起但圆点保留，状态不持久化到 localStorage；移动端通知为左上导航留出点击区，侧栏抽屉打开期间只保留读屏 live region、隐藏视觉卡片。
+- 终态回调以 `conversationId + runId` 双重校验，避免旧 run 回放重复提醒；只有当前会话才捕获终态滚动快照。新会话创建成功后会在 Router 的 transition 提交前先乐观更新 `currentConversationIdRef`，避免极快终态被误判为后台回复。
 - `Message.tsx` 渲染时，若该 assistant 消息 id == 当前流的 `assistantMessageId` 就用 `live` 覆盖（流式文本逐段渐入/思考卡/生成中图片）。流式态给 `Markdown` 传 `animate`，靠逐单元淡入替代旧的打字光标。
 - 前端不消费上游 `response.completed` 的内容终值（`output_item.added/done` 仅用于读取 `web_search_call` / x_search `custom_tool_call` 的生命周期与动作，不作为正文/思考来源）；本地合成的 `run.done` 是浏览器权威终值（含 `searchActions` 终态校准），因此服务端保留终态校准、同时从所有客户端事件中剥离重复 opaque 密文不会改变现有 UI 路径。
 
@@ -232,11 +234,13 @@
 - 服务端状态：**TanStack Query**（`['me']`/`['models']`/`['conversations']`/`['conversation',id]`/`['admin',*]`）。
 - 客户端持久偏好：**zustand persist** `store/chat.ts`（localStorage `happychat-prefs`）。
 - 流式实时态：`store/stream.ts`（按 conversationId，**支持多会话并发流**）。
+- 后台回复提醒态：`store/conversationActivity.ts`（按 conversationId 记录未查看 run，完成通知短时展示；仅当前标签页内存态）。
 - 主题：`store/theme.ts`（localStorage `happychat-theme`）。
 
 ### 7.2 聊天组件（`web/src/chat/`）
 
 - `ChatLayout`(Sidebar+Outlet+全局弹窗宿主 SettingsDialog/FolderEditorDialog/AnnouncementDialog) / `ChatView`(编排，见 §5.6) / `Sidebar`(会话列表+文件夹+批量管理+新建+删除+管理入口+登出+主题切换)。
+- **后台回复状态**（`ConversationActivityIndicator.tsx` + `components/ui/ConversationCompletionToaster.tsx`）：非当前会话生成中显示行尾转圈，完成后显示未读圆点；默认灰与蓝重点色使用蓝点，其余配色读取自身 `--hc-accent-swatch`，浅色/深色分别取对应色值。转圈遵守 `prefers-reduced-motion`；按钮可访问名称追加“正在生成回复”/“有未查看的新回复”，完成提示使用预先存在的 `role=status` polite live region，不抢键盘焦点。
 - **账号菜单**（`Sidebar.tsx#AccountMenu`）：侧栏底部账号行与折叠栏头像共用同一个弹层。身份信息只在触发器上展示（头像、昵称；角色行仅管理员显示「管理员」，普通账号不显示第二行），弹层不再重复这块；菜单只含使用情况/设置/管理后台（管理员可见）与退出登录。常规操作区两项之间保留 2px 纵向间距；退出登录由独立分隔线与常驻红色危险语义区分。操作文字固定为整数 14px / 20px 行高，图形统一为整数 16px，并置于与文字行高同高的 20px 固定槽位中，避免浏览器缩放时半像素字号导致的栅格化错位。触发按钮以 `aria-expanded` + `aria-controls` 暴露开合状态，菜单项保留清晰的键盘焦点环；浅色/深色各自使用匹配的边框、表面与悬停色。
 - **侧边栏文件夹 + 批量管理（里程碑 E）**：
   - **分区规则**（`sidebarSections.ts`，纯逻辑+单测）：文件夹是「容器」（成员无论是否置顶都留在文件夹内），置顶是「快捷入口」（置顶聊天始终出现在已置顶分区，文件夹内聊天置顶后两处可见）；已置顶分区 = 置顶文件夹(按置顶时间倒序) + 置顶聊天，聊天分区 = 未置顶文件夹(创建序，位置稳定) + 未分组聊天。
@@ -346,7 +350,8 @@
 
 ## 11. 测试与验证（`scripts/` + vitest）
 
-- 单测（`npm run test`，当前 **162 个文件 / 1276 个用例**）：除原有注册、权限、分支、导出、Responses/chat、附件清理与前端流式覆盖外，Anthropic 专项覆盖 URL 拼接、原生鉴权头、分页模型目录/capabilities、模型代际 profile、必填输出上限、manual thinking 预算约束、可见 body 与“删模板不补回”、reasoning 开关保留管理员 thinking 模板、manual/adaptive thinking、sampling 限制、最终 JSON 32MB、图片/PDF/文本映射、SSE index 聚合、signature/redacted/encrypted/citation opaque 保留、流内错误状态映射、`refusal` 作废部分输出、客户端工具失败、截断工具 replay 门控、网关缺失 `message_stop` 的完整性判定、web search 业务错误及其人类可读导出、citation 安全协议、usage、`pause_turn` 续跑与来源门控 replay 隔离。
+- 单测（`npm run test`，当前 **165 个文件 / 1292 个用例**）：除原有注册、权限、分支、导出、Responses/chat、附件清理与前端流式覆盖外，Anthropic 专项覆盖 URL 拼接、原生鉴权头、分页模型目录/capabilities、模型代际 profile、必填输出上限、manual thinking 预算约束、可见 body 与“删模板不补回”、reasoning 开关保留管理员 thinking 模板、manual/adaptive thinking、sampling 限制、最终 JSON 32MB、图片/PDF/文本映射、SSE index 聚合、signature/redacted/encrypted/citation opaque 保留、流内错误状态映射、`refusal` 作废部分输出、客户端工具失败、截断工具 replay 门控、网关缺失 `message_stop` 的完整性判定、web search 业务错误及其人类可读导出、citation 安全协议、usage、`pause_turn` 续跑与来源门控 replay 隔离。
+  **后台回复提醒专项**：`web/src/store/conversationActivity.test.ts` 覆盖当前/后台会话与 run 身份门控、可提醒终态、Unicode 摘要、图片回退、终态去重、通知超时但未读保留、打开即清除及自动标题同步；`ConversationActivityIndicator.test.tsx` 与 `ConversationCompletionToaster.test.tsx` 锁定转圈/重点色圆点语义、polite live region、右上角卡片与移动端抽屉遮挡规避；`conversationEvents.test.ts` 验证标题事件会更新仍在显示的完成通知。
   **模型分组与图标专项**：`shared/util/modelIcon.test.ts`（路径穿越 / CSS 注入 / 多字素 emoji / 脏对象一律降级为 null、模型 `initial` / 分组 `none` / 资源图标三路隔离）、`shared/util/modelIconGuess.test.ts`（约 50 条 id→slug 映射、显示名回退、认不出返回 null、**规则表 slug 全部存在于已安装图标包**的防回归断言）、`shared/schemas/model-group.test.ts`、`server/services/model-groups.test.ts`（CRUD、无图标持久化与默认文件夹恢复、稀疏 sort、reorder 穷尽性校验、删除分组回退、批量指派/图标原子性、DTO 归一化）、`server/services/lobe-icons.test.ts` 与 `server/routes/model-icons.test.ts`（单色判定、明暗主题渲染、复合资产版本、缓存头、引用校验、上传命名与文件删除失败回滚），以及 `web/src/chat/modelGroups.test.ts`、`web/src/chat/ModelControlMenu.test.tsx`、`web/src/chat/{FolderIdentityField,folderVisuals}.test.tsx`、`web/src/components/{iconSearch,IconPicker,ModelIcon}.test.tsx`、`web/src/glyphStyles.test.ts`、`web/src/hooks/useModels.test.ts`（中文 / 拼音 / 英文品牌搜索、显式首字母覆盖自动识别、分组无图标不留占位、空草稿无占位点、视图切换、弹层重测量、文件夹设置触发器尺寸、文件夹/分组裸图标与 CSS 无底板契约、自定义图标删除可达性、主题 URL 与共享目录索引）。
   **用户限额与使用面板专项**：`shared/util/quotaWindow.test.ts`（日历日/周/月边界、周起始两种、DST 起止当天 23/25 小时、跨年与闰月、滚动窗口钳制、时区非法回退 UTC）、`shared/util/quota.test.ts`（脏规则整条丢弃、覆写三态、专属规则 id 冲突、零规则=无限、赠送叠加与超支占比、中文摘要、**按规则收拢独立桶 / 紧张程度只用于取代表**）、`shared/schemas/quota.test.ts`、`server/services/quota.test.ts`（多规则任一触顶、per-model 耗尽只影响自己、shared 池、分组归属与分组删除后失效、在途 run 计次且终态不双算、失败请求不计次、**标题日志不计请求数与成本额度**、赠送过期与跨周期不复活、重置抬高起点且日志保留、暂停不拦截但继续累计、总开关关闭零判定、**滚动窗口的赠送/重置不会写完即失效**、「重置全部」覆盖各自独立的每个桶、优先级遮蔽四例[高优先级豁免放行且用量不计入分组桶 / 同档不遮蔽 / 被接管桶标记 shadowed 且不拦截 / 全部模型规则出现遮蔽后只统计未被接管的模型]、**用户端列表保持策略展示顺序**）、`server/services/quota-admin.test.ts`（默认策略唯一、复制重生成规则 id、删除策略回退且保留 `updatedAt`、批量指派原子性与保留覆写、最近使用与登录时间隔离、**用户列表返回全部额度桶且保持策略展示顺序**、头像 URL 与账号中心同源、赠送的桶绑定校验、不存在的 bucketKey 与非整数次数赠送被拒、单桶重置只影响目标桶、**首次请求周期重置清空锚点且不留计量起点**、预览含草稿规则）、`server/services/usage-stats.test.ts`（本地日分桶含负偏移、连续天数、分模型窗口过滤、四种窗口视图的边界与粒度、昨天的用量不进「今日」、周起点跟随配置、趋势补齐空桶且不越过此刻、对话/消息按窗口统计）、`server/services/title.test.ts`（标题写库 + 用量落 `kind='title'` 日志、绕过已耗尽额度且不启动固定周期，假上游用 `vi.mock('../provider/client')`）、`server/routes/quota.test.ts`（关闭时不泄露数字、越权、429 路径、赠送→撤销、重置后统计仍在）、`web/src/lib/quotaRefetch.test.ts`、`web/src/hooks/useQuota.test.ts`、`web/src/chat/QuotaNotice.test.tsx`、`web/src/usage/heatmapGrid.test.ts`（按周分列/补空/分位分级/月份稀疏标签）、`web/src/usage/QuotaProgressCard.test.tsx`（部分接管后的实际范围、**策略顺序与各自独立分组**）、`web/src/pages/admin/UserQuotaBuckets.test.tsx`（全部额度规则、状态、时区时间、固定 / 滚动 / 未启动 / 永久周期语义、**各自独立收成一条**）、`quotaOverview.test.ts`（状态分类与列表徽标一致、需关注=耗尽+接近、用量排行按可比窗口且含无限额度用户、压力排行忽略 0%）、`UserQuotaOverview.test.tsx`（含真实头像 URL）、`userDisplayInitial.test.ts`（空显示名回退用户名首字母）、`UserDetailPage.test.tsx`（明细复用全部额度桶并携带配置时区）、`quotaRuleDrafts.test.ts`、`QuotaRuleEditor.test.tsx`、`QuotaRuleList.test.tsx`、`QuotaPolicyCard.test.tsx` 与 `QuotaPolicyEditor.test.tsx`。
   **本轮限额 / 标题 / 时区边界回归**：标题测试覆盖 Responses failed、completed+refusal、incomplete+content_filter、Chat content_filter、Anthropic refusal 与网络异常的失败事件；配额测试覆盖 reset 绝对到期、rolling→total、优先级后的 effective unlimited / `effectiveModelIds` / `allModelsBlocked`、grant 到期刷新及隐藏旧覆写保留；`timezone.test.ts` 与 usage stats 测试覆盖固定 offset、纽约 23/25 小时 DST 日、重复小时双趋势点及 Santiago 午夜跳时区；`usageWindow.test.ts` 锁定占位数据标签与跨自然边界定时刷新。

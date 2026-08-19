@@ -8,7 +8,7 @@ import {
   type KeyboardEvent,
   type WheelEvent,
 } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import { clsx } from 'clsx'
 import { Menu } from 'lucide-react'
@@ -29,6 +29,12 @@ import { invalidateMyQuota, useMyQuota } from '../hooks/useQuota'
 import { useChatPrefs } from '../store/chat'
 import { useSettings } from '../store/settings'
 import { useStreamStore } from '../store/stream'
+import {
+  compactActivityText,
+  completionPreviewFromStream,
+  shouldRecordBackgroundCompletion,
+  useConversationActivityStore,
+} from '../store/conversationActivity'
 import { useIsMobile, useSidebarStore } from '../store/sidebar'
 import { getBrowserLocale, getBrowserTimezone } from '../lib/browserLocale'
 import { useDevicePixelRatio } from '../lib/useDevicePixelRatio'
@@ -61,6 +67,7 @@ import { resolveAutoFollowAfterScroll, type ScrollMetrics } from './scrollFollow
 import { getConversationRunPrefs } from './runPrefs'
 import { ActiveRunRecoveryGate } from './activeRunRecovery'
 import { beginBranchCreationCooldown } from './branchCreationGuard'
+import { textFromContent } from './contentText'
 
 interface RunResult {
   runId: string
@@ -77,6 +84,23 @@ const DOCK_ANIMATION_SETTLE_MS = 900
 const TIMELINE_JUMP_OFFSET_PX = 76
 /** 前端只做即时反馈；真正的拦截在服务端（`prepareRun` → 429 quota_exceeded）。 */
 const QUOTA_BLOCKED_HINT = '当前模型的额度已用尽，请切换其他模型或联系管理员'
+
+function completionNoticeTitle(queryClient: QueryClient, conversationId: string): string {
+  const cachedDetail = queryClient.getQueryData<ConversationDetail>([
+    'conversation',
+    conversationId,
+  ])
+  const cachedList = queryClient.getQueryData<ConversationDTO[]>(['conversations'])
+  const title =
+    cachedDetail?.conversation.title ??
+    cachedList?.find((conversation) => conversation.id === conversationId)?.title
+  const compactTitle = compactActivityText(title ?? '', 64)
+  if (compactTitle) return compactTitle
+
+  const firstUserMessage = cachedDetail?.messages.find((message) => message.role === 'user')
+  const firstUserText = firstUserMessage ? textFromContent(firstUserMessage.content) : ''
+  return compactActivityText(firstUserText, 64) || '新聊天'
+}
 
 export default function ChatView() {
   const { id } = useParams()
@@ -104,6 +128,7 @@ export default function ChatView() {
   const { data: detail } = useConversation(id)
   const stream = useStreamStore((s) => (id ? s.byConversation[id] : undefined))
   const clearStream = useStreamStore((s) => s.clear)
+  const markConversationViewed = useConversationActivityStore((s) => s.markViewed)
   const [optimisticUser, setOptimisticUser] = useState<string | null>(null)
   const [imageSources, setImageSources] = useState<ImageEditSource[]>([])
   const [branchingMessageId, setBranchingMessageId] = useState<string | null>(null)
@@ -147,9 +172,15 @@ export default function ChatView() {
   useLayoutEffect(() => {
     currentConversationIdRef.current = id
     return () => {
-      currentConversationIdRef.current = undefined
+      // 新会话发送成功后会先乐观写入目标 id，再等待 Router 提交；旧 effect 的 cleanup
+      // 不能把这个更晚的值清掉，否则极快的回复会被误判成后台完成。
+      if (currentConversationIdRef.current === id) currentConversationIdRef.current = undefined
     }
   }, [id])
+
+  useEffect(() => {
+    if (id) markConversationViewed(id)
+  }, [id, markConversationViewed])
 
   const allMessages = detail?.messages ?? []
   const messages = detail ? buildPath(allMessages, detail.conversation.activeLeafId) : []
@@ -161,7 +192,25 @@ export default function ChatView() {
   )
 
   const handleRunTerminal = useCallback(
-    (convId: string) => {
+    (convId: string, runId: string) => {
+      const terminalStream = useStreamStore.getState().byConversation[convId]
+      if (
+        terminalStream &&
+        shouldRecordBackgroundCompletion({
+          currentConversationId: currentConversationIdRef.current,
+          conversationId: convId,
+          runId,
+          stream: terminalStream,
+        })
+      ) {
+        useConversationActivityStore.getState().recordBackgroundCompletion({
+          id: runId,
+          runId,
+          conversationId: convId,
+          title: completionNoticeTitle(qc, convId),
+          message: completionPreviewFromStream(terminalStream),
+        })
+      }
       void invalidateDetail(convId)
       pollConversationTitleAfterRun(qc, convId)
       // 用量在 finalize 时才落库，生成结束正是额度进度唯一需要刷新的时刻。
@@ -386,6 +435,9 @@ export default function ChatView() {
 
   const applyRunResult = (res: RunResult, requestParams?: ModelParams | null) => {
     const convId = res.conversation.id
+    // 创建新会话时 Router 通过 startTransition 提交；先把逻辑上的当前会话切过去，
+    // 防止极快终态在路由参数更新前误弹“后台回复完成”。
+    if (id !== convId) currentConversationIdRef.current = convId
     activeRunRecoveryGateRef.current.reset()
     const runModel = models?.find((m) => m.id === res.assistantMessage.modelId)
     const lastParams = getConversationRunPrefs(runModel, requestParams)
@@ -416,8 +468,10 @@ export default function ChatView() {
       assistantMessageId: res.assistantMessage.id,
       fromSeq: -1,
       reasoningEnabled: reasoningEnabledForRun(res.assistantMessage.modelId, requestParams),
-      onBeforeTerminal: captureTerminalScroll,
-      onTerminal: () => handleRunTerminal(convId),
+      onBeforeTerminal: () => {
+        if (currentConversationIdRef.current === convId) captureTerminalScroll()
+      },
+      onTerminal: () => handleRunTerminal(convId, res.runId),
     })
     if (id !== convId) navigate(`/c/${convId}`)
   }
@@ -454,8 +508,10 @@ export default function ChatView() {
         reasoningDurationMs: run.reasoningDurationMs,
         imageStartedAt: run.imageStartedAt,
         reasoningEnabled: run.reasoningEnabled,
-        onBeforeTerminal: captureTerminalScroll,
-        onTerminal: () => handleRunTerminal(id),
+        onBeforeTerminal: () => {
+          if (currentConversationIdRef.current === id) captureTerminalScroll()
+        },
+        onTerminal: () => handleRunTerminal(id, run.runId),
       })
     })
     return () => {
