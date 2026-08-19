@@ -202,12 +202,14 @@ export function AnnouncementEditor({ announcement, onClose }: Props) {
           </div>
         </div>
 
-        {/* 置顶 / 排期 */}
-        <div className="space-y-3 rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
-          <div className="flex items-center justify-between">
+        {/* 置顶 / 排期：无外框；pt 补回与 Markdown 区的间距，行距避免挤在一起 */}
+        <div className="space-y-5 pt-4">
+          <div className="flex items-center justify-between gap-4">
             <div>
               <div className="text-sm text-neutral-800 dark:text-neutral-100">置顶</div>
-              <div className="text-xs text-neutral-400">在通知中心与横幅中优先展示。</div>
+              <div className="mt-0.5 text-xs leading-5 text-neutral-400">
+                在通知中心与横幅中优先展示。
+              </div>
             </div>
             <Toggle checked={pinned} onChange={setPinned} />
           </div>
@@ -216,7 +218,7 @@ export function AnnouncementEditor({ announcement, onClose }: Props) {
             <div className="flex items-center justify-between gap-4">
               <div>
                 <div className="text-sm text-neutral-800 dark:text-neutral-100">通知次数</div>
-                <div className="text-xs text-neutral-400">
+                <div className="mt-0.5 text-xs leading-5 text-neutral-400">
                   强提示弹窗对每个用户最多自动弹出的次数（1–20）；点「我知道了」后不再弹。
                 </div>
               </div>
@@ -233,10 +235,12 @@ export function AnnouncementEditor({ announcement, onClose }: Props) {
             </div>
           )}
 
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-4">
             <div>
               <div className="text-sm text-neutral-800 dark:text-neutral-100">定时发布</div>
-              <div className="text-xs text-neutral-400">关闭则发布后立即生效。</div>
+              <div className="mt-0.5 text-xs leading-5 text-neutral-400">
+                关闭则发布后立即生效。
+              </div>
             </div>
             <Toggle checked={scheduled} onChange={setScheduled} />
           </div>
@@ -249,10 +253,12 @@ export function AnnouncementEditor({ announcement, onClose }: Props) {
             />
           )}
 
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-4">
             <div>
               <div className="text-sm text-neutral-800 dark:text-neutral-100">设置过期时间</div>
-              <div className="text-xs text-neutral-400">到期后自动从用户端隐藏。</div>
+              <div className="mt-0.5 text-xs leading-5 text-neutral-400">
+                到期后自动从用户端隐藏。
+              </div>
             </div>
             <Toggle checked={hasExpiry} onChange={setHasExpiry} />
           </div>
