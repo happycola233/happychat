@@ -89,12 +89,16 @@ export function AnnouncementDialog() {
     <Modal
       open
       onClose={dismiss}
+      // 公告正文常含表格/长文，用 reading 宽档 + 固定高度撑出大方的阅读窗口。
+      size="reading"
       height="fixed"
+      // 只保留标题下的分隔线，底部按钮悬浮不画横线，减少一层线条。
+      dividers="header"
       // 富标题：标题 + 「级别 · 时间 · 置顶」元信息行（全部 phrasing 元素，见 Modal 注释）。
-      // 级别只用小图标 + 彩色文字点到为止，不用彩底圆片——弹窗头部承受不了那个视觉重量。
+      // 级别用小图标 + 彩色文字点到为止，不用彩底圆片——弹窗头部承受不了那个视觉重量。
       title={
-        <span className="block min-w-0">
-          <span className="block text-base leading-snug font-semibold text-neutral-900 dark:text-neutral-100">
+        <span className="block min-w-0 py-1">
+          <span className="block text-lg leading-snug font-semibold text-neutral-900 dark:text-neutral-100">
             {current.title}
           </span>
           <span className="mt-1 flex items-center gap-1.5 text-xs font-normal text-neutral-400 dark:text-neutral-500">

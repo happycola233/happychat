@@ -11,20 +11,24 @@ interface Props {
   title: ReactNode
   children: ReactNode
   footer?: ReactNode
-  size?: 'default' | 'form' | 'wide'
+  size?: 'default' | 'form' | 'reading' | 'wide'
   /** 面板高度：auto=随内容收缩（默认）；fixed=固定高度，内容很短时也保持体面的窗体比例。 */
   height?: 'auto' | 'fixed'
+  /** 分隔线范围：all=头脚都画（默认）；header=只画标题下的一条（内容展示类弹窗底部按钮悬浮更轻）。 */
+  dividers?: 'all' | 'header'
 }
 
 const SIZE_CLASS: Record<NonNullable<Props['size']>, string> = {
   default: 'max-w-lg',
   form: 'max-w-2xl',
+  /** 内容阅读档：给公告/文档类正文（含表格）留足排版宽度。 */
+  reading: 'max-w-3xl',
   wide: 'max-w-[min(80vw,calc(100vw-2rem))]',
 }
 
 const HEIGHT_CLASS: Record<NonNullable<Props['height']>, string> = {
   auto: 'max-h-[90vh]',
-  fixed: 'h-[min(85vh,36rem)]',
+  fixed: 'h-[min(85vh,40rem)]',
 }
 
 const FOCUSABLE_SELECTOR = [
@@ -44,6 +48,7 @@ export function Modal({
   footer,
   size = 'default',
   height = 'auto',
+  dividers = 'all',
 }: Props) {
   const titleId = useId()
   const dialogRef = useRef<HTMLDivElement>(null)
@@ -107,8 +112,9 @@ export function Modal({
 
   // 模态层必须脱离入口所在的布局树，避免被聊天主区的 overflow/stacking context 裁剪，
   // 确保从侧边栏、顶栏或设置页打开时都覆盖完整视口。
+  // 移动端外边距收窄换取面板宽度，内边距反而加大——小屏拥挤感主要来自文字贴边。
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
       <div
         className="absolute inset-0 bg-black/40 backdrop-blur-sm"
         onClick={onClose}
@@ -127,7 +133,7 @@ export function Modal({
           HEIGHT_CLASS[height],
         )}
       >
-        <div className="flex shrink-0 items-center justify-between gap-4 border-b border-neutral-200 px-4 py-3.5 sm:px-6 dark:border-neutral-800">
+        <div className="flex shrink-0 items-center justify-between gap-4 border-b border-neutral-200 px-5 py-3.5 sm:px-6 dark:border-neutral-800">
           <h3
             id={titleId}
             className="min-w-0 text-lg font-medium text-neutral-900 dark:text-neutral-100"
@@ -143,9 +149,16 @@ export function Modal({
             <X className="h-5 w-5" />
           </button>
         </div>
-        <div className="hc-scrollbar flex-1 overflow-y-auto px-4 py-4 sm:px-6">{children}</div>
+        <div className="hc-scrollbar flex-1 overflow-y-auto px-5 py-4 sm:px-6">{children}</div>
         {footer && (
-          <div className="flex shrink-0 justify-end gap-2 border-t border-neutral-200 px-4 py-3.5 sm:px-6 dark:border-neutral-800">
+          <div
+            className={clsx(
+              'flex shrink-0 justify-end gap-2 px-5 sm:px-6',
+              dividers === 'all'
+                ? 'border-t border-neutral-200 py-3.5 dark:border-neutral-800'
+                : 'pt-1 pb-4 sm:pb-5',
+            )}
+          >
             {footer}
           </div>
         )}
