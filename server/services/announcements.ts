@@ -1,16 +1,18 @@
-import { and, desc, eq, gt, inArray, isNotNull, isNull, lte, or, sql } from 'drizzle-orm'
+import { and, desc, eq, exists, gt, inArray, isNotNull, isNull, lte, or, sql } from 'drizzle-orm'
 import type {
   AdminAnnouncementDTO,
+  AnnouncementAudienceDTO,
   AnnouncementReaderDTO,
   UserAnnouncementDTO,
 } from '@shared/types/api'
 import type { AnnouncementPhase } from '@shared/types/domain'
 import type { AnnouncementCreateInput, AnnouncementUpdateInput } from '@shared/schemas/announcement'
 import { db } from '../db/client'
-import { announcementReads, announcements, users } from '../db/schema'
+import { announcementReads, announcements, announcementUserTargets, users } from '../db/schema'
 import type { AuthUser } from '../http/types'
 
 type AnnouncementRow = typeof announcements.$inferSelect
+const AUDIENCE_INSERT_BATCH_SIZE = 250
 
 /** status + 生效窗口派生的运行态（不落库，读取时计算）。 */
 function derivePhase(row: AnnouncementRow, now: number): AnnouncementPhase {
@@ -18,16 +20,6 @@ function derivePhase(row: AnnouncementRow, now: number): AnnouncementPhase {
   if (row.publishAt != null && row.publishAt.getTime() > now) return 'scheduled'
   if (row.expiresAt != null && row.expiresAt.getTime() <= now) return 'expired'
   return 'active'
-}
-
-/** 目标受众总人数：all=全部用户，admins=管理员数。 */
-async function audienceCounts(): Promise<{ all: number; admins: number }> {
-  const [all] = await db.select({ c: sql<number>`count(*)` }).from(users)
-  const [admins] = await db
-    .select({ c: sql<number>`count(*)` })
-    .from(users)
-    .where(eq(users.role, 'admin'))
-  return { all: all?.c ?? 0, admins: admins?.c ?? 0 }
 }
 
 function toAdminDTO(
@@ -58,6 +50,41 @@ function toAdminDTO(
   }
 }
 
+/** all 按账号总数；selected 按仍存在的目标关联行计数。 */
+async function getAudienceCount(row: AnnouncementRow): Promise<number> {
+  const [count] =
+    row.audience === 'all'
+      ? await db.select({ c: sql<number>`count(*)` }).from(users)
+      : await db
+          .select({ c: sql<number>`count(*)` })
+          .from(announcementUserTargets)
+          .where(eq(announcementUserTargets.announcementId, row.id))
+  return count?.c ?? 0
+}
+
+/** 已读统计始终按当前受众过滤，受众收窄后不会继续计入已移除账号。 */
+async function getReadCount(id: string): Promise<number> {
+  const [read] = await db
+    .select({ c: sql<number>`count(*)` })
+    .from(announcementReads)
+    .innerJoin(announcements, eq(announcements.id, announcementReads.announcementId))
+    .leftJoin(
+      announcementUserTargets,
+      and(
+        eq(announcementUserTargets.announcementId, announcementReads.announcementId),
+        eq(announcementUserTargets.userId, announcementReads.userId),
+      ),
+    )
+    .where(
+      and(
+        eq(announcements.id, id),
+        isNotNull(announcementReads.readAt),
+        or(eq(announcements.audience, 'all'), isNotNull(announcementUserTargets.userId)),
+      ),
+    )
+  return read?.c ?? 0
+}
+
 /** 管理端：列出全部公告（含派生运行态、已读人数、受众人数、创建者名）。 */
 export async function listAdminAnnouncements(): Promise<AdminAnnouncementDTO[]> {
   const rows = await db
@@ -66,32 +93,53 @@ export async function listAdminAnnouncements(): Promise<AdminAnnouncementDTO[]> 
     .orderBy(desc(announcements.pinned), desc(announcements.createdAt))
   if (rows.length === 0) return []
 
-  // 每条公告的已读人数（仅统计已确认，即 readAt 非空）
   const readRows = await db
     .select({ aid: announcementReads.announcementId, c: sql<number>`count(*)` })
     .from(announcementReads)
-    .where(isNotNull(announcementReads.readAt))
+    .innerJoin(announcements, eq(announcements.id, announcementReads.announcementId))
+    .leftJoin(
+      announcementUserTargets,
+      and(
+        eq(announcementUserTargets.announcementId, announcementReads.announcementId),
+        eq(announcementUserTargets.userId, announcementReads.userId),
+      ),
+    )
+    .where(
+      and(
+        isNotNull(announcementReads.readAt),
+        or(eq(announcements.audience, 'all'), isNotNull(announcementUserTargets.userId)),
+      ),
+    )
     .groupBy(announcementReads.announcementId)
-  const readMap = new Map(readRows.map((r) => [r.aid, r.c]))
+  const readCountByAnnouncement = new Map(readRows.map((row) => [row.aid, row.c]))
 
-  // 创建者用户名（仅查用到的 id）
-  const creatorIds = [...new Set(rows.map((r) => r.createdBy).filter((v): v is string => !!v))]
+  const targetRows = await db
+    .select({ aid: announcementUserTargets.announcementId, c: sql<number>`count(*)` })
+    .from(announcementUserTargets)
+    .groupBy(announcementUserTargets.announcementId)
+  const targetCountByAnnouncement = new Map(targetRows.map((row) => [row.aid, row.c]))
+
+  const [allUsers] = await db.select({ c: sql<number>`count(*)` }).from(users)
+  const allUserCount = allUsers?.c ?? 0
+
+  const creatorIds = [
+    ...new Set(rows.map((row) => row.createdBy).filter((id): id is string => !!id)),
+  ]
   const creatorRows = creatorIds.length
     ? await db
         .select({ id: users.id, username: users.username })
         .from(users)
         .where(inArray(users.id, creatorIds))
     : []
-  const creatorMap = new Map(creatorRows.map((r) => [r.id, r.username]))
+  const creatorNameById = new Map(creatorRows.map((row) => [row.id, row.username]))
 
-  const counts = await audienceCounts()
   const now = Date.now()
   return rows.map((row) =>
     toAdminDTO(
       row,
-      readMap.get(row.id) ?? 0,
-      row.audience === 'admins' ? counts.admins : counts.all,
-      row.createdBy ? (creatorMap.get(row.createdBy) ?? null) : null,
+      readCountByAnnouncement.get(row.id) ?? 0,
+      row.audience === 'all' ? allUserCount : (targetCountByAnnouncement.get(row.id) ?? 0),
+      row.createdBy ? (creatorNameById.get(row.createdBy) ?? null) : null,
       now,
     ),
   )
@@ -101,97 +149,231 @@ export async function listAdminAnnouncements(): Promise<AdminAnnouncementDTO[]> 
 export async function getAdminAnnouncement(id: string): Promise<AdminAnnouncementDTO | null> {
   const [row] = await db.select().from(announcements).where(eq(announcements.id, id)).limit(1)
   if (!row) return null
-  const [read] = await db
-    .select({ c: sql<number>`count(*)` })
-    .from(announcementReads)
-    .where(and(eq(announcementReads.announcementId, id), isNotNull(announcementReads.readAt)))
-  const counts = await audienceCounts()
+
   let createdByName: string | null = null
   if (row.createdBy) {
-    const [u] = await db
+    const [creator] = await db
       .select({ username: users.username })
       .from(users)
       .where(eq(users.id, row.createdBy))
       .limit(1)
-    createdByName = u?.username ?? null
+    createdByName = creator?.username ?? null
   }
   return toAdminDTO(
     row,
-    read?.c ?? 0,
-    row.audience === 'admins' ? counts.admins : counts.all,
+    await getReadCount(id),
+    await getAudienceCount(row),
     createdByName,
     Date.now(),
   )
 }
 
-/** 管理端：创建公告。 */
+/** 管理端：按需读取一条公告的完整目标用户 ID 列表。 */
+export async function getAnnouncementAudience(id: string): Promise<AnnouncementAudienceDTO | null> {
+  const [row] = await db
+    .select({ audience: announcements.audience })
+    .from(announcements)
+    .where(eq(announcements.id, id))
+    .limit(1)
+  if (!row) return null
+  if (row.audience === 'all') return { audience: 'all', userIds: [] }
+
+  const targets = await db
+    .select({ userId: announcementUserTargets.userId })
+    .from(announcementUserTargets)
+    .where(eq(announcementUserTargets.announcementId, id))
+    .orderBy(announcementUserTargets.userId)
+  return { audience: 'selected', userIds: targets.map((target) => target.userId) }
+}
+
+export type CreateAnnouncementResult =
+  | { ok: true; announcement: AdminAnnouncementDTO }
+  | { ok: false; code: 'empty_audience' }
+  | { ok: false; code: 'unknown_users'; unknownUserIds: string[] }
+
+/** 管理端：创建公告及精确受众，二者在同一个 IMMEDIATE 事务内写入。 */
 export async function createAnnouncement(
   input: AnnouncementCreateInput,
   createdBy: string,
-): Promise<AdminAnnouncementDTO> {
-  const [row] = await db
-    .insert(announcements)
-    .values({
-      title: input.title,
-      body: input.body,
-      level: input.level,
-      channel: input.channel,
-      audience: input.audience,
-      status: input.status,
-      pinned: input.pinned,
-      maxImpressions: input.maxImpressions,
-      publishAt: input.publishAt != null ? new Date(input.publishAt) : null,
-      expiresAt: input.expiresAt != null ? new Date(input.expiresAt) : null,
-      createdBy,
-    })
-    .returning()
-  const counts = await audienceCounts()
-  return toAdminDTO(
-    row!,
-    0,
-    row!.audience === 'admins' ? counts.admins : counts.all,
-    null,
-    Date.now(),
+): Promise<CreateAnnouncementResult> {
+  const result = db.transaction(
+    (tx) => {
+      const selectedUserIds = input.audience === 'selected' ? [...new Set(input.userIds)] : []
+      if (input.audience === 'selected' && selectedUserIds.length === 0) {
+        return { ok: false, code: 'empty_audience' } as const
+      }
+
+      const existingUserIds = new Set(
+        selectedUserIds.length > 0
+          ? tx
+              .select({ id: users.id })
+              .from(users)
+              .all()
+              .map((user) => user.id)
+          : [],
+      )
+      const unknownUserIds = selectedUserIds.filter((userId) => !existingUserIds.has(userId))
+      if (unknownUserIds.length > 0) {
+        return { ok: false, code: 'unknown_users', unknownUserIds } as const
+      }
+
+      const row = tx
+        .insert(announcements)
+        .values({
+          title: input.title,
+          body: input.body,
+          level: input.level,
+          channel: input.channel,
+          audience: input.audience,
+          status: input.status,
+          pinned: input.pinned,
+          maxImpressions: input.maxImpressions,
+          publishAt: input.publishAt != null ? new Date(input.publishAt) : null,
+          expiresAt: input.expiresAt != null ? new Date(input.expiresAt) : null,
+          createdBy,
+        })
+        .returning({ id: announcements.id })
+        .get()
+      if (!row) throw new Error('创建公告失败')
+
+      for (let offset = 0; offset < selectedUserIds.length; offset += AUDIENCE_INSERT_BATCH_SIZE) {
+        const batch = selectedUserIds.slice(offset, offset + AUDIENCE_INSERT_BATCH_SIZE)
+        tx.insert(announcementUserTargets)
+          .values(batch.map((userId) => ({ announcementId: row.id, userId })))
+          .run()
+      }
+      return { ok: true, id: row.id } as const
+    },
+    { behavior: 'immediate' },
   )
+
+  if (!result.ok) return result
+  const announcement = await getAdminAnnouncement(result.id)
+  if (!announcement) throw new Error('创建公告后读取失败')
+  return { ok: true, announcement }
 }
 
-/** 管理端：更新公告（部分补丁）。不存在返回 null。 */
+export type UpdateAnnouncementResult =
+  | { ok: true; announcement: AdminAnnouncementDTO }
+  | { ok: false; code: 'announcement_missing' }
+  | { ok: false; code: 'empty_audience' }
+  | { ok: false; code: 'unknown_users'; unknownUserIds: string[] }
+
+/** 管理端：部分更新公告；受众名单使用原子全量替换语义。 */
 export async function updateAnnouncement(
   id: string,
   patch: AnnouncementUpdateInput,
-): Promise<AdminAnnouncementDTO | null> {
-  const [existing] = await db.select().from(announcements).where(eq(announcements.id, id)).limit(1)
-  if (!existing) return null
-  const set: Partial<typeof announcements.$inferInsert> = { updatedAt: new Date() }
-  if (patch.title !== undefined) set.title = patch.title
-  if (patch.body !== undefined) set.body = patch.body
-  if (patch.level !== undefined) set.level = patch.level
-  if (patch.channel !== undefined) set.channel = patch.channel
-  if (patch.audience !== undefined) set.audience = patch.audience
-  if (patch.status !== undefined) set.status = patch.status
-  if (patch.pinned !== undefined) set.pinned = patch.pinned
-  if (patch.maxImpressions !== undefined) set.maxImpressions = patch.maxImpressions
-  if (patch.publishAt !== undefined) set.publishAt = patch.publishAt != null ? new Date(patch.publishAt) : null
-  if (patch.expiresAt !== undefined) set.expiresAt = patch.expiresAt != null ? new Date(patch.expiresAt) : null
-  await db.update(announcements).set(set).where(eq(announcements.id, id))
-  return getAdminAnnouncement(id)
+): Promise<UpdateAnnouncementResult> {
+  const result = db.transaction(
+    (tx) => {
+      const existing = tx.select().from(announcements).where(eq(announcements.id, id)).get()
+      if (!existing) return { ok: false, code: 'announcement_missing' } as const
+
+      const audienceChanged = patch.audience !== undefined || patch.userIds !== undefined
+      const nextAudience = patch.audience ?? existing.audience
+      let selectedUserIds: string[] = []
+      if (audienceChanged && nextAudience === 'selected') {
+        selectedUserIds =
+          patch.userIds !== undefined
+            ? [...new Set(patch.userIds)]
+            : tx
+                .select({ userId: announcementUserTargets.userId })
+                .from(announcementUserTargets)
+                .where(eq(announcementUserTargets.announcementId, id))
+                .all()
+                .map((target) => target.userId)
+        if (selectedUserIds.length === 0) return { ok: false, code: 'empty_audience' } as const
+
+        const existingUserIds = new Set(
+          tx
+            .select({ id: users.id })
+            .from(users)
+            .all()
+            .map((user) => user.id),
+        )
+        const unknownUserIds = selectedUserIds.filter((userId) => !existingUserIds.has(userId))
+        if (unknownUserIds.length > 0) {
+          return { ok: false, code: 'unknown_users', unknownUserIds } as const
+        }
+      }
+
+      const set: Partial<typeof announcements.$inferInsert> = { updatedAt: new Date() }
+      if (patch.title !== undefined) set.title = patch.title
+      if (patch.body !== undefined) set.body = patch.body
+      if (patch.level !== undefined) set.level = patch.level
+      if (patch.channel !== undefined) set.channel = patch.channel
+      if (audienceChanged) set.audience = nextAudience
+      if (patch.status !== undefined) set.status = patch.status
+      if (patch.pinned !== undefined) set.pinned = patch.pinned
+      if (patch.maxImpressions !== undefined) set.maxImpressions = patch.maxImpressions
+      if (patch.publishAt !== undefined) {
+        set.publishAt = patch.publishAt != null ? new Date(patch.publishAt) : null
+      }
+      if (patch.expiresAt !== undefined) {
+        set.expiresAt = patch.expiresAt != null ? new Date(patch.expiresAt) : null
+      }
+      tx.update(announcements).set(set).where(eq(announcements.id, id)).run()
+
+      if (audienceChanged) {
+        tx.delete(announcementUserTargets)
+          .where(eq(announcementUserTargets.announcementId, id))
+          .run()
+        for (
+          let offset = 0;
+          offset < selectedUserIds.length;
+          offset += AUDIENCE_INSERT_BATCH_SIZE
+        ) {
+          const batch = selectedUserIds.slice(offset, offset + AUDIENCE_INSERT_BATCH_SIZE)
+          tx.insert(announcementUserTargets)
+            .values(batch.map((userId) => ({ announcementId: id, userId })))
+            .run()
+        }
+      }
+      return { ok: true } as const
+    },
+    { behavior: 'immediate' },
+  )
+
+  if (!result.ok) return result
+  const announcement = await getAdminAnnouncement(id)
+  if (!announcement) return { ok: false, code: 'announcement_missing' }
+  return { ok: true, announcement }
 }
 
-/** 管理端：删除公告（已读回执随 FK 级联删除）。 */
+/** 管理端：删除公告（目标名单与已读回执随 FK 级联删除）。 */
 export async function deleteAnnouncement(id: string): Promise<void> {
   await db.delete(announcements).where(eq(announcements.id, id))
 }
 
-/** 生效窗口 + 受众 的可见性条件（读取时计算，无 cron）。 */
-function visibleConds(user: AuthUser, now: Date) {
-  const conds = [
+/** 受众条件：全体用户，或 selected 名单中包含当前账号。管理员不隐式绕过。 */
+function audienceVisibleCondition(userId: string) {
+  return or(
+    eq(announcements.audience, 'all'),
+    and(
+      eq(announcements.audience, 'selected'),
+      exists(
+        db
+          .select({ userId: announcementUserTargets.userId })
+          .from(announcementUserTargets)
+          .where(
+            and(
+              eq(announcementUserTargets.announcementId, announcements.id),
+              eq(announcementUserTargets.userId, userId),
+            ),
+          ),
+      ),
+    ),
+  )
+}
+
+/** 生效窗口 + 精确受众的可见性条件（读取时计算，无 cron）。 */
+function visibleCondition(user: AuthUser, now: Date) {
+  return and(
     eq(announcements.status, 'published'),
     or(isNull(announcements.publishAt), lte(announcements.publishAt, now)),
     or(isNull(announcements.expiresAt), gt(announcements.expiresAt, now)),
-  ]
-  // 管理员可见 all + admins；普通用户仅 all。
-  if (user.role !== 'admin') conds.push(eq(announcements.audience, 'all'))
-  return and(...conds)
+    audienceVisibleCondition(user.id),
+  )
 }
 
 /** 用户端：列出当前对该用户生效的公告（含是否已读），置顶优先、按时间倒序。 */
@@ -218,35 +400,39 @@ export async function listActiveForUser(user: AuthUser): Promise<UserAnnouncemen
         eq(announcementReads.userId, user.id),
       ),
     )
-    .where(visibleConds(user, new Date()))
+    .where(visibleCondition(user, new Date()))
     .orderBy(desc(announcements.pinned), desc(announcements.createdAt))
-  return rows.map((r) => ({
-    id: r.id,
-    title: r.title,
-    body: r.body,
-    level: r.level,
-    channel: r.channel,
-    pinned: r.pinned,
-    publishAt: r.publishAt?.getTime() ?? null,
-    createdAt: r.createdAt.getTime(),
-    read: r.readAt != null,
-    maxImpressions: r.maxImpressions,
-    impressions: r.impressions ?? 0,
+  return rows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    body: row.body,
+    level: row.level,
+    channel: row.channel,
+    pinned: row.pinned,
+    publishAt: row.publishAt?.getTime() ?? null,
+    createdAt: row.createdAt.getTime(),
+    read: row.readAt != null,
+    maxImpressions: row.maxImpressions,
+    impressions: row.impressions ?? 0,
   }))
 }
 
-/** 用户端：标记某条公告已读/已确认（幂等 upsert）。返回该公告是否存在。 */
-export async function markAnnouncementRead(id: string, userId: string): Promise<boolean> {
+async function isAnnouncementVisibleToUser(id: string, user: AuthUser): Promise<boolean> {
   const [row] = await db
     .select({ id: announcements.id })
     .from(announcements)
-    .where(eq(announcements.id, id))
+    .where(and(eq(announcements.id, id), visibleCondition(user, new Date())))
     .limit(1)
-  if (!row) return false
+  return !!row
+}
+
+/** 用户端：标记当前可见公告已读/已确认（幂等 upsert）。 */
+export async function markAnnouncementRead(id: string, user: AuthUser): Promise<boolean> {
+  if (!(await isAnnouncementVisibleToUser(id, user))) return false
   const now = new Date()
   await db
     .insert(announcementReads)
-    .values({ announcementId: id, userId, readAt: now })
+    .values({ announcementId: id, userId: user.id, readAt: now })
     .onConflictDoUpdate({
       target: [announcementReads.announcementId, announcementReads.userId],
       set: { readAt: now },
@@ -254,16 +440,16 @@ export async function markAnnouncementRead(id: string, userId: string): Promise<
   return true
 }
 
-/** 用户端：把当前所有生效公告标记为已读（幂等 upsert）。返回本次新标记的条数。 */
+/** 用户端：把当前所有生效公告标记为已读（幂等 upsert）。 */
 export async function markAllAnnouncementsRead(user: AuthUser): Promise<number> {
   const active = await listActiveForUser(user)
-  const unread = active.filter((a) => !a.read)
+  const unread = active.filter((announcement) => !announcement.read)
   if (unread.length === 0) return 0
   const now = new Date()
-  for (const a of unread) {
+  for (const announcement of unread) {
     await db
       .insert(announcementReads)
-      .values({ announcementId: a.id, userId: user.id, readAt: now })
+      .values({ announcementId: announcement.id, userId: user.id, readAt: now })
       .onConflictDoUpdate({
         target: [announcementReads.announcementId, announcementReads.userId],
         set: { readAt: now },
@@ -272,20 +458,12 @@ export async function markAllAnnouncementsRead(user: AuthUser): Promise<number> 
   return unread.length
 }
 
-/**
- * 用户端：记录一次强弹窗曝光（幂等 upsert，impressions+1）。
- * 不改动 readAt。返回该公告是否存在。
- */
-export async function recordAnnouncementImpression(id: string, userId: string): Promise<boolean> {
-  const [row] = await db
-    .select({ id: announcements.id })
-    .from(announcements)
-    .where(eq(announcements.id, id))
-    .limit(1)
-  if (!row) return false
+/** 用户端：记录一次当前可见强弹窗曝光，不改动 readAt。 */
+export async function recordAnnouncementImpression(id: string, user: AuthUser): Promise<boolean> {
+  if (!(await isAnnouncementVisibleToUser(id, user))) return false
   await db
     .insert(announcementReads)
-    .values({ announcementId: id, userId, impressions: 1 })
+    .values({ announcementId: id, userId: user.id, impressions: 1 })
     .onConflictDoUpdate({
       target: [announcementReads.announcementId, announcementReads.userId],
       set: { impressions: sql`${announcementReads.impressions} + 1` },
@@ -293,10 +471,7 @@ export async function recordAnnouncementImpression(id: string, userId: string): 
   return true
 }
 
-/**
- * 管理端：重置某条公告的全部已读/曝光记录（清空该公告的所有回执行）。
- * 之后该公告对所有受众重新变为「未读、曝光归零」，会再次推送。返回是否存在。
- */
+/** 管理端：清空一条公告的全部已读/曝光回执，使当前受众再次收到推送。 */
 export async function resetAnnouncementReads(id: string): Promise<boolean> {
   const [row] = await db
     .select({ id: announcements.id })
@@ -308,7 +483,7 @@ export async function resetAnnouncementReads(id: string): Promise<boolean> {
   return true
 }
 
-/** 管理端：列出已确认（已读）该公告的用户名单，按已读时间倒序。 */
+/** 管理端：列出当前受众中已确认该公告的用户，按已读时间倒序。 */
 export async function listAnnouncementReaders(id: string): Promise<AnnouncementReaderDTO[]> {
   const rows = await db
     .select({
@@ -319,12 +494,26 @@ export async function listAnnouncementReaders(id: string): Promise<AnnouncementR
     })
     .from(announcementReads)
     .innerJoin(users, eq(users.id, announcementReads.userId))
-    .where(and(eq(announcementReads.announcementId, id), isNotNull(announcementReads.readAt)))
+    .innerJoin(announcements, eq(announcements.id, announcementReads.announcementId))
+    .leftJoin(
+      announcementUserTargets,
+      and(
+        eq(announcementUserTargets.announcementId, announcementReads.announcementId),
+        eq(announcementUserTargets.userId, announcementReads.userId),
+      ),
+    )
+    .where(
+      and(
+        eq(announcements.id, id),
+        isNotNull(announcementReads.readAt),
+        or(eq(announcements.audience, 'all'), isNotNull(announcementUserTargets.userId)),
+      ),
+    )
     .orderBy(desc(announcementReads.readAt))
-  return rows.map((r) => ({
-    userId: r.userId,
-    username: r.username,
-    displayName: r.displayName,
-    readAt: r.readAt!.getTime(),
+  return rows.map((row) => ({
+    userId: row.userId,
+    username: row.username,
+    displayName: row.displayName,
+    readAt: row.readAt!.getTime(),
   }))
 }

@@ -192,6 +192,26 @@ export const announcements = sqliteTable(
 )
 
 /**
+ * 公告的精确用户受众。是否使用本表由 announcements.audience 显式决定：
+ * selected + 空名单表示无人可见，但写入服务会拒绝这种无意义状态。
+ */
+export const announcementUserTargets = sqliteTable(
+  'announcement_user_targets',
+  {
+    announcementId: text('announcement_id')
+      .notNull()
+      .references(() => announcements.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.announcementId, t.userId] }),
+    index('announcement_user_targets_user_idx').on(t.userId, t.announcementId),
+  ],
+)
+
+/**
  * 每用户对公告的状态（复合主键）。支持逐条已读与「已读 X/Y 人」统计。
  * - readAt：已读/已确认时间；null=仅曝光过但未确认。
  * - impressions：强提示弹窗对该用户已自动弹出的次数（用于「通知次数」上限）。

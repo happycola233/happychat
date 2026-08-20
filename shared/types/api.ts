@@ -776,6 +776,13 @@ export interface AdminAnnouncementDTO {
   audienceCount: number
 }
 
+/** 管理员按需读取的公告完整受众范围；公告列表只返回人数，避免重复传输大名单。 */
+export interface AnnouncementAudienceDTO {
+  audience: AnnouncementAudience
+  /** selected 模式下的完整用户 ID 名单；all 模式下为空数组。 */
+  userIds: string[]
+}
+
 /** 管理端「谁已读」名单中的一项。 */
 export interface AnnouncementReaderDTO {
   userId: string

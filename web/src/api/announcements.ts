@@ -1,12 +1,10 @@
 import type {
   AdminAnnouncementDTO,
+  AnnouncementAudienceDTO,
   AnnouncementReaderDTO,
   UserAnnouncementDTO,
 } from '@shared/types/api'
-import type {
-  AnnouncementCreateInput,
-  AnnouncementUpdateInput,
-} from '@shared/schemas/announcement'
+import type { AnnouncementCreateInput, AnnouncementUpdateInput } from '@shared/schemas/announcement'
 import { apiDelete, apiGet, apiPatch, apiPost } from './client'
 
 // ---------------- 管理端 CRUD（/admin/*，RequireAdmin） ----------------
@@ -15,6 +13,9 @@ export const listAdminAnnouncements = () =>
   apiGet<{ announcements: AdminAnnouncementDTO[] }>('/admin/announcements').then(
     (r) => r.announcements,
   )
+
+export const getAnnouncementAudience = (id: string) =>
+  apiGet<AnnouncementAudienceDTO>(`/admin/announcements/${id}/audience`)
 
 export const createAnnouncement = (input: AnnouncementCreateInput) =>
   apiPost<{ announcement: AdminAnnouncementDTO }>('/admin/announcements', input).then(

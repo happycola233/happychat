@@ -239,6 +239,13 @@
       "when": 1786788987693,
       "tag": "0033_clever_thor_girl",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1787205331352,
+      "tag": "0034_lethal_scorpion",
+      "breakpoints": true
     }
   ]
 }

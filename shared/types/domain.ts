@@ -22,8 +22,8 @@ export type AnnouncementLevel = 'info' | 'success' | 'warning' | 'critical'
  */
 export type AnnouncementChannel = 'silent' | 'banner' | 'modal'
 
-/** 受众：全体登录用户 / 仅管理员（预留可扩展按角色·按人定向）。 */
-export type AnnouncementAudience = 'all' | 'admins'
+/** 受众：全体登录用户 / 指定用户。指定名单由 announcement_user_targets 保存。 */
+export type AnnouncementAudience = 'all' | 'selected'
 
 /** 发布状态：草稿（永不对用户可见）/ 已发布（按生效窗口计算可见性）。 */
 export type AnnouncementStatus = 'draft' | 'published'

@@ -71,8 +71,16 @@ export const PHASE_META: Record<AnnouncementPhase, { label: string; tone: BadgeT
 /** 受众 → 中文（用于管理端展示）。 */
 export const AUDIENCE_LABEL = {
   all: '全体用户',
-  admins: '仅管理员',
+  selected: '指定用户',
 } as const
+
+/** 列表与编辑器摘要共用同一受众文案，指定模式直接带出精确人数。 */
+export function formatAnnouncementAudience(
+  audience: keyof typeof AUDIENCE_LABEL,
+  audienceCount: number,
+): string {
+  return audience === 'all' ? AUDIENCE_LABEL.all : `指定 ${audienceCount} 位用户`
+}
 
 /**
  * 公告时间的友好展示：一周内相对时间，更久给出日期。

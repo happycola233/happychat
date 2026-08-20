@@ -16,8 +16,8 @@ import { PageHeader } from '../../components/ui/PageHeader'
 import { Spinner } from '../../components/ui/Spinner'
 import { tableScroll, tableShell } from '../../components/ui/tableStyles'
 import {
-  AUDIENCE_LABEL,
   CHANNEL_LABEL,
+  formatAnnouncementAudience,
   formatAnnouncementTime,
   LEVEL_META,
   PHASE_META,
@@ -159,7 +159,10 @@ export default function AnnouncementsPage() {
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1.5">
                           {a.pinned && (
-                            <Pin className="h-3.5 w-3.5 shrink-0 text-neutral-400" aria-label="置顶" />
+                            <Pin
+                              className="h-3.5 w-3.5 shrink-0 text-neutral-400"
+                              aria-label="置顶"
+                            />
                           )}
                           <Badge tone={level.tone}>{level.label}</Badge>
                           <span className="font-medium text-neutral-900 dark:text-neutral-100">
@@ -175,7 +178,7 @@ export default function AnnouncementsPage() {
                         {CHANNEL_LABEL[a.channel]}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-neutral-600 dark:text-neutral-300">
-                        {AUDIENCE_LABEL[a.audience]}
+                        {formatAnnouncementAudience(a.audience, a.audienceCount)}
                       </td>
                       <td className="px-4 py-3">
                         <Badge tone={phase.tone}>{phase.label}</Badge>
@@ -254,9 +257,7 @@ export default function AnnouncementsPage() {
       {editorOpen && (
         <AnnouncementEditor announcement={editing} onClose={() => setEditorOpen(false)} />
       )}
-      {readersOf && (
-        <ReadersModal announcement={readersOf} onClose={() => setReadersOf(null)} />
-      )}
+      {readersOf && <ReadersModal announcement={readersOf} onClose={() => setReadersOf(null)} />}
     </div>
   )
 }

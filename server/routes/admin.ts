@@ -70,6 +70,7 @@ import { getAppConfig, updateAppConfig } from '../services/appConfig'
 import {
   createAnnouncement,
   deleteAnnouncement,
+  getAnnouncementAudience,
   listAdminAnnouncements,
   listAnnouncementReaders,
   resetAnnouncementReads,
@@ -806,15 +807,54 @@ adminRoutes.get('/announcements', async (c) => {
   return c.json({ announcements: await listAdminAnnouncements() })
 })
 
+/** 单条公告的完整精确受众名单；列表响应只带人数。 */
+adminRoutes.get('/announcements/:id/audience', async (c) => {
+  const audience = await getAnnouncementAudience(c.req.param('id'))
+  if (!audience) return c.json({ error: { message: '公告不存在', code: 'not_found' } }, 404)
+  return c.json(audience)
+})
+
 adminRoutes.post('/announcements', jsonValidator(announcementCreateSchema), async (c) => {
-  const announcement = await createAnnouncement(c.req.valid('json'), c.get('user').id)
-  return c.json({ announcement })
+  const result = await createAnnouncement(c.req.valid('json'), c.get('user').id)
+  if (!result.ok) {
+    if (result.code === 'unknown_users') {
+      return c.json(
+        {
+          error: {
+            message: '部分用户已不存在，请刷新受众名单后重试',
+            code: result.code,
+            detail: { userIds: result.unknownUserIds },
+          },
+        },
+        400,
+      )
+    }
+    return c.json({ error: { message: '请至少选择 1 位用户', code: result.code } }, 400)
+  }
+  return c.json({ announcement: result.announcement })
 })
 
 adminRoutes.patch('/announcements/:id', jsonValidator(announcementUpdateSchema), async (c) => {
-  const announcement = await updateAnnouncement(c.req.param('id'), c.req.valid('json'))
-  if (!announcement) return c.json({ error: { message: '公告不存在', code: 'not_found' } }, 404)
-  return c.json({ announcement })
+  const result = await updateAnnouncement(c.req.param('id'), c.req.valid('json'))
+  if (!result.ok) {
+    if (result.code === 'announcement_missing') {
+      return c.json({ error: { message: '公告不存在', code: 'not_found' } }, 404)
+    }
+    if (result.code === 'unknown_users') {
+      return c.json(
+        {
+          error: {
+            message: '部分用户已不存在，请刷新受众名单后重试',
+            code: result.code,
+            detail: { userIds: result.unknownUserIds },
+          },
+        },
+        400,
+      )
+    }
+    return c.json({ error: { message: '请至少选择 1 位用户', code: result.code } }, 400)
+  }
+  return c.json({ announcement: result.announcement })
 })
 
 adminRoutes.delete('/announcements/:id', async (c) => {
