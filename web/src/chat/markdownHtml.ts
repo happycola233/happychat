@@ -35,6 +35,8 @@ const ALLOWED_TAG_NAMES = [
   'h5',
   'h6',
   'hr',
+  // 图片属性与 src 协议仍由 defaultSchema 收口：允许安全相对地址及 http(s)，拒绝事件属性与危险协议。
+  'img',
   'input',
   'kbd',
   'li',

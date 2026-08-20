@@ -323,6 +323,21 @@ describe('Markdown footnotes', () => {
   })
 })
 
+describe('Markdown images', () => {
+  it.each([
+    ['static', false],
+    ['streaming', true],
+  ])('renders standard image syntax in %s mode', (_mode, animate) => {
+    const html = renderToStaticMarkup(
+      <Markdown text={'![说明](https://example.com/demo.png "图片标题")'} animate={animate} />,
+    )
+
+    expect(html).toContain(
+      '<img src="https://example.com/demo.png" alt="说明" title="图片标题"/>',
+    )
+  })
+})
+
 describe('Markdown math', () => {
   it('renders LaTeX display delimiters through KaTeX', () => {
     const html = renderToStaticMarkup(<Markdown text={'\\[ x=\\frac{1}{2} \\]'} />)
@@ -407,14 +422,19 @@ describe('Markdown 流式渐入', () => {
 
 // 公告正文复用同一渲染器（作者为管理员，但仍须保证不执行不可信 HTML）。
 describe('Markdown 安全性', () => {
-  it('不把原始 HTML 渲染为真实的脚本/图片标签', () => {
+  it('过滤原始 HTML 中的脚本与图片事件处理器', () => {
     const html = renderToStaticMarkup(
-      <Markdown text={'<script>alert(1)</script>\n\n<img src=x onerror=alert(2)>\n\n正文照常'} />,
+      <Markdown
+        text={
+          '<script>alert(1)</script>\n\n<img src="https://example.com/raw.png" alt="说明" onerror="alert(2)">\n\n正文照常'
+        }
+      />,
     )
 
-    // 即使允许一小段安全 HTML，也不能产生可执行标签。
+    // 图片是受支持的安全标签，但原始 HTML 仍不能带入脚本或事件处理器。
     expect(html).not.toContain('<script>')
-    expect(html).not.toMatch(/<img[\s>]/)
+    expect(html).toContain('<img src="https://example.com/raw.png" alt="说明"/>')
+    expect(html).not.toContain('onerror')
     expect(html).toContain('正文照常')
   })
 
@@ -434,11 +454,14 @@ describe('Markdown 安全性', () => {
     expect(html).not.toContain('<iframe')
   })
 
-  it('中和 javascript: 链接协议', () => {
-    const html = renderToStaticMarkup(<Markdown text={'[点我](javascript:alert(1))'} />)
+  it('中和 javascript: 链接与图片协议', () => {
+    const html = renderToStaticMarkup(
+      <Markdown text={'[点我](javascript:alert(1))\n\n![危险图片](javascript:alert(2))'} />,
+    )
 
     expect(html).not.toContain('javascript:')
     expect(html).toContain('点我')
+    expect(html).toContain('alt="危险图片"')
   })
 })
 
