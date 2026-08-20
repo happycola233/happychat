@@ -16,6 +16,8 @@ interface Props {
   height?: 'auto' | 'fixed'
   /** 分隔线范围：all=头脚都画（默认）；header=只画标题下的一条（内容展示类弹窗底部按钮悬浮更轻）。 */
   dividers?: 'all' | 'header'
+  /** false 时隐藏关闭按钮，并忽略 Escape 与背景点击；适用于必须明确确认的阻断式提示。 */
+  dismissible?: boolean
 }
 
 const SIZE_CLASS: Record<NonNullable<Props['size']>, string> = {
@@ -49,6 +51,7 @@ export function Modal({
   size = 'default',
   height = 'auto',
   dividers = 'all',
+  dismissible = true,
 }: Props) {
   const titleId = useId()
   const dialogRef = useRef<HTMLDivElement>(null)
@@ -71,7 +74,7 @@ export function Modal({
       const openDialogs = document.querySelectorAll('[aria-modal="true"]')
       if (openDialogs.item(openDialogs.length - 1) !== dialog) return
 
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && dismissible) {
         e.preventDefault()
         onCloseRef.current()
         return
@@ -106,7 +109,7 @@ export function Modal({
       window.removeEventListener('keydown', onKey)
       if (previouslyFocused?.isConnected) previouslyFocused.focus({ preventScroll: true })
     }
-  }, [open])
+  }, [dismissible, open])
 
   if (!open) return null
 
@@ -117,7 +120,7 @@ export function Modal({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
       <div
         className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-        onClick={onClose}
+        onClick={dismissible ? onClose : undefined}
         aria-hidden="true"
       />
       {/* 面板用 flex 列布局：头/脚为固定栏，仅中间正文滚动，长表单也能常驻标题与操作。 */}
@@ -140,14 +143,16 @@ export function Modal({
           >
             {title}
           </h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg p-1 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800"
-            aria-label="关闭"
-          >
-            <X className="h-5 w-5" />
-          </button>
+          {dismissible && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg p-1 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800"
+              aria-label="关闭"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          )}
         </div>
         <div className="hc-scrollbar flex-1 overflow-y-auto px-5 py-4 sm:px-6">{children}</div>
         {footer && (

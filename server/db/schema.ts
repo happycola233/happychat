@@ -174,8 +174,6 @@ export const announcements = sqliteTable(
     status: text('status').$type<AnnouncementStatus>().notNull().default('draft'),
     // 置顶：通知中心与横幅排序时优先
     pinned: integer('pinned', { mode: 'boolean' }).notNull().default(false),
-    // 强提示弹窗对每个用户最多自动弹出的次数（点「我知道了」后不再弹）
-    maxImpressions: integer('max_impressions').notNull().default(1),
     // 生效起点：null=发布后立即可见；未来时间=定时发布
     publishAt: ts('publish_at'),
     // 失效终点：null=永不过期
@@ -212,9 +210,8 @@ export const announcementUserTargets = sqliteTable(
 )
 
 /**
- * 每用户对公告的状态（复合主键）。支持逐条已读与「已读 X/Y 人」统计。
- * - readAt：已读/已确认时间；null=仅曝光过但未确认。
- * - impressions：强提示弹窗对该用户已自动弹出的次数（用于「通知次数」上限）。
+ * 每用户对公告的确认状态（复合主键）。只有用户确认后才创建记录，
+ * 未确认的强提示公告不会落曝光回执，因此会持续展示。
  */
 export const announcementReads = sqliteTable(
   'announcement_reads',
@@ -225,10 +222,7 @@ export const announcementReads = sqliteTable(
     userId: text('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    // null=未确认；有值=已读（bell 未读数、已读统计均以此为准）
-    readAt: ts('read_at'),
-    // 强弹窗已自动弹出次数
-    impressions: integer('impressions').notNull().default(0),
+    readAt: ts('read_at').notNull(),
   },
   (t) => [
     primaryKey({ columns: [t.announcementId, t.userId] }),

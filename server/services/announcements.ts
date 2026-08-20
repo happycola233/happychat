@@ -38,7 +38,6 @@ function toAdminDTO(
     audience: row.audience,
     status: row.status,
     pinned: row.pinned,
-    maxImpressions: row.maxImpressions,
     publishAt: row.publishAt?.getTime() ?? null,
     expiresAt: row.expiresAt?.getTime() ?? null,
     createdByName,
@@ -78,7 +77,6 @@ async function getReadCount(id: string): Promise<number> {
     .where(
       and(
         eq(announcements.id, id),
-        isNotNull(announcementReads.readAt),
         or(eq(announcements.audience, 'all'), isNotNull(announcementUserTargets.userId)),
       ),
     )
@@ -104,12 +102,7 @@ export async function listAdminAnnouncements(): Promise<AdminAnnouncementDTO[]> 
         eq(announcementUserTargets.userId, announcementReads.userId),
       ),
     )
-    .where(
-      and(
-        isNotNull(announcementReads.readAt),
-        or(eq(announcements.audience, 'all'), isNotNull(announcementUserTargets.userId)),
-      ),
-    )
+    .where(or(eq(announcements.audience, 'all'), isNotNull(announcementUserTargets.userId)))
     .groupBy(announcementReads.announcementId)
   const readCountByAnnouncement = new Map(readRows.map((row) => [row.aid, row.c]))
 
@@ -227,7 +220,6 @@ export async function createAnnouncement(
           audience: input.audience,
           status: input.status,
           pinned: input.pinned,
-          maxImpressions: input.maxImpressions,
           publishAt: input.publishAt != null ? new Date(input.publishAt) : null,
           expiresAt: input.expiresAt != null ? new Date(input.expiresAt) : null,
           createdBy,
@@ -305,7 +297,6 @@ export async function updateAnnouncement(
       if (audienceChanged) set.audience = nextAudience
       if (patch.status !== undefined) set.status = patch.status
       if (patch.pinned !== undefined) set.pinned = patch.pinned
-      if (patch.maxImpressions !== undefined) set.maxImpressions = patch.maxImpressions
       if (patch.publishAt !== undefined) {
         set.publishAt = patch.publishAt != null ? new Date(patch.publishAt) : null
       }
@@ -386,11 +377,9 @@ export async function listActiveForUser(user: AuthUser): Promise<UserAnnouncemen
       level: announcements.level,
       channel: announcements.channel,
       pinned: announcements.pinned,
-      maxImpressions: announcements.maxImpressions,
       publishAt: announcements.publishAt,
       createdAt: announcements.createdAt,
       readAt: announcementReads.readAt,
-      impressions: announcementReads.impressions,
     })
     .from(announcements)
     .leftJoin(
@@ -412,8 +401,6 @@ export async function listActiveForUser(user: AuthUser): Promise<UserAnnouncemen
     publishAt: row.publishAt?.getTime() ?? null,
     createdAt: row.createdAt.getTime(),
     read: row.readAt != null,
-    maxImpressions: row.maxImpressions,
-    impressions: row.impressions ?? 0,
   }))
 }
 
@@ -443,7 +430,10 @@ export async function markAnnouncementRead(id: string, user: AuthUser): Promise<
 /** 用户端：把当前所有生效公告标记为已读（幂等 upsert）。 */
 export async function markAllAnnouncementsRead(user: AuthUser): Promise<number> {
   const active = await listActiveForUser(user)
-  const unread = active.filter((announcement) => !announcement.read)
+  // 强提示必须由详情中的明确确认按钮逐条完成，不允许「全部已读」绕过。
+  const unread = active.filter(
+    (announcement) => !announcement.read && announcement.channel !== 'modal',
+  )
   if (unread.length === 0) return 0
   const now = new Date()
   for (const announcement of unread) {
@@ -458,20 +448,7 @@ export async function markAllAnnouncementsRead(user: AuthUser): Promise<number> 
   return unread.length
 }
 
-/** 用户端：记录一次当前可见强弹窗曝光，不改动 readAt。 */
-export async function recordAnnouncementImpression(id: string, user: AuthUser): Promise<boolean> {
-  if (!(await isAnnouncementVisibleToUser(id, user))) return false
-  await db
-    .insert(announcementReads)
-    .values({ announcementId: id, userId: user.id, impressions: 1 })
-    .onConflictDoUpdate({
-      target: [announcementReads.announcementId, announcementReads.userId],
-      set: { impressions: sql`${announcementReads.impressions} + 1` },
-    })
-  return true
-}
-
-/** 管理端：清空一条公告的全部已读/曝光回执，使当前受众再次收到推送。 */
+/** 管理端：清空一条公告的全部已读回执，使当前受众再次收到推送。 */
 export async function resetAnnouncementReads(id: string): Promise<boolean> {
   const [row] = await db
     .select({ id: announcements.id })
@@ -505,7 +482,6 @@ export async function listAnnouncementReaders(id: string): Promise<AnnouncementR
     .where(
       and(
         eq(announcements.id, id),
-        isNotNull(announcementReads.readAt),
         or(eq(announcements.audience, 'all'), isNotNull(announcementUserTargets.userId)),
       ),
     )
@@ -514,6 +490,6 @@ export async function listAnnouncementReaders(id: string): Promise<AnnouncementR
     userId: row.userId,
     username: row.username,
     displayName: row.displayName,
-    readAt: row.readAt!.getTime(),
+    readAt: row.readAt.getTime(),
   }))
 }

@@ -87,6 +87,7 @@ export function NotificationBell() {
 
   const items = data ?? []
   const unread = items.filter((a) => !a.read).length
+  const markableUnread = items.some((item) => !item.read && item.channel !== 'modal')
 
   // Esc 关闭下拉
   useEffect(() => {
@@ -99,7 +100,8 @@ export function NotificationBell() {
   }, [open])
 
   const onOpenItem = (item: UserAnnouncementDTO) => {
-    if (!item.read) markRead.mutate(item.id)
+    // 未确认强提示必须在详情里的「我知道了」按钮完成确认，不能靠点开条目绕过。
+    if (!item.read && item.channel !== 'modal') markRead.mutate(item.id)
     openDetail(item.id)
     setOpen(false)
   }
@@ -141,7 +143,7 @@ export function NotificationBell() {
               <span className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
                 通知
               </span>
-              {unread > 0 && (
+              {markableUnread && (
                 <button
                   type="button"
                   onClick={() => markAll.mutate()}

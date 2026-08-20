@@ -4,7 +4,6 @@ import {
   getActiveAnnouncements,
   markAllAnnouncementsRead,
   markAnnouncementRead,
-  recordAnnouncementImpression,
 } from '../api/announcements'
 import { useMe } from './useAuth'
 
@@ -50,23 +49,6 @@ export function useMarkAnnouncementRead() {
   })
 }
 
-/** 记录一次强弹窗曝光（乐观 impressions+1）。 */
-export function useRecordImpression() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (id: string) => recordAnnouncementImpression(id),
-    onMutate: async (id) => {
-      await qc.cancelQueries({ queryKey: ANNOUNCEMENTS_KEY })
-      const previous = qc.getQueryData<UserAnnouncementDTO[]>(ANNOUNCEMENTS_KEY)
-      patchCache(qc, (a) => (a.id === id ? { ...a, impressions: a.impressions + 1 } : a))
-      return { previous }
-    },
-    onError: (_e, _id, ctx) => {
-      if (ctx?.previous) qc.setQueryData(ANNOUNCEMENTS_KEY, ctx.previous)
-    },
-  })
-}
-
 /** 全部标记已读（乐观更新，失败回滚）。 */
 export function useMarkAllAnnouncementsRead() {
   const qc = useQueryClient()
@@ -75,7 +57,8 @@ export function useMarkAllAnnouncementsRead() {
     onMutate: async () => {
       await qc.cancelQueries({ queryKey: ANNOUNCEMENTS_KEY })
       const previous = qc.getQueryData<UserAnnouncementDTO[]>(ANNOUNCEMENTS_KEY)
-      patchCache(qc, (a) => ({ ...a, read: true }))
+      // 强提示只能由其明确确认按钮标记已读，不能被通知中心「全部已读」绕过。
+      patchCache(qc, (a) => (a.channel === 'modal' ? a : { ...a, read: true }))
       return { previous }
     },
     onError: (_e, _v, ctx) => {

@@ -74,7 +74,6 @@ export function AnnouncementEditor({ announcement, onClose }: Props) {
   const [audienceOpen, setAudienceOpen] = useState(false)
   const [status, setStatus] = useState<AnnouncementStatus>(announcement?.status ?? 'draft')
   const [pinned, setPinned] = useState(announcement?.pinned ?? false)
-  const [maxImpressions, setMaxImpressions] = useState(announcement?.maxImpressions ?? 1)
   const [scheduled, setScheduled] = useState(announcement?.publishAt != null)
   const [publishAt, setPublishAt] = useState(msToLocalInput(announcement?.publishAt ?? null))
   const [hasExpiry, setHasExpiry] = useState(announcement?.expiresAt != null)
@@ -91,7 +90,6 @@ export function AnnouncementEditor({ announcement, onClose }: Props) {
         channel,
         status,
         pinned,
-        maxImpressions,
         publishAt: publishMs,
         expiresAt: expiryMs,
       }
@@ -233,7 +231,7 @@ export function AnnouncementEditor({ announcement, onClose }: Props) {
             </div>
             <p className="text-xs text-neutral-400">
               渠道说明：<b>仅通知中心</b>=静默入铃铛；<b>顶部横幅</b>=聊天区顶部可关闭条；
-              <b>强提示弹窗</b>=首次进入自动弹窗需确认。全部渠道均会进入铃铛通知中心。
+              <b>强提示弹窗</b>=持续展示直到用户确认。全部渠道均会进入铃铛通知中心。
             </p>
           </div>
 
@@ -275,29 +273,6 @@ export function AnnouncementEditor({ announcement, onClose }: Props) {
               </div>
               <Toggle checked={pinned} onChange={setPinned} />
             </div>
-
-            {channel === 'modal' && (
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <div className="text-sm text-neutral-800 dark:text-neutral-100">通知次数</div>
-                  <div className="mt-0.5 text-xs leading-5 text-neutral-400">
-                    强提示弹窗对每个用户最多自动弹出的次数（1–20）；点「我知道了」后不再弹。
-                  </div>
-                </div>
-                <input
-                  type="number"
-                  min={1}
-                  max={20}
-                  value={maxImpressions}
-                  onChange={(e) =>
-                    setMaxImpressions(
-                      Math.min(20, Math.max(1, Math.floor(Number(e.target.value) || 1))),
-                    )
-                  }
-                  className="w-20 shrink-0 rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-center text-sm text-neutral-800 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
-                />
-              </div>
-            )}
 
             <div className="flex items-center justify-between gap-4">
               <div>

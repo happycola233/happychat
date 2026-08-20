@@ -48,8 +48,5 @@ export const getActiveAnnouncements = () =>
 export const markAnnouncementRead = (id: string) =>
   apiPost<{ ok: true }>(`/announcements/${id}/read`)
 
-export const recordAnnouncementImpression = (id: string) =>
-  apiPost<{ ok: true }>(`/announcements/${id}/impression`)
-
 export const markAllAnnouncementsRead = () =>
   apiPost<{ ok: true; marked: number }>('/announcements/read-all')

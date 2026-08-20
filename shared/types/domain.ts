@@ -18,7 +18,7 @@ export type AnnouncementLevel = 'info' | 'success' | 'warning' | 'critical'
  * 触达渠道（决定用户如何看到公告）：
  * - silent：仅进铃铛通知中心
  * - banner：聊天区顶部可关闭横幅
- * - modal：首次进入自动弹窗，需确认
+ * - modal：自动弹窗并持续展示，直到用户确认
  */
 export type AnnouncementChannel = 'silent' | 'banner' | 'modal'
 

@@ -1,94 +1,86 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { clsx } from 'clsx'
 import { Pin } from 'lucide-react'
+import type { UserAnnouncementDTO } from '@shared/types/api'
 import { Modal } from '../components/ui/Modal'
 import { Button } from '../components/ui/Button'
 import { Markdown } from '../chat/Markdown'
-import {
-  useActiveAnnouncements,
-  useMarkAnnouncementRead,
-  useRecordImpression,
-} from '../hooks/useAnnouncements'
+import { useActiveAnnouncements, useMarkAnnouncementRead } from '../hooks/useAnnouncements'
 import { formatAnnouncementTime, LEVEL_META } from '../lib/announcementMeta'
 import { useAnnouncementView } from '../store/announcementView'
+
+const EMPTY_ANNOUNCEMENTS: UserAnnouncementDTO[] = []
 
 /**
  * 公告详情 / 强提示弹窗（在 ChatLayout 挂载一次）。
  * - 用户从通知中心/横幅点开 → 展示该条详情（viewingId 优先）。
- * - 否则自动挑「渠道=强弹窗、未读、曝光未达上限」的公告弹出：
- *   每次展示上报一次曝光（impressions+1），达到「通知次数」上限后不再自动弹；
- *   点「我知道了」标记已读后也不再弹。
+ * - 否则自动挑第一条「渠道=强弹窗且未确认」的公告。
+ * - 自动强提示不可通过关闭按钮、Escape 或背景点击跳过；只有点「我知道了」
+ *   写入确认回执后才消失，多条强提示会依次展示。
  */
 export function AnnouncementDialog() {
   const { data } = useActiveAnnouncements()
   const viewingId = useAnnouncementView((s) => s.viewingId)
   const closeView = useAnnouncementView((s) => s.close)
   const markRead = useMarkAnnouncementRead()
-  const recordImpression = useRecordImpression()
-
-  // 当前正在自动展示的强弹窗 id
   const [activeAutoId, setActiveAutoId] = useState<string | null>(null)
-  // 本次会话已「关闭（非确认）」的强弹窗 id：避免同一会话内反复弹
-  const [dismissed, setDismissed] = useState<string[]>([])
-  // 已上报曝光的 id（防同一挂载周期内重复上报）
-  const impressed = useRef<Set<string>>(new Set())
 
-  // 选取 / 清理自动弹窗；每次新选中上报一次曝光。
+  const items = data ?? EMPTY_ANNOUNCEMENTS
   useEffect(() => {
-    if (viewingId) return // 手动查看优先，不自动弹
-    const items = data ?? []
-    // 当前弹窗已失效（已读 / 过期 / 被删）→ 释放，交由下一轮重新选取
-    if (activeAutoId && !items.some((a) => a.id === activeAutoId && !a.read)) {
-      setActiveAutoId(null)
-      return
-    }
-    if (activeAutoId) return
-    const next = items.find(
-      (a) =>
-        a.channel === 'modal' &&
-        !a.read &&
-        a.impressions < a.maxImpressions &&
-        !dismissed.includes(a.id),
+    if (viewingId) return
+    const activeStillValid = items.some(
+      (announcement) =>
+        announcement.id === activeAutoId && announcement.channel === 'modal' && !announcement.read,
     )
-    if (next) {
-      setActiveAutoId(next.id)
-      if (!impressed.current.has(next.id)) {
-        impressed.current.add(next.id)
-        recordImpression.mutate(next.id)
-      }
-    }
-  }, [data, viewingId, activeAutoId, dismissed, recordImpression])
+    if (activeStillValid) return
+    const next = items.find(
+      (announcement) => announcement.channel === 'modal' && !announcement.read,
+    )
+    setActiveAutoId(next?.id ?? null)
+  }, [activeAutoId, items, viewingId])
 
-  const items = data ?? []
   const manual = viewingId ? (items.find((a) => a.id === viewingId) ?? null) : null
   const auto =
-    !manual && activeAutoId ? (items.find((a) => a.id === activeAutoId && !a.read) ?? null) : null
+    !manual && activeAutoId
+      ? (items.find((announcement) => announcement.id === activeAutoId && !announcement.read) ??
+        null)
+      : null
   const current = manual ?? auto
-  const isAuto = !manual && !!auto
 
   if (!current) return null
+  return (
+    <AnnouncementDialogView
+      current={current}
+      requiresAcknowledgement={current.channel === 'modal' && !current.read}
+      acknowledging={markRead.isPending}
+      onAcknowledge={() => markRead.mutate(current.id)}
+      onClose={closeView}
+    />
+  )
+}
+
+/** 纯视图拆分便于锁定“未确认强提示不可关闭、普通详情可关闭”的交互契约。 */
+export function AnnouncementDialogView({
+  current,
+  requiresAcknowledgement,
+  acknowledging,
+  onAcknowledge,
+  onClose,
+}: {
+  current: UserAnnouncementDTO
+  requiresAcknowledgement: boolean
+  acknowledging: boolean
+  onAcknowledge: () => void
+  onClose: () => void
+}) {
   const meta = LEVEL_META[current.level]
   const LevelIcon = meta.icon
-
-  // 强弹窗主按钮「我知道了」：标记已读并收起（手动查看没有底部按钮，走 dismiss 关闭）
-  const acknowledge = () => {
-    markRead.mutate(current.id)
-    setActiveAutoId(null)
-  }
-  // Esc / 点背景：强弹窗仅本会话关闭（不确认，之后仍可能再弹到次数上限）
-  const dismiss = () => {
-    if (isAuto) {
-      setDismissed((d) => (d.includes(current.id) ? d : [...d, current.id]))
-      setActiveAutoId(null)
-    } else {
-      closeView()
-    }
-  }
 
   return (
     <Modal
       open
-      onClose={dismiss}
+      onClose={onClose}
+      dismissible={!requiresAcknowledgement}
       // 公告正文常含表格/长文，用 reading 宽档 + 固定高度撑出大方的阅读窗口。
       size="reading"
       height="fixed"
@@ -114,10 +106,10 @@ export function AnnouncementDialog() {
           </span>
         </span>
       }
-      // 手动查看不需要底部按钮（右上角 X / Esc / 点背景均可关闭）；强弹窗保留「我知道了」确认
+      // 已确认或非 modal 的手动详情可正常关闭；未确认强提示只保留明确确认按钮。
       footer={
-        isAuto ? (
-          <Button variant="primary" onClick={acknowledge}>
+        requiresAcknowledgement ? (
+          <Button variant="primary" loading={acknowledging} onClick={onAcknowledge}>
             我知道了
           </Button>
         ) : undefined

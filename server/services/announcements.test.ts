@@ -75,11 +75,20 @@ describe('announcement exact audience', () => {
     )
 
     expect(await services.markAnnouncementRead(created.announcement.id, other)).toBe(false)
-    expect(await services.recordAnnouncementImpression(created.announcement.id, creator)).toBe(
-      false,
-    )
+    expect(await services.markAnnouncementRead(created.announcement.id, creator)).toBe(false)
+    expect(
+      await dbClient.db
+        .select()
+        .from(schema.announcementReads)
+        .where(eq(schema.announcementReads.announcementId, created.announcement.id)),
+    ).toEqual([])
     expect(await services.markAnnouncementRead(created.announcement.id, target)).toBe(true)
-    expect(await services.recordAnnouncementImpression(created.announcement.id, target)).toBe(true)
+    expect(
+      await dbClient.db
+        .select()
+        .from(schema.announcementReads)
+        .where(eq(schema.announcementReads.announcementId, created.announcement.id)),
+    ).toHaveLength(1)
 
     const detail = await services.getAdminAnnouncement(created.announcement.id)
     expect(detail).toMatchObject({ audience: 'selected', audienceCount: 1, readCount: 1 })
@@ -174,5 +183,36 @@ describe('announcement exact audience', () => {
       .from(schema.announcementUserTargets)
       .where(eq(schema.announcementUserTargets.announcementId, created.announcement.id))
     expect(targetRows).toEqual([])
+  })
+
+  it('does not let read-all bypass an explicit modal acknowledgement', async () => {
+    const creator = await createUser('admin')
+    const target = await createUser()
+    const created = await services.createAnnouncement(
+      announcementCreateSchema.parse({
+        title: '必须确认',
+        body: '强提示正文',
+        channel: 'modal',
+        audience: 'selected',
+        userIds: [target.id],
+        status: 'published',
+      }),
+      creator.id,
+    )
+    if (!created.ok) throw new Error('announcement fixture missing')
+
+    await services.markAllAnnouncementsRead(target)
+    expect(
+      (await services.listActiveForUser(target)).find(
+        (announcement) => announcement.id === created.announcement.id,
+      ),
+    ).toMatchObject({ read: false })
+
+    expect(await services.markAnnouncementRead(created.announcement.id, target)).toBe(true)
+    expect(
+      (await services.listActiveForUser(target)).find(
+        (announcement) => announcement.id === created.announcement.id,
+      ),
+    ).toMatchObject({ read: true })
   })
 })

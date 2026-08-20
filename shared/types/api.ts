@@ -761,8 +761,6 @@ export interface AdminAnnouncementDTO {
   audience: AnnouncementAudience
   status: AnnouncementStatus
   pinned: boolean
-  /** 强提示弹窗对每个用户最多自动弹出的次数 */
-  maxImpressions: number
   publishAt: number | null
   expiresAt: number | null
   createdByName: string | null
@@ -803,10 +801,6 @@ export interface UserAnnouncementDTO {
   createdAt: number
   /** 当前用户是否已读（已确认） */
   read: boolean
-  /** 强提示弹窗的最大自动弹出次数 */
-  maxImpressions: number
-  /** 强提示弹窗对该用户已自动弹出的次数 */
-  impressions: number
 }
 
 /** 用户自己/管理员看到的一条分享记录。 */

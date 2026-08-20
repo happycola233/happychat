@@ -4,7 +4,6 @@ import {
   listActiveForUser,
   markAllAnnouncementsRead,
   markAnnouncementRead,
-  recordAnnouncementImpression,
 } from '../services/announcements'
 import type { AppEnv } from '../http/types'
 
@@ -21,15 +20,6 @@ announcementRoutes.get('/active', async (c) => {
 /** 标记单条已读（幂等）。 */
 announcementRoutes.post('/:id/read', async (c) => {
   const ok = await markAnnouncementRead(c.req.param('id'), c.get('user'))
-  if (!ok) {
-    return c.json({ error: { message: '公告不存在或当前不可见', code: 'not_found' } }, 404)
-  }
-  return c.json({ ok: true })
-})
-
-/** 记录一次强弹窗曝光（幂等 +1）。 */
-announcementRoutes.post('/:id/impression', async (c) => {
-  const ok = await recordAnnouncementImpression(c.req.param('id'), c.get('user'))
   if (!ok) {
     return c.json({ error: { message: '公告不存在或当前不可见', code: 'not_found' } }, 404)
   }

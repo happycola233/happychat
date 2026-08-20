@@ -75,8 +75,6 @@ export const announcementCreateSchema = z
     userIds: announcementAudienceUserIdsSchema.default([]),
     status: announcementStatusSchema.default('draft'),
     pinned: z.boolean().default(false),
-    /** 强提示弹窗对每个用户最多自动弹出的次数（1–20） */
-    maxImpressions: z.number().int().min(1).max(20).default(1),
     /** 生效起点（epoch ms）；null=发布后立即生效 */
     publishAt: z.number().int().nonnegative().nullable().default(null),
     /** 失效终点（epoch ms）；null=永不过期 */
@@ -105,7 +103,6 @@ export const announcementUpdateSchema = z
     userIds: announcementAudienceUserIdsSchema.optional(),
     status: announcementStatusSchema.optional(),
     pinned: z.boolean().optional(),
-    maxImpressions: z.number().int().min(1).max(20).optional(),
     publishAt: z.number().int().nonnegative().nullable().optional(),
     expiresAt: z.number().int().nonnegative().nullable().optional(),
   })

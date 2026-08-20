@@ -867,7 +867,7 @@ adminRoutes.get('/announcements/:id/readers', async (c) => {
   return c.json({ readers: await listAnnouncementReaders(c.req.param('id')) })
 })
 
-/** 重置已读：清空该公告的所有已读/曝光回执，之后会对全部受众再次推送。 */
+/** 重置已读：清空该公告的所有确认回执，之后会对全部受众再次推送。 */
 adminRoutes.post('/announcements/:id/reset-reads', async (c) => {
   const ok = await resetAnnouncementReads(c.req.param('id'))
   if (!ok) return c.json({ error: { message: '公告不存在', code: 'not_found' } }, 404)
