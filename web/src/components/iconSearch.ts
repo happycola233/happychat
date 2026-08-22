@@ -1,8 +1,12 @@
-const SEARCH_SEPARATOR_PATTERN = /[\s._/\\-]+/g
+import {
+  classifySearchTextMatch,
+  normalizeSearchText,
+  type SearchTextMatchKind,
+} from '../lib/searchText'
 
 /**
- * 内置图标 slug 多数使用英文或品牌拼音。这里维护常用中文品牌名与少数非直译拼音，
- * 让“豆包 / doubao”“千问 / qianwen / qwen”等输入都能落到同一品牌前缀。
+ * 内置图标 slug 多数使用英文或品牌拼音。这里只维护中文品牌名与非拼音英文别名，
+ * 全拼和首字母统一交给通用搜索匹配器推导。
  * 前缀而不是完整 slug 用作键，因此 doubao / doubao-color / doubao-text 会共享别名。
  */
 const ICON_SEARCH_ALIASES: Readonly<Record<string, readonly string[]>> = {
@@ -11,10 +15,10 @@ const ICON_SEARCH_ALIASES: Readonly<Record<string, readonly string[]>> = {
   deepseek: ['深度求索', '深寻'],
   doubao: ['豆包'],
   hunyuan: ['腾讯混元', '混元'],
-  qwen: ['通义千问', '千问', '通义', 'qianwen', 'tongyi'],
+  qwen: ['通义千问', '千问', '通义'],
   kimi: ['月之暗面', 'moonshot'],
   zhipu: ['智谱', '智谱清言', '清言', 'chatglm'],
-  minimax: ['海螺', 'hailuo'],
+  minimax: ['海螺'],
   wenxin: ['文心一言', '文心', 'ernie'],
   stepfun: ['阶跃星辰', '阶跃'],
   yi: ['零一万物', '零一'],
@@ -35,45 +39,33 @@ const ICON_SEARCH_ALIASES: Readonly<Record<string, readonly string[]>> = {
   siliconcloud: ['硅基流动'],
 }
 
-function compactSearchText(value: string): string {
-  return value.normalize('NFKC').trim().toLocaleLowerCase().replace(SEARCH_SEPARATOR_PATTERN, '')
+const searchAliasesBySlugPrefix = Object.entries(ICON_SEARCH_ALIASES).map(
+  ([slugPrefix, aliases]) => ({
+    slugPrefix: normalizeSearchText(slugPrefix),
+    aliases: [...new Set(aliases.map(normalizeSearchText).filter(Boolean))],
+  }),
+)
+
+const MATCH_SCORE: Readonly<Record<SearchTextMatchKind, number>> = {
+  exact: 0,
+  prefix: 1,
+  contains: 2,
 }
 
-/** 空格、连字符和斜杠不影响中文名、拼音或英文名匹配。 */
-export function buildIconSearchForms(value: string): string[] {
-  const normalized = value.normalize('NFKC').trim().toLocaleLowerCase()
-  if (!normalized) return []
-
-  const compact = compactSearchText(normalized)
-  return compact ? [compact] : []
-}
-
-const aliasFormsBySlugPrefix = Object.entries(ICON_SEARCH_ALIASES).map(([slugPrefix, aliases]) => ({
-  slugPrefix: compactSearchText(slugPrefix),
-  aliases: [...new Set(aliases.flatMap(buildIconSearchForms))],
-}))
-
-function matchScore(slug: string, queryForms: readonly string[]): number | null {
-  const compactSlug = compactSearchText(slug)
+function matchScore(slug: string, query: string): number | null {
+  const compactSlug = normalizeSearchText(slug)
   const searchableForms = [
     compactSlug,
-    ...aliasFormsBySlugPrefix.flatMap(({ slugPrefix, aliases }) =>
+    ...searchAliasesBySlugPrefix.flatMap(({ slugPrefix, aliases }) =>
       compactSlug.startsWith(slugPrefix) ? aliases : [],
     ),
   ]
   let best: number | null = null
-  for (const query of queryForms) {
-    for (const candidate of searchableForms) {
-      const score =
-        candidate === query
-          ? 0
-          : candidate.startsWith(query)
-            ? 1
-            : candidate.includes(query)
-              ? 2
-              : null
-      if (score !== null && (best === null || score < best)) best = score
-    }
+  for (const candidate of searchableForms) {
+    const matchKind = classifySearchTextMatch(candidate, query)
+    if (!matchKind) continue
+    const score = MATCH_SCORE[matchKind]
+    if (best === null || score < best) best = score
   }
   return best
 }
@@ -89,11 +81,11 @@ export function searchIconSlugs(
   query: string,
   limit: number,
 ): IconSearchResult {
-  const queryForms = buildIconSearchForms(query)
-  if (queryForms.length === 0) return { slugs: [], total: 0 }
+  const normalizedQuery = normalizeSearchText(query)
+  if (!normalizedQuery) return { slugs: [], total: 0 }
 
   const matched = slugs
-    .map((slug) => ({ slug, score: matchScore(slug, queryForms) }))
+    .map((slug) => ({ slug, score: matchScore(slug, normalizedQuery) }))
     .filter((item): item is { slug: string; score: number } => item.score !== null)
     .sort((left, right) => left.score - right.score || left.slug.localeCompare(right.slug))
 

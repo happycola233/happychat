@@ -3,6 +3,11 @@ import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, ChevronDown } from 'lucide-react'
 import { clsx } from 'clsx'
+import {
+  findSelectTypeaheadMatch,
+  readSelectTypeaheadKey,
+  resolveSelectOpeningHighlight,
+} from './selectKeyboard'
 import { placeSelectMenu, type SelectMenuCoords } from './selectMenuPosition'
 
 export interface SelectOption {
@@ -52,6 +57,7 @@ export function Select({
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const typeaheadRef = useRef({ query: '', timer: 0 })
+  const openingHighlightRef = useRef<number | undefined>(undefined)
   const [open, setOpen] = useState(false)
   const [highlightedIndex, setHighlightedIndex] = useState(0)
   const [coords, setCoords] = useState<SelectMenuCoords | null>(null)
@@ -60,7 +66,15 @@ export function Select({
   const selected = selectedIndex >= 0 ? options[selectedIndex] : undefined
   const displayLabel = selected?.label ?? (value || '请选择')
 
-  const close = () => setOpen(false)
+  const close = () => {
+    openingHighlightRef.current = undefined
+    setOpen(false)
+  }
+
+  const openMenu = (preferredIndex?: number) => {
+    openingHighlightRef.current = preferredIndex
+    setOpen(true)
+  }
 
   const commit = (next: string) => {
     if (next !== value) emitChange(onChange, next)
@@ -73,7 +87,10 @@ export function Select({
       setCoords(null)
       return
     }
-    setHighlightedIndex(selectedIndex >= 0 ? selectedIndex : 0)
+    setHighlightedIndex(
+      resolveSelectOpeningHighlight(options.length, selectedIndex, openingHighlightRef.current),
+    )
+    openingHighlightRef.current = undefined
 
     const update = () => {
       const trigger = triggerRef.current
@@ -155,10 +172,7 @@ export function Select({
     typeaheadRef.current.timer = window.setTimeout(() => {
       typeaheadRef.current.query = ''
     }, TYPEAHEAD_RESET_MS)
-    const match = options.findIndex((option) =>
-      option.label.toLocaleLowerCase().startsWith(nextQuery),
-    )
-    if (match >= 0) setHighlightedIndex(match)
+    return findSelectTypeaheadMatch(options, nextQuery)
   }
 
   const onTriggerKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
@@ -170,7 +184,7 @@ export function Select({
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault()
       if (!open) {
-        setOpen(true)
+        openMenu()
         return
       }
       moveHighlight(event.key === 'ArrowDown' ? 1 : -1)
@@ -194,12 +208,17 @@ export function Select({
     }
     if (event.key === ' ' && !open) {
       event.preventDefault()
-      setOpen(true)
+      openMenu()
       return
     }
-    if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
-      if (!open) setOpen(true)
-      applyTypeahead(event.key)
+    const typeaheadKey = readSelectTypeaheadKey(event)
+    if (typeaheadKey) {
+      const match = applyTypeahead(typeaheadKey)
+      if (!open) {
+        openMenu(match)
+        return
+      }
+      if (match >= 0) setHighlightedIndex(match)
     }
   }
 
@@ -216,7 +235,9 @@ export function Select({
       aria-controls={listboxId}
       aria-activedescendant={open ? `${listboxId}-opt-${highlightedIndex}` : undefined}
       onClick={() => {
-        if (!disabled) setOpen((current) => !current)
+        if (disabled) return
+        if (open) close()
+        else openMenu()
       }}
       onKeyDown={onTriggerKeyDown}
       className={clsx(

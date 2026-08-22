@@ -127,6 +127,7 @@ export function summarizeUserQuotaFleet(
   const policyById = new Map<string, UserQuotaPolicyShare>()
   let tightnessSum = 0
   let tightnessN = 0
+  let unlimitedUserCount = 0
 
   for (const user of users) {
     counts[classifyUserQuotaStatus(user, warnThreshold)] += 1
@@ -143,7 +144,10 @@ export function summarizeUserQuotaFleet(
         usingDefault: user.usingDefaultPolicy,
       })
     }
-    if (user.unlimited) continue
+    if (user.unlimited) {
+      unlimitedUserCount += 1
+      continue
+    }
     const tightest = pickTightestQuotaBucket(countableQuotaBuckets(user.rules))
     if (tightest?.percent == null) continue
     tightnessSum += tightest.percent
@@ -152,7 +156,7 @@ export function summarizeUserQuotaFleet(
 
   return {
     total: users.length,
-    limited: users.length - counts.unlimited,
+    limited: users.length - unlimitedUserCount,
     attention: counts.exhausted + counts.warning,
     counts,
     averageTightness: tightnessN > 0 ? tightnessSum / tightnessN : null,

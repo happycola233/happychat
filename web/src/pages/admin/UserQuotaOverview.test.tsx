@@ -138,4 +138,24 @@ describe('UserQuotaOverview', () => {
     expect(html).toContain('还没有人开始消耗额度')
     expect(html).toContain('近 24 小时消费')
   })
+
+  it('暂停的无限额度用户在展示暂停状态时仍按无限额度汇总', () => {
+    const html = renderToStaticMarkup(
+      <UserQuotaOverview
+        users={[user({ enforcementPaused: true, unlimited: true, rules: [] })]}
+        stats={[]}
+        statsLoading={false}
+        rangeKey="7d"
+        onRangeKeyChange={vi.fn()}
+        warnThreshold={0.8}
+        filter={null}
+        onFilterChange={vi.fn()}
+        onSelectUser={vi.fn()}
+      />,
+    )
+
+    expect(html).toContain('0 / 1')
+    expect(html).toContain('1 人无限额度')
+    expect(html).toContain('限额已暂停')
+  })
 })

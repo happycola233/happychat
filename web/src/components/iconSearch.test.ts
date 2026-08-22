@@ -1,18 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { buildIconSearchForms, searchIconSlugs } from './iconSearch'
+import { searchIconSlugs } from './iconSearch'
 
 const CATALOG = ['openai', 'doubao-color', 'qwen-color', 'kimi', 'zhipu-color'] as const
-
-describe('buildIconSearchForms', () => {
-  it('normalizes Chinese spacing without requiring a runtime transliteration dictionary', () => {
-    expect(buildIconSearchForms(' 豆 包 ')).toEqual(['豆包'])
-  })
-
-  it('normalizes latin spacing and separators', () => {
-    expect(buildIconSearchForms('Dou Bao')).toEqual(['doubao'])
-    expect(buildIconSearchForms('CLAUDE-COLOR')).toEqual(['claudecolor'])
-  })
-})
 
 describe('searchIconSlugs', () => {
   it('maps ChatGPT to OpenAI without case sensitivity', () => {
@@ -36,7 +25,14 @@ describe('searchIconSlugs', () => {
   it('uses maintained aliases when a Chinese brand name is not the slug transliteration', () => {
     expect(searchIconSlugs(CATALOG, '千问', 120).slugs).toEqual(['qwen-color'])
     expect(searchIconSlugs(CATALOG, 'qianwen', 120).slugs).toEqual(['qwen-color'])
+    expect(searchIconSlugs(CATALOG, 'tongyi', 120).slugs).toEqual(['qwen-color'])
+    expect(searchIconSlugs(CATALOG, 'tyqw', 120).slugs).toEqual(['qwen-color'])
     expect(searchIconSlugs(CATALOG, '月之暗面', 120).slugs).toEqual(['kimi'])
+  })
+
+  it('automatically derives pinyin from maintained Chinese brand names', () => {
+    expect(searchIconSlugs(['minimax-color'], 'hailuo', 120).slugs).toEqual(['minimax-color'])
+    expect(searchIconSlugs(['kimi'], 'yuezhianmian', 120).slugs).toEqual(['kimi'])
   })
 
   it('reports the full match count before applying the rendering limit', () => {

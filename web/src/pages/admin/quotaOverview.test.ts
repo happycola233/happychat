@@ -165,6 +165,17 @@ describe('用户限额总览聚合', () => {
     ])
   })
 
+  it('暂停的无限额度用户仍不计入受限额人数', () => {
+    const summary = summarizeUserQuotaFleet(
+      [user({ enforcementPaused: true, unlimited: true, rules: [] })],
+      0.8,
+    )
+
+    expect(summary.counts.paused).toBe(1)
+    expect(summary.counts.unlimited).toBe(0)
+    expect(summary.limited).toBe(0)
+  })
+
   it('用量排行按近窗成本排序，并按第一名归一化占比；没有成本时回退请求数', () => {
     const users = [
       user({ userId: 'a', username: 'alice' }),

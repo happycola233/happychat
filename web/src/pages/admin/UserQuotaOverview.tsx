@@ -245,6 +245,7 @@ export function UserQuotaOverview({
           ? 'amber'
           : 'ok'
   const filterLabel = filter ? describeQuotaOverviewFilterWithName(filter, summary.policies) : null
+  const unlimitedUserCount = summary.total - summary.limited
 
   return (
     <section className={cardSurface}>
@@ -296,8 +297,8 @@ export function UserQuotaOverview({
           label="受限额用户"
           value={`${formatInt(summary.limited)} / ${formatInt(summary.total)}`}
           hint={
-            summary.counts.unlimited > 0
-              ? `${formatInt(summary.counts.unlimited)} 人无限额度`
+            unlimitedUserCount > 0
+              ? `${formatInt(unlimitedUserCount)} 人无限额度`
               : '全部用户都受策略约束'
           }
         />
