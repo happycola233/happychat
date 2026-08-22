@@ -19,10 +19,12 @@ import { shareRoutes } from './routes/shares'
 import { announcementRoutes } from './routes/announcements'
 import { quotaRoutes } from './routes/quota'
 import { isVersionedAssetPath, productionWebCacheMiddleware } from './http/web-cache'
+import { renderSharePageHtml, resolvePublicRequestUrl } from './http/share-page'
 import { recoverInterruptedRuns } from './runs/manager'
 import { sanitizePersistedRunEvents } from './runs/run-event-cleanup'
 import { UpstreamError } from './provider/errors'
 import { startOrphanAttachmentCleanupScheduler } from './services/attachment-cleanup'
+import { getPublicSharePreview } from './services/shares'
 import type { AppEnv } from './http/types'
 
 // 启动时执行数据库迁移（migrate-on-boot）+ 恢复中断任务 + 启动后台维护。
@@ -55,8 +57,16 @@ app.route('/api/quota', quotaRoutes)
 
 // 生产环境：由后端静态托管构建后的前端（单体部署）
 const isProd = env.NODE_ENV === 'production'
+const productionIndexHtml = isProd ? readFileSync('./dist/web/index.html', 'utf8') : null
 if (isProd) {
   app.use('/*', productionWebCacheMiddleware)
+  app.get('/s/:token', async (c) => {
+    const share = await getPublicSharePreview(c.req.param('token'))
+    if (!share) return c.html(productionIndexHtml!)
+    return c.html(
+      renderSharePageHtml(productionIndexHtml!, share, resolvePublicRequestUrl(c.req.raw)),
+    )
+  })
   app.use('/*', serveStatic({ root: './dist/web' }))
 }
 
@@ -69,13 +79,7 @@ app.notFound((c) => {
     return c.body(null, 404)
   }
   // SPA 回退：非 /api 路由返回 index.html，交给前端路由
-  if (isProd) {
-    try {
-      return c.html(readFileSync('./dist/web/index.html', 'utf8'))
-    } catch {
-      // 未构建前端
-    }
-  }
+  if (productionIndexHtml) return c.html(productionIndexHtml)
   return c.json({ error: { message: '接口不存在', code: 'not_found' } }, 404)
 })
 

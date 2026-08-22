@@ -9,6 +9,7 @@ function createWebCacheTestApp() {
   app.get('/api/health', (c) => c.json({ ok: true }))
   app.use('/*', productionWebCacheMiddleware)
   app.get('/', (c) => c.html('<!doctype html><title>HappyChat</title>'))
+  app.get('/s/shared-token', (c) => c.html('<!doctype html><title>Shared chat</title>'))
   app.get('/assets/index-content-hash.js', (c) =>
     c.body('console.log("current")', 200, { 'Content-Type': 'text/javascript' }),
   )
@@ -25,7 +26,7 @@ function createWebCacheTestApp() {
 }
 
 describe('productionWebCacheMiddleware', () => {
-  it.each(['/', '/login', '/c/conversation-id', '/admin/models'])(
+  it.each(['/', '/login', '/c/conversation-id', '/admin/models', '/s/shared-token'])(
     'forces HTML response revalidation for %s',
     async (path) => {
       const response = await createWebCacheTestApp().request(path)

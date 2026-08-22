@@ -225,10 +225,28 @@ function isLive(row: ShareRow): boolean {
   return true
 }
 
+async function getLiveShareRow(token: string): Promise<ShareRow | null> {
+  const [row] = await db.select().from(sharedChats).where(eq(sharedChats.token, token)).limit(1)
+  return row && isLive(row) ? row : null
+}
+
+/** 公开分享页首个 HTML 只需标题与正文摘要，不加载拥有者、成本配置或汇率。 */
+export async function getPublicSharePreview(token: string): Promise<{
+  title: string | null
+  messages: Array<Pick<MessageDTO, 'role' | 'content'>>
+} | null> {
+  const row = await getLiveShareRow(token)
+  if (!row) return null
+  return {
+    title: row.title,
+    messages: row.snapshot.map(({ role, content }) => ({ role, content })),
+  }
+}
+
 /** 公开分享视图（按 token，无需登录）。 */
 export async function getPublicShare(token: string): Promise<PublicShareDTO | null> {
-  const [row] = await db.select().from(sharedChats).where(eq(sharedChats.token, token)).limit(1)
-  if (!row || !isLive(row)) return null
+  const row = await getLiveShareRow(token)
+  if (!row) return null
   const config = await getAppConfig()
 
   let owner: PublicShareDTO['owner'] = { name: null, avatarUrl: null }
@@ -262,8 +280,8 @@ export async function getShareAttachment(
   token: string,
   attachmentId: string,
 ): Promise<AttachmentRow | null> {
-  const [row] = await db.select().from(sharedChats).where(eq(sharedChats.token, token)).limit(1)
-  if (!row || !isLive(row)) return null
+  const row = await getLiveShareRow(token)
+  if (!row) return null
   const ids = new Set<string>()
   for (const m of row.snapshot) {
     for (const p of m.content) {

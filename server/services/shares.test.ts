@@ -127,6 +127,17 @@ describe('createShare 消息选择', () => {
 
     const dto = await shares.getConversationShare(user.id, conv.id)
     expect(dto?.sharedMessageIds).toEqual([u1.id, a1.id, u2.id, a2.id])
+
+    const preview = await shares.getPublicSharePreview(result.share.token)
+    expect(preview).toEqual({
+      title: '分享测试对话',
+      messages: [
+        { role: 'user', content: u1.content },
+        { role: 'assistant', content: a1.content },
+        { role: 'user', content: u2.content },
+        { role: 'assistant', content: a2.content },
+      ],
+    })
   })
 
   it('手动选择：同分支子集（用户/助手解耦）按链序生效', async () => {
@@ -309,6 +320,7 @@ describe('停止分享与重新分享', () => {
 
     await shares.revokeShare(first.share.id, user.id)
     expect(await shares.getPublicShare(oldToken)).toBeNull()
+    expect(await shares.getPublicSharePreview(oldToken)).toBeNull()
 
     const second = await shares.createShare(user.id, conv.id, { ...baseInput })
     if (!second.ok) throw new Error('re-share failed')
