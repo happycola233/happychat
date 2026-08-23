@@ -547,10 +547,31 @@ export function ModelListSection({
   const effectiveView = resolveModelListView(view, allSections)
 
   // 二级目录：打开时直接定位到当前选中模型所在的分组，长列表不用逐级找。
-  const [openedKey, setOpenedKey] = useState<string | null>(() =>
-    findSectionKeyOfModel(allSections, activeModelId),
-  )
-  const previousViewRef = useRef<ModelListView>(effectiveView)
+  const [treeNavigation, setTreeNavigation] = useState(() => ({
+    view: effectiveView,
+    openedKey: findSectionKeyOfModel(allSections, activeModelId),
+  }))
+
+  /**
+   * 视图变化时直接在 render 阶段校正目录状态。React 会丢弃本轮 JSX 并立即重试，
+   * 因而 flat → tree 只会把最终打开的分组提交给 DOM。若延后到 layout effect，
+   * 父级尺寸过渡会先量到根目录的矮高度，随后再被第二次提交撑大，形成先缩后涨。
+   */
+  let openedKey = treeNavigation.openedKey
+  if (treeNavigation.view !== effectiveView) {
+    openedKey = openedSectionOnViewChange(
+      treeNavigation.view,
+      effectiveView,
+      treeNavigation.openedKey,
+      allSections,
+      activeModelId,
+    )
+    setTreeNavigation({ view: effectiveView, openedKey })
+  }
+
+  const openTreeSection = (nextOpenedKey: string | null) => {
+    setTreeNavigation({ view: effectiveView, openedKey: nextOpenedKey })
+  }
   const openedSectionExists =
     openedKey !== null && sections.some((section) => sectionKey(section) === openedKey)
   const showModelParameters = shouldShowModelParameters(
@@ -558,20 +579,6 @@ export function ModelListSection({
     searching,
     openedSectionExists,
   )
-
-  useLayoutEffect(() => {
-    const previousView = previousViewRef.current
-    previousViewRef.current = effectiveView
-    setOpenedKey((currentOpenedKey) =>
-      openedSectionOnViewChange(
-        previousView,
-        effectiveView,
-        currentOpenedKey,
-        allSections,
-        activeModelId,
-      ),
-    )
-  }, [effectiveView, allSections, activeModelId])
 
   // 菜单打开即挂载本组件：首帧把选中模型滚进列表可视区。
   // 依赖 effectiveView/openedKey/search 是因为切换视图或钻取后可见内容整体换过，需要重新定位。
@@ -654,7 +661,7 @@ export function ModelListSection({
               setOpenDescriptionId={setOpenDescriptionId}
               exhaustedModelIds={exhaustedModelIds}
               openedKey={openedKey}
-              onOpenSection={setOpenedKey}
+              onOpenSection={openTreeSection}
             />
           ) : (
             <FlatList

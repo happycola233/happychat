@@ -184,6 +184,21 @@ describe('openedSectionOnViewChange', () => {
     )
   })
 
+  it('reopens the selected-model group after leaving a deliberately collapsed tree root', () => {
+    const openedInFlat = openedSectionOnViewChange(
+      'tree',
+      'flat',
+      null,
+      sections,
+      'model-a',
+    )
+
+    expect(openedInFlat).toBeNull()
+    expect(openedSectionOnViewChange('flat', 'tree', openedInFlat, sections, 'model-a')).toBe(
+      openai.id,
+    )
+  })
+
   it('does not override deliberate navigation while already in tree view', () => {
     expect(openedSectionOnViewChange('tree', 'tree', openai.id, sections, 'model-b')).toBe(
       openai.id,
