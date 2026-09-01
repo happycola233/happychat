@@ -168,7 +168,7 @@ describe('user stats usage time', () => {
 })
 
 describe('usage event duration', () => {
-  it('returns the run wall-clock duration for request events', async () => {
+  it('returns raw reasoning effort, first-token latency and post-first-token speed', async () => {
     const user = await insertUser()
     const [conversation] = await dbClient.db
       .insert(schema.conversations)
@@ -184,18 +184,36 @@ describe('usage event duration', () => {
         conversationId: conversation.id,
         userId: user.id,
         state: 'completed',
+        requestParams: { reasoning_effort: 'high' },
         startedAt: new Date(startedAt),
         finishedAt: new Date(finishedAt),
       })
       .returning()
     if (!run) throw new Error('failed to insert test run')
 
-    await insertUsageLog(finishedAt, { userId: user.id, runId: run.id })
+    await dbClient.db.insert(schema.runEvents).values({
+      runId: run.id,
+      sequenceNumber: 7,
+      type: 'response.output_text.delta',
+      data: { delta: '首字' },
+      createdAt: new Date(startedAt + 2_000),
+    })
+    await insertUsageLog(finishedAt, {
+      userId: user.id,
+      runId: run.id,
+      outputTokens: 170,
+      totalTokens: 170,
+      upstreamResponseLatencyMs: 1_250,
+    })
 
     const result = await stats.listUsageEvents({ userId: user.id })
 
     expect(result.items).toHaveLength(1)
     expect(result.items[0]?.durationMs).toBe(5_400)
+    expect(result.items[0]?.reasoningEffort).toBe('high')
+    expect(result.items[0]?.upstreamResponseLatencyMs).toBe(1_250)
+    expect(result.items[0]?.firstTokenLatencyMs).toBe(2_000)
+    expect(result.items[0]?.generationTokensPerSecond).toBe(50)
   })
 
   it('returns null when an audit log no longer has an associated run', async () => {
@@ -205,6 +223,10 @@ describe('usage event duration', () => {
     const result = await stats.listUsageEvents({ userId: user.id })
 
     expect(result.items[0]?.durationMs).toBeNull()
+    expect(result.items[0]?.reasoningEffort).toBeNull()
+    expect(result.items[0]?.upstreamResponseLatencyMs).toBeNull()
+    expect(result.items[0]?.firstTokenLatencyMs).toBeNull()
+    expect(result.items[0]?.generationTokensPerSecond).toBeNull()
   })
 })
 
@@ -396,6 +418,7 @@ describe('cache-write cost integration', () => {
     expect(analytics.series[0]?.costUsd).toBeCloseTo(7.2375, 6)
     expect(userStats[0]?.costUsd).toBeCloseTo(7.2375, 6)
     expect(events.items[0]?.costUsd).toBeCloseTo(7.2375, 6)
+    expect(events.items[0]?.modelDisplayName).toBe('Cache Cost Model')
   })
 })
 
@@ -431,6 +454,7 @@ describe('historical cost snapshots', () => {
       providerId: provider.id,
       modelId: model.id,
       modelLabel,
+      modelDisplayName: 'Snapshot Cost Model',
       inputTokens: 1_000_000,
       outputTokens: 500_000,
       totalTokens: 1_500_000,
@@ -442,7 +466,7 @@ describe('historical cost snapshots', () => {
 
     await dbClient.db
       .update(schema.models)
-      .set({ pricing: updatedPricing })
+      .set({ pricing: updatedPricing, displayName: 'Renamed Snapshot Cost Model' })
       .where(eq(schema.models.id, model.id))
 
     const historicalFilter = {
@@ -466,6 +490,7 @@ describe('historical cost snapshots', () => {
     ]) {
       expect(cost).toBeCloseTo(6, 6)
     }
+    expect(historicalEvents.items[0]?.modelDisplayName).toBe('Snapshot Cost Model')
 
     await insertUsageLog(hourStart + 10 * 60_000, {
       ...usage,
@@ -495,14 +520,23 @@ describe('historical cost snapshots', () => {
     const persistedLogs = await dbClient.db
       .select({
         modelId: schema.usageLogs.modelId,
+        modelDisplayName: schema.usageLogs.modelDisplayName,
         pricingSnapshot: schema.usageLogs.pricingSnapshot,
       })
       .from(schema.usageLogs)
       .where(eq(schema.usageLogs.userId, user.id))
       .orderBy(schema.usageLogs.createdAt)
     expect(persistedLogs).toEqual([
-      { modelId: null, pricingSnapshot: initialPricing },
-      { modelId: null, pricingSnapshot: updatedPricing },
+      {
+        modelId: null,
+        modelDisplayName: 'Snapshot Cost Model',
+        pricingSnapshot: initialPricing,
+      },
+      {
+        modelId: null,
+        modelDisplayName: 'Snapshot Cost Model',
+        pricingSnapshot: updatedPricing,
+      },
     ])
   })
 })

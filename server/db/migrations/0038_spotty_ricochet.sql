@@ -1,0 +1,1 @@
+ALTER TABLE `usage_logs` ADD `upstream_response_latency_ms` integer;

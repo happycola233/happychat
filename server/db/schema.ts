@@ -655,8 +655,9 @@ export const usageLogs = sqliteTable(
     userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),
     modelId: text('model_id').references(() => models.id, { onDelete: 'set null' }),
     providerId: text('provider_id').references(() => providers.id, { onDelete: 'set null' }),
-    // 冗余存储以便模型/用户删除后仍可统计
+    // 冗余存储以便模型/用户删除或模型改名后仍可按请求时名称审计。
     modelLabel: text('model_label'),
+    modelDisplayName: text('model_display_name'),
     providerLabel: text('provider_label'),
     // 请求发起时的价格快照；后续改价或删除模型不得改写历史成本。
     pricingSnapshot: text('pricing_snapshot', { mode: 'json' }).$type<ModelPricing>(),
@@ -670,6 +671,8 @@ export const usageLogs = sqliteTable(
     reasoningTokens: integer('reasoning_tokens').notNull().default(0),
     totalTokens: integer('total_tokens').notNull().default(0),
     imageTokens: integer('image_tokens').notNull().default(0),
+    // 首次实际 POST 开始到首个成功响应头；仅收到失败响应时保留首次失败响应耗时。
+    upstreamResponseLatencyMs: integer('upstream_response_latency_ms'),
     // 审计终态与原因独立于 success；后者暂时保留额度兼容语义。
     outcome: text('outcome').$type<UsageOutcome>().notNull().default('completed'),
     terminalReason: text('terminal_reason'),

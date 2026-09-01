@@ -1,0 +1,1 @@
+ALTER TABLE `usage_logs` ADD `model_display_name` text;

@@ -153,6 +153,7 @@ describe('finalizeRun terminal snapshots', () => {
       upstreamResponseId: null,
       providerReplayContext,
       startedAt,
+      upstreamResponseLatencyMs: 1_250,
       persistEmit: (type, data) => {
         emittedEvents.push({ type, data })
         return emittedEvents.length - 1
@@ -183,6 +184,7 @@ describe('finalizeRun terminal snapshots', () => {
       outcome: 'completed',
       terminalReason: null,
       success: true,
+      upstreamResponseLatencyMs: 1_250,
     })
     expect(persistedUsage?.quotaAt?.getTime()).toBe(run.createdAt.getTime())
     expect(emittedEvents.map((event) => event.type)).toEqual(['run.done'])
@@ -253,6 +255,7 @@ describe('finalizeRun terminal snapshots', () => {
       upstreamResponseId: null,
       providerReplayContext,
       startedAt,
+      upstreamResponseLatencyMs: 880,
       persistEmit: (type, data) => {
         failedEvents.push({ type, data })
         return 0
@@ -361,6 +364,7 @@ describe('finalizeRun terminal snapshots', () => {
         errorMessage: null,
         upstreamResponseId: null,
         startedAt,
+        upstreamResponseLatencyMs: 640,
         persistEmit: (type) => {
           terminalEvents.push(type)
           return 0

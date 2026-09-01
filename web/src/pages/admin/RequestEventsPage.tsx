@@ -23,7 +23,13 @@ import {
   td,
   th,
 } from '../../components/ui/tableStyles'
-import { formatCompact, formatDateTime, formatDuration, formatUsd } from '../../lib/format'
+import { formatInt, formatUsd } from '../../lib/format'
+import {
+  formatCacheRate,
+  formatGenerationSpeed,
+  formatRequestEventTimestamp,
+  formatRequestLatency,
+} from './requestEventDisplay'
 
 const RESULT_OPTIONS: SelectOption[] = [
   { value: '', label: '全部结果' },
@@ -42,6 +48,15 @@ const KIND_OPTIONS: SelectOption[] = [
   { value: 'chat', label: '仅对话' },
   { value: 'title', label: '仅标题总结' },
 ]
+
+const EMPTY_VALUE = '-'
+const requestCell = `${td} !py-2`
+const primaryValue =
+  'whitespace-nowrap text-xs font-semibold leading-4 text-neutral-800 tabular-nums dark:text-neutral-100'
+const regularPrimaryValue =
+  'whitespace-nowrap text-xs font-normal leading-4 text-neutral-800 tabular-nums dark:text-neutral-100'
+const secondaryValue =
+  'whitespace-nowrap text-[10px] leading-[14px] text-neutral-400 tabular-nums dark:text-neutral-500'
 
 export default function RequestEventsPage() {
   const [rangeKey, setRangeKey] = useState<RangeKey>('7d')
@@ -108,7 +123,7 @@ export default function RequestEventsPage() {
     <div className="space-y-6">
       <PageHeader
         title="请求事件"
-        description="每条记录代表一次已结算的上游调用。结果描述是否产出可用内容，Token 与成本始终按上游实际返回值记录。"
+        description="查看每次已结算上游调用的结果、总耗时、上游首响应、生成速度、Token、缓存与成本。"
       />
 
       <div className="flex flex-wrap items-end gap-3">
@@ -185,88 +200,110 @@ export default function RequestEventsPage() {
             }}
           />
           <div className={tableScroll}>
-            <div className={`${tableShell} min-w-[1180px]`}>
+            <div className={`${tableShell} min-w-[1160px]`}>
               <table className={tableEl}>
                 <thead className={tableHead}>
                   <tr>
-                    <th className={th}>时间</th>
-                    <th className={th}>用户</th>
-                    <th className={th}>模型</th>
-                    <th className={th}>供应商</th>
-                    <th className={th}>输入</th>
-                    <th className={th}>缓存写入</th>
-                    <th className={th}>缓存读取</th>
-                    <th className={th}>输出</th>
-                    <th className={th}>推理</th>
-                    <th className={th}>总计</th>
-                    <th className={th}>成本</th>
-                    <th className={th}>耗时</th>
-                    <th className={th}>结果</th>
+                    <th className={`${th} w-[96px]`}>时间</th>
+                    <th className={`${th} w-[100px]`}>用户</th>
+                    <th className={`${th} w-[160px]`}>模型</th>
+                    <th className={`${th} w-[96px]`}>推理强度</th>
+                    <th className={`${th} w-[126px]`}>总耗时</th>
+                    <th className={`${th} w-[102px]`}>生成速度</th>
+                    <th className={`${th} w-[170px]`}>Tokens</th>
+                    <th className={`${th} w-[120px]`}>缓存</th>
+                    <th className={`${th} w-[76px]`}>成本</th>
+                    <th className={`${th} w-[84px]`}>结果</th>
                   </tr>
                 </thead>
                 <tbody className={tableBody}>
-                  {data.items.map((row) => (
-                    <tr key={row.id} className={tableRowHover}>
-                      <td
-                        className={`${td} whitespace-nowrap text-neutral-600 dark:text-neutral-300`}
-                      >
-                        {formatDateTime(row.createdAt)}
-                      </td>
-                      <td
-                        className={`${td} whitespace-nowrap text-neutral-700 dark:text-neutral-200`}
-                      >
-                        {row.username ?? '—'}
-                      </td>
-                      <td
-                        className={`${td} whitespace-nowrap text-neutral-700 dark:text-neutral-200`}
-                      >
-                        <span className="inline-flex items-center gap-1.5">
-                          {row.modelLabel ?? '—'}
-                          <RequestKindBadge kind={row.kind} />
-                        </span>
-                      </td>
-                      <td
-                        className={`${td} whitespace-nowrap text-neutral-700 dark:text-neutral-200`}
-                      >
-                        {row.providerLabel ?? '—'}
-                      </td>
-                      <td className={`${td} tabular-nums text-neutral-600 dark:text-neutral-300`}>
-                        {formatCompact(row.inputTokens)}
-                      </td>
-                      <td className={`${td} tabular-nums text-neutral-600 dark:text-neutral-300`}>
-                        {formatCompact(row.cacheWriteTokens)}
-                      </td>
-                      <td className={`${td} tabular-nums text-neutral-600 dark:text-neutral-300`}>
-                        {formatCompact(row.cachedTokens)}
-                      </td>
-                      <td className={`${td} tabular-nums text-neutral-600 dark:text-neutral-300`}>
-                        {formatCompact(row.outputTokens)}
-                      </td>
-                      <td className={`${td} tabular-nums text-neutral-600 dark:text-neutral-300`}>
-                        {formatCompact(row.reasoningTokens)}
-                      </td>
-                      <td
-                        className={`${td} tabular-nums font-medium text-neutral-800 dark:text-neutral-100`}
-                      >
-                        {formatCompact(row.totalTokens)}
-                      </td>
-                      <td className={`${td} tabular-nums text-neutral-600 dark:text-neutral-300`}>
-                        {formatUsd(row.costUsd)}
-                      </td>
-                      <td
-                        className={`${td} whitespace-nowrap tabular-nums text-neutral-600 dark:text-neutral-300`}
-                      >
-                        {row.durationMs === null ? '—' : formatDuration(row.durationMs)}
-                      </td>
-                      <td className={td}>
-                        <RequestOutcomeBadge
-                          kind={row.kind}
-                          result={row.result}
-                          terminalReason={row.terminalReason}
-                        />
-                      </td>
-                    </tr>
-                  ))}
+                  {data.items.map((row) => {
+                    const timestamp = formatRequestEventTimestamp(row.createdAt)
+                    return (
+                      <tr key={row.id} className={tableRowHover}>
+                        <td className={requestCell}>
+                          <div className={primaryValue}>{timestamp.time}</div>
+                          <div className={secondaryValue}>{timestamp.date}</div>
+                        </td>
+                        <td className={requestCell}>
+                          <div
+                            className="max-w-[100px] truncate whitespace-nowrap text-xs font-normal leading-4 text-neutral-800 dark:text-neutral-100"
+                            title={row.username ?? undefined}
+                          >
+                            {row.username ?? EMPTY_VALUE}
+                          </div>
+                        </td>
+                        <td className={requestCell}>
+                          <div
+                            className="max-w-[180px] truncate whitespace-nowrap text-xs font-semibold leading-4 text-neutral-800 dark:text-neutral-100"
+                            title={row.modelLabel ?? undefined}
+                          >
+                            {row.modelLabel ?? EMPTY_VALUE}
+                          </div>
+                          <div
+                            className={`${secondaryValue} max-w-[180px] truncate`}
+                            title={row.modelDisplayName ?? undefined}
+                          >
+                            {row.modelDisplayName ?? EMPTY_VALUE}
+                          </div>
+                          <div
+                            className={`${secondaryValue} flex max-w-[180px] items-center gap-1`}
+                          >
+                            <span className="truncate" title={row.providerLabel ?? undefined}>
+                              {row.providerLabel ?? EMPTY_VALUE}
+                            </span>
+                            <RequestKindBadge kind={row.kind} />
+                          </div>
+                        </td>
+                        <td className={requestCell}>
+                          <div className={`${regularPrimaryValue} font-mono`}>
+                            {row.reasoningEffort ?? EMPTY_VALUE}
+                          </div>
+                        </td>
+                        <td className={requestCell}>
+                          <div className={primaryValue}>{formatRequestLatency(row.durationMs)}</div>
+                          <div className={secondaryValue}>
+                            上游首响应 {formatRequestLatency(row.upstreamResponseLatencyMs)}
+                          </div>
+                          <div className={secondaryValue}>
+                            首字延迟 {formatRequestLatency(row.firstTokenLatencyMs)}
+                          </div>
+                        </td>
+                        <td className={requestCell}>
+                          <div className={regularPrimaryValue}>
+                            {formatGenerationSpeed(row.generationTokensPerSecond)}
+                          </div>
+                        </td>
+                        <td className={requestCell}>
+                          <div className={primaryValue}>{formatInt(row.totalTokens)}</div>
+                          <div className={secondaryValue}>输入 {formatInt(row.inputTokens)}</div>
+                          <div className={secondaryValue}>
+                            输出 {formatInt(row.outputTokens)}（推理{' '}
+                            {formatInt(row.reasoningTokens)}）
+                          </div>
+                        </td>
+                        <td className={requestCell}>
+                          <div className={primaryValue}>
+                            {formatCacheRate(row.cachedTokens, row.inputTokens)}
+                          </div>
+                          <div className={secondaryValue}>Read {formatInt(row.cachedTokens)}</div>
+                          <div className={secondaryValue}>
+                            Write {formatInt(row.cacheWriteTokens)}
+                          </div>
+                        </td>
+                        <td className={requestCell}>
+                          <div className={primaryValue}>{formatUsd(row.costUsd)}</div>
+                        </td>
+                        <td className={requestCell}>
+                          <RequestOutcomeBadge
+                            kind={row.kind}
+                            result={row.result}
+                            terminalReason={row.terminalReason}
+                          />
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>

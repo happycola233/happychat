@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, like, lte, sql, type SQL } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, like, lte, sql, type SQL } from 'drizzle-orm'
 import type {
   AnalyticsDTO,
   AnalyticsSeriesPoint,
@@ -17,12 +17,19 @@ import {
   conversations,
   errorLogs,
   messages,
+  models,
   providers,
+  runEvents,
   runs,
   usageLogs,
   users,
 } from '../db/schema'
-import { computeGenerationDurationMs } from './run-timing'
+import {
+  computeFirstTokenLatencyMs,
+  computeGenerationDurationMs,
+  computeGenerationTokensPerSecond,
+  FIRST_OUTPUT_TOKEN_EVENT_TYPE,
+} from './run-timing'
 
 export interface StatsFilter {
   from?: number
@@ -377,45 +384,96 @@ export async function listUsageEvents(filter: StatsFilter): Promise<Paginated<Us
       log: usageLogs,
       username: users.username,
       providerName: providers.name,
+      currentModelDisplayName: models.displayName,
+      requestParams: runs.requestParams,
       startedAt: runs.startedAt,
       finishedAt: runs.finishedAt,
     })
     .from(usageLogs)
     .leftJoin(users, eq(usageLogs.userId, users.id))
     .leftJoin(providers, eq(usageLogs.providerId, providers.id))
+    .leftJoin(models, eq(usageLogs.modelId, models.id))
     .leftJoin(runs, eq(usageLogs.runId, runs.id))
     .where(whereOf(conds))
     .orderBy(desc(usageLogs.createdAt))
     .limit(pageSize)
     .offset((page - 1) * pageSize)
 
+  const runIds = [...new Set(rows.flatMap(({ log }) => (log.runId ? [log.runId] : [])))]
+  const firstOutputAtByRun = new Map<string, number>()
+  if (runIds.length > 0) {
+    const firstOutputRows = await db
+      .select({
+        runId: runEvents.runId,
+        firstOutputAt: sql<number>`min(${runEvents.createdAt})`,
+      })
+      .from(runEvents)
+      .where(
+        and(inArray(runEvents.runId, runIds), eq(runEvents.type, FIRST_OUTPUT_TOKEN_EVENT_TYPE)),
+      )
+      .groupBy(runEvents.runId)
+    for (const event of firstOutputRows) {
+      firstOutputAtByRun.set(event.runId, Number(event.firstOutputAt))
+    }
+  }
+
   const items: UsageLogDTO[] = rows.map(
-    ({ log, username, providerName, startedAt, finishedAt }) => ({
-      id: log.id,
-      runId: log.runId,
-      conversationId: log.conversationId,
-      userId: log.userId,
-      username: username ?? null,
-      providerId: log.providerId,
-      providerLabel: providerName ?? log.providerLabel,
-      modelLabel: log.modelLabel,
-      kind: log.kind,
-      inputTokens: log.inputTokens,
-      cacheWriteTokens: log.cacheWriteTokens,
-      cachedTokens: log.cachedTokens,
-      outputTokens: log.outputTokens,
-      reasoningTokens: log.reasoningTokens,
-      totalTokens: log.totalTokens,
-      imageTokens: log.imageTokens,
-      outcome: log.outcome,
-      terminalReason: log.terminalReason,
-      result: resolveUsageResult(log.outcome, log.terminalReason),
-      success: log.success,
-      errorType: log.errorType,
-      costUsd: costUsd(log, log.pricingSnapshot),
-      durationMs: computeGenerationDurationMs(startedAt, finishedAt),
-      createdAt: log.createdAt.getTime(),
-    }),
+    ({
+      log,
+      username,
+      providerName,
+      currentModelDisplayName,
+      requestParams,
+      startedAt,
+      finishedAt,
+    }) => {
+      const durationMs = computeGenerationDurationMs(startedAt, finishedAt)
+      const firstTokenLatencyMs = computeFirstTokenLatencyMs(
+        startedAt,
+        log.runId ? (firstOutputAtByRun.get(log.runId) ?? null) : null,
+      )
+      const rawReasoningEffort = (requestParams as Record<string, unknown> | null)?.reasoning_effort
+      const reasoningEffort =
+        typeof rawReasoningEffort === 'string' && rawReasoningEffort.length > 0
+          ? rawReasoningEffort
+          : null
+
+      return {
+        id: log.id,
+        runId: log.runId,
+        conversationId: log.conversationId,
+        userId: log.userId,
+        username: username ?? null,
+        providerId: log.providerId,
+        providerLabel: providerName ?? log.providerLabel,
+        modelLabel: log.modelLabel,
+        modelDisplayName: log.modelDisplayName ?? currentModelDisplayName ?? null,
+        kind: log.kind,
+        inputTokens: log.inputTokens,
+        cacheWriteTokens: log.cacheWriteTokens,
+        cachedTokens: log.cachedTokens,
+        outputTokens: log.outputTokens,
+        reasoningTokens: log.reasoningTokens,
+        totalTokens: log.totalTokens,
+        imageTokens: log.imageTokens,
+        outcome: log.outcome,
+        terminalReason: log.terminalReason,
+        result: resolveUsageResult(log.outcome, log.terminalReason),
+        success: log.success,
+        errorType: log.errorType,
+        costUsd: costUsd(log, log.pricingSnapshot),
+        reasoningEffort,
+        durationMs,
+        upstreamResponseLatencyMs: log.upstreamResponseLatencyMs,
+        firstTokenLatencyMs,
+        generationTokensPerSecond: computeGenerationTokensPerSecond(
+          log.outputTokens,
+          durationMs,
+          firstTokenLatencyMs,
+        ),
+        createdAt: log.createdAt.getTime(),
+      }
+    },
   )
 
   return { items, total, page, pageSize }

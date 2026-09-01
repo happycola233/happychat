@@ -44,6 +44,7 @@ export interface FinalizeArgs {
   upstreamResponseId: string | null
   providerReplayContext?: ProviderReplayContext | null
   startedAt: Date
+  upstreamResponseLatencyMs: number | null
   content?: ContentPart[]
   persistEmit: (type: string, data: Record<string, unknown>) => number
 }
@@ -145,6 +146,7 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
         modelId: a.model.id,
         providerId: a.provider.id,
         modelLabel: a.model.modelId,
+        modelDisplayName: a.model.displayName,
         providerLabel: a.provider.name,
         pricingSnapshot: a.model.pricing,
         conversationId: a.conversation.id,
@@ -154,6 +156,7 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
         outputTokens: a.usage.outputTokens,
         reasoningTokens: a.usage.reasoningTokens,
         totalTokens: a.usage.totalTokens,
+        upstreamResponseLatencyMs: a.upstreamResponseLatencyMs,
         quotaAt: a.run.createdAt,
         outcome: a.state,
         terminalReason,

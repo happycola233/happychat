@@ -101,6 +101,7 @@ export async function recoverInterruptedRuns(): Promise<void> {
               modelId: model?.id ?? null,
               providerId: provider?.id ?? null,
               modelLabel: model?.modelId ?? null,
+              modelDisplayName: model?.displayName ?? null,
               providerLabel: provider?.name ?? null,
               pricingSnapshot: model?.pricing ?? null,
               conversationId: r.conversationId,

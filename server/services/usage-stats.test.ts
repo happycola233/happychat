@@ -140,15 +140,21 @@ describe('个人使用情况统计', () => {
     const offsetMs = 480 * 60_000
     const localDayStart = Math.floor((Date.now() + offsetMs) / DAY_MS) * DAY_MS
     const localFourAm = localDayStart + 4 * 3_600_000
-    await logUsage(userId, { at: new Date(localFourAm - offsetMs) })
+    // 固定到本地中午，避免测试在 04:00 前运行时把本地 04:00 误当成未来数据。
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(localDayStart + 12 * 3_600_000 - offsetMs)
+    try {
+      await logUsage(userId, { at: new Date(localFourAm - offsetMs) })
 
-    const stats = await usageStats.getMyUsageStats(userId, {
-      tzOffsetMinutes: 480,
-      view: 'day',
-    })
-    expect(stats.busiestHour).toBe(4)
-    expect(stats.busiestWeekday).toBe(new Date(localDayStart).getUTCDay())
-    expect(stats.byHour[4]).toBe(1)
+      const stats = await usageStats.getMyUsageStats(userId, {
+        tzOffsetMinutes: 480,
+        view: 'day',
+      })
+      expect(stats.busiestHour).toBe(4)
+      expect(stats.busiestWeekday).toBe(new Date(localDayStart).getUTCDay())
+      expect(stats.byHour[4]).toBe(1)
+    } finally {
+      nowSpy.mockRestore()
+    }
   })
 
   it('统计会话数、消息数与生图次数', async () => {
@@ -174,25 +180,33 @@ describe('个人使用情况统计', () => {
     const userId = await createUser()
     const offsetMs = 480 * 60_000
     const localDayStart = Math.floor((Date.now() + offsetMs) / DAY_MS) * DAY_MS
-    // 今天本地 10:00 与昨天本地 10:00
-    await logUsage(userId, { at: new Date(localDayStart + 10 * 3_600_000 - offsetMs), tokens: 5 })
-    await logUsage(userId, {
-      at: new Date(localDayStart - DAY_MS + 10 * 3_600_000 - offsetMs),
-      tokens: 7,
-    })
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(localDayStart + 12 * 3_600_000 - offsetMs)
+    try {
+      // 今天本地 10:00 与昨天本地 10:00；固定到中午后两条都不会落在查询未来。
+      await logUsage(userId, {
+        at: new Date(localDayStart + 10 * 3_600_000 - offsetMs),
+        tokens: 5,
+      })
+      await logUsage(userId, {
+        at: new Date(localDayStart - DAY_MS + 10 * 3_600_000 - offsetMs),
+        tokens: 7,
+      })
 
-    const today = await usageStats.getMyUsageStats(userId, { tzOffsetMinutes: 480, view: 'day' })
-    expect(today.totals.requests).toBe(1)
-    expect(today.totals.totalTokens).toBe(5)
-    expect(today.granularity).toBe('hour')
-    expect(today.windowStart).toBe(localDayStart - offsetMs)
-    expect(today.windowEnd).toBe(localDayStart + DAY_MS - offsetMs)
-    // 热力图与窗口解耦：仍能看到昨天那一格
-    expect(today.heatmap.filter((cell) => cell.requests > 0)).toHaveLength(2)
+      const today = await usageStats.getMyUsageStats(userId, { tzOffsetMinutes: 480, view: 'day' })
+      expect(today.totals.requests).toBe(1)
+      expect(today.totals.totalTokens).toBe(5)
+      expect(today.granularity).toBe('hour')
+      expect(today.windowStart).toBe(localDayStart - offsetMs)
+      expect(today.windowEnd).toBe(localDayStart + DAY_MS - offsetMs)
+      // 热力图与窗口解耦：仍能看到昨天那一格
+      expect(today.heatmap.filter((cell) => cell.requests > 0)).toHaveLength(2)
 
-    const year = await usageStats.getMyUsageStats(userId, { tzOffsetMinutes: 480, view: 'year' })
-    expect(year.totals.requests).toBe(2)
-    expect(year.granularity).toBe('month')
+      const year = await usageStats.getMyUsageStats(userId, { tzOffsetMinutes: 480, view: 'year' })
+      expect(year.totals.requests).toBe(2)
+      expect(year.granularity).toBe('month')
+    } finally {
+      nowSpy.mockRestore()
+    }
   })
 
   it('IANA 时区的 DST 开始日使用 23 小时窗口并跳过不存在的小时', async () => {

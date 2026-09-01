@@ -6,6 +6,7 @@ import { db } from '../db/client'
 import { conversations, errorLogs, messages, runEvents, runs, usageLogs } from '../db/schema'
 import { providerClientFromRow } from '../provider/client'
 import { UpstreamError } from '../provider/errors'
+import { UpstreamResponseLatencyTracker } from '../provider/response-timing'
 import { computeGenerationDurationMs } from '../services/run-timing'
 import { runEmitter } from './emitter'
 import { storeGeneratedImageAttachment } from './generated-images'
@@ -35,6 +36,7 @@ export async function runImageEngine(ctx: EngineContext): Promise<void> {
   }
 
   const startedAt = new Date()
+  const upstreamResponseTiming = new UpstreamResponseLatencyTracker()
   persistEmit(RUN_EVENT_TYPE.created, {
     runId: ctx.run.id,
     conversationId: ctx.conversation.id,
@@ -63,7 +65,7 @@ export async function runImageEngine(ctx: EngineContext): Promise<void> {
   let imageTokens = 0
 
   try {
-    const client = providerClientFromRow(ctx.provider)
+    const client = providerClientFromRow(ctx.provider, upstreamResponseTiming)
     const resp = (await (ctx.imageOperation === 'edit'
       ? client.editImage(ctx.body, ctx.abortController.signal)
       : client.createImage(ctx.body, ctx.abortController.signal))) as ImageResponse
@@ -167,6 +169,7 @@ export async function runImageEngine(ctx: EngineContext): Promise<void> {
         modelId: ctx.model.id,
         providerId: ctx.provider.id,
         modelLabel: ctx.model.modelId,
+        modelDisplayName: ctx.model.displayName,
         providerLabel: ctx.provider.name,
         pricingSnapshot: ctx.model.pricing,
         conversationId: ctx.conversation.id,
@@ -175,6 +178,7 @@ export async function runImageEngine(ctx: EngineContext): Promise<void> {
         outputTokens,
         totalTokens,
         imageTokens,
+        upstreamResponseLatencyMs: upstreamResponseTiming.latencyMs,
         quotaAt: ctx.run.createdAt,
         outcome: state,
         terminalReason,

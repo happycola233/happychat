@@ -3,14 +3,15 @@ import { describe, expect, it } from 'vitest'
 import { RequestOutcomeBadge } from './RequestOutcomeBadge'
 
 describe('RequestOutcomeBadge', () => {
-  it('把结果标签渲染为可聚焦、可展开的说明按钮', () => {
+  it('把结果标签渲染为可聚焦的临时说明触发器', () => {
     const html = renderToStaticMarkup(
       <RequestOutcomeBadge kind="chat" result="filtered" terminalReason="content_filter" />,
     )
 
     expect(html).toContain('<button')
-    expect(html).toContain('aria-expanded="false"')
+    expect(html).not.toContain('aria-expanded')
     expect(html).toContain('内容过滤')
     expect(html).toContain('查看请求结果说明')
+    expect(html).not.toContain('固定说明')
   })
 })

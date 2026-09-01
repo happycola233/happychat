@@ -17,6 +17,7 @@ import { classifyAnthropicTerminal } from '../provider/anthropic-terminal'
 import { providerClientFromRow } from '../provider/client'
 import { UpstreamError } from '../provider/errors'
 import type { AnthropicReplayContextV1 } from '../provider/reasoning-replay'
+import { UpstreamResponseLatencyTracker } from '../provider/response-timing'
 import { runEmitter } from './emitter'
 import { collectProviderOpaqueStrings, redactProviderOpaqueContent } from './event-sanitize'
 import { finalizeRun } from './finalize'
@@ -89,6 +90,7 @@ export async function runAnthropicEngine(ctx: EngineContext): Promise<void> {
   }
 
   const startedAt = new Date()
+  const upstreamResponseTiming = new UpstreamResponseLatencyTracker()
   persistEmit(RUN_EVENT_TYPE.created, {
     runId: ctx.run.id,
     conversationId: ctx.conversation.id,
@@ -118,7 +120,7 @@ export async function runAnthropicEngine(ctx: EngineContext): Promise<void> {
   const searchOutputIndexById = new Map<string, number>()
 
   try {
-    const client = providerClientFromRow(ctx.provider)
+    const client = providerClientFromRow(ctx.provider, upstreamResponseTiming)
     let requestBody = ctx.body
     let messages = continuationMessages(requestBody)
     let finalStopReason: string | null
@@ -296,6 +298,7 @@ export async function runAnthropicEngine(ctx: EngineContext): Promise<void> {
     providerReplayContext: truncatedWithUnresolvedToolUse ? null : replayContext(ctx, rawContent),
     discardPartialOutput,
     startedAt,
+    upstreamResponseLatencyMs: upstreamResponseTiming.latencyMs,
     persistEmit,
   })
 }

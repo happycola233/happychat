@@ -4,6 +4,7 @@ import { joinAnthropicUrl, joinBaseUrl } from '@shared/util/url'
 import type { providers } from '../db/schema'
 import { type ChatStreamEvent, parseChatStream } from './chat'
 import { UpstreamError, networkError, toUpstreamError } from './errors'
+import type { UpstreamResponseTimingObserver } from './response-timing'
 import { parseSSEStream, type StreamEvent } from './sse-parse'
 import type { UpstreamResponse } from './upstream-types'
 
@@ -29,6 +30,7 @@ export class ProviderClient {
     private readonly baseUrl: string,
     private readonly apiKey: string,
     private readonly protocol: ProviderProtocol = 'openai',
+    private readonly responseTimingObserver?: UpstreamResponseTimingObserver,
   ) {}
 
   private endpoint(path: string): string {
@@ -90,13 +92,22 @@ export class ProviderClient {
 
   /** 通用 JSON POST（流式/非流式由后续阶段在此基础上扩展）。 */
   async postJson(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
+    const serializedBody = JSON.stringify(body)
+    const requestStartedAtMs = Date.now()
+    this.responseTimingObserver?.onRequestStart(requestStartedAtMs)
     try {
-      return await fetch(this.endpoint(path), {
+      const response = await fetch(this.endpoint(path), {
         method: 'POST',
         headers: this.authHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify(body),
+        body: serializedBody,
         signal,
       })
+      this.responseTimingObserver?.onResponseHeaders({
+        requestStartedAtMs,
+        responseHeadersAtMs: Date.now(),
+        ok: response.ok,
+      })
+      return response
     } catch (e) {
       throw networkError(e)
     }
@@ -112,13 +123,21 @@ export class ProviderClient {
         type: 'request_too_large',
       })
     }
+    const requestStartedAtMs = Date.now()
+    this.responseTimingObserver?.onRequestStart(requestStartedAtMs)
     try {
-      return await fetch(joinAnthropicUrl(this.baseUrl, '/v1/messages'), {
+      const response = await fetch(joinAnthropicUrl(this.baseUrl, '/v1/messages'), {
         method: 'POST',
         headers: this.anthropicHeaders({ 'Content-Type': 'application/json' }),
         body: serializedBody,
         signal,
       })
+      this.responseTimingObserver?.onResponseHeaders({
+        requestStartedAtMs,
+        responseHeadersAtMs: Date.now(),
+        ok: response.ok,
+      })
+      return response
     } catch (e) {
       throw networkError(e)
     }
@@ -200,6 +219,9 @@ export class ProviderClient {
 }
 
 /** 由 providers 表行构造客户端。 */
-export function providerClientFromRow(row: typeof providers.$inferSelect): ProviderClient {
-  return new ProviderClient(row.baseUrl, row.apiKey, row.protocol)
+export function providerClientFromRow(
+  row: typeof providers.$inferSelect,
+  responseTimingObserver?: UpstreamResponseTimingObserver,
+): ProviderClient {
+  return new ProviderClient(row.baseUrl, row.apiKey, row.protocol, responseTimingObserver)
 }

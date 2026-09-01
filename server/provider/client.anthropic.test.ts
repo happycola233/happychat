@@ -1,8 +1,41 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ProviderClient } from './client'
+import { UpstreamResponseLatencyTracker } from './response-timing'
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+})
+
+describe('ProviderClient / response timing', () => {
+  it.each(['openai', 'anthropic'] as const)(
+    'records %s POST time through response headers',
+    async (protocol) => {
+      const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(JSON.stringify({ status: 'completed', output: [], content: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+      vi.stubGlobal('fetch', fetchMock)
+      vi.spyOn(Date, 'now').mockReturnValueOnce(1_000).mockReturnValueOnce(1_425)
+      const responseTiming = new UpstreamResponseLatencyTracker()
+      const client = new ProviderClient(
+        'https://api.example.com/v1',
+        'test-key',
+        protocol,
+        responseTiming,
+      )
+
+      if (protocol === 'anthropic') {
+        await client.createAnthropicMessage({ model: 'claude-test', messages: [], max_tokens: 1 })
+      } else {
+        await client.createResponse({ model: 'gpt-test', input: 'hello' })
+      }
+
+      expect(responseTiming.latencyMs).toBe(425)
+    },
+  )
 })
 
 describe('ProviderClient / Anthropic', () => {

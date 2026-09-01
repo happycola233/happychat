@@ -23,6 +23,7 @@ import {
 import { db } from '../db/client'
 import { runEvents, runs } from '../db/schema'
 import { providerClientFromRow } from '../provider/client'
+import { UpstreamResponseLatencyTracker } from '../provider/response-timing'
 import { UpstreamError } from '../provider/errors'
 import type { ReasoningReplayContextV1 } from '../provider/reasoning-replay'
 import {
@@ -103,6 +104,7 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
   }
 
   const startedAt = new Date()
+  const upstreamResponseTiming = new UpstreamResponseLatencyTracker()
   persistEmit(RUN_EVENT_TYPE.created, {
     runId: ctx.run.id,
     conversationId: ctx.conversation.id,
@@ -429,7 +431,7 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
   }
 
   try {
-    const client = providerClientFromRow(ctx.provider)
+    const client = providerClientFromRow(ctx.provider, upstreamResponseTiming)
     const stream = streamResponseWithFallback({
       body: ctx.body,
       openStream: (body) => client.createResponseStream(body, ctx.abortController.signal),
@@ -632,6 +634,7 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
     upstreamResponseId,
     providerReplayContext,
     startedAt,
+    upstreamResponseLatencyMs: upstreamResponseTiming.latencyMs,
     ...(discardPartialOutput
       ? { content: [] }
       : finalContentParts.length

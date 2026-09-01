@@ -260,6 +260,20 @@
       "when": 1788269197241,
       "tag": "0036_session_client_ips",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "6",
+      "when": 1788278234586,
+      "tag": "0037_serious_paper_doll",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "6",
+      "when": 1788280539068,
+      "tag": "0038_spotty_ricochet",
+      "breakpoints": true
     }
   ]
 }

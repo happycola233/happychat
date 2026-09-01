@@ -15,10 +15,7 @@ interface AnchorPosition {
 
 type RequestOutcomeBadgeProps = Pick<UsageLogDTO, 'kind' | 'result' | 'terminalReason'>
 
-/**
- * 状态说明兼顾三种操作：鼠标悬停、键盘聚焦会临时显示，点击则固定显示。
- * 浮层通过 portal 逃逸表格的横向滚动裁剪；其中没有可聚焦控件，焦点始终留在触发按钮。
- */
+/** 状态说明仅在鼠标悬停或键盘聚焦时显示，并通过 portal 逃逸表格滚动裁剪。 */
 export function RequestOutcomeBadge(props: RequestOutcomeBadgeProps) {
   const presentation = requestOutcomePresentation(props)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -28,9 +25,7 @@ export function RequestOutcomeBadge(props: RequestOutcomeBadgeProps) {
   const [anchor, setAnchor] = useState<AnchorPosition | null>(null)
   const [hovered, setHovered] = useState(false)
   const [focused, setFocused] = useState(false)
-  const [pinned, setPinned] = useState(false)
-  const [dismissed, setDismissed] = useState(false)
-  const open = !dismissed && (hovered || focused || pinned)
+  const open = hovered || focused
 
   const updateAnchor = useCallback(() => {
     const rect = triggerRef.current?.getBoundingClientRect()
@@ -66,35 +61,13 @@ export function RequestOutcomeBadge(props: RequestOutcomeBadgeProps) {
   useEffect(() => {
     if (!open) return
     updateAnchor()
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      setPinned(false)
-      setHovered(false)
-      // Escape 只关闭说明，焦点留在触发标签，键盘用户不会丢失表格中的当前位置。
-      setDismissed(true)
-    }
     window.addEventListener('resize', updateAnchor)
     window.addEventListener('scroll', updateAnchor, true)
-    window.addEventListener('keydown', closeOnEscape)
     return () => {
       window.removeEventListener('resize', updateAnchor)
       window.removeEventListener('scroll', updateAnchor, true)
-      window.removeEventListener('keydown', closeOnEscape)
     }
   }, [open, updateAnchor])
-
-  useEffect(() => {
-    if (!pinned) return
-    const closeOnOutsidePointer = (event: PointerEvent) => {
-      const target = event.target as Node
-      if (!triggerRef.current?.contains(target) && !tooltipRef.current?.contains(target)) {
-        setPinned(false)
-        setDismissed(true)
-      }
-    }
-    window.addEventListener('pointerdown', closeOnOutsidePointer)
-    return () => window.removeEventListener('pointerdown', closeOnOutsidePointer)
-  }, [pinned])
 
   useEffect(
     () => () => {
@@ -110,37 +83,19 @@ export function RequestOutcomeBadge(props: RequestOutcomeBadgeProps) {
         type="button"
         aria-label={`${presentation.label}，查看请求结果说明`}
         aria-describedby={open ? tooltipId : undefined}
-        aria-controls={open ? tooltipId : undefined}
-        aria-expanded={open}
         onMouseEnter={() => {
           cancelScheduledHide()
           updateAnchor()
-          setDismissed(false)
           setHovered(true)
         }}
         onMouseLeave={scheduleHoverHide}
         onFocus={() => {
           updateAnchor()
-          setDismissed(false)
           setFocused(true)
         }}
-        onBlur={() => {
-          setFocused(false)
-          // 键盘移到下一行时同时解除固定，避免上一行的说明浮层残留。
-          setPinned(false)
-          setDismissed(false)
-        }}
-        onClick={() => {
-          updateAnchor()
-          if (pinned) {
-            setPinned(false)
-            setHovered(false)
-            setDismissed(true)
-          } else {
-            setDismissed(false)
-            setPinned(true)
-          }
-        }}
+        onBlur={() => setFocused(false)}
+        // 阻止鼠标按下把焦点留在标签上，避免点击后说明因 focus 状态持续显示。
+        onPointerDown={(event) => event.preventDefault()}
         className="cursor-help rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-sky-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-sky-400/50 dark:focus-visible:ring-offset-neutral-900"
       >
         <Badge tone={presentation.tone}>
@@ -211,9 +166,6 @@ export function RequestOutcomeBadge(props: RequestOutcomeBadgeProps) {
                 </div>
               )}
             </dl>
-            <p className="mt-2 border-t border-neutral-100 pt-2 text-[11px] text-neutral-400 dark:border-neutral-800 dark:text-neutral-500">
-              {pinned ? '说明已固定；再次点击状态标签或按 Esc 关闭。' : '点击状态标签可固定说明。'}
-            </p>
           </div>,
           document.body,
         )}

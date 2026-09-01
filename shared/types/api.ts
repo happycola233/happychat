@@ -389,7 +389,10 @@ export interface UsageLogDTO {
   username: string | null
   providerId: string | null
   providerLabel: string | null
+  /** 请求时的上游模型 ID 快照。 */
   modelLabel: string | null
+  /** 请求时的模型外显名称；迁移前记录在模型仍存在时由当前配置补齐。 */
+  modelDisplayName: string | null
   /** 请求类型：chat=用户对话，title=会话标题总结 */
   kind: UsageLogKind
   inputTokens: number
@@ -409,8 +412,16 @@ export interface UsageLogDTO {
   success: boolean
   errorType: string | null
   costUsd: number
+  /** 该次请求保存的原始 reasoning_effort 值，不映射为模型配置的展示描述。 */
+  reasoningEffort: string | null
   /** 从生成引擎开始到 run 终态的墙钟耗时；关联 run 不存在时为 null。 */
   durationMs: number | null
+  /** 从首次实际向上游发送 HTTP 请求到首次成功响应头；仅失败响应可用时取首次失败响应。 */
+  upstreamResponseLatencyMs: number | null
+  /** 从生成引擎开始到首个可见正文 delta 的墙钟延时。 */
+  firstTokenLatencyMs: number | null
+  /** 输出 Token /（总耗时 - 首字延时）；无法取得首字事件时为 null。 */
+  generationTokensPerSecond: number | null
   createdAt: number
 }
 

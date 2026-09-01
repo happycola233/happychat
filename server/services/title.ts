@@ -14,6 +14,10 @@ import { classifyChatTerminal } from '../provider/chat-terminal'
 import { providerClientFromRow } from '../provider/client'
 import { UpstreamError } from '../provider/errors'
 import { parseResponse } from '../provider/normalize'
+import {
+  UpstreamResponseLatencyTracker,
+  type UpstreamResponseTimingObserver,
+} from '../provider/response-timing'
 import { classifyResponsesTerminal } from '../provider/responses-terminal'
 import { buildPath, getConversationMessages } from './conversations'
 import { getAppConfig } from './appConfig'
@@ -80,8 +84,9 @@ async function callTitleModel(
   m: ModelRow,
   p: ProviderRow,
   prompt: string,
+  responseTimingObserver: UpstreamResponseTimingObserver,
 ): Promise<TitleModelResult> {
-  const client = providerClientFromRow(p)
+  const client = providerClientFromRow(p, responseTimingObserver)
   if (m.kind === 'chat') {
     const resp = (await client.createChat({
       model: m.modelId,
@@ -167,12 +172,14 @@ async function logTitleUsage(
   errorType: string | null,
   outcome: UsageOutcome,
   terminalReason: string | null,
+  upstreamResponseLatencyMs: number | null,
 ): Promise<void> {
   await db.insert(usageLogs).values({
     userId,
     modelId: model.id,
     providerId: provider.id,
     modelLabel: model.modelId,
+    modelDisplayName: model.displayName,
     providerLabel: provider.name,
     pricingSnapshot: model.pricing,
     conversationId,
@@ -183,6 +190,7 @@ async function logTitleUsage(
     outputTokens: usage.outputTokens,
     reasoningTokens: usage.reasoningTokens,
     totalTokens: usage.totalTokens,
+    upstreamResponseLatencyMs,
     success,
     errorType,
     outcome,
@@ -262,9 +270,15 @@ export async function maybeGenerateTitle(conversationId: string, runId?: string)
     const prompt = (cfg.titlePrompt || DEFAULT_TITLE_PROMPT)
       .replaceAll('{locale}', titleLocale)
       .replaceAll('{content}', content)
+    const upstreamResponseTiming = new UpstreamResponseLatencyTracker()
     let result: TitleModelResult
     try {
-      result = await callTitleModel(resolved.model, resolved.provider, prompt)
+      result = await callTitleModel(
+        resolved.model,
+        resolved.provider,
+        prompt,
+        upstreamResponseTiming,
+      )
     } catch (error) {
       console.error('标题模型调用失败:', error)
       const { errorType, terminalReason } = titleCallError(error)
@@ -287,6 +301,7 @@ export async function maybeGenerateTitle(conversationId: string, runId?: string)
       result.errorType,
       result.outcome,
       result.terminalReason,
+      upstreamResponseTiming.latencyMs,
     )
     const title = (result.success ? cleanTitle(result.text) : '') || fallback
     const updatedAt = new Date()

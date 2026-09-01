@@ -8,6 +8,7 @@ import { mapChatUsage } from '../provider/chat'
 import { classifyChatTerminal } from '../provider/chat-terminal'
 import { providerClientFromRow } from '../provider/client'
 import { UpstreamError } from '../provider/errors'
+import { UpstreamResponseLatencyTracker } from '../provider/response-timing'
 import { runEmitter } from './emitter'
 import { finalizeRun } from './finalize'
 import type { EngineContext } from './types'
@@ -27,6 +28,7 @@ export async function runChatEngine(ctx: EngineContext): Promise<void> {
   }
 
   const startedAt = new Date()
+  const upstreamResponseTiming = new UpstreamResponseLatencyTracker()
   persistEmit(RUN_EVENT_TYPE.created, {
     runId: ctx.run.id,
     conversationId: ctx.conversation.id,
@@ -61,7 +63,7 @@ export async function runChatEngine(ctx: EngineContext): Promise<void> {
   let discardPartialOutput = false
 
   try {
-    const client = providerClientFromRow(ctx.provider)
+    const client = providerClientFromRow(ctx.provider, upstreamResponseTiming)
     for await (const event of client.createChatStream(ctx.body, ctx.abortController.signal)) {
       if (event.type === 'done') {
         receivedDone = true
@@ -171,6 +173,7 @@ export async function runChatEngine(ctx: EngineContext): Promise<void> {
     discardPartialOutput,
     upstreamResponseId: null,
     startedAt,
+    upstreamResponseLatencyMs: upstreamResponseTiming.latencyMs,
     persistEmit,
   })
 }
