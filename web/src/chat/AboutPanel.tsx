@@ -23,7 +23,7 @@ import { ExternalLinkIcon, GithubIcon, ReasoningEffortIcon } from './icons'
 
 const REPO_URL = 'https://github.com/happycola233/happychat'
 
-/** 「思考深度可调」沿用输入框里「思考深度」最高档的图标，与聊天界面保持同一套视觉语言。 */
+/** 「推理强度可调」沿用输入框里「推理强度」最高档的图标，与聊天界面保持同一套视觉语言。 */
 function ReasoningIcon({ className }: { className?: string }) {
   return <ReasoningEffortIcon effort="max" className={className} />
 }
@@ -49,8 +49,8 @@ const HIGHLIGHTS: readonly {
   },
   {
     icon: ReasoningIcon,
-    title: '思考深度',
-    desc: '可视化调节思考深度，以精致的交互界面实时展示推理摘要。',
+    title: '推理强度',
+    desc: '可视化调节推理强度，以精致的交互界面实时展示推理摘要。',
   },
   {
     icon: Globe,

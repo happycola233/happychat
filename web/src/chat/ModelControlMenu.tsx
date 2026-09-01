@@ -66,7 +66,7 @@ function Divider() {
 }
 
 /**
- * 思考深度：横向分段选择（点击临时生效并保持菜单打开），高亮「本次请求实际会用」的档位，
+ * 推理强度：横向分段选择（点击临时生效并保持菜单打开），高亮「本次请求实际会用」的档位，
  * 与触发器标签同口径；上游实际值（low/high…）保留在悬停提示里。
  * 右上角「固定/已固定」按钮把当前档位设为新会话默认；已固定但当前未使用的档位以小圆点标记。
  */
@@ -124,12 +124,12 @@ function ReasoningSection({ model }: { model: ModelDTO }) {
       >
         <span className="inline-flex items-center gap-1.5">
           <ReasoningEffortIcon effort={effectiveEffort} className="h-3.5 w-3.5 shrink-0" />
-          思考深度
+          推理强度
         </span>
       </SectionLabel>
       <div
         role="group"
-        aria-label="思考深度"
+        aria-label="推理强度"
         className="hc-scrollbar flex gap-1 overflow-x-auto px-1.5 pb-1"
       >
         {model.allowedEfforts.map((option) => {
@@ -562,7 +562,7 @@ function MenuSections({
 }
 
 /**
- * 聚合选择器：模型 + 思考深度 + 联网搜索 / X 搜索（图片模型则为分辨率/画质）收进一个菜单。
+ * 聚合选择器：模型 + 推理强度 + 联网搜索 / X 搜索（图片模型则为分辨率/画质）收进一个菜单。
  * 桌面端为锚定弹层（输入框内向上、顶栏向下，空间不足自动翻转；新对话居中时向左侧弹）；
  * 移动端为底部弹层（portal 到 body，遮罩 + 安全区内边距 + 更大的触控行高）。
  */
@@ -582,7 +582,7 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
   const [menuMaxHeight, setMenuMaxHeight] = useState<number | null>(null)
   /**
    * 侧向弹层的水平锚点（距触发器右缘的 right 偏移）：打开时按当时的触发器宽度冻结。
-   * 触发器右缘在输入框里是稳定的，标签文字（模型名/思考深度）变化只会改左缘——
+   * 触发器右缘在输入框里是稳定的，标签文字（模型名/推理强度）变化只会改左缘——
    * 若按左缘锚定（right-full），切换选项就会带着整个面板左右晃动。
    */
   const [menuSideOffset, setMenuSideOffset] = useState<number | null>(null)
@@ -603,7 +603,7 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
   useSizeTransition(desktopPanelRef, panelSizeSignature, { width: true, height: true })
   useSizeTransition(mobileDialogRef, panelSizeSignature, { width: false, height: true })
 
-  // —— 触发器上直接反映本次请求会用到的思考深度与检索开关状态（下方渲染与宽度过渡共用）——
+  // —— 触发器上直接反映本次请求会用到的推理强度与检索开关状态（下方渲染与宽度过渡共用）——
   const isImage = model?.kind === 'image'
   const supportsSearchTools = modelKindSupportsSearchTools(model?.kind)
   const showReasoning = Boolean(
@@ -758,7 +758,7 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
         onClick={() => setOpen((v) => !v)}
         title={
           model
-            ? `模型：${model.displayName}${showReasoning ? `；思考深度：${effectiveEffortOption ? `${effectiveEffortOption.description}（${effectiveEffortOption.value}）` : '自动（沿用上游默认）'}` : ''}`
+            ? `模型：${model.displayName}${showReasoning ? `；推理强度：${effectiveEffortOption ? `${effectiveEffortOption.description}（${effectiveEffortOption.value}）` : '自动（沿用上游默认）'}` : ''}`
             : '选择模型'
         }
         className={clsx(

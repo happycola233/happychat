@@ -33,12 +33,12 @@ async function main() {
   await composer.waitFor({ timeout: 10_000 })
   await page.waitForTimeout(1200)
 
-  // —— 思考：选 gpt-5.5，展开聚合菜单确认思考深度分区存在 ——
+  // —— 思考：选 gpt-5.5，展开聚合菜单确认推理强度分区存在 ——
   await selectModel(page, 'gpt-5.5')
   await page.getByTestId('model-menu-trigger').click()
-  const hasReasoningCtrl = (await page.getByText('思考深度', { exact: true }).count()) > 0
+  const hasReasoningCtrl = (await page.getByText('推理强度', { exact: true }).count()) > 0
   await page.keyboard.press('Escape')
-  console.log('思考深度控件可见:', hasReasoningCtrl)
+  console.log('推理强度控件可见:', hasReasoningCtrl)
   await composer.fill('9.11 和 9.9 哪个更大？请简要思考后给出结论。')
   await composer.press('Enter')
   await waitGenDone(page)

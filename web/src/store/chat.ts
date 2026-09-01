@@ -25,9 +25,9 @@ interface ChatPrefs {
   setActiveModel: (id: string) => void
   setActiveWebSearch: (v: boolean) => void
   setActiveXSearch: (v: boolean) => void
-  /** 临时设置思考深度（不固定）。 */
+  /** 临时设置推理强度（不固定）。 */
   setActiveEffort: (e: ReasoningEffort | null) => void
-  /** 把某思考深度设为固定默认（再次点击同值取消固定）。 */
+  /** 把某推理强度设为固定默认（再次点击同值取消固定）。 */
   pinEffort: (e: ReasoningEffort) => void
   /** 打开会话时恢复控件：缺省项回退固定默认。 */
   resetActive: (init: {
