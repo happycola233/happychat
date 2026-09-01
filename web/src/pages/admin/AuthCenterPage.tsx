@@ -529,6 +529,40 @@ function CreateInviteModal({ onClose, onDone }: { onClose: () => void; onDone: (
 
 // ===================== 会话 =====================
 
+function SessionIpCell({ session }: { session: AdminSessionDTO }) {
+  const ipClass = 'break-all font-mono text-[11px] text-neutral-700 dark:text-neutral-200'
+  const labelClass = 'whitespace-nowrap text-[11px] text-neutral-400 dark:text-neutral-500'
+
+  if (!session.loginIp && !session.lastSeenIp) {
+    return <span className="text-xs text-neutral-400 dark:text-neutral-500">未记录</span>
+  }
+
+  if (session.loginIp && session.loginIp === session.lastSeenIp) {
+    return (
+      <div className="grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-2">
+        <span className={labelClass}>登录 / 最近</span>
+        <span className={ipClass}>{session.loginIp}</span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-1">
+      {(
+        [
+          ['登录', session.loginIp],
+          ['最近', session.lastSeenIp],
+        ] as const
+      ).map(([label, ip]) => (
+        <div key={label} className="grid grid-cols-[2rem_minmax(0,1fr)] items-baseline gap-x-2">
+          <span className={labelClass}>{label}</span>
+          <span className={ip ? ipClass : labelClass}>{ip ?? '未记录'}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function SessionsTab() {
   const qc = useQueryClient()
   const { data: sessions, isLoading } = useQuery({
@@ -552,12 +586,13 @@ function SessionsTab() {
 
   return (
     <div className={tableScroll}>
-      <div className={`${tableShell} min-w-[720px]`}>
+      <div className={`${tableShell} min-w-[960px]`}>
         <table className={tableEl}>
           <thead className={tableHead}>
             <tr>
               <th className={th}>用户</th>
               <th className={th}>设备</th>
+              <th className={th}>IP</th>
               <th className={th}>登录时间</th>
               <th className={th}>过期</th>
               <th className={th} />
@@ -569,6 +604,9 @@ function SessionsTab() {
                 <td className={clsx(td, 'text-neutral-800 dark:text-neutral-100')}>{s.username}</td>
                 <td className={clsx(td, 'max-w-[20rem] truncate text-xs text-neutral-500')}>
                   {s.userAgent ?? '—'}
+                </td>
+                <td className={clsx(td, 'min-w-[15rem] max-w-[22rem]')}>
+                  <SessionIpCell session={s} />
                 </td>
                 <td className={clsx(td, 'text-xs text-neutral-500')}>
                   {formatDateTime(s.createdAt)}

@@ -253,6 +253,13 @@
       "when": 1787206607626,
       "tag": "0035_lively_the_enforcers",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "6",
+      "when": 1788269197241,
+      "tag": "0036_session_client_ips",
+      "breakpoints": true
     }
   ]
 }

@@ -5,7 +5,10 @@ import { SESSION_COOKIE, SESSION_TTL_MS } from '@shared/constants'
 import { db } from '../db/client'
 import { sessions, users } from '../db/schema'
 import { env } from '../env'
+import { resolveClientIp } from '../http/client-ip'
 import type { AuthUser } from '../http/types'
+
+const LAST_SEEN_WRITE_INTERVAL_MS = 5 * 60 * 1000
 
 const cookieOptions = () =>
   ({
@@ -18,8 +21,12 @@ const cookieOptions = () =>
 
 export async function createSession(c: Context, userId: string): Promise<void> {
   const userAgent = c.req.header('user-agent') ?? null
+  const loginIp = resolveClientIp(c)
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS)
-  const rows = await db.insert(sessions).values({ userId, userAgent, expiresAt }).returning()
+  const rows = await db
+    .insert(sessions)
+    .values({ userId, userAgent, loginIp, expiresAt })
+    .returning()
   const row = rows[0]
   if (!row) throw new Error('创建会话失败')
   await setSignedCookie(c, SESSION_COOKIE, row.id, env.SESSION_SECRET, cookieOptions())
@@ -48,5 +55,16 @@ export async function getAuthUser(c: Context): Promise<AuthUser | null> {
   }
   const [u] = await db.select().from(users).where(eq(users.id, s.userId)).limit(1)
   if (!u || u.disabled) return null
+
+  const clientIp = resolveClientIp(c)
+  const now = new Date()
+  const lastSeenIsStale =
+    !s.lastSeenAt || now.getTime() - s.lastSeenAt.getTime() > LAST_SEEN_WRITE_INTERVAL_MS
+  if (clientIp && (clientIp !== s.lastSeenIp || lastSeenIsStale)) {
+    await db
+      .update(sessions)
+      .set({ lastSeenIp: clientIp, lastSeenAt: now })
+      .where(eq(sessions.id, s.id))
+  }
   return u
 }

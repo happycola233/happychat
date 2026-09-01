@@ -251,6 +251,8 @@ PORT=8787
 DATA_DIR=./data
 DATABASE_URL=./data/happychat.db
 SESSION_SECRET=<openssl rand -hex 32>
+CLIENT_IP_HEADER=
+TRUSTED_PROXY_HOPS=1
 EOF
 
 npm run start
@@ -284,6 +286,9 @@ location /api/ {
     proxy_pass http://127.0.0.1:8787;
     proxy_http_version 1.1;
     proxy_set_header Connection '';
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_buffering off;          # 关键：SSE 流式不被缓冲
     proxy_cache off;
     proxy_read_timeout 3600s;
@@ -292,10 +297,18 @@ location / {
     proxy_pass http://127.0.0.1:8787;
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 }
 ```
 
-`Host` 与 `X-Forwarded-Proto` 用于生成分享卡片中的绝对规范链接与应用图标地址，反向代理时不要省略。
+`Host` 与 `X-Forwarded-Proto` 用于生成分享卡片中的绝对规范链接与应用图标地址；`X-Forwarded-For` 用于记录登录与最近活动 IP。nginx 默认不会自动补充 `X-Forwarded-For`，两个 location 都不要省略这些请求头设置。
+
+HappyChat 默认设置 `TRUSTED_PROXY_HOPS=0`，会完全忽略 `X-Forwarded-For` 并只采用 TCP socket 地址；因此反代后若不按实际拓扑配置，记录到的会是 nginx 的 `127.0.0.1`。常见拓扑的配置如下：
+
+- 公网 → 单机 nginx → HappyChat：`CLIENT_IP_HEADER=`、`TRUSTED_PROXY_HOPS=1`。
+- 公网 → Cloudflare → nginx → HappyChat：使用 XFF 链时设置 `CLIENT_IP_HEADER=`、`TRUSTED_PROXY_HOPS=2`；若源站只允许 Cloudflare 访问，且边缘会设置并剥离用户提交的同名头，也可设置 `CLIENT_IP_HEADER=cf-connecting-ip`，此时该专用头优先于 XFF 跳数。
+
+`TRUSTED_PROXY_HOPS` 必须与真实代理层数一致。设置得大于实际跳数会越过可信代理，选中客户端可伪造的 XFF 前缀。`CLIENT_IP_HEADER` 也只能指向由可信边缘重写、且用户无法绕过边缘直接提交的请求头。
 
 浏览器缓存策略由应用统一返回，反向代理**不要覆盖** `Cache-Control`：
 

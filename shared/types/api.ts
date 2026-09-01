@@ -488,6 +488,9 @@ export interface AdminSessionDTO {
   userId: string
   username: string
   userAgent: string | null
+  loginIp: string | null
+  lastSeenIp: string | null
+  lastSeenAt: number | null
   createdAt: number
   expiresAt: number
 }

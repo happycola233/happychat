@@ -15,6 +15,9 @@ export async function listSessions(userId?: string): Promise<AdminSessionDTO[]> 
     userId: s.userId,
     username,
     userAgent: s.userAgent,
+    loginIp: s.loginIp,
+    lastSeenIp: s.lastSeenIp,
+    lastSeenAt: s.lastSeenAt?.getTime() ?? null,
     createdAt: s.createdAt.getTime(),
     expiresAt: s.expiresAt.getTime(),
   }))

@@ -19,6 +19,7 @@ import { shareRoutes } from './routes/shares'
 import { announcementRoutes } from './routes/announcements'
 import { quotaRoutes } from './routes/quota'
 import { isVersionedAssetPath, productionWebCacheMiddleware } from './http/web-cache'
+import { resolveClientIp } from './http/client-ip'
 import { renderSharePageHtml, resolvePublicRequestUrl } from './http/share-page'
 import { recoverInterruptedRuns } from './runs/manager'
 import { sanitizePersistedRunEvents } from './runs/run-event-cleanup'
@@ -95,7 +96,7 @@ app.onError((err, c) => {
         scope: 'server',
         message: err instanceof Error ? err.message : String(err),
         httpStatus: 500,
-        detail: { path: c.req.path, method: c.req.method },
+        detail: { path: c.req.path, method: c.req.method, clientIp: resolveClientIp(c) },
       })
       .run()
   } catch {
