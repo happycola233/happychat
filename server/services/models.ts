@@ -6,7 +6,12 @@ import type {
   ProviderDTO,
   ProviderDetailDTO,
 } from '@shared/types/api'
-import type { ModelAccessUpdateInput, ModelCreateInput } from '@shared/schemas/model-config'
+import {
+  MODEL_DISPLAY_NAME_MAX_LENGTH,
+  type ModelAccessUpdateInput,
+  type ModelCreateInput,
+  type ModelUpdateInput,
+} from '@shared/schemas/model-config'
 import {
   hasAnthropicMaxOutputTokens,
   hasAnthropicThinkingBudgetConflict,
@@ -282,14 +287,27 @@ export type CreateModelResult =
   | { ok: true; model: AdminModelDTO }
   | {
       ok: false
-      code:
-        | 'provider_missing'
-        | 'provider_protocol_mismatch'
-        | 'group_missing'
-        | 'icon_missing'
-        | 'anthropic_max_output_tokens_required'
-        | 'anthropic_thinking_budget_conflict'
+      code: ModelConfigurationErrorCode
     }
+
+export type ModelConfigurationErrorCode =
+  | 'provider_missing'
+  | 'provider_protocol_mismatch'
+  | 'group_missing'
+  | 'icon_missing'
+  | 'anthropic_max_output_tokens_required'
+  | 'anthropic_thinking_budget_conflict'
+  | 'invalid_default_effort'
+
+function includesReasoningEffort(
+  allowedEfforts: Parameters<typeof normalizeReasoningEffortOptions>[0],
+  defaultEffort: string | null | undefined,
+): boolean {
+  if (!defaultEffort) return true
+  return normalizeReasoningEffortOptions(allowedEfforts).some(
+    (option) => option.value === defaultEffort,
+  )
+}
 
 /**
  * 手动添加模型：校验供应商存在后入库。
@@ -298,6 +316,9 @@ export type CreateModelResult =
 export async function createModel(input: ModelCreateInput): Promise<CreateModelResult> {
   return db.transaction(
     (tx) => {
+      if (!includesReasoningEffort(input.allowedEfforts, input.defaultEffort)) {
+        return { ok: false, code: 'invalid_default_effort' } as const
+      }
       const provider = tx
         .select()
         .from(providers)
@@ -367,6 +388,222 @@ export async function createModel(input: ModelCreateInput): Promise<CreateModelR
           .get(),
       )
       return { ok: true, model: toAdminModelDTO(row, provider.name) } as const
+    },
+    { behavior: 'immediate' },
+  )
+}
+
+export type DuplicateModelResult =
+  | { ok: true; model: AdminModelDTO }
+  | { ok: false; code: 'model_missing' }
+
+/**
+ * 创建一份独立的模型配置副本。模型的内部 id 、时间戳与后续修改彼此独立；
+ * 指定用户模式下的白名单也在同一事务中复制，避免新模型短暂落入错误的开放范围。
+ */
+export async function duplicateModel(id: string): Promise<DuplicateModelResult> {
+  return db.transaction(
+    (tx): DuplicateModelResult => {
+      const source = tx
+        .select({ model: models, providerName: providers.name })
+        .from(models)
+        .innerJoin(providers, eq(models.providerId, providers.id))
+        .where(eq(models.id, id))
+        .limit(1)
+        .get()
+      if (!source) return { ok: false, code: 'model_missing' }
+
+      const sourceAccessRows =
+        source.model.accessMode === 'selected'
+          ? tx
+              .select({ userId: modelUserAccess.userId })
+              .from(modelUserAccess)
+              .where(eq(modelUserAccess.modelId, id))
+              .all()
+          : []
+      const nameSuffix = ' 副本'
+      const copiedDisplayName = `${source.model.displayName.slice(
+        0,
+        MODEL_DISPLAY_NAME_MAX_LENGTH - nameSuffix.length,
+      )}${nameSuffix}`
+      const capabilities = normalizeModelCapabilitiesForKind(
+        source.model.kind,
+        source.model.capabilities,
+      )
+      const isChatCompletions = source.model.kind === 'chat'
+      const copied = must(
+        tx
+          .insert(models)
+          .values({
+            providerId: source.model.providerId,
+            modelId: source.model.modelId,
+            displayName: copiedDisplayName,
+            description: source.model.description,
+            tags: normalizeModelTags(source.model.tags),
+            icon: normalizeModelIcon(source.model.icon),
+            groupId: source.model.groupId,
+            kind: source.model.kind,
+            enabled: source.model.enabled,
+            accessMode: source.model.accessMode,
+            capabilities,
+            defaultSystemPrompt: source.model.defaultSystemPrompt,
+            defaultParams:
+              normalizeSearchParamsForModelKind(source.model.kind, source.model.defaultParams) ??
+              null,
+            hardParams: source.model.hardParams,
+            pricing: source.model.pricing,
+            allowedEfforts: normalizeReasoningEffortOptions(source.model.allowedEfforts),
+            defaultEffort: source.model.defaultEffort,
+            replayProviderContext: source.model.replayProviderContext,
+            defaultWebSearch: isChatCompletions ? false : source.model.defaultWebSearch,
+            defaultXSearch: isChatCompletions ? false : source.model.defaultXSearch,
+            // 保留 sort 使副本紧邻源模型；下次拖拽会重写为唯一的稀疏排序值。
+            sort: source.model.sort,
+          })
+          .returning()
+          .get(),
+      )
+
+      for (
+        let offset = 0;
+        offset < sourceAccessRows.length;
+        offset += MODEL_ACCESS_INSERT_BATCH_SIZE
+      ) {
+        const batch = sourceAccessRows.slice(offset, offset + MODEL_ACCESS_INSERT_BATCH_SIZE)
+        tx.insert(modelUserAccess)
+          .values(batch.map(({ userId }) => ({ modelId: copied.id, userId })))
+          .run()
+      }
+
+      return {
+        ok: true,
+        model: toAdminModelDTO(copied, source.providerName, sourceAccessRows.length),
+      }
+    },
+    { behavior: 'immediate' },
+  )
+}
+
+export type UpdateModelResult =
+  | { ok: true }
+  | { ok: false; code: 'model_missing' | ModelConfigurationErrorCode }
+
+/** 原子更新模型配置；切换供应商时与模型引擎的协议校验在同一事务内完成。 */
+export async function updateModel(id: string, input: ModelUpdateInput): Promise<UpdateModelResult> {
+  return db.transaction(
+    (tx): UpdateModelResult => {
+      const existing = tx.select().from(models).where(eq(models.id, id)).limit(1).get()
+      if (!existing) return { ok: false, code: 'model_missing' }
+
+      const nextProviderId = input.providerId ?? existing.providerId
+      const provider = tx
+        .select({ protocol: providers.protocol })
+        .from(providers)
+        .where(eq(providers.id, nextProviderId))
+        .limit(1)
+        .get()
+      if (!provider) return { ok: false, code: 'provider_missing' }
+
+      const nextKind = input.kind ?? existing.kind
+      if (!providerProtocolSupportsModelKind(provider.protocol, nextKind)) {
+        return { ok: false, code: 'provider_protocol_mismatch' }
+      }
+
+      const nextCapabilities = normalizeModelCapabilitiesForKind(
+        nextKind,
+        input.capabilities ?? existing.capabilities,
+      )
+      const nextDefaultParams =
+        normalizeSearchParamsForModelKind(
+          nextKind,
+          input.defaultParams !== undefined ? input.defaultParams : existing.defaultParams,
+        ) ?? null
+      const nextHardParams = input.hardParams !== undefined ? input.hardParams : existing.hardParams
+      if (nextKind === 'anthropic' && !hasAnthropicMaxOutputTokens(nextDefaultParams)) {
+        return { ok: false, code: 'anthropic_max_output_tokens_required' }
+      }
+      if (
+        nextKind === 'anthropic' &&
+        hasAnthropicThinkingBudgetConflict(
+          nextHardParams?.max_tokens ?? nextDefaultParams?.max_output_tokens,
+          nextHardParams?.thinking,
+        )
+      ) {
+        return { ok: false, code: 'anthropic_thinking_budget_conflict' }
+      }
+
+      let nextReasoningConfig:
+        | Pick<typeof models.$inferInsert, 'allowedEfforts' | 'defaultEffort'>
+        | undefined
+      if (input.allowedEfforts !== undefined || input.defaultEffort !== undefined) {
+        const nextAllowedEfforts = input.allowedEfforts ?? existing.allowedEfforts
+        const nextDefaultEffort =
+          input.defaultEffort !== undefined ? input.defaultEffort : existing.defaultEffort
+        if (!includesReasoningEffort(nextAllowedEfforts, nextDefaultEffort)) {
+          return { ok: false, code: 'invalid_default_effort' }
+        }
+        nextReasoningConfig = {
+          allowedEfforts: nextAllowedEfforts,
+          defaultEffort: nextDefaultEffort,
+        }
+      }
+
+      if (input.groupId) {
+        const group = tx
+          .select({ id: modelGroups.id })
+          .from(modelGroups)
+          .where(eq(modelGroups.id, input.groupId))
+          .limit(1)
+          .get()
+        if (!group) return { ok: false, code: 'group_missing' }
+      }
+      if (input.icon !== undefined && !modelIconReferencesExist(tx, [input.icon])) {
+        return { ok: false, code: 'icon_missing' }
+      }
+
+      const patch: Partial<typeof models.$inferInsert> = {}
+      if (input.providerId !== undefined) patch.providerId = input.providerId
+      // 同 id 多实例：修改 modelId 不再检查供应商内是否重复。
+      if (input.modelId !== undefined) patch.modelId = input.modelId
+      if (input.displayName !== undefined) patch.displayName = input.displayName
+      if (input.description !== undefined) patch.description = input.description
+      if (input.tags !== undefined) patch.tags = input.tags
+      if (input.icon !== undefined) patch.icon = input.icon
+      if (input.groupId !== undefined) patch.groupId = input.groupId
+      if (input.enabled !== undefined) patch.enabled = input.enabled
+      if (input.kind !== undefined) patch.kind = input.kind
+      if (input.capabilities !== undefined || nextKind === 'chat') {
+        patch.capabilities = nextCapabilities
+      }
+      if (input.defaultSystemPrompt !== undefined) {
+        patch.defaultSystemPrompt = input.defaultSystemPrompt
+      }
+      if (
+        input.defaultParams !== undefined ||
+        input.hardParams !== undefined ||
+        nextKind === 'chat'
+      ) {
+        patch.defaultParams = nextDefaultParams
+        patch.hardParams = nextHardParams
+      }
+      if (input.pricing !== undefined) patch.pricing = input.pricing
+      if (nextReasoningConfig) {
+        patch.allowedEfforts = nextReasoningConfig.allowedEfforts
+        patch.defaultEffort = nextReasoningConfig.defaultEffort
+      }
+      if (input.replayProviderContext !== undefined) {
+        patch.replayProviderContext = input.replayProviderContext
+      }
+      if (nextKind === 'chat') {
+        patch.defaultWebSearch = false
+        patch.defaultXSearch = false
+      } else {
+        if (input.defaultWebSearch !== undefined) patch.defaultWebSearch = input.defaultWebSearch
+        if (input.defaultXSearch !== undefined) patch.defaultXSearch = input.defaultXSearch
+      }
+      if (input.sort !== undefined) patch.sort = input.sort
+      tx.update(models).set(patch).where(eq(models.id, id)).run()
+      return { ok: true }
     },
     { behavior: 'immediate' },
   )

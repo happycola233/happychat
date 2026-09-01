@@ -150,6 +150,44 @@ describe('model icon routes', () => {
     expect(model).toEqual({ icon: null, groupId: null })
   })
 
+  it('通过管理接口创建模型副本并更换已有模型的供应商', async () => {
+    const modelId = await createModelFixture()
+    const targetProviderId = `model-provider-switch-${fixtureSequence++}`
+    await dbClient.db.insert(schema.providers).values({
+      id: targetProviderId,
+      name: 'Target Provider',
+      baseUrl: 'https://target.example.test/v1',
+      apiKey: 'test-key',
+      protocol: 'openai',
+    })
+
+    const duplicate = await authenticatedRequest(`/api/admin/models/${modelId}/duplicate`, {
+      method: 'POST',
+    })
+    expect(duplicate.status).toBe(200)
+    const duplicated = (await duplicate.json()) as {
+      model: { id: string; displayName: string; providerId: string }
+    }
+    expect(duplicated.model).toMatchObject({
+      displayName: expect.stringMatching(/ 副本$/),
+    })
+    expect(duplicated.model.id).not.toBe(modelId)
+
+    const updateProvider = await authenticatedRequest(`/api/admin/models/${modelId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ providerId: targetProviderId }),
+    })
+    expect(updateProvider.status).toBe(200)
+    expect(
+      dbClient.db
+        .select({ providerId: schema.models.providerId })
+        .from(schema.models)
+        .where(eq(schema.models.id, modelId))
+        .get(),
+    ).toEqual({ providerId: targetProviderId })
+  })
+
   it('preserves dots in an explicitly supplied custom icon name', async () => {
     const form = new FormData()
     form.append(

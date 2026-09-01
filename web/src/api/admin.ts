@@ -108,6 +108,8 @@ export const listAdminModels = () =>
   apiGet<{ models: AdminModelDTO[] }>('/admin/models').then((r) => r.models)
 export const createModel = (input: ModelCreateInput) =>
   apiPost<{ model: AdminModelDTO }>('/admin/models', input).then((r) => r.model)
+export const duplicateModel = (id: string) =>
+  apiPost<{ model: AdminModelDTO }>(`/admin/models/${id}/duplicate`).then((r) => r.model)
 export const updateModel = (id: string, input: ModelUpdateInput) =>
   apiPatch<{ ok: true }>(`/admin/models/${id}`, input)
 export const reorderModels = (input: ModelReorderInput) =>

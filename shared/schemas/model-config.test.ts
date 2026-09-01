@@ -134,4 +134,11 @@ describe('reasoning replay model config', () => {
     })
     expect(modelUpdateSchema.parse({})).toEqual({})
   })
+
+  it('accepts changing the provider on an existing model and rejects an empty provider', () => {
+    expect(modelUpdateSchema.parse({ providerId: 'provider-2' })).toEqual({
+      providerId: 'provider-2',
+    })
+    expect(modelUpdateSchema.safeParse({ providerId: '' }).success).toBe(false)
+  })
 })

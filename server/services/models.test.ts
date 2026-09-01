@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { eq } from 'drizzle-orm'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { MODEL_DISPLAY_NAME_MAX_LENGTH } from '@shared/schemas/model-config'
 
 let tmpDir: string
 let dbClient: typeof import('../db/client')
@@ -145,6 +146,154 @@ describe('model user access', () => {
       .from(schema.models)
       .where(eq(schema.models.id, result.model.id))
     expect(stored?.replayProviderContext).toBe(true)
+  })
+
+  it('复制完整模型配置与指定用户名单，且副本可独立修改', async () => {
+    const fixture = await createFixture({ sort: 700 })
+    const longDisplayName = '模'.repeat(MODEL_DISPLAY_NAME_MAX_LENGTH)
+    await dbClient.db
+      .update(schema.models)
+      .set({
+        displayName: longDisplayName,
+        description: '用于验证副本的模型',
+        tags: [{ label: '测试', color: '#38bdf8' }],
+        icon: { type: 'emoji', char: '🧠' },
+        enabled: false,
+        capabilities: {
+          vision: true,
+          file_input: true,
+          web_search: true,
+          x_search: true,
+          image_generation: false,
+          reasoning: true,
+        },
+        defaultSystemPrompt: '你是测试助手',
+        defaultParams: { temperature: 0.4, max_output_tokens: 4096 },
+        hardParams: { store: false, custom_gateway_field: true },
+        pricing: { input: 1.5, output: 6 },
+        allowedEfforts: [{ value: 'medium', description: '中等' }],
+        defaultEffort: 'medium',
+        replayProviderContext: true,
+        defaultWebSearch: true,
+        defaultXSearch: true,
+      })
+      .where(eq(schema.models.id, fixture.modelId))
+    await modelServices.updateModelAccess(fixture.modelId, {
+      accessMode: 'selected',
+      userIds: [fixture.userId],
+    })
+
+    const result = await modelServices.duplicateModel(fixture.modelId)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.model).toMatchObject({
+      providerId: fixture.providerId,
+      modelId: expect.stringMatching(/^upstream-model-/),
+      description: '用于验证副本的模型',
+      tags: [{ label: '测试', color: '#38bdf8' }],
+      icon: { type: 'emoji', char: '🧠' },
+      enabled: false,
+      accessMode: 'selected',
+      allowedUserCount: 1,
+      defaultSystemPrompt: '你是测试助手',
+      defaultParams: { temperature: 0.4, max_output_tokens: 4096 },
+      hardParams: { store: false, custom_gateway_field: true },
+      pricing: { input: 1.5, output: 6 },
+      allowedEfforts: [{ value: 'medium', description: '中等' }],
+      defaultEffort: 'medium',
+      replayProviderContext: true,
+      defaultWebSearch: true,
+      defaultXSearch: true,
+      sort: 700,
+    })
+    expect(result.model.id).not.toBe(fixture.modelId)
+    expect(result.model.displayName).toHaveLength(MODEL_DISPLAY_NAME_MAX_LENGTH)
+    expect(result.model.displayName.endsWith(' 副本')).toBe(true)
+    expect(await modelServices.getModelAccess(result.model.id)).toEqual({
+      accessMode: 'selected',
+      userIds: [fixture.userId],
+    })
+
+    await modelServices.updateModelAccess(result.model.id, { accessMode: 'all', userIds: [] })
+    expect(await modelServices.getModelAccess(fixture.modelId)).toEqual({
+      accessMode: 'selected',
+      userIds: [fixture.userId],
+    })
+  })
+
+  it('允许切换同协议供应商，并原子校验跨协议迁移', async () => {
+    const fixture = await createFixture()
+    const openAiProviderId = `model-access-target-openai-${fixtureSeq++}`
+    const anthropicProviderId = `model-access-target-anthropic-${fixtureSeq++}`
+    await dbClient.db.insert(schema.providers).values([
+      {
+        id: openAiProviderId,
+        name: 'Target OpenAI Provider',
+        baseUrl: 'https://openai-target.example.test/v1',
+        apiKey: 'test-key',
+        protocol: 'openai',
+      },
+      {
+        id: anthropicProviderId,
+        name: 'Target Anthropic Provider',
+        baseUrl: 'https://anthropic-target.example.test',
+        apiKey: 'test-key',
+        protocol: 'anthropic',
+      },
+    ])
+
+    expect(
+      await modelServices.updateModel(fixture.modelId, { providerId: openAiProviderId }),
+    ).toEqual({ ok: true })
+    expect(
+      (await modelServices.listAdminModels()).find((model) => model.id === fixture.modelId),
+    ).toMatchObject({ providerId: openAiProviderId, providerName: 'Target OpenAI Provider' })
+
+    expect(
+      await modelServices.updateModel(fixture.modelId, { providerId: anthropicProviderId }),
+    ).toEqual({ ok: false, code: 'provider_protocol_mismatch' })
+    const [storedBeforeMigration] = await dbClient.db
+      .select({ providerId: schema.models.providerId, kind: schema.models.kind })
+      .from(schema.models)
+      .where(eq(schema.models.id, fixture.modelId))
+    expect(storedBeforeMigration).toEqual({ providerId: openAiProviderId, kind: 'responses' })
+
+    expect(
+      await modelServices.updateModel(fixture.modelId, {
+        providerId: anthropicProviderId,
+        kind: 'anthropic',
+        defaultParams: { max_output_tokens: 16_000 },
+        capabilities: {
+          vision: true,
+          file_input: true,
+          web_search: true,
+          x_search: false,
+          image_generation: false,
+          reasoning: true,
+        },
+      }),
+    ).toEqual({ ok: true })
+    const [storedAfterMigration] = await dbClient.db
+      .select({ providerId: schema.models.providerId, kind: schema.models.kind })
+      .from(schema.models)
+      .where(eq(schema.models.id, fixture.modelId))
+    expect(storedAfterMigration).toEqual({
+      providerId: anthropicProviderId,
+      kind: 'anthropic',
+    })
+
+    expect(
+      await modelServices.updateModel(fixture.modelId, { providerId: 'missing-provider' }),
+    ).toEqual({ ok: false, code: 'provider_missing' })
+    const [afterMissingProvider] = await dbClient.db
+      .select({ providerId: schema.models.providerId, kind: schema.models.kind })
+      .from(schema.models)
+      .where(eq(schema.models.id, fixture.modelId))
+    expect(afterMissingProvider).toEqual({
+      providerId: anthropicProviderId,
+      kind: 'anthropic',
+    })
   })
 
   it('removes Web/X Search capability and defaults from newly created Chat models', async () => {

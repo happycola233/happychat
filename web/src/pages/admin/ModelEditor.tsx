@@ -152,7 +152,6 @@ export function ModelEditor({
   const { data: providers } = useQuery({
     queryKey: ['admin', 'providers'],
     queryFn: adminApi.listProviders,
-    enabled: isCreate,
   })
 
   // 分组下拉在新建和编辑时都要用（编辑时也允许直接改归属）。
@@ -207,11 +206,13 @@ export function ModelEditor({
   const lastAppliedAnthropicModelIdRef = useRef(
     model?.kind === 'anthropic' ? model.modelId.trim() : '',
   )
-  const selectedProviderProtocol = model
-    ? model.kind === 'anthropic'
-      ? 'anthropic'
-      : 'openai'
-    : providers?.find((provider) => provider.id === providerId)?.protocol
+  const selectedProviderProtocol =
+    providers?.find((provider) => provider.id === providerId)?.protocol ??
+    (model && providerId === model.providerId
+      ? model.kind === 'anthropic'
+        ? 'anthropic'
+        : 'openai'
+      : undefined)
   const modelInputExample = selectedProviderProtocol ? MODEL_INPUT_EXAMPLES[kind] : null
   const activeAnthropicProfile =
     kind === 'anthropic'
@@ -383,7 +384,11 @@ export function ModelEditor({
         })
       } else {
         // 不回传 enabled，避免打开已久的配置表单覆盖列表中的最新开关状态。
-        await adminApi.updateModel(model.id, { modelId: modelId.trim(), ...shared })
+        await adminApi.updateModel(model.id, {
+          providerId,
+          modelId: modelId.trim(),
+          ...shared,
+        })
       }
     },
     onSuccess: () => {
@@ -391,6 +396,9 @@ export function ModelEditor({
       qc.invalidateQueries({ queryKey: ['admin', 'models'] })
       if (isCreate || groupId !== (model?.groupId ?? '')) {
         qc.invalidateQueries({ queryKey: ['admin', 'model-groups'] })
+      }
+      if (isCreate || providerId !== model?.providerId) {
+        qc.invalidateQueries({ queryKey: ['admin', 'providers'] })
       }
       qc.invalidateQueries({ queryKey: ['models'] })
       onClose()
@@ -434,7 +442,7 @@ export function ModelEditor({
       (draft) => draft.draftId === defaultEffortDraftId && Boolean(draft.value.trim()),
     )
   const canSave =
-    (!isCreate || Boolean(providerId)) &&
+    Boolean(providerId) &&
     modelId.trim() !== '' &&
     displayName.trim() !== '' &&
     !effortValidationError &&
@@ -460,20 +468,20 @@ export function ModelEditor({
       <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
         {/* ============ 基本信息 ============ */}
         <FormSection title="基本信息">
-          {isCreate && (
-            <Field label="所属供应商">
-              <Select
-                size="md"
-                className="w-full"
-                value={providerId}
-                onChange={(e) => changeProvider(e.target.value)}
-                options={[
-                  { value: '', label: '请选择供应商' },
-                  ...(providers ?? []).map((p) => ({ value: p.id, label: p.name })),
-                ]}
-              />
-            </Field>
-          )}
+          <Field label="所属供应商">
+            <Select
+              size="md"
+              className="w-full"
+              value={providerId}
+              onChange={(e) => changeProvider(e.target.value)}
+              options={[
+                { value: '', label: '请选择供应商' },
+                ...(
+                  providers ?? (model ? [{ id: model.providerId, name: model.providerName }] : [])
+                ).map((p) => ({ value: p.id, label: p.name })),
+              ]}
+            />
+          </Field>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="模型 ID">

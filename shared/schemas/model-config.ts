@@ -75,6 +75,8 @@ export const reasoningEffortOptionsSchema = z
 /** 用户可见的模型简介，选择器 ⓘ 展示。 */
 export const modelDescriptionSchema = z.string().trim().max(500, '模型描述不能超过 500 个字符')
 
+export const MODEL_DISPLAY_NAME_MAX_LENGTH = 80
+
 const modelTagLabelSchema = z
   .string()
   .trim()
@@ -143,8 +145,9 @@ export const pricingSchema = z.object({
 })
 
 export const modelUpdateSchema = z.object({
+  providerId: z.string().min(1, '请选择所属供应商').optional(),
   modelId: z.string().trim().min(1).max(120).optional(),
-  displayName: z.string().trim().min(1).max(80).optional(),
+  displayName: z.string().trim().min(1).max(MODEL_DISPLAY_NAME_MAX_LENGTH).optional(),
   description: modelDescriptionSchema.nullable().optional(),
   tags: modelTagsSchema.optional(),
   icon: modelIconSchema.nullable().optional(),
@@ -177,7 +180,7 @@ const defaultCapabilities = {
 export const modelCreateSchema = z.object({
   providerId: z.string().min(1, '请选择所属供应商'),
   modelId: z.string().trim().min(1, '请填写模型 ID').max(120),
-  displayName: z.string().trim().min(1, '请填写显示名称').max(80),
+  displayName: z.string().trim().min(1, '请填写显示名称').max(MODEL_DISPLAY_NAME_MAX_LENGTH),
   description: modelDescriptionSchema.nullable().optional(),
   tags: modelTagsSchema.default([]),
   icon: modelIconSchema.nullable().default(null),

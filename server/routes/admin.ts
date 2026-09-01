@@ -19,7 +19,6 @@ import {
   modelIconBatchSchema,
 } from '@shared/schemas/model-group'
 import { MAX_CUSTOM_ICON_BYTES } from '@shared/util/modelIcon'
-import { normalizeModelCapabilitiesForKind } from '@shared/util/modelCapabilities'
 import { inviteCreateSchema, statsFilterSchema, userUpdateSchema } from '@shared/schemas/admin'
 import { appConfigUpdateSchema } from '@shared/schemas/app-config'
 import {
@@ -32,19 +31,12 @@ import {
   quotaResetSchema,
   userQuotaUpdateSchema,
 } from '@shared/schemas/quota'
-import {
-  hasAnthropicMaxOutputTokens,
-  hasAnthropicThinkingBudgetConflict,
-} from '@shared/util/anthropic'
-import { normalizeReasoningEffortOptions } from '@shared/util/reasoning'
 import { providerProtocolSupportsModelKind } from '@shared/util/providerProtocol'
-import { normalizeSearchParamsForModelKind } from '@shared/util/searchTools'
 import { announcementCreateSchema, announcementUpdateSchema } from '@shared/schemas/announcement'
 import { db } from '../db/client'
 import {
   attachments,
   inviteCodes,
-  modelGroups,
   modelIcons,
   models,
   providers,
@@ -104,15 +96,17 @@ import {
   reorderModelGroups,
   updateModelGroup,
 } from '../services/model-groups'
-import { modelIconReferencesExist } from '../services/model-icon-references'
 import {
   createModel,
+  duplicateModel,
   getModelAccess,
   getProviderDetail,
   listAdminModels,
   listProviders,
   reorderModels,
+  updateModel,
   updateModelAccess,
+  type ModelConfigurationErrorCode,
 } from '../services/models'
 import {
   getProviderModelCatalog,
@@ -268,14 +262,14 @@ adminRoutes.post('/providers/:id/import-models', jsonValidator(modelImportSchema
 
 // ---------------- Models ----------------
 
-function includesReasoningEffort(
-  allowedEfforts: Parameters<typeof normalizeReasoningEffortOptions>[0],
-  defaultEffort: string | null | undefined,
-): boolean {
-  if (!defaultEffort) return true
-  return normalizeReasoningEffortOptions(allowedEfforts).some(
-    (option) => option.value === defaultEffort,
-  )
+const MODEL_CONFIGURATION_ERROR_MESSAGES: Record<ModelConfigurationErrorCode, string> = {
+  provider_missing: '所属供应商不存在',
+  provider_protocol_mismatch: '模型类型与所属供应商协议不匹配',
+  group_missing: '所选分组不存在，请刷新后重试',
+  icon_missing: '所选图标不存在，请刷新后重试',
+  anthropic_max_output_tokens_required: 'Anthropic Messages API 必须配置正整数 max_output_tokens',
+  anthropic_thinking_budget_conflict: 'Anthropic thinking.budget_tokens 必须小于最终 max_tokens',
+  invalid_default_effort: '默认思考等级必须包含在可用等级中',
 }
 
 adminRoutes.get('/models', async (c) => {
@@ -312,34 +306,25 @@ adminRoutes.put('/models/:id/access', jsonValidator(modelAccessUpdateSchema), as
 
 adminRoutes.post('/models', jsonValidator(modelCreateSchema), async (c) => {
   const input = c.req.valid('json')
-  if (!includesReasoningEffort(input.allowedEfforts, input.defaultEffort)) {
-    return c.json(
-      { error: { message: '默认思考等级必须包含在可用等级中', code: 'invalid_default_effort' } },
-      400,
-    )
-  }
-
   const result = await createModel(input)
   if (!result.ok) {
-    const errorMessages = {
-      provider_missing: '所属供应商不存在',
-      provider_protocol_mismatch: '模型类型与所属供应商协议不匹配',
-      group_missing: '所选分组不存在，请刷新后重试',
-      icon_missing: '所选图标不存在，请刷新后重试',
-      anthropic_max_output_tokens_required:
-        'Anthropic Messages API 必须配置正整数 max_output_tokens',
-      anthropic_thinking_budget_conflict:
-        'Anthropic thinking.budget_tokens 必须小于最终 max_tokens',
-    } as const
     return c.json(
       {
         error: {
-          message: errorMessages[result.code],
+          message: MODEL_CONFIGURATION_ERROR_MESSAGES[result.code],
           code: result.code,
         },
       },
       400,
     )
+  }
+  return c.json({ model: result.model })
+})
+
+adminRoutes.post('/models/:id/duplicate', async (c) => {
+  const result = await duplicateModel(c.req.param('id'))
+  if (!result.ok) {
+    return c.json({ error: { message: '模型不存在', code: 'not_found' } }, 404)
   }
   return c.json({ model: result.model })
 })
@@ -362,140 +347,21 @@ adminRoutes.post('/models/reorder', jsonValidator(modelReorderSchema), async (c)
 })
 
 adminRoutes.patch('/models/:id', jsonValidator(modelUpdateSchema), async (c) => {
-  const id = c.req.param('id')
-  const input = c.req.valid('json')
-  const result = db.transaction(
-    (tx) => {
-      const existing = tx.select().from(models).where(eq(models.id, id)).limit(1).get()
-      if (!existing) return { ok: false, code: 'model_missing' } as const
-
-      if (input.kind !== undefined && input.kind !== existing.kind) {
-        const provider = tx
-          .select({ protocol: providers.protocol })
-          .from(providers)
-          .where(eq(providers.id, existing.providerId))
-          .limit(1)
-          .get()
-        if (!provider || !providerProtocolSupportsModelKind(provider.protocol, input.kind)) {
-          return { ok: false, code: 'provider_protocol_mismatch' } as const
-        }
-      }
-
-      const nextKind = input.kind ?? existing.kind
-      const nextCapabilities = normalizeModelCapabilitiesForKind(
-        nextKind,
-        input.capabilities ?? existing.capabilities,
-      )
-      const nextDefaultParams =
-        normalizeSearchParamsForModelKind(
-          nextKind,
-          input.defaultParams !== undefined ? input.defaultParams : existing.defaultParams,
-        ) ?? null
-      const nextHardParams = input.hardParams !== undefined ? input.hardParams : existing.hardParams
-      if (nextKind === 'anthropic' && !hasAnthropicMaxOutputTokens(nextDefaultParams)) {
-        return { ok: false, code: 'anthropic_max_output_tokens_required' } as const
-      }
-      if (
-        nextKind === 'anthropic' &&
-        hasAnthropicThinkingBudgetConflict(
-          nextHardParams?.max_tokens ?? nextDefaultParams?.max_output_tokens,
-          nextHardParams?.thinking,
-        )
-      ) {
-        return { ok: false, code: 'anthropic_thinking_budget_conflict' } as const
-      }
-
-      let nextReasoningConfig:
-        | Pick<typeof models.$inferInsert, 'allowedEfforts' | 'defaultEffort'>
-        | undefined
-      if (input.allowedEfforts !== undefined || input.defaultEffort !== undefined) {
-        const nextAllowedEfforts = input.allowedEfforts ?? existing.allowedEfforts
-        const nextDefaultEffort =
-          input.defaultEffort !== undefined ? input.defaultEffort : existing.defaultEffort
-        if (!includesReasoningEffort(nextAllowedEfforts, nextDefaultEffort)) {
-          return { ok: false, code: 'invalid_default_effort' } as const
-        }
-        // 两项作为一个一致性单元写入，并发的部分 PATCH 不会落下不合法的半份配置。
-        nextReasoningConfig = {
-          allowedEfforts: nextAllowedEfforts,
-          defaultEffort: nextDefaultEffort,
-        }
-      }
-
-      if (input.groupId) {
-        const group = tx
-          .select({ id: modelGroups.id })
-          .from(modelGroups)
-          .where(eq(modelGroups.id, input.groupId))
-          .limit(1)
-          .get()
-        if (!group) return { ok: false, code: 'group_missing' } as const
-      }
-      if (input.icon !== undefined && !modelIconReferencesExist(tx, [input.icon])) {
-        return { ok: false, code: 'icon_missing' } as const
-      }
-
-      const patch: Partial<typeof models.$inferInsert> = {}
-      // 同 id 多实例：修改 modelId 不再检查供应商内是否重复。
-      if (input.modelId !== undefined) patch.modelId = input.modelId
-      if (input.displayName !== undefined) patch.displayName = input.displayName
-      if (input.description !== undefined) patch.description = input.description
-      if (input.tags !== undefined) patch.tags = input.tags
-      if (input.icon !== undefined) patch.icon = input.icon
-      if (input.groupId !== undefined) patch.groupId = input.groupId
-      if (input.enabled !== undefined) patch.enabled = input.enabled
-      if (input.kind !== undefined) patch.kind = input.kind
-      if (input.capabilities !== undefined || nextKind === 'chat') {
-        patch.capabilities = nextCapabilities
-      }
-      if (input.defaultSystemPrompt !== undefined) {
-        patch.defaultSystemPrompt = input.defaultSystemPrompt
-      }
-      if (
-        input.defaultParams !== undefined ||
-        input.hardParams !== undefined ||
-        nextKind === 'chat'
-      ) {
-        patch.defaultParams = nextDefaultParams
-        patch.hardParams = nextHardParams
-      }
-      if (input.pricing !== undefined) patch.pricing = input.pricing
-      if (nextReasoningConfig) {
-        patch.allowedEfforts = nextReasoningConfig.allowedEfforts
-        patch.defaultEffort = nextReasoningConfig.defaultEffort
-      }
-      if (input.replayProviderContext !== undefined) {
-        patch.replayProviderContext = input.replayProviderContext
-      }
-      if (nextKind === 'chat') {
-        patch.defaultWebSearch = false
-        patch.defaultXSearch = false
-      } else {
-        if (input.defaultWebSearch !== undefined) patch.defaultWebSearch = input.defaultWebSearch
-        if (input.defaultXSearch !== undefined) patch.defaultXSearch = input.defaultXSearch
-      }
-      if (input.sort !== undefined) patch.sort = input.sort
-      tx.update(models).set(patch).where(eq(models.id, id)).run()
-      return { ok: true } as const
-    },
-    { behavior: 'immediate' },
-  )
+  const result = await updateModel(c.req.param('id'), c.req.valid('json'))
 
   if (!result.ok) {
     if (result.code === 'model_missing') {
       return c.json({ error: { message: '模型不存在', code: 'not_found' } }, 404)
     }
-    const messages = {
-      provider_protocol_mismatch: '模型类型与所属供应商协议不匹配',
-      anthropic_max_output_tokens_required:
-        'Anthropic Messages API 必须配置正整数 max_output_tokens',
-      anthropic_thinking_budget_conflict:
-        'Anthropic thinking.budget_tokens 必须小于最终 max_tokens',
-      invalid_default_effort: '默认思考等级必须包含在可用等级中',
-      group_missing: '所选分组不存在，请刷新后重试',
-      icon_missing: '所选图标不存在，请刷新后重试',
-    } as const
-    return c.json({ error: { message: messages[result.code], code: result.code } }, 400)
+    return c.json(
+      {
+        error: {
+          message: MODEL_CONFIGURATION_ERROR_MESSAGES[result.code],
+          code: result.code,
+        },
+      },
+      400,
+    )
   }
   return c.json({ ok: true })
 })

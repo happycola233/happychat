@@ -21,6 +21,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { clsx } from 'clsx'
 import {
   Boxes,
+  Copy,
   Layers3,
   GripVertical,
   ListChecks,
@@ -85,6 +86,8 @@ function ModelRow({
   selected,
   onToggleSelected,
   onEdit,
+  onDuplicate,
+  duplicatePending,
   onAccess,
   onToggle,
   togglePending,
@@ -97,6 +100,8 @@ function ModelRow({
   selected: boolean
   onToggleSelected: () => void
   onEdit: () => void
+  onDuplicate: () => void
+  duplicatePending: boolean
   onAccess: () => void
   onToggle: () => void
   togglePending: boolean
@@ -233,6 +238,13 @@ function ModelRow({
           />
 
           <div className="flex shrink-0 items-center gap-1">
+            <IconButton
+              label={`复制模型 ${model.displayName}`}
+              onClick={onDuplicate}
+              disabled={duplicatePending}
+            >
+              <Copy className="h-4 w-4" />
+            </IconButton>
             <IconButton label={`配置 ${model.displayName}`} onClick={onEdit}>
               <SlidersHorizontal className="h-4 w-4" />
             </IconButton>
@@ -348,6 +360,18 @@ export default function ModelsPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : '操作失败'),
   })
 
+  const duplicate = useMutation({
+    mutationFn: adminApi.duplicateModel,
+    onSuccess: (copiedModel) => {
+      toast.success(`已创建「${copiedModel.displayName}」`)
+      invalidate()
+      qc.invalidateQueries({ queryKey: ['admin', 'providers'] })
+      qc.invalidateQueries({ queryKey: ['admin', 'model-groups'] })
+      qc.invalidateQueries({ queryKey: ['models'] })
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : '复制失败'),
+  })
+
   const remove = useMutation({
     mutationFn: adminApi.deleteModel,
     onSuccess: () => {
@@ -443,6 +467,8 @@ export default function ModelsPage() {
       selected={selectedIds.has(m.id)}
       onToggleSelected={() => toggleSelected(m.id)}
       onEdit={() => openEdit(m)}
+      onDuplicate={() => duplicate.mutate(m.id)}
+      duplicatePending={duplicate.isPending && duplicate.variables === m.id}
       onAccess={() => openAccess(m)}
       onToggle={() => toggleEnabled.mutate(m)}
       togglePending={toggleEnabled.isPending && toggleEnabled.variables?.id === m.id}
