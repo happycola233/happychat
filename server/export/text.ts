@@ -4,12 +4,13 @@ import {
   attachmentDisplayName,
   attachmentRefsOf,
   dedupeCitations,
+  exportProcessSteps,
   exportHeaderNote,
   modelNameOf,
   statusLabel,
   textOfContent,
+  searchLineOf,
   usageLine,
-  searchLines,
 } from './content'
 import { formatDurationShort, formatStamp } from './time'
 import type { ExportSource } from './types'
@@ -43,20 +44,29 @@ function renderMessage(m: MessageDTO, source: ExportSource, options: ExportOptio
     lines.push(`  〔${status}${detail}〕`)
   }
 
-  if (options.includeReasoning && m.role === 'assistant') {
-    const text = (m.reasoningSummary ?? '').replace(/\r\n/g, '\n').trim()
-    if (text || m.reasoningDurationMs != null) {
+  if ((options.includeReasoning || options.includeSearch) && m.role === 'assistant') {
+    const steps = exportProcessSteps(m, options.includeReasoning, options.includeSearch)
+    if (steps.length > 0 || (options.includeReasoning && m.reasoningDurationMs != null)) {
+      const hasThinking = steps.some((step) => step.kind !== 'search')
       const label =
-        m.reasoningDurationMs != null && m.reasoningDurationMs > 0
+        options.includeReasoning && m.reasoningDurationMs != null && m.reasoningDurationMs > 0
           ? `已思考 ${formatDurationShort(m.reasoningDurationMs)}`
-          : '思考摘要'
+          : hasThinking
+            ? '思考过程'
+            : '检索过程'
       lines.push(`  〔${label}〕`)
-      for (const l of text.split('\n')) if (l.trim()) lines.push(`  │ ${l}`)
+      for (const step of steps) {
+        const text =
+          step.kind === 'commentary'
+            ? `💬 ${step.text}`
+            : step.kind === 'search'
+              ? `🔎 ${searchLineOf(step.action)}`
+              : step.text
+        for (const line of text.replace(/\r\n/g, '\n').trim().split('\n')) {
+          if (line.trim()) lines.push(`  │ ${line}`)
+        }
+      }
     }
-  }
-
-  if (options.includeSearch) {
-    for (const l of searchLines(m)) lines.push(`  〔检索〕${l}`)
   }
 
   if (options.attachmentMode !== 'omit') {
@@ -83,7 +93,9 @@ function renderMessage(m: MessageDTO, source: ExportSource, options: ExportOptio
     const cites = dedupeCitations(m.annotations)
     if (cites.length > 0) {
       lines.push('')
-      cites.forEach((c, i) => lines.push(`  〔来源 ${i + 1}〕${c.title ? `${c.title} — ` : ''}${c.url}`))
+      cites.forEach((c, i) =>
+        lines.push(`  〔来源 ${i + 1}〕${c.title ? `${c.title} — ` : ''}${c.url}`),
+      )
     }
   }
 
@@ -102,8 +114,6 @@ function header(m: MessageDTO, source: ExportSource, options: ExportOptions): st
       ? `[${formatStamp(m.createdAt, source.timezone, options.timePrecision)}] `
       : ''
   const model =
-    options.includeModel && m.role === 'assistant' && modelNameOf(m)
-      ? `（${modelNameOf(m)}）`
-      : ''
+    options.includeModel && m.role === 'assistant' && modelNameOf(m) ? `（${modelNameOf(m)}）` : ''
   return `${stamp}${role}${model}`
 }

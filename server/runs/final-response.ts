@@ -1,30 +1,43 @@
-import type { MessageUsage, UrlCitation } from '@shared/types/domain'
+import type {
+  AssistantPhase,
+  ContentPart,
+  MessageUsage,
+  ProcessStep,
+  SearchAction,
+  UrlCitation,
+} from '@shared/types/domain'
 import { parseResponse } from '../provider/normalize'
 import type { UpstreamResponse } from '../provider/upstream-types'
 
 export interface StreamedResponseSnapshot {
   text: string
-  reasoningSummary: string | null
+  content: ContentPart[]
+  processSteps: ProcessStep[]
   annotations: UrlCitation[]
   usage: MessageUsage
   upstreamResponseId: string | null
 }
 
-function hasOutputText(response: UpstreamResponse): boolean {
-  return (response.output ?? []).some(
-    (item) =>
-      item.type === 'message' &&
-      (item.content ?? []).some((contentPart) => contentPart.type === 'output_text'),
-  )
+export interface FinalResponseReconcileOptions {
+  /**
+   * 流中已经出现的 output item。官方终态应完整包含它们；部分兼容网关会把终态
+   * 错误压扁成单条 message，此时不能让残缺拓扑覆盖已验证的流式过程轨。
+   */
+  observedOutputItemIds?: readonly string[]
+  /** added/done 已明确给出的字段可补齐终态 item 的兼容性缺失，但绝不凭空创造。 */
+  messagePhaseByItemId?: ReadonlyMap<string, AssistantPhase>
+  searchActionByItemId?: ReadonlyMap<string, SearchAction>
 }
 
-function hasReasoningText(response: UpstreamResponse): boolean {
-  return (response.output ?? []).some(
-    (item) =>
-      item.type === 'reasoning' &&
-      ((item.summary?.length ?? 0) > 0 ||
-        (item.content ?? []).some((contentPart) => contentPart.type === 'reasoning_text')),
+function hasCompleteOutputTopology(
+  response: UpstreamResponse,
+  observedOutputItemIds: readonly string[],
+): boolean {
+  if (!observedOutputItemIds.length) return true
+  const terminalIds = new Set(
+    (response.output ?? []).flatMap((item) => (typeof item.id === 'string' ? [item.id] : [])),
   )
+  return observedOutputItemIds.every((id) => terminalIds.has(id))
 }
 
 /**
@@ -37,17 +50,21 @@ function hasReasoningText(response: UpstreamResponse): boolean {
 export function reconcileFinalResponse(
   current: StreamedResponseSnapshot,
   response: UpstreamResponse | undefined,
+  options: FinalResponseReconcileOptions = {},
 ): StreamedResponseSnapshot {
   if (!response) return current
 
-  const parsed = parseResponse(response)
-  const outputTextIsFinal = hasOutputText(response)
-  const reasoningTextIsFinal = hasReasoningText(response)
+  const parsed = parseResponse(response, options)
+  const outputIsFinal =
+    Array.isArray(response.output) &&
+    response.output.length > 0 &&
+    hasCompleteOutputTopology(response, options.observedOutputItemIds ?? [])
 
   return {
-    text: outputTextIsFinal ? parsed.text : current.text,
-    reasoningSummary: reasoningTextIsFinal ? parsed.reasoningSummary : current.reasoningSummary,
-    annotations: outputTextIsFinal ? parsed.annotations : current.annotations,
+    text: outputIsFinal ? parsed.text : current.text,
+    content: outputIsFinal ? parsed.content : current.content,
+    processSteps: outputIsFinal ? parsed.processSteps : current.processSteps,
+    annotations: outputIsFinal ? parsed.annotations : current.annotations,
     usage: response.usage ? parsed.usage : current.usage,
     upstreamResponseId: parsed.responseId ?? current.upstreamResponseId,
   }

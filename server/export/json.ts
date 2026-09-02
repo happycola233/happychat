@@ -1,7 +1,7 @@
 import type { MessageDTO } from '@shared/types/api'
 import type { ContentPart } from '@shared/types/domain'
 import type { ExportOptions } from '@shared/schemas/export'
-import { attachmentRefsOf } from './content'
+import { attachmentRefsOf, exportProcessSteps } from './content'
 import type { ExportAttachment, ExportSource } from './types'
 
 /** 导出 JSON 里的附件描述。 */
@@ -61,12 +61,13 @@ function jsonMessage(
     out.modelId = m.modelId
     out.modelLabel = m.modelLabel ?? null
   }
+  if (options.includeReasoning || options.includeSearch) {
+    out.processSteps = exportProcessSteps(m, options.includeReasoning, options.includeSearch)
+  }
   if (options.includeReasoning) {
-    out.reasoningSummary = m.reasoningSummary
     out.reasoningDurationMs = m.reasoningDurationMs
   }
   if (options.includeCitations) out.annotations = m.annotations ?? null
-  if (options.includeSearch) out.searchActions = m.searchActions ?? null
   if (options.includeUsage) {
     out.usage = m.usage
     out.generationDurationMs = m.generationDurationMs
@@ -87,9 +88,7 @@ function jsonMessage(
 function contentParts(m: MessageDTO, options: ExportOptions): ContentPart[] {
   let parts = m.content
   if (options.attachmentMode === 'omit') {
-    parts = parts.filter(
-      (p) => p.type === 'input_text' || p.type === 'output_text',
-    )
+    parts = parts.filter((p) => p.type === 'input_text' || p.type === 'output_text')
   }
   if (!options.includeCitations) {
     parts = parts.map((p) =>

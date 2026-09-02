@@ -371,8 +371,8 @@ function MessagesPanel() {
         />
         <PrefToggleRow
           prefKey="defaultExpandReasoning"
-          title="默认展开推理摘要"
-          desc="关闭后推理摘要将默认保持折叠。"
+          title="生成时展开思考过程"
+          desc="开启后生成过程中自动展开思考过程与检索明细，回答开始后自动折叠；关闭则始终保持折叠。"
         />
       </SettingsSection>
     </div>

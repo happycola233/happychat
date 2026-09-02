@@ -1,6 +1,7 @@
 import { and, eq, inArray } from 'drizzle-orm'
 import { modelParamsSchema } from '@shared/schemas/model-config'
 import type { ContentPart, ModelParams } from '@shared/types/domain'
+import { processStepsOf } from '@shared/util/processTrack'
 import { db } from '../db/client'
 import { attachments, conversations, messages, runs } from '../db/schema'
 import { newId } from '../lib/id'
@@ -248,13 +249,12 @@ export async function createConversationBranch(
       modelId: sourceMessage.modelId,
       // run/事件/用量日志属于原始上游调用；消息自身的展示快照则必须完整保留。
       runId: null,
-      reasoningSummary: sourceMessage.reasoningSummary,
+      processSteps: processStepsOf(sourceMessage),
       // opaque 推理上下文与消息/附件 id 无关；独立分支保留它以维持后续多轮推理连续性。
       providerReplayContext: sourceMessage.providerReplayContext,
       reasoningDurationMs: timing?.reasoningDurationMs ?? null,
       generationDurationMs: timing?.generationDurationMs ?? null,
       annotations: sourceMessage.annotations,
-      searchActions: sourceMessage.searchActions,
       inputTokens: sourceMessage.inputTokens,
       cacheWriteTokens: sourceMessage.cacheWriteTokens,
       cachedTokens: sourceMessage.cachedTokens,

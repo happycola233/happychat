@@ -5,6 +5,7 @@ import {
   attachmentRefsOf,
   dedupeCitations,
   encodeAssetHref,
+  exportProcessSteps,
   modelNameOf,
   sanitizeLinkText,
   sanitizeLinkUrl,
@@ -102,7 +103,10 @@ function header(m: MessageDTO, source: ExportSource, options: ExportOptions): st
   }
   if (options.includeModel && m.role === 'assistant') {
     // 模型名里的中点/换行会破坏字段分隔语法，替换掉；清洗后为空则整个字段省略
-    const model = modelNameOf(m)?.replace(/·/g, '.').replace(/[\r\n]+/g, ' ').trim()
+    const model = modelNameOf(m)
+      ?.replace(/·/g, '.')
+      .replace(/[\r\n]+/g, ' ')
+      .trim()
     if (model) fields.push(model)
   }
   return `## ${decor}${fields.map((f) => ` · ${f}`).join('')}`
@@ -137,22 +141,29 @@ function metaLine(m: MessageDTO, options: ExportOptions): string | null {
 
 /** @meta 的 value：含空格用双引号包裹；内部双引号/换行替换为安全字符。 */
 function metaValue(value: string): string {
-  const cleaned = value.replace(/"/g, '”').replace(/[\r\n]+/g, ' ').replace(/-->/g, '—>')
+  const cleaned = value
+    .replace(/"/g, '”')
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/-->/g, '—>')
   return /\s/.test(cleaned) ? `"${cleaned}"` : cleaned
 }
 
 /** 思考块（规范 §7）：AI 消息正文的第一个块，`> 🤔 标记行` + 引用体。 */
 function thinkingBlock(m: MessageDTO): string | null {
-  const text = (m.reasoningSummary ?? '').replace(/\r\n/g, '\n').trim()
-  if (!text && m.reasoningDurationMs == null) return null
+  const steps = exportProcessSteps(m, true, false)
+  if (steps.length === 0 && m.reasoningDurationMs == null) return null
   const label =
     m.reasoningDurationMs != null && m.reasoningDurationMs > 0
       ? `已思考 ${formatDurationShort(m.reasoningDurationMs)}`
-      : '思考摘要'
+      : '思考过程'
   const lines = [`> 🤔 ${label}`]
-  if (text) {
+  for (const step of steps) {
     lines.push('>')
-    for (const line of text.split('\n')) lines.push(line ? `> ${line}` : '>')
+    const text =
+      step.kind === 'commentary' ? `💬 ${step.text}` : step.kind === 'reasoning' ? step.text : ''
+    for (const line of text.replace(/\r\n/g, '\n').trim().split('\n')) {
+      lines.push(line ? `> ${line}` : '>')
+    }
   }
   return lines.join('\n')
 }
@@ -165,7 +176,10 @@ function attachmentLines(m: MessageDTO, source: ExportSource, options: ExportOpt
     const icon = ref.kind === 'image' ? '🖼️' : '📄'
     const name = sanitizeLinkText(attachmentDisplayName(ref, attachment))
     const embedded =
-      options.attachmentMode === 'embed' && attachment && !attachment.missing && attachment.assetPath
+      options.attachmentMode === 'embed' &&
+      attachment &&
+      !attachment.missing &&
+      attachment.assetPath
     // 规范 §8：已保存的附件用链接形（相对路径 assets/，百分号编码），否则纯名形
     let line = embedded
       ? `${icon} [${name}](${encodeAssetHref(attachment.assetPath!)})`

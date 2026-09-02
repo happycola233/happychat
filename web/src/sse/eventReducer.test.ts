@@ -1,12 +1,28 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { WireEvent } from '@shared/types/events'
 import { hasActiveSearch, initialLive, reduceEvent, reduceEvents } from './eventReducer'
+import type { LiveMessage, LiveSearchStep } from './eventReducer'
 
 const event = (type: string, data: Record<string, unknown> = {}): WireEvent => ({
   type,
   seq: 0,
   data,
 })
+
+const reasoningText = (live: LiveMessage): string =>
+  live.processSteps
+    .filter((step) => step.kind === 'reasoning')
+    .map((step) => step.text)
+    .filter(Boolean)
+    .join('\n\n')
+
+const lastReasoningPartKey = (live: LiveMessage): string | null =>
+  live.processSteps.findLast((step) => step.kind === 'reasoning')?.partKey ?? null
+
+const searchSteps = (live: LiveMessage): LiveSearchStep[] =>
+  live.processSteps.filter((step): step is LiveSearchStep => step.kind === 'search')
+
+const searchCalls = (live: LiveMessage) => searchSteps(live).map(({ kind: _kind, ...call }) => call)
 
 afterEach(() => {
   vi.useRealTimers()
@@ -44,7 +60,7 @@ describe('reduceEvent', () => {
       event('response.reasoning_summary_text.delta', { delta: 'thinking' }),
     )
 
-    expect(next.reasoning).toBe('thinking')
+    expect(reasoningText(next)).toBe('thinking')
     expect(next.upstreamStartedAt).toBe(4000)
   })
 
@@ -76,14 +92,14 @@ describe('reduceEvent', () => {
       }),
     ])
 
-    expect(next.reasoning).toBe(
+    expect(reasoningText(next)).toBe(
       [
         '**Analyzing primary requirement**',
         '**Checking input constraints**',
         '**Comparing candidate approaches**',
       ].join('\n\n'),
     )
-    expect(next.reasoningPartKey).toBe(JSON.stringify(['item', 'rs_2', 0]))
+    expect(lastReasoningPartKey(next)).toBe(JSON.stringify(['item', 'rs_2', 0]))
   })
 
   it('streams raw reasoning_text and preserves boundaries between reasoning items', () => {
@@ -108,9 +124,9 @@ describe('reduceEvent', () => {
       }),
     ])
 
-    expect(next.reasoning).toBe('第一段推理\n\n第二段推理')
+    expect(reasoningText(next)).toBe('第一段推理\n\n第二段推理')
     expect(next.reasoningKind).toBe('raw')
-    expect(next.reasoningPartKey).toBe(JSON.stringify(['item', 'rs_2', 0]))
+    expect(lastReasoningPartKey(next)).toBe(JSON.stringify(['item', 'rs_2', 0]))
   })
 
   it('replaces streamed raw reasoning with a summary and ignores later raw deltas', () => {
@@ -147,28 +163,81 @@ describe('reduceEvent', () => {
       }),
     )
 
-    expect(emptySummary.reasoning).toBe('原始推理')
+    expect(reasoningText(emptySummary)).toBe('原始推理')
     expect(emptySummary.reasoningKind).toBe('raw')
-    expect(summarized.reasoning).toBe('展示摘要')
+    expect(reasoningText(summarized)).toBe('展示摘要')
     expect(summarized.reasoningKind).toBe('summary')
-    expect(ignoredRaw.reasoning).toBe('展示摘要')
+    expect(reasoningText(ignoredRaw)).toBe('展示摘要')
     expect(ignoredRaw.reasoningKind).toBe('summary')
   })
 
-  it('locks reasoning duration when the first output text arrives', () => {
+  it('locks reasoning duration at answer.started rather than commentary output', () => {
     vi.useFakeTimers()
     vi.setSystemTime(4500)
 
-    const started = { ...initialLive(1000, true), reasoning: 'summary' }
-    const first = reduceEvent(started, event('response.output_text.delta', { delta: 'Hi' }))
+    const started = reduceEvents(initialLive(1000, true), [
+      event('response.output_item.added', {
+        item: { type: 'message', id: 'msg_commentary', phase: 'commentary' },
+      }),
+      event('response.output_text.delta', { item_id: 'msg_commentary', delta: '进展' }),
+    ])
 
-    expect(first.text).toBe('Hi')
+    expect(started.text).toBe('')
+    expect(started.processSteps).toContainEqual({
+      kind: 'commentary',
+      id: 'msg_commentary',
+      text: '进展',
+    })
+    expect(started.reasoningDurationMs).toBeNull()
+
+    const first = reduceEvent(started, event('answer.started'))
+
     expect(first.reasoningDurationMs).toBe(3500)
 
     vi.setSystemTime(9000)
-    const repeated = reduceEvent(first, event('response.output_text.delta', { delta: '!' }))
-    expect(repeated.text).toBe('Hi!')
+    const repeated = reduceEvent(first, event('answer.started'))
     expect(repeated.reasoningDurationMs).toBe(3500)
+  })
+
+  it('moves a raw-reasoning provisional answer back into commentary when the server corrects it', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(3000)
+
+    const provisional = reduceEvents(initialLive(1000, true), [
+      event('response.reasoning_text.delta', {
+        item_id: 'reasoning-1',
+        content_index: 0,
+        delta: '原始推理',
+      }),
+      event('response.output_item.added', {
+        item: { type: 'message', id: 'message-1', phase: 'final_answer' },
+      }),
+      event('answer.started', { itemId: 'message-1' }),
+      event('response.output_text.delta', { item_id: 'message-1', delta: '正在核对资料。' }),
+    ])
+    expect(provisional.text).toBe('正在核对资料。')
+    expect(provisional.answerStarted).toBe(true)
+    expect(provisional.reasoningDurationMs).toBe(2000)
+
+    const corrected = reduceEvent(
+      provisional,
+      event('response.output_item.reclassified', {
+        itemId: 'message-1',
+        phase: 'commentary',
+        commentaryText: '正在核对资料。',
+        answerText: '',
+        annotations: [],
+      }),
+    )
+
+    expect(corrected.text).toBe('')
+    expect(corrected.answerStarted).toBe(false)
+    expect(corrected.reasoningDurationMs).toBeNull()
+    expect(corrected.processSteps).toContainEqual({
+      kind: 'commentary',
+      id: 'message-1',
+      text: '正在核对资料。',
+    })
   })
 
   it('starts the image timer from the image in-progress event', () => {
@@ -334,8 +403,9 @@ describe('reduceEvent', () => {
     const streamed = {
       ...initialLive(),
       text: '正文【turn5view0†L276-L',
-      reasoning: '流式思考残片',
-      reasoningPartKey: 'stream-part',
+      processSteps: [
+        { kind: 'reasoning' as const, id: 'stream', text: '流式思考残片', partKey: 'stream-part' },
+      ],
       annotations: [
         {
           type: 'url_citation' as const,
@@ -351,39 +421,46 @@ describe('reduceEvent', () => {
       event('run.done', {
         state: 'completed',
         text: '正文',
-        reasoningSummary: '最终思考摘要',
+        processSteps: [{ kind: 'reasoning', text: '最终思考摘要' }],
         annotations: [],
       }),
     )
 
     expect(next).toMatchObject({
       text: '正文',
-      reasoning: '最终思考摘要',
-      reasoningPartKey: null,
+      processSteps: [
+        { kind: 'reasoning', id: 'final-reasoning-0', text: '最终思考摘要', partKey: null },
+      ],
       annotations: [],
+      answerStarted: true,
       status: 'completed',
-      searchCalls: [],
     })
   })
 
   it('clears streamed reasoning when the final payload explicitly contains null', () => {
     const streamed = {
       ...initialLive(),
-      reasoning: '不应保留的流式思考',
-      reasoningPartKey: 'stream-part',
+      processSteps: [
+        {
+          kind: 'reasoning' as const,
+          id: 'stream',
+          text: '不应保留的流式思考',
+          partKey: 'stream-part',
+        },
+      ],
     }
     const next = reduceEvent(
       streamed,
       event('run.done', {
         state: 'completed',
         text: '正文',
-        reasoningSummary: null,
+        processSteps: [],
         annotations: [],
       }),
     )
 
-    expect(next.reasoning).toBe('')
-    expect(next.reasoningPartKey).toBeNull()
+    expect(reasoningText(next)).toBe('')
+    expect(lastReasoningPartKey(next)).toBeNull()
   })
 
   it('keeps stable final text and citation references when no correction is needed', () => {
@@ -399,8 +476,9 @@ describe('reduceEvent', () => {
     const streamed = {
       ...initialLive(),
       text: '相同正文',
-      reasoning: '保留流式思考',
-      reasoningPartKey: 'stream-part',
+      processSteps: [
+        { kind: 'reasoning' as const, id: 'stream', text: '保留流式思考', partKey: 'stream-part' },
+      ],
       annotations,
     }
     const next = reduceEvent(
@@ -409,8 +487,7 @@ describe('reduceEvent', () => {
     )
 
     expect(next.text).toBe(streamed.text)
-    expect(next.reasoning).toBe(streamed.reasoning)
-    expect(next.reasoningPartKey).toBe(streamed.reasoningPartKey)
+    expect(next.processSteps).toBe(streamed.processSteps)
     expect(next.annotations).toBe(annotations)
   })
 
@@ -429,17 +506,18 @@ describe('reduceEvent', () => {
     const next = reduceEvents(initialLive(1000, true), [
       event('response.reasoning_summary_text.delta', { delta: '思考' }),
       event('response.reasoning_summary_text.delta', { delta: '中' }),
+      event('answer.started'),
       event('response.output_text.delta', { delta: '答' }),
       event('response.output_text.delta', { delta: '案' }),
       event('run.done', { state: 'completed', text: '答案', annotations: [] }),
     ])
 
     expect(next).toMatchObject({
-      reasoning: '思考中',
       text: '答案',
       reasoningDurationMs: 3500,
       status: 'completed',
     })
+    expect(reasoningText(next)).toBe('思考中')
   })
 })
 
@@ -453,8 +531,8 @@ describe('search call tracking', () => {
       event('response.web_search_call.in_progress', { item_id: 'ws_1' }),
       event('response.web_search_call.searching', { item_id: 'ws_1' }),
     ])
-    expect(searching.searchCalls).toEqual([{ id: 'ws_1', status: 'searching', action: null }])
-    expect(hasActiveSearch(searching.searchCalls)).toBe(true)
+    expect(searchCalls(searching)).toEqual([{ id: 'ws_1', status: 'searching', action: null }])
+    expect(hasActiveSearch(searchSteps(searching))).toBe(true)
 
     const done = reduceEvents(searching, [
       event('response.web_search_call.completed', { item_id: 'ws_1' }),
@@ -468,14 +546,14 @@ describe('search call tracking', () => {
         },
       }),
     ])
-    expect(done.searchCalls).toEqual([
+    expect(searchCalls(done)).toEqual([
       {
         id: 'ws_1',
         status: 'completed',
         action: { type: 'search', queries: ['react 19 发布时间'] },
       },
     ])
-    expect(hasActiveSearch(done.searchCalls)).toBe(false)
+    expect(hasActiveSearch(searchSteps(done))).toBe(false)
   })
 
   it('tracks x_search custom_tool_call: type on added, query filled by input.done', () => {
@@ -494,10 +572,10 @@ describe('search call tracking', () => {
         },
       }),
     ])
-    expect(added.searchCalls).toEqual([
+    expect(searchCalls(added)).toEqual([
       { id: 'ctc_1', status: 'in_progress', action: { type: 'x_keyword_search' } },
     ])
-    expect(hasActiveSearch(added.searchCalls)).toBe(true)
+    expect(hasActiveSearch(searchSteps(added))).toBe(true)
 
     const filled = reduceEvents(added, [
       event('response.custom_tool_call_input.done', {
@@ -506,13 +584,13 @@ describe('search call tracking', () => {
         input: '{"query":"from:elonmusk","mode":"Latest"}',
       }),
     ])
-    expect(filled.searchCalls[0]?.action).toEqual({
+    expect(searchSteps(filled)[0]?.action).toEqual({
       type: 'x_keyword_search',
       queries: ['from:elonmusk'],
       mode: 'Latest',
     })
     // 参数已到但调用尚未结束，状态行仍是进行中
-    expect(hasActiveSearch(filled.searchCalls)).toBe(true)
+    expect(hasActiveSearch(searchSteps(filled))).toBe(true)
 
     const done = reduceEvents(filled, [
       event('response.output_item.done', {
@@ -527,7 +605,7 @@ describe('search call tracking', () => {
         },
       }),
     ])
-    expect(done.searchCalls).toEqual([
+    expect(searchCalls(done)).toEqual([
       {
         id: 'ctc_1',
         status: 'completed',
@@ -560,7 +638,7 @@ describe('search call tracking', () => {
         },
       }),
     ])
-    expect(state.searchCalls.map((call) => call.action?.type)).toEqual([
+    expect(searchSteps(state).map((call) => call.action?.type)).toEqual([
       'search',
       'x_semantic_search',
     ])
@@ -579,7 +657,7 @@ describe('search call tracking', () => {
         },
       }),
     ])
-    expect(state.searchCalls).toEqual([])
+    expect(searchCalls(state)).toEqual([])
   })
 
   it('keeps discrete calls ordered and does not regress completed status on replay', () => {
@@ -601,7 +679,7 @@ describe('search call tracking', () => {
         item: { type: 'web_search_call', id: 'ws_2', status: 'in_progress' },
       }),
     ])
-    expect(state.searchCalls).toEqual([
+    expect(searchCalls(state)).toEqual([
       { id: 'ws_1', status: 'completed', action: { type: 'search', queries: ['a'] } },
       { id: 'ws_2', status: 'in_progress', action: null },
     ])
@@ -620,12 +698,12 @@ describe('search call tracking', () => {
         },
       }),
     )
-    expect(state.searchCalls).toEqual([
+    expect(searchCalls(state)).toEqual([
       { id: 'fc_1', status: 'completed', action: { type: 'search', queries: ['what is xAI'] } },
     ])
   })
 
-  it('adopts run.done searchActions as the authoritative final list', () => {
+  it('adopts run.done processSteps as the authoritative final list', () => {
     const streamed = reduceEvents(initialLive(), [
       event('response.output_item.added', {
         item: { type: 'web_search_call', id: 'ws_1', status: 'in_progress' },
@@ -636,14 +714,14 @@ describe('search call tracking', () => {
       event('run.done', {
         state: 'completed',
         text: '正文',
-        searchActions: [
-          { type: 'search', queries: ['q'] },
-          { type: 'open_page', url: 'https://react.dev/' },
+        processSteps: [
+          { kind: 'search', action: { type: 'search', queries: ['q'] } },
+          { kind: 'search', action: { type: 'open_page', url: 'https://react.dev/' } },
         ],
         annotations: [],
       }),
     )
-    expect(next.searchCalls).toEqual([
+    expect(searchCalls(next)).toEqual([
       { id: 'final-search-0', status: 'completed', action: { type: 'search', queries: ['q'] } },
       {
         id: 'final-search-1',
@@ -665,12 +743,12 @@ describe('search call tracking', () => {
       event('run.done', {
         state: 'completed',
         text: '正文',
-        searchActions: [doneAction],
+        processSteps: [{ kind: 'search', action: doneAction }],
         annotations: [],
       }),
     )
     // 与流式解析一致时保留原行身份，避免 UI 重播入场动画
-    expect(finished.searchCalls[0]).toBe(streamed.searchCalls[0])
+    expect(searchSteps(finished)[0]).toBe(searchSteps(streamed)[0])
 
     const canceled = reduceEvent(
       reduceEvents(initialLive(), [
@@ -682,7 +760,7 @@ describe('search call tracking', () => {
       event('run.canceled', { state: 'canceled' }),
     )
     // 未解析出动作的占位调用在终态被丢弃，与持久化口径一致
-    expect(canceled.searchCalls).toEqual([{ id: 'ws_1', status: 'completed', action: doneAction }])
+    expect(searchCalls(canceled)).toEqual([{ id: 'ws_1', status: 'completed', action: doneAction }])
   })
 
   it('仅在 run.error 明确作废部分输出时清空流式内容', () => {
@@ -720,13 +798,10 @@ describe('search call tracking', () => {
       streamed,
       event('run.error', { state: 'failed', message: '上游失败' }),
     )
-    expect(regularFailure).toMatchObject({
-      text: '部分正文',
-      reasoning: '部分思考',
-      status: 'failed',
-    })
+    expect(regularFailure).toMatchObject({ text: '部分正文', status: 'failed' })
+    expect(reasoningText(regularFailure)).toBe('部分思考')
     expect(regularFailure.annotations).toHaveLength(1)
-    expect(regularFailure.searchCalls).toHaveLength(1)
+    expect(searchSteps(regularFailure)).toHaveLength(1)
 
     const refusal = reduceEvent(
       streamed,
@@ -738,10 +813,8 @@ describe('search call tracking', () => {
     )
     expect(refusal).toMatchObject({
       text: '',
-      reasoning: '',
-      reasoningPartKey: null,
+      processSteps: [],
       annotations: [],
-      searchCalls: [],
       imageGenerations: [],
       imagePreviewIndex: null,
       imagePreviewUpdatedAt: null,

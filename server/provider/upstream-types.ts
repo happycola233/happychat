@@ -1,3 +1,5 @@
+import type { AssistantPhase } from '@shared/types/domain'
+
 // 上游 OpenAI Responses API 响应/事件的最小类型（仅声明我们会读取的字段）。
 
 export interface UpstreamUsage {
@@ -36,8 +38,13 @@ export interface UpstreamOutputItem {
   id?: string
   type: string
   role?: string
+  phase?: AssistantPhase
   content?: UpstreamContentPart[]
   summary?: UpstreamSummaryPart[]
+  action?: unknown
+  arguments?: unknown
+  input?: unknown
+  name?: string
   /** reasoning item 的不透明加密上下文；仅服务端持久化与下一轮重放使用。 */
   encrypted_content?: string | null
   /** image_generation_call 结果（base64） */

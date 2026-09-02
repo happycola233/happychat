@@ -28,10 +28,10 @@ import type {
   ModelPricing,
   ModelTag,
   ProviderProtocol,
+  ProcessStep,
   ReasoningEffort,
   ReasoningEffortOption,
   Role,
-  SearchAction,
   ThemePreference,
   UrlCitation,
   UsageLogKind,
@@ -220,14 +220,13 @@ export interface MessageDTO {
   /** 模型显示名快照；公开分享页无需登录也可显示模型名。旧分享可能没有该字段。 */
   modelLabel?: string | null
   runId: string | null
-  reasoningSummary: string | null
+  /** 思考、进展说明与检索动作按真实发生顺序组成的过程轨。 */
+  processSteps: ProcessStep[]
   /** 从上游开始响应到第一段正文输出的耗时；无可靠事件或快照时为 null。 */
   reasoningDurationMs: number | null
   /** 整次生成的墙钟耗时；优先由 run 起止时间计算，无 run 时可使用消息快照。 */
   generationDurationMs: number | null
   annotations: UrlCitation[] | null
-  /** 检索工具（web_search + x_search）本轮执行的动作序列；旧消息/旧分享快照可能没有该字段。 */
-  searchActions?: SearchAction[] | null
   usage: MessageUsage | null
   /** 请求时价格快照计算的预估成本（USD）；旧消息/分享快照可能没有该字段。 */
   costUsd?: number | null

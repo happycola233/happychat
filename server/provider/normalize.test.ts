@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { reasoningTextOf } from '@shared/util/processTrack'
 import { parseResponse } from './normalize'
 import type { UpstreamResponse } from './upstream-types'
 
@@ -24,10 +25,9 @@ describe('parseResponse', () => {
       ],
     }
 
-    expect(parseResponse(response)).toMatchObject({
-      text: 'answer',
-      reasoningSummary: '**Planning**\n\n**Checking**\n\n**Answering**',
-    })
+    const parsed = parseResponse(response)
+    expect(parsed.text).toBe('answer')
+    expect(reasoningTextOf(parsed)).toBe('**Planning**\n\n**Checking**\n\n**Answering**')
   })
 
   it('uses raw reasoning_text when an upstream returns no summary', () => {
@@ -46,7 +46,7 @@ describe('parseResponse', () => {
       ],
     }
 
-    expect(parseResponse(response).reasoningSummary).toBe('第一段推理\n\n第二段推理')
+    expect(reasoningTextOf(parseResponse(response))).toBe('第一段推理\n\n第二段推理')
   })
 
   it('prefers a reasoning summary when summary and raw text are both present', () => {
@@ -60,6 +60,6 @@ describe('parseResponse', () => {
       ],
     }
 
-    expect(parseResponse(response).reasoningSummary).toBe('可展示摘要')
+    expect(reasoningTextOf(parseResponse(response))).toBe('可展示摘要')
   })
 })

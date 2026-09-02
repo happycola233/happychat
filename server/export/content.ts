@@ -1,5 +1,6 @@
 import type { MessageDTO } from '@shared/types/api'
-import type { ContentPart, SearchAction, UrlCitation } from '@shared/types/domain'
+import type { ContentPart, ProcessStep, SearchAction, UrlCitation } from '@shared/types/domain'
+import { processStepsOf, searchActionsOf } from '@shared/util/processTrack'
 import { xPostUrl } from '@shared/util/searchActivity'
 import { safeHttpUrl } from '@shared/util/url'
 import type { ExportAttachment, ExportSource } from './types'
@@ -138,39 +139,42 @@ function xSearchScopeSuffix(a: SearchAction): string {
 }
 
 /** 检索过程的逐步文字描述（web_search 与 x_search 按动作发生顺序混排）。 */
-export function searchLines(m: MessageDTO): string[] {
-  const actions = m.searchActions
-  if (!actions?.length) return []
-  const lines: string[] = []
-  for (const a of actions) {
-    const quoted = a.queries?.length ? a.queries.map((q) => `「${q}」`).join(' ') : ''
-    switch (a.type) {
-      case 'search':
-        lines.push(a.error ? `搜索失败（${a.error}）` : quoted ? `搜索：${quoted}` : '搜索')
-        break
-      case 'open_page':
-        lines.push(a.url ? `打开页面：${a.url}` : '打开页面')
-        break
-      case 'find_in_page': {
-        const target = a.url ? `：${a.url}` : ''
-        lines.push(a.pattern ? `页内查找「${a.pattern}」${target}` : `页内查找${target}`)
-        break
-      }
-      case 'x_user_search':
-        lines.push(quoted ? `X 用户检索：${quoted}` : 'X 用户检索')
-        break
-      case 'x_thread_fetch':
-        lines.push(a.postId ? `读取 X 讨论串：${xPostUrl(a.postId)}` : '读取 X 讨论串')
-        break
-      default: {
-        // x_keyword_search / x_semantic_search / 未知 x_* 子工具
-        const label = a.type === 'x_semantic_search' ? 'X 语义检索' : 'X 检索'
-        lines.push(`${label}${quoted ? `：${quoted}` : ''}${xSearchScopeSuffix(a)}`)
-        break
-      }
+export function searchLineOf(a: SearchAction): string {
+  const quoted = a.queries?.length ? a.queries.map((query) => `「${query}」`).join(' ') : ''
+  switch (a.type) {
+    case 'search':
+      return a.error ? `搜索失败（${a.error}）` : quoted ? `搜索：${quoted}` : '搜索'
+    case 'open_page':
+      return a.url ? `打开页面：${a.url}` : '打开页面'
+    case 'find_in_page': {
+      const target = a.url ? `：${a.url}` : ''
+      return a.pattern ? `页内查找「${a.pattern}」${target}` : `页内查找${target}`
+    }
+    case 'x_user_search':
+      return quoted ? `X 用户检索：${quoted}` : 'X 用户检索'
+    case 'x_thread_fetch':
+      return a.postId ? `读取 X 讨论串：${xPostUrl(a.postId)}` : '读取 X 讨论串'
+    default: {
+      const label = a.type === 'x_semantic_search' ? 'X 语义检索' : 'X 检索'
+      return `${label}${quoted ? `：${quoted}` : ''}${xSearchScopeSuffix(a)}`
     }
   }
-  return lines
+}
+
+/** 检索过程的逐步文字描述（新旧消息均经适配器读取）。 */
+export function searchLines(m: MessageDTO): string[] {
+  return searchActionsOf(m).map(searchLineOf)
+}
+
+/** 按导出选项筛选统一过程轨；commentary 与 reasoning 共用「思考过程」选项。 */
+export function exportProcessSteps(
+  m: MessageDTO,
+  includeReasoning: boolean,
+  includeSearch: boolean,
+): ProcessStep[] {
+  return processStepsOf(m).filter((step) =>
+    step.kind === 'search' ? includeSearch : includeReasoning,
+  )
 }
 
 /** 模型显示名（modelLabel 快照优先）；用户消息返回 null。 */

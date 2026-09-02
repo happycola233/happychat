@@ -1,6 +1,7 @@
 import { REASONING_MIN_OUTPUT_TOKENS } from '@shared/constants'
 import type { MessageUsage, ModelParams } from '@shared/types/domain'
 import { effectiveReasoningEffort } from '@shared/util/reasoning'
+import { commentaryTextsOf } from '@shared/util/processTrack'
 import type { models } from '../db/schema'
 import type { PathMessage, ResolvedAttachment } from './context'
 import { friendlyUpstreamMessage, UpstreamError } from './errors'
@@ -65,7 +66,9 @@ export function buildChatMessages(
     }
 
     if (m.role === 'assistant') {
-      const text = m.content.map((p) => (p.type === 'output_text' ? p.text : '')).join('')
+      const commentary = commentaryTextsOf(m).join('\n\n')
+      const answer = m.content.map((p) => (p.type === 'output_text' ? p.text : '')).join('')
+      const text = [commentary, answer].filter(Boolean).join('\n\n')
       out.push({ role: 'assistant', content: text })
       continue
     }

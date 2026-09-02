@@ -4,6 +4,7 @@ import type { ContentPart, ModelParams, ReasoningEffort } from '@shared/types/do
 import { textFromContent } from '@shared/util/contentText'
 import { normalizeModelCapabilities } from '@shared/util/modelCapabilities'
 import { costUsd as estimateCostUsd } from '@shared/util/cost'
+import { processStepsOf } from '@shared/util/processTrack'
 import { effectiveReasoningEffort, isReasoningEnabled } from '@shared/util/reasoning'
 import {
   effectiveWebSearchEnabled,
@@ -93,11 +94,10 @@ export function toMessageDTO(
     modelId: m.modelId,
     modelLabel,
     runId: m.runId,
-    reasoningSummary: m.reasoningSummary,
+    processSteps: processStepsOf(m),
     reasoningDurationMs: timing?.reasoningDurationMs ?? m.reasoningDurationMs ?? null,
     generationDurationMs: timing?.generationDurationMs ?? m.generationDurationMs ?? null,
     annotations: m.annotations,
-    searchActions: m.searchActions,
     usage:
       m.totalTokens != null
         ? {
@@ -356,6 +356,7 @@ export async function getMessageTimingByMessageId(
         type: runEvents.type,
         sequenceNumber: runEvents.sequenceNumber,
         createdAt: runEvents.createdAt,
+        data: runEvents.data,
       })
       .from(runEvents)
       .where(

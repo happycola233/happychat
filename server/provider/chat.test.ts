@@ -203,6 +203,28 @@ describe('buildChatMessages', () => {
     ])
   })
 
+  it('prepends commentary to the assistant answer without leaking phase fields', () => {
+    const messages = buildChatMessages(
+      [
+        {
+          role: 'assistant',
+          processSteps: [
+            { kind: 'commentary', text: '先核对资料。' },
+            { kind: 'commentary', text: '再确认结论。' },
+          ],
+          content: [{ type: 'output_text', text: '最终回答', phase: 'final_answer' }],
+        },
+      ],
+      undefined,
+      null,
+    )
+
+    expect(messages).toEqual([
+      { role: 'assistant', content: '先核对资料。\n\n再确认结论。\n\n最终回答' },
+    ])
+    expect(JSON.stringify(messages)).not.toContain('phase')
+  })
+
   it('uses multimodal content when a user message has images', () => {
     const atts = new Map([
       [

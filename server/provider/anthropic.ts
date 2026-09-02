@@ -2,6 +2,7 @@ import type { MessageUsage, ModelParams, UrlCitation } from '@shared/types/domai
 import { anthropicModelProfile, hasAnthropicThinkingBudgetConflict } from '@shared/util/anthropic'
 import { effectiveReasoningEffort } from '@shared/util/reasoning'
 import { effectiveWebSearchEnabled } from '@shared/util/searchTools'
+import { commentaryTextsOf } from '@shared/util/processTrack'
 import type { models } from '../db/schema'
 import {
   MAX_GENERATED_IMAGE_CONTEXT_ITEMS,
@@ -84,11 +85,16 @@ export function buildAnthropicMessages(
   for (const message of messages) {
     if (message.role === 'system') continue
     if (message.role === 'assistant') {
-      const content =
+      const commentary = commentaryTextsOf(message).join('\n\n')
+      const answerContent =
         message.anthropicContent ??
         message.content
           .filter((part) => part.type === 'output_text')
           .map((part) => ({ type: 'text', text: part.text }))
+      const content = [
+        ...(commentary ? [{ type: 'text', text: commentary }] : []),
+        ...answerContent,
+      ]
       if (content.length > 0) output.push({ role: 'assistant', content })
 
       const generatedImages = message.content.filter(

@@ -1,8 +1,10 @@
 import { and, eq } from 'drizzle-orm'
 import type {
+  AssistantPhase,
   ContentPart,
   MessageUsage,
   ModelParams,
+  ProcessStep,
   SearchAction,
   UrlCitation,
 } from '@shared/types/domain'
@@ -84,19 +86,55 @@ interface ImageGenerationSlot {
   outputIndex: number | null
 }
 
+interface MutableReasoningStep {
+  kind: 'reasoning'
+  id: string
+  summaryText: string
+  summaryPartKey: string | null
+  rawText: string
+  rawPartKey: string | null
+}
+
+interface MutableCommentaryStep {
+  kind: 'commentary'
+  id: string
+  text: string
+}
+
+interface MutableSearchStep {
+  kind: 'search'
+  id: string
+  action: SearchAction | null
+}
+
+type MutableProcessStep = MutableReasoningStep | MutableCommentaryStep | MutableSearchStep
+
+interface MutableAnswerPart {
+  id: string
+  text: string
+  annotations: UrlCitation[]
+  phase?: AssistantPhase
+}
+
 /** 驱动单个 run：流式调用上游 → 逐事件持久化到 run_events + 发射 → 终结。 */
 export async function runEngine(ctx: EngineContext): Promise<void> {
   // 既包含历史请求密文，也持续吸收本轮 added/done/terminal 中出现的新版本，
   // 以防兼容上游稍后的错误消息回显任一 opaque 值。
   const sensitiveProviderContent = new Set(collectProviderOpaqueStrings(ctx.body))
   let seq = 0
-  const persistEmit = (type: string, data: Record<string, unknown>): number => {
+  const persistEmit = (type: string, data: Record<string, unknown>, observedAt?: Date): number => {
     collectProviderOpaqueStrings(data).forEach((value) => sensitiveProviderContent.add(value))
     // 所有落库/浏览器事件共用唯一净化入口；原始上游对象仍留给终态校准和私有提取。
     const sanitizedData = sanitizeEventData(type, data, [...sensitiveProviderContent])
     const sequenceNumber = seq++
     db.insert(runEvents)
-      .values({ runId: ctx.run.id, sequenceNumber, type, data: sanitizedData })
+      .values({
+        runId: ctx.run.id,
+        sequenceNumber,
+        type,
+        data: sanitizedData,
+        ...(observedAt ? { createdAt: observedAt } : {}),
+      })
       .run()
     db.update(runs).set({ lastSequenceNumber: sequenceNumber }).where(eq(runs.id, ctx.run.id)).run()
     runEmitter.emit({ runId: ctx.run.id, sequenceNumber, type, data: sanitizedData })
@@ -115,10 +153,23 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
   db.update(runs).set({ state: 'running', startedAt }).where(eq(runs.id, ctx.run.id)).run()
 
   let text = ''
-  let reasoningSummary = ''
-  let reasoningSummaryPartKey: string | null = null
-  let rawReasoning = ''
-  let rawReasoningPartKey: string | null = null
+  const mutableProcessSteps: MutableProcessStep[] = []
+  let authoritativeProcessSteps: ProcessStep[] | null = null
+  const reasoningStepsById = new Map<string, MutableReasoningStep>()
+  const commentaryStepsByItemId = new Map<string, MutableCommentaryStep>()
+  const searchStepsByCallId = new Map<string, MutableSearchStep>()
+  const messagePhaseByItemId = new Map<string, AssistantPhase>()
+  const observedOutputItemIds = new Set<string>()
+  const answerParts: MutableAnswerPart[] = []
+  const answerPartsById = new Map<string, MutableAnswerPart>()
+  let authoritativeAnswerContent: ContentPart[] | null = null
+  let answerStarted = false
+  let rawReasoningObserved = false
+  let reasoningSummaryObserved = false
+  let provisionalRawAnswerItemId: string | null = null
+  let provisionalRawAnswerFirstDeltaAt: Date | null = null
+  let provisionalRawAnswerFirstDeltaData: Record<string, unknown> | null = null
+  let liveReasoningStartedAt: Date | null = null
   let annotations: UrlCitation[] = []
   let usage: MessageUsage = {
     inputTokens: 0,
@@ -139,16 +190,11 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
   let refusalObserved = false
   let discardPartialOutput = false
   let receivedTerminalEvent = false
-  const finalContentParts: ContentPart[] = []
   const finalImages = new Map<
     string,
     { attachmentId: string; revisedPrompt: string | null; contentPart: ContentPart }
   >()
   const imageContentParts: ContentPart[] = []
-  // 检索动作（web_search + x_search）按调用首次出现的顺序累积（Map 保序），
-  // 两类工具共用一个序列以保留真实交错次序；查询词等细节要等 output_item.done /
-  // 终态 output 才出现，null 表示调用已见但动作暂不可解析。
-  const searchActionsByCallId = new Map<string, SearchAction | null>()
   const imageSlots = new Map<string, ImageGenerationSlot>()
   const imageSlotOrder: ImageGenerationSlot[] = []
   const partialImageAttachmentIds = new Set<string>()
@@ -244,50 +290,185 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
     }
   }
 
+  const processStepIdFromEvent = (data: Record<string, unknown>, fallback: string): string =>
+    str(data.item_id) ||
+    (num(data.output_index) === null ? fallback : `output-${num(data.output_index)}`)
+
+  const ensureReasoningStep = (id: string): MutableReasoningStep => {
+    const existing = reasoningStepsById.get(id)
+    if (existing) return existing
+    const step: MutableReasoningStep = {
+      kind: 'reasoning',
+      id,
+      summaryText: '',
+      summaryPartKey: null,
+      rawText: '',
+      rawPartKey: null,
+    }
+    reasoningStepsById.set(id, step)
+    mutableProcessSteps.push(step)
+    return step
+  }
+
+  const ensureCommentaryStep = (itemId: string): MutableCommentaryStep => {
+    const existing = commentaryStepsByItemId.get(itemId)
+    if (existing) return existing
+    const step: MutableCommentaryStep = { kind: 'commentary', id: itemId, text: '' }
+    commentaryStepsByItemId.set(itemId, step)
+    mutableProcessSteps.push(step)
+    return step
+  }
+
+  const ensureAnswerPart = (data: Record<string, unknown>): MutableAnswerPart => {
+    const id = processStepIdFromEvent(data, 'answer')
+    const existing = answerPartsById.get(id)
+    if (existing) return existing
+    const phase = messagePhaseByItemId.get(str(data.item_id))
+    const part: MutableAnswerPart = {
+      id,
+      text: '',
+      annotations: [],
+      ...(phase ? { phase } : {}),
+    }
+    answerPartsById.set(id, part)
+    answerParts.push(part)
+    return part
+  }
+
   const recordSearchItem = (item: unknown, fallbackId: string): void => {
     if (!isSearchCallItem(item)) return
     const callId = str(item.id) || fallbackId
     if (!callId) return
-    // 同一次调用会被上报多次（added 常常只有类型），只接受信息量不减少的覆盖。
-    const action = mergeSearchAction(
-      searchActionsByCallId.get(callId) ?? null,
-      searchActionFromItem(item),
-    )
-    if (!searchActionsByCallId.has(callId) || action) {
-      searchActionsByCallId.set(callId, action)
+    let step = searchStepsByCallId.get(callId)
+    if (!step) {
+      step = { kind: 'search', id: callId, action: null }
+      searchStepsByCallId.set(callId, step)
+      mutableProcessSteps.push(step)
     }
+    // 同一次调用会被上报多次（added 常常只有类型），只接受信息量不减少的覆盖。
+    step.action = mergeSearchAction(step.action, searchActionFromItem(item))
   }
 
-  /** 终态 output 兜底：覆盖丢帧或不发 lifecycle 事件的兼容上游。 */
-  const recordResponseSearchItems = (response: UpstreamResponse | undefined): void => {
-    ;(response?.output ?? []).forEach((item, index) => {
-      recordSearchItem(item, `response-search-${index}`)
+  // summary 与 raw reasoning_text 是两条独立通道。任一摘要出现后全局压制 raw，
+  // 与升级前的策略一致，同时仍按 reasoning item 保留多个过程节点。
+  const collectProcessSteps = (): ProcessStep[] => {
+    if (authoritativeProcessSteps !== null) return authoritativeProcessSteps
+    const hasSummary = mutableProcessSteps.some(
+      (step) => step.kind === 'reasoning' && Boolean(step.summaryText),
+    )
+    return mutableProcessSteps.flatMap((step): ProcessStep[] => {
+      if (step.kind === 'reasoning') {
+        const reasoningText = hasSummary ? step.summaryText : step.rawText
+        return reasoningText ? [{ kind: 'reasoning', text: reasoningText }] : []
+      }
+      if (step.kind === 'commentary') {
+        return step.text ? [{ kind: 'commentary', text: step.text }] : []
+      }
+      return step.action ? [{ kind: 'search', action: step.action }] : []
     })
   }
 
-  const collectSearchActions = (): SearchAction[] =>
-    [...searchActionsByCallId.values()].filter((action): action is SearchAction => action !== null)
+  const collectAnswerContent = (): ContentPart[] =>
+    answerParts
+      .filter((part) => part.text || part.annotations.length > 0)
+      .map((part) => ({
+        type: 'output_text',
+        text: part.text,
+        ...(part.annotations.length ? { annotations: part.annotations } : {}),
+        ...(part.phase ? { phase: part.phase } : {}),
+      }))
 
-  // summary 与 raw reasoning_text 是 Responses 的两条独立通道。摘要存在时优先展示；
-  // DeepSeek 等只返回 raw reasoning 的上游则自然回落到完整推理文本。
-  const displayReasoning = (): string => reasoningSummary || rawReasoning
+  const reclassifyProvisionalRawAnswer = (): void => {
+    const itemId = provisionalRawAnswerItemId
+    if (!itemId) return
+
+    const answerPart = answerPartsById.get(itemId)
+    const commentaryStep = ensureCommentaryStep(itemId)
+    if (answerPart) {
+      commentaryStep.text += answerPart.text
+      answerPartsById.delete(itemId)
+      const partIndex = answerParts.indexOf(answerPart)
+      if (partIndex >= 0) answerParts.splice(partIndex, 1)
+    }
+    messagePhaseByItemId.set(itemId, 'commentary')
+    text = answerParts.map((part) => part.text).join('')
+    annotations = answerParts.flatMap((part) => part.annotations)
+
+    answerStarted = false
+    provisionalRawAnswerItemId = null
+    provisionalRawAnswerFirstDeltaAt = null
+    provisionalRawAnswerFirstDeltaData = null
+    // run_events 保持 append-only；候选 delta 尚未下发，这条事件会把完整进展
+    // 原子加入过程轨，不产生“先进入正文、随后撤回”的可见跳动。
+    persistEmit(RUN_EVENT_TYPE.outputItemReclassified, {
+      itemId,
+      phase: 'commentary',
+      commentaryText: commentaryStep.text,
+      answerText: text,
+      annotations,
+    })
+  }
+
+  const commitProvisionalRawFinalAnswer = (): void => {
+    const itemId = provisionalRawAnswerItemId
+    if (!itemId) return
+    const answerPart = answerPartsById.get(itemId)
+    const firstDeltaAt = provisionalRawAnswerFirstDeltaAt
+    const firstDeltaData = provisionalRawAnswerFirstDeltaData
+    if (answerPart?.text && firstDeltaAt && firstDeltaData) {
+      answerStarted = true
+      const reasoningDurationMs = liveReasoningStartedAt
+        ? Math.max(0, firstDeltaAt.getTime() - liveReasoningStartedAt.getTime())
+        : null
+      persistEmit(
+        RUN_EVENT_TYPE.answerStarted,
+        {
+          itemId,
+          ...(num(firstDeltaData.output_index) !== null
+            ? { outputIndex: num(firstDeltaData.output_index) }
+            : {}),
+          ...(reasoningDurationMs !== null ? { reasoningDurationMs } : {}),
+        },
+        firstDeltaAt,
+      )
+      // 兼容网关直到 output_item.done 才给可信 phase。候选期间不下发 delta；
+      // 确认真正终答后用一条聚合 delta 原子呈现，避免 commentary 闪进正文。
+      persistEmit(
+        'response.output_text.delta',
+        { ...firstDeltaData, delta: answerPart.text },
+        firstDeltaAt,
+      )
+    }
+    provisionalRawAnswerItemId = null
+    provisionalRawAnswerFirstDeltaAt = null
+    provisionalRawAnswerFirstDeltaData = null
+  }
 
   const applyFinalResponse = (response: UpstreamResponse | undefined): void => {
+    const currentContent = authoritativeAnswerContent ?? collectAnswerContent()
     const reconciled = reconcileFinalResponse(
       {
         text,
-        reasoningSummary: displayReasoning() || null,
+        content: currentContent,
+        processSteps: collectProcessSteps(),
         annotations,
         usage,
         upstreamResponseId,
       },
       response,
+      {
+        observedOutputItemIds: [...observedOutputItemIds],
+        messagePhaseByItemId,
+        searchActionByItemId: new Map(
+          [...searchStepsByCallId].flatMap(([id, step]) =>
+            step.action ? [[id, step.action] as const] : [],
+          ),
+        ),
+      },
     )
     text = reconciled.text
-    reasoningSummary = reconciled.reasoningSummary ?? ''
-    reasoningSummaryPartKey = null
-    rawReasoning = ''
-    rawReasoningPartKey = null
+    authoritativeAnswerContent = reconciled.content
+    authoritativeProcessSteps = reconciled.processSteps
     annotations = reconciled.annotations
     usage = reconciled.usage
     upstreamResponseId = reconciled.upstreamResponseId
@@ -404,7 +585,6 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
   ) => {
     // failed 终态也可能携带最终 usage / response id，不能只解析成功终态。
     applyFinalResponse(response)
-    recordResponseSearchItems(response)
 
     const terminal = classifyResponsesTerminal(response, {
       eventState,
@@ -440,15 +620,94 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
       },
     })
     for await (const ev of stream) {
+      const eventObservedAt = new Date()
       if (ev.type === 'response.image_generation_call.partial_image') {
         savePartialImage(ev.data)
         continue
       }
 
-      persistEmit(ev.type, ev.data)
+      if (
+        liveReasoningStartedAt === null &&
+        (ev.type === 'response.created' ||
+          ev.type === 'response.in_progress' ||
+          ev.type === 'response.reasoning_summary_text.delta')
+      ) {
+        liveReasoningStartedAt = eventObservedAt
+      }
+
+      if (ev.type === 'response.output_item.done' && provisionalRawAnswerItemId) {
+        const item = ev.data.item
+        const itemId = isRecord(item) ? str(item.id) || str(ev.data.item_id) : ''
+        if (itemId === provisionalRawAnswerItemId) {
+          if (isRecord(item) && item.phase === 'commentary') {
+            reclassifyProvisionalRawAnswer()
+          } else {
+            commitProvisionalRawFinalAnswer()
+          }
+        }
+      }
+
+      const rawProvisionalDelta =
+        ev.type === 'response.output_text.delta' &&
+        Boolean(provisionalRawAnswerItemId) &&
+        str(ev.data.item_id) === provisionalRawAnswerItemId
+      if (rawProvisionalDelta && provisionalRawAnswerFirstDeltaAt === null) {
+        provisionalRawAnswerFirstDeltaAt = eventObservedAt
+        provisionalRawAnswerFirstDeltaData = ev.data
+      }
+
+      if (
+        ev.type === 'response.output_text.delta' &&
+        !rawProvisionalDelta &&
+        !commentaryStepsByItemId.has(str(ev.data.item_id)) &&
+        !answerStarted
+      ) {
+        answerStarted = true
+        const itemId = str(ev.data.item_id)
+        const reasoningDurationMs = liveReasoningStartedAt
+          ? Math.max(0, eventObservedAt.getTime() - liveReasoningStartedAt.getTime())
+          : null
+        persistEmit(
+          RUN_EVENT_TYPE.answerStarted,
+          {
+            ...(itemId ? { itemId } : {}),
+            ...(num(ev.data.output_index) !== null
+              ? { outputIndex: num(ev.data.output_index) }
+              : {}),
+            ...(reasoningDurationMs !== null ? { reasoningDurationMs } : {}),
+          },
+          eventObservedAt,
+        )
+      }
+      if (!rawProvisionalDelta) persistEmit(ev.type, ev.data, eventObservedAt)
       switch (ev.type) {
         case 'response.output_item.added': {
           const item = ev.data.item
+          if (isRecord(item)) {
+            const itemId = str(item.id) || str(ev.data.item_id)
+            const outputIndex = num(ev.data.output_index)
+            if (
+              itemId &&
+              (item.type === 'reasoning' || item.type === 'message' || isSearchCallItem(item))
+            ) {
+              observedOutputItemIds.add(itemId)
+            }
+            if (item.type === 'reasoning') {
+              ensureReasoningStep(
+                itemId || (outputIndex === null ? 'reasoning' : `output-${outputIndex}`),
+              )
+            } else if (item.type === 'message' && itemId) {
+              if (item.phase === 'commentary') {
+                ensureCommentaryStep(itemId)
+                messagePhaseByItemId.set(itemId, 'commentary')
+              } else if (item.phase === 'final_answer') {
+                messagePhaseByItemId.set(itemId, 'final_answer')
+                if (rawReasoningObserved && !reasoningSummaryObserved) {
+                  provisionalRawAnswerItemId = itemId
+                }
+              }
+            }
+          }
           // xAI 旧实现的 web_search_call 可能一出现即 completed 且带 arguments；
           // x_search 的 custom_tool_call 首帧只有工具名，都在这里先建立顺序占位。
           recordSearchItem(item, searchCallIdFromEvent(ev.data))
@@ -475,6 +734,14 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
         }
         case 'response.output_item.done': {
           const item = ev.data.item
+          if (isRecord(item) && item.type === 'message' && item.phase === 'final_answer') {
+            const itemId = str(item.id) || str(ev.data.item_id)
+            if (itemId) {
+              messagePhaseByItemId.set(itemId, 'final_answer')
+              const answerPart = answerPartsById.get(itemId)
+              if (answerPart) answerPart.phase = 'final_answer'
+            }
+          }
           recordSearchItem(item, searchCallIdFromEvent(ev.data))
           if (isImageGenerationItem(item)) {
             emitCompletedImage(
@@ -489,43 +756,59 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
         // 被取消/中断时它可能是唯一一次带回查询词的机会。
         case 'response.custom_tool_call_input.done': {
           const callId = searchCallIdFromEvent(ev.data)
-          const pending = callId ? searchActionsByCallId.get(callId) : undefined
-          if (pending && isXSearchActionType(pending.type)) {
-            searchActionsByCallId.set(
-              callId,
-              mergeSearchAction(pending, xSearchActionFromToolInput(pending.type, ev.data.input)),
+          const pending = callId ? searchStepsByCallId.get(callId) : undefined
+          if (pending?.action && isXSearchActionType(pending.action.type)) {
+            pending.action = mergeSearchAction(
+              pending.action,
+              xSearchActionFromToolInput(pending.action.type, ev.data.input),
             )
           }
           break
         }
-        case 'response.output_text.delta':
-          text += str(ev.data.delta)
+        case 'response.output_text.delta': {
+          const commentaryStep = commentaryStepsByItemId.get(str(ev.data.item_id))
+          if (commentaryStep) {
+            commentaryStep.text += str(ev.data.delta)
+          } else {
+            const answerPart = ensureAnswerPart(ev.data)
+            answerPart.text += str(ev.data.delta)
+            text += str(ev.data.delta)
+          }
           break
+        }
         case 'response.refusal.delta':
         case 'response.refusal.done':
           refusalObserved = true
           break
         case 'response.reasoning_summary_text.delta': {
+          reasoningSummaryObserved = true
+          const reasoningStep = ensureReasoningStep(processStepIdFromEvent(ev.data, 'reasoning'))
           const accumulatedReasoning = appendReasoningSummaryDelta(
-            { text: reasoningSummary, partKey: reasoningSummaryPartKey },
+            { text: reasoningStep.summaryText, partKey: reasoningStep.summaryPartKey },
             ev.data,
           )
-          reasoningSummary = accumulatedReasoning.text
-          reasoningSummaryPartKey = accumulatedReasoning.partKey
+          reasoningStep.summaryText = accumulatedReasoning.text
+          reasoningStep.summaryPartKey = accumulatedReasoning.partKey
           break
         }
         case 'response.reasoning_text.delta': {
+          rawReasoningObserved = true
+          const reasoningStep = ensureReasoningStep(processStepIdFromEvent(ev.data, 'reasoning'))
           const accumulatedReasoning = appendReasoningTextDelta(
-            { text: rawReasoning, partKey: rawReasoningPartKey },
+            { text: reasoningStep.rawText, partKey: reasoningStep.rawPartKey },
             ev.data,
           )
-          rawReasoning = accumulatedReasoning.text
-          rawReasoningPartKey = accumulatedReasoning.partKey
+          reasoningStep.rawText = accumulatedReasoning.text
+          reasoningStep.rawPartKey = accumulatedReasoning.partKey
           break
         }
-        case 'response.output_text.annotation.added':
+        case 'response.output_text.annotation.added': {
+          if (commentaryStepsByItemId.has(str(ev.data.item_id))) break
           pushCitation(annotations, ev.data.annotation)
+          const answerPart = ensureAnswerPart(ev.data)
+          pushCitation(answerPart.annotations, ev.data.annotation)
           break
+        }
         case 'response.completed':
         case 'response.incomplete':
         case 'response.failed': {
@@ -591,10 +874,15 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
 
   if (discardPartialOutput) {
     text = ''
-    reasoningSummary = ''
-    rawReasoning = ''
+    authoritativeAnswerContent = []
+    authoritativeProcessSteps = []
+    mutableProcessSteps.length = 0
+    answerParts.length = 0
     annotations = []
-    searchActionsByCallId.clear()
+    reasoningStepsById.clear()
+    commentaryStepsByItemId.clear()
+    searchStepsByCallId.clear()
+    answerPartsById.clear()
     providerReplayContext = null
     cleanupPartialImages()
     removeGeneratedImageAttachments([...finalImages.values()].map((image) => image.attachmentId))
@@ -602,16 +890,21 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
     imageContentParts.length = 0
   }
 
-  if (imageContentParts.length) {
-    if (text) {
-      finalContentParts.push({
-        type: 'output_text',
-        text,
-        ...(annotations.length ? { annotations } : {}),
-      })
-    }
-    finalContentParts.push(...imageContentParts)
-  }
+  const answerContent = authoritativeAnswerContent ?? collectAnswerContent()
+  const finalContentParts: ContentPart[] = [
+    ...(answerContent.length > 0
+      ? answerContent
+      : text
+        ? [
+            {
+              type: 'output_text' as const,
+              text,
+              ...(annotations.length ? { annotations } : {}),
+            },
+          ]
+        : []),
+    ...imageContentParts,
+  ]
 
   await finalizeRun({
     run: ctx.run,
@@ -621,10 +914,9 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
     provider: ctx.provider,
     state,
     text,
-    reasoningSummary: displayReasoning() || null,
+    processSteps: collectProcessSteps(),
     annotations,
     usage,
-    searchActions: collectSearchActions(),
     incompleteReason,
     errorMessage,
     errorType,
@@ -635,11 +927,7 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
     providerReplayContext,
     startedAt,
     upstreamResponseLatencyMs: upstreamResponseTiming.latencyMs,
-    ...(discardPartialOutput
-      ? { content: [] }
-      : finalContentParts.length
-        ? { content: finalContentParts }
-        : {}),
+    content: discardPartialOutput ? [] : finalContentParts,
     persistEmit,
   })
 

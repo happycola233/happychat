@@ -25,7 +25,7 @@ function detailWithStatus(status: MessageDTO['status']): ConversationDetail {
         modelId: null,
         modelLabel: null,
         runId: null,
-        reasoningSummary: null,
+        processSteps: [],
         reasoningDurationMs: null,
         generationDurationMs: null,
         annotations: null,

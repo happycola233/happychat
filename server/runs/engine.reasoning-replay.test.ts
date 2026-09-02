@@ -124,6 +124,352 @@ async function createEngineFixture(input: unknown[] = []) {
 }
 
 describe('runEngine reasoning replay privacy and terminal handling', () => {
+  it('routes commentary deltas into processSteps and starts the answer only for final output', async () => {
+    const fixture = await createEngineFixture()
+    const commentaryItem = {
+      id: 'message-commentary',
+      type: 'message',
+      role: 'assistant',
+      status: 'completed',
+      phase: 'commentary' as const,
+      content: [{ type: 'output_text', text: '正在核对资料。', annotations: [] }],
+    }
+    const finalItem = {
+      id: 'message-final',
+      type: 'message',
+      role: 'assistant',
+      status: 'completed',
+      phase: 'final_answer' as const,
+      content: [{ type: 'output_text', text: '最终回答。', annotations: [] }],
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        sseResponse([
+          { type: 'response.output_item.added', output_index: 0, item: commentaryItem },
+          {
+            type: 'response.output_text.delta',
+            item_id: commentaryItem.id,
+            output_index: 0,
+            delta: '正在核对资料。',
+          },
+          { type: 'response.output_item.added', output_index: 1, item: finalItem },
+          {
+            type: 'response.output_text.delta',
+            item_id: finalItem.id,
+            output_index: 1,
+            delta: '最终回答。',
+          },
+          {
+            type: 'response.completed',
+            response: {
+              id: 'response-phase',
+              status: 'completed',
+              output: [commentaryItem, finalItem],
+            },
+          },
+        ]),
+      ),
+    )
+
+    await engine.runEngine(fixture)
+
+    const storedMessage = await dbClient.db.query.messages.findFirst({
+      where: eq(schema.messages.id, fixture.assistantMessage.id),
+    })
+    const storedEvents = await dbClient.db
+      .select({ type: schema.runEvents.type })
+      .from(schema.runEvents)
+      .where(eq(schema.runEvents.runId, fixture.run.id))
+    expect(storedMessage).toMatchObject({
+      content: [{ type: 'output_text', text: '最终回答。', phase: 'final_answer' }],
+      processSteps: [{ kind: 'commentary', text: '正在核对资料。' }],
+    })
+    expect(storedEvents.filter((event) => event.type === 'answer.started')).toHaveLength(1)
+  })
+
+  it('keeps streamed process steps when a compatibility gateway collapses terminal output', async () => {
+    const fixture = await createEngineFixture()
+    const firstReasoning = {
+      id: 'reasoning-1',
+      type: 'reasoning',
+      summary: [{ type: 'summary_text', text: '思考一' }],
+      content: [],
+    }
+    const commentary = {
+      id: 'commentary-1',
+      type: 'message',
+      role: 'assistant',
+      status: 'completed',
+      phase: 'commentary' as const,
+      content: [{ type: 'output_text', text: '正在查资料。', annotations: [] }],
+    }
+    const search = {
+      id: 'search-1',
+      type: 'web_search_call',
+      status: 'completed',
+      action: { type: 'open_page', url: 'https://example.com' },
+    }
+    const secondReasoning = {
+      id: 'reasoning-2',
+      type: 'reasoning',
+      summary: [{ type: 'summary_text', text: '思考二' }],
+      content: [],
+    }
+    const finalAnswer = {
+      id: 'final-1',
+      type: 'message',
+      role: 'assistant',
+      status: 'completed',
+      phase: 'final_answer' as const,
+      content: [{ type: 'output_text', text: '最终回答。', annotations: [] }],
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        sseResponse([
+          { type: 'response.output_item.added', output_index: 0, item: firstReasoning },
+          {
+            type: 'response.reasoning_summary_text.delta',
+            item_id: firstReasoning.id,
+            output_index: 0,
+            summary_index: 0,
+            delta: '思考一',
+          },
+          { type: 'response.output_item.added', output_index: 1, item: commentary },
+          {
+            type: 'response.output_text.delta',
+            item_id: commentary.id,
+            output_index: 1,
+            delta: '正在查资料。',
+          },
+          { type: 'response.output_item.added', output_index: 2, item: search },
+          { type: 'response.output_item.done', output_index: 2, item: search },
+          { type: 'response.output_item.added', output_index: 3, item: secondReasoning },
+          {
+            type: 'response.reasoning_summary_text.delta',
+            item_id: secondReasoning.id,
+            output_index: 3,
+            summary_index: 0,
+            delta: '思考二',
+          },
+          { type: 'response.output_item.added', output_index: 4, item: finalAnswer },
+          {
+            type: 'response.output_text.delta',
+            item_id: finalAnswer.id,
+            output_index: 4,
+            delta: '最终回答。',
+          },
+          {
+            type: 'response.completed',
+            response: {
+              id: 'collapsed-response',
+              status: 'completed',
+              // 真实兼容网关会把全部消息文本压到首条 commentary id，并丢掉其余 item。
+              output: [
+                firstReasoning,
+                {
+                  ...commentary,
+                  phase: undefined,
+                  content: [
+                    { type: 'output_text', text: '正在查资料。最终回答。', annotations: [] },
+                  ],
+                },
+              ],
+            },
+          },
+        ]),
+      ),
+    )
+
+    await engine.runEngine(fixture)
+
+    const storedMessage = await dbClient.db.query.messages.findFirst({
+      where: eq(schema.messages.id, fixture.assistantMessage.id),
+    })
+    expect(storedMessage).toMatchObject({
+      content: [{ type: 'output_text', text: '最终回答。', phase: 'final_answer' }],
+      processSteps: [
+        { kind: 'reasoning', text: '思考一' },
+        { kind: 'commentary', text: '正在查资料。' },
+        { kind: 'search', action: { type: 'open_page', url: 'https://example.com' } },
+        { kind: 'reasoning', text: '思考二' },
+      ],
+    })
+  })
+
+  it('reclassifies raw-reasoning interim final_answer messages as commentary', async () => {
+    const fixture = await createEngineFixture()
+    const firstReasoning = {
+      id: 'raw-reasoning-1',
+      type: 'reasoning',
+      status: 'completed',
+      summary: [],
+      content: [{ type: 'reasoning_text', text: '先分析' }],
+    }
+    const interimMessage = {
+      id: 'raw-message-1',
+      type: 'message',
+      role: 'assistant',
+      status: 'completed',
+      phase: 'final_answer' as const,
+      content: [{ type: 'output_text', text: '正在核对资料。', annotations: [] }],
+    }
+    const search = {
+      id: 'raw-search-1',
+      type: 'web_search_call',
+      status: 'completed',
+      action: { type: 'search', queries: ['phase'] },
+    }
+    const secondReasoning = {
+      id: 'raw-reasoning-2',
+      type: 'reasoning',
+      status: 'completed',
+      summary: [],
+      content: [{ type: 'reasoning_text', text: '再分析' }],
+    }
+    const finalMessage = {
+      id: 'raw-message-2',
+      type: 'message',
+      role: 'assistant',
+      status: 'completed',
+      phase: 'final_answer' as const,
+      content: [{ type: 'output_text', text: '最终回答。', annotations: [] }],
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        sseResponse([
+          { type: 'response.output_item.added', output_index: 0, item: firstReasoning },
+          {
+            type: 'response.reasoning_text.delta',
+            item_id: firstReasoning.id,
+            output_index: 0,
+            content_index: 0,
+            delta: '先分析',
+          },
+          { type: 'response.output_item.added', output_index: 1, item: interimMessage },
+          {
+            type: 'response.output_text.delta',
+            item_id: interimMessage.id,
+            output_index: 1,
+            delta: '正在核对资料。',
+          },
+          {
+            type: 'response.output_item.done',
+            output_index: 1,
+            item: { ...interimMessage, phase: 'commentary' },
+          },
+          { type: 'response.output_item.added', output_index: 2, item: search },
+          { type: 'response.output_item.done', output_index: 2, item: search },
+          { type: 'response.output_item.added', output_index: 3, item: secondReasoning },
+          {
+            type: 'response.reasoning_text.delta',
+            item_id: secondReasoning.id,
+            output_index: 3,
+            content_index: 0,
+            delta: '再分析',
+          },
+          { type: 'response.output_item.added', output_index: 4, item: finalMessage },
+          {
+            type: 'response.output_text.delta',
+            item_id: finalMessage.id,
+            output_index: 4,
+            delta: '最终回答。',
+          },
+          { type: 'response.output_item.done', output_index: 4, item: finalMessage },
+          {
+            type: 'response.completed',
+            response: {
+              id: 'raw-response',
+              status: 'completed',
+              output: [
+                firstReasoning,
+                { ...interimMessage, phase: 'commentary' },
+                search,
+                secondReasoning,
+                finalMessage,
+              ],
+            },
+          },
+        ]),
+      ),
+    )
+
+    const emitted: Array<{ type: string; data: Record<string, unknown> }> = []
+    const unsubscribe = emitter.runEmitter.subscribe(fixture.run.id, (event) => {
+      emitted.push({ type: event.type, data: event.data })
+    })
+    await engine.runEngine(fixture)
+    unsubscribe()
+
+    const storedMessage = await dbClient.db.query.messages.findFirst({
+      where: eq(schema.messages.id, fixture.assistantMessage.id),
+    })
+    expect(storedMessage).toMatchObject({
+      content: [{ type: 'output_text', text: '最终回答。', phase: 'final_answer' }],
+      processSteps: [
+        { kind: 'reasoning', text: '先分析' },
+        { kind: 'commentary', text: '正在核对资料。' },
+        { kind: 'search', action: { type: 'search', queries: ['phase'] } },
+        { kind: 'reasoning', text: '再分析' },
+      ],
+    })
+    expect(
+      emitted.find((event) => event.type === 'response.output_item.reclassified')?.data,
+    ).toMatchObject({
+      itemId: interimMessage.id,
+      phase: 'commentary',
+      commentaryText: '正在核对资料。',
+      answerText: '',
+    })
+    expect(
+      emitted.filter(
+        (event) =>
+          event.type === 'response.output_text.delta' && event.data.item_id === interimMessage.id,
+      ),
+    ).toHaveLength(0)
+    expect(emitted.filter((event) => event.type === 'answer.started')).toHaveLength(1)
+  })
+
+  it('keeps phase-less assistant output on the legacy final-answer path', async () => {
+    const fixture = await createEngineFixture()
+    const messageItem = {
+      id: 'message-without-phase',
+      type: 'message',
+      role: 'assistant',
+      status: 'completed',
+      content: [{ type: 'output_text', text: '兼容回答', annotations: [] }],
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        sseResponse([
+          { type: 'response.output_item.added', output_index: 0, item: messageItem },
+          {
+            type: 'response.output_text.delta',
+            item_id: messageItem.id,
+            output_index: 0,
+            delta: '兼容回答',
+          },
+          {
+            type: 'response.completed',
+            response: { id: 'response-legacy', status: 'completed', output: [messageItem] },
+          },
+        ]),
+      ),
+    )
+
+    await engine.runEngine(fixture)
+
+    const storedMessage = await dbClient.db.query.messages.findFirst({
+      where: eq(schema.messages.id, fixture.assistantMessage.id),
+    })
+    expect(storedMessage?.content).toEqual([{ type: 'output_text', text: '兼容回答' }])
+    expect(storedMessage?.processSteps).toEqual([])
+    expect(storedMessage?.content[0]).not.toHaveProperty('phase')
+  })
+
   it('stores the raw terminal reasoning item privately and emits only sanitized calibrated events', async () => {
     const fixture = await createEngineFixture()
     const terminalReasoningItem = {
@@ -200,7 +546,7 @@ describe('runEngine reasoning replay privacy and terminal handling', () => {
     expect(storedMessage).toMatchObject({
       status: 'complete',
       content: [{ type: 'output_text', text: '终态正文' }],
-      reasoningSummary: '终态摘要',
+      processSteps: [{ kind: 'reasoning', text: '终态摘要' }],
       providerReplayContext: {
         version: 1,
         source: {
@@ -224,7 +570,7 @@ describe('runEngine reasoning replay privacy and terminal handling', () => {
     expect(done?.data).toMatchObject({
       state: 'completed',
       text: '终态正文',
-      reasoningSummary: '终态摘要',
+      processSteps: [{ kind: 'reasoning', text: '终态摘要' }],
       usage: { inputTokens: 12, outputTokens: 8, reasoningTokens: 3, totalTokens: 20 },
     })
     expect(done?.data).not.toHaveProperty('providerReplayContext')
@@ -297,7 +643,7 @@ describe('runEngine reasoning replay privacy and terminal handling', () => {
     expect(storedMessage).toMatchObject({
       status: 'complete',
       content: [{ type: 'output_text', text: '终态正文' }],
-      reasoningSummary: '终态原始推理',
+      processSteps: [{ kind: 'reasoning', text: '终态原始推理' }],
     })
     expect(emitted.filter((event) => event.type === 'response.reasoning_text.delta')).toHaveLength(
       2,
@@ -305,7 +651,7 @@ describe('runEngine reasoning replay privacy and terminal handling', () => {
     expect(emitted.find((event) => event.type === 'run.done')?.data).toMatchObject({
       state: 'completed',
       text: '终态正文',
-      reasoningSummary: '终态原始推理',
+      processSteps: [{ kind: 'reasoning', text: '终态原始推理' }],
     })
   })
 

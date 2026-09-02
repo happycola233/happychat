@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm'
-import type { MessageUsage, ModelParams } from '@shared/types/domain'
+import type { MessageUsage, ModelParams, ProcessStep } from '@shared/types/domain'
 import { RUN_EVENT_TYPE } from '@shared/types/events'
 import { isReasoningEnabled } from '@shared/util/reasoning'
 import { db } from '../db/client'
@@ -61,6 +61,7 @@ export async function runChatEngine(ctx: EngineContext): Promise<void> {
   let refusalObserved = false
   let toolCallObserved = false
   let discardPartialOutput = false
+  let answerStarted = false
 
   try {
     const client = providerClientFromRow(ctx.provider, upstreamResponseTiming)
@@ -78,6 +79,10 @@ export async function runChatEngine(ctx: EngineContext): Promise<void> {
         persistEmit('response.reasoning_summary_text.delta', { delta: delta.reasoning_content })
       }
       if (delta?.content) {
+        if (!answerStarted) {
+          answerStarted = true
+          persistEmit(RUN_EVENT_TYPE.answerStarted, {})
+        }
         text += delta.content
         persistEmit('response.output_text.delta', { delta: delta.content })
       }
@@ -162,7 +167,11 @@ export async function runChatEngine(ctx: EngineContext): Promise<void> {
     state,
     text,
     ...(discardPartialOutput ? { content: [] } : {}),
-    reasoningSummary: reasoning || null,
+    processSteps: discardPartialOutput
+      ? []
+      : reasoning
+        ? ([{ kind: 'reasoning', text: reasoning }] satisfies ProcessStep[])
+        : [],
     annotations: [],
     usage,
     incompleteReason,

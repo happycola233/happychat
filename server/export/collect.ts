@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { and, eq, inArray } from 'drizzle-orm'
 import type { MessageDTO } from '@shared/types/api'
 import type { ExportOptions } from '@shared/schemas/export'
+import { processStepsOf } from '@shared/util/processTrack'
 import { db } from '../db/client'
 import { attachments } from '../db/schema'
 import {
@@ -12,12 +13,7 @@ import {
   getOwnedConversation,
   toConversationDTO,
 } from '../services/conversations'
-import {
-  assignAssetPaths,
-  attachmentRefsOf,
-  textOfContent,
-  type AttachmentRef,
-} from './content'
+import { assignAssetPaths, attachmentRefsOf, textOfContent, type AttachmentRef } from './content'
 import { resolveTimezone } from './time'
 import type { ExportAttachment, ExportSource } from './types'
 
@@ -78,11 +74,17 @@ export async function collectExportSource(
     messages = messages.filter((m) => wanted.has(m.id))
   }
 
+  messages = messages.map((message) => ({
+    ...message,
+    processSteps: processStepsOf(message),
+  }))
+
   // 丢弃仍在流式生成、且没有任何可导出内容的占位助手消息
   messages = messages.filter(
     (m) =>
       m.status !== 'streaming' ||
       textOfContent(m.content).length > 0 ||
+      m.processSteps.length > 0 ||
       attachmentRefsOf(m.content).length > 0,
   )
 

@@ -24,6 +24,7 @@ import type {
   ModelParams,
   ModelPricing,
   ProviderProtocol,
+  ProcessStep,
   QuotaAdjustmentKind,
   QuotaMetric,
   QuotaRule,
@@ -513,6 +514,8 @@ export const messages = sqliteTable(
     // 关联生成任务（无 DB 级 FK，避免与 runs 循环引用）
     runId: text('run_id'),
     reasoningSummary: text('reasoning_summary'),
+    // 新消息只写统一过程轨；reasoning_summary/search_actions 保留用于读取升级前的数据。
+    processSteps: text('process_steps', { mode: 'json' }).$type<ProcessStep[]>(),
     // 历史 SQL 列名保留 reasoning_replay_context；信封可含多种上游 opaque content。
     providerReplayContext: text('reasoning_replay_context', {
       mode: 'json',
@@ -521,8 +524,7 @@ export const messages = sqliteTable(
     reasoningDurationMs: integer('reasoning_duration_ms'),
     generationDurationMs: integer('generation_duration_ms'),
     annotations: text('annotations', { mode: 'json' }).$type<UrlCitation[]>(),
-    // 检索工具本轮实际执行的动作序列（web_search 的搜索词/打开页面/页内查找与
-    // x_search 的 X 站内检索按真实交错顺序合并），供 UI 复现检索过程。
+    // 兼容升级前消息的旧检索列；新消息统一写 process_steps。
     searchActions: text('search_actions', { mode: 'json' }).$type<SearchAction[]>(),
     inputTokens: integer('input_tokens'),
     cacheWriteTokens: integer('cache_write_tokens'),

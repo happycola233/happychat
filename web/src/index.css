@@ -816,6 +816,11 @@ html.hc-ios .hc-chat-scroll {
 .hc-md-reasoning strong {
   color: #525252;
 }
+.hc-process-commentary {
+  font-size: 14px;
+  line-height: 1.5rem;
+  color: rgb(64 64 64);
+}
 .hc-reasoning {
   --hc-reasoning-surface: rgb(255 255 255 / 0.985);
   --hc-reasoning-surface-edge: rgb(255 255 255 / 0);
@@ -1113,6 +1118,9 @@ html.hc-ios .hc-chat-scroll {
 }
 .dark .hc-md-reasoning strong {
   color: #d4d4d4;
+}
+.dark .hc-process-commentary {
+  color: rgb(212 212 212);
 }
 .dark .hc-reasoning {
   --hc-reasoning-surface: rgb(0 0 0 / 0.985);

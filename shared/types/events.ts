@@ -1,4 +1,4 @@
-import type { MessageUsage, RunState, SearchAction, UrlCitation } from './domain'
+import type { MessageUsage, ProcessStep, RunState, UrlCitation } from './domain'
 
 /**
  * SSE 线格式：每帧 `id: <seq>` + `data: <WireEvent JSON>`（不使用 event: 字段，
@@ -13,6 +13,9 @@ export interface WireEvent {
 /** 合成事件类型（与上游 response.* 共用同一 SSE 通道与 seq 计数器） */
 export const RUN_EVENT_TYPE = {
   created: 'run.created',
+  answerStarted: 'answer.started',
+  /** 兼容上游在 raw reasoning 流中把中间进展误标为 final_answer。 */
+  outputItemReclassified: 'response.output_item.reclassified',
   done: 'run.done',
   error: 'run.error',
   canceled: 'run.canceled',
@@ -49,10 +52,8 @@ export interface RunDoneData {
   messageId: string
   /** 文本 run 的终态规范值；图片 run 不包含这三个字段。 */
   text?: string
-  reasoningSummary?: string | null
+  processSteps?: ProcessStep[]
   annotations?: UrlCitation[]
-  /** 检索动作序列（web_search + x_search）终态权威值；文本 run 可携带空数组。 */
-  searchActions?: SearchAction[]
   usage: MessageUsage
   incompleteReason: string | null
 }

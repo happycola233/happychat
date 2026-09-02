@@ -267,7 +267,10 @@ describe('runAnthropicEngine', () => {
     })
     expect(storedMessage).toMatchObject({
       status: 'complete',
-      reasoningSummary: '推理摘要',
+      processSteps: [
+        { kind: 'search', action: { type: 'search', queries: ['Claude 5'] } },
+        { kind: 'reasoning', text: '推理摘要' },
+      ],
       annotations: [
         {
           type: 'url_citation',
@@ -277,7 +280,6 @@ describe('runAnthropicEngine', () => {
           end_index: 2,
         },
       ],
-      searchActions: [{ type: 'search', queries: ['Claude 5'] }],
       inputTokens: 27,
       cacheWriteTokens: 2,
       cachedTokens: 3,
@@ -425,9 +427,8 @@ describe('runAnthropicEngine', () => {
     expect(storedMessage).toMatchObject({
       status: 'error',
       content: [],
-      reasoningSummary: null,
+      processSteps: [],
       annotations: null,
-      searchActions: null,
       providerReplayContext: null,
       inputTokens: 7,
       outputTokens: 9,

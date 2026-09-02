@@ -46,6 +46,30 @@ function model(overrides: Partial<ModelRow> = {}): ModelRow {
 }
 
 describe('buildAnthropicMessages', () => {
+  it('切换协议时把 commentary 拼在正文前且不发送 phase', () => {
+    const messages = buildAnthropicMessages([
+      {
+        role: 'assistant',
+        processSteps: [
+          { kind: 'commentary', text: '先核对资料。' },
+          { kind: 'commentary', text: '再确认结论。' },
+        ],
+        content: [{ type: 'output_text', text: '最终回答', phase: 'final_answer' }],
+      },
+    ])
+
+    expect(messages).toEqual([
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: '先核对资料。\n\n再确认结论。' },
+          { type: 'text', text: '最终回答' },
+        ],
+      },
+    ])
+    expect(JSON.stringify(messages)).not.toContain('phase')
+  })
+
   it('把 runtime context、图片、PDF、文本与原始 assistant blocks 映射为 Messages content', () => {
     const rawAssistant = [
       { type: 'thinking', thinking: '摘要', signature: 'opaque-signature' },

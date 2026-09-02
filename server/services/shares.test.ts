@@ -79,7 +79,7 @@ async function createConversationTree(userId: string) {
     role: 'user',
     content: [
       { type: 'input_text', text: '第一问' },
-      { type: 'input_image', attachment_id: `att-img-${seq++}`, },
+      { type: 'input_image', attachment_id: `att-img-${seq++}` },
       { type: 'input_file', attachment_id: `att-file-${seq++}`, filename: 'notes.txt' },
     ],
   })
@@ -211,8 +211,9 @@ describe('createShare 附件包含开关', () => {
     expect(file).toMatchObject({ attachment_id: '', filename: 'notes.txt' })
 
     // 原始附件 id 不可再经公开路由获取
-    const originalImageId = (u1.content.find((p) => p.type === 'input_image') as { attachment_id: string })
-      .attachment_id
+    const originalImageId = (
+      u1.content.find((p) => p.type === 'input_image') as { attachment_id: string }
+    ).attachment_id
     expect(await shares.getShareAttachment(row!.token, originalImageId)).toBeNull()
 
     // 公开视图声明附件未包含
@@ -236,22 +237,26 @@ describe('createShare 附件包含开关', () => {
 })
 
 describe('历史分享快照兼容', () => {
-  it('旧快照里的 webSearchActions 读取时映射为 searchActions', async () => {
+  it('旧快照里的 reasoningSummary/webSearchActions 读取时映射为 processSteps', async () => {
     const user = await createUser()
     const { conv, u1 } = await createConversationTree(user.id)
     const result = await shares.createShare(user.id, conv.id, { ...baseInput, messageIds: [u1.id] })
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
-    // 模拟 2026-07 改名前生成的冻结快照：只有 webSearchActions、没有 searchActions。
+    // 模拟统一过程轨之前的冻结快照：只有 reasoningSummary/webSearchActions。
     const [row] = await dbClient.db
       .select()
       .from(schema.sharedChats)
       .where(eq(schema.sharedChats.conversationId, conv.id))
       .limit(1)
     const legacy = row!.snapshot.map((m) => {
-      const { searchActions: _dropped, ...rest } = m
-      return { ...rest, webSearchActions: [{ type: 'search', queries: ['旧快照'] }] }
+      const { processSteps: _dropped, ...rest } = m
+      return {
+        ...rest,
+        reasoningSummary: '旧思考',
+        webSearchActions: [{ type: 'search', queries: ['旧快照'] }],
+      }
     })
     await dbClient.db
       .update(schema.sharedChats)
@@ -259,7 +264,10 @@ describe('历史分享快照兼容', () => {
       .where(eq(schema.sharedChats.id, row!.id))
 
     const pub = await shares.getPublicShare(row!.token)
-    expect(pub?.messages[0]?.searchActions).toEqual([{ type: 'search', queries: ['旧快照'] }])
+    expect(pub?.messages[0]?.processSteps).toEqual([
+      { kind: 'reasoning', text: '旧思考' },
+      { kind: 'search', action: { type: 'search', queries: ['旧快照'] } },
+    ])
   })
 })
 
@@ -287,7 +295,10 @@ describe('createShare 有效期语义', () => {
     expect(keptDefault.share.expiresAt).toBe(originalExpiry)
 
     // 显式 null → 永久
-    const permanent = await shares.createShare(user.id, conv.id, { ...baseInput, expiresInDays: null })
+    const permanent = await shares.createShare(user.id, conv.id, {
+      ...baseInput,
+      expiresInDays: null,
+    })
     if (!permanent.ok) throw new Error('permanent update failed')
     expect(permanent.share.expiresAt).toBeNull()
 

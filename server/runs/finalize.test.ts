@@ -108,7 +108,7 @@ describe('finalizeRun terminal snapshots', () => {
       {
         runId: run.id,
         sequenceNumber: 1,
-        type: 'response.output_text.delta',
+        type: 'answer.started',
         data: { delta: '回答' },
         createdAt: new Date(startedAt.getTime() + 4_500),
       },
@@ -124,9 +124,16 @@ describe('finalizeRun terminal snapshots', () => {
       reasoningContext: 'all_turns',
       items: [{ type: 'reasoning', encrypted_content: 'opaque-finalize-ciphertext' }],
     }
-    const searchActions = [
-      { type: 'search' as const, queries: ['react 19 发布时间'] },
-      { type: 'open_page' as const, url: 'https://react.dev/blog' },
+    const processSteps = [
+      { kind: 'reasoning' as const, text: '思考摘要' },
+      {
+        kind: 'search' as const,
+        action: { type: 'search' as const, queries: ['react 19 发布时间'] },
+      },
+      {
+        kind: 'search' as const,
+        action: { type: 'open_page' as const, url: 'https://react.dev/blog' },
+      },
     ]
     const emittedEvents: Array<{ type: string; data: Record<string, unknown> }> = []
     const completedArgs = {
@@ -137,9 +144,8 @@ describe('finalizeRun terminal snapshots', () => {
       provider,
       state: 'completed',
       text: '回答',
-      reasoningSummary: '思考摘要',
+      processSteps,
       annotations: [],
-      searchActions,
       usage: {
         inputTokens: 10,
         cacheWriteTokens: 0,
@@ -174,7 +180,7 @@ describe('finalizeRun terminal snapshots', () => {
     expect(persistedMessage).toMatchObject({
       status: 'complete',
       providerReplayContext,
-      searchActions,
+      processSteps,
       reasoningDurationMs: 3_500,
       generationDurationMs: persistedRun!.finishedAt!.getTime() - startedAt.getTime(),
     })
@@ -188,7 +194,7 @@ describe('finalizeRun terminal snapshots', () => {
     })
     expect(persistedUsage?.quotaAt?.getTime()).toBe(run.createdAt.getTime())
     expect(emittedEvents.map((event) => event.type)).toEqual(['run.done'])
-    expect(emittedEvents[0]?.data).toMatchObject({ searchActions })
+    expect(emittedEvents[0]?.data).toMatchObject({ processSteps })
     expect(emittedEvents[0]?.data).not.toHaveProperty('providerReplayContext')
     expect(JSON.stringify(emittedEvents)).not.toContain('opaque-finalize-ciphertext')
 
@@ -235,9 +241,8 @@ describe('finalizeRun terminal snapshots', () => {
       provider,
       state: 'failed',
       text: '',
-      reasoningSummary: null,
+      processSteps: [],
       annotations: [],
-      searchActions: [],
       usage: {
         inputTokens: 0,
         cacheWriteTokens: 0,
@@ -275,7 +280,8 @@ describe('finalizeRun terminal snapshots', () => {
       where: eq(schema.errorLogs.runId, failedRun.id),
     })
     expect(persistedFailedMessage?.providerReplayContext).toBeNull()
-    // 空数组表示本轮没有任何搜索动作，列保持 null 而不是存 []。
+    expect(persistedFailedMessage?.processSteps).toEqual([])
+    // 新写入不再触碰旧列。
     expect(persistedFailedMessage?.searchActions).toBeNull()
     expect(persistedFailedRun?.errorCode).toBe('request_rejected')
     expect(persistedFailedUsage).toMatchObject({
@@ -350,7 +356,7 @@ describe('finalizeRun terminal snapshots', () => {
         provider,
         state: terminal.state,
         text: terminal.state === 'incomplete' ? '部分回答' : '',
-        reasoningSummary: null,
+        processSteps: [],
         annotations: [],
         usage: {
           inputTokens: 10,

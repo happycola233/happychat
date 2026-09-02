@@ -3,7 +3,7 @@ import type {
   ContentPart,
   MessageUsage,
   ModelParams,
-  SearchAction,
+  ProcessStep,
   UrlCitation,
 } from '@shared/types/domain'
 import { RUN_EVENT_TYPE } from '@shared/types/events'
@@ -29,11 +29,9 @@ export interface FinalizeArgs {
   provider: ProviderRow
   state: FinalState
   text: string
-  reasoningSummary: string | null
+  processSteps: ProcessStep[]
   annotations: UrlCitation[]
   usage: MessageUsage
-  /** 原生检索工具（web_search + x_search）实际执行的动作序列。 */
-  searchActions?: SearchAction[] | null
   incompleteReason: string | null
   errorMessage: string | null
   errorType?: string | null
@@ -104,10 +102,8 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
       .set({
         content: a.content ?? buildAssistantContent(a.text),
         status: msgStatus,
-        reasoningSummary: a.reasoningSummary,
+        processSteps: a.processSteps,
         annotations: a.annotations.length ? a.annotations : null,
-        // 检索确实发生过就保留（含失败/取消），供 UI 复现检索过程。
-        searchActions: a.searchActions?.length ? a.searchActions : null,
         runId: a.run.id,
         reasoningDurationMs,
         generationDurationMs,
@@ -199,10 +195,8 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
       messageId: a.assistantMessage.id,
       // 与终态状态同帧交给前端，避免先清空流式内容再读取数据库造成闪烁。
       text: a.text,
-      reasoningSummary: a.reasoningSummary,
+      processSteps: a.processSteps,
       annotations: a.annotations,
-      // 数组本身就是终态权威值：空数组会清掉前端未解析出动作的占位调用。
-      ...(a.searchActions ? { searchActions: a.searchActions } : {}),
       usage: a.usage,
       incompleteReason: a.incompleteReason,
     })

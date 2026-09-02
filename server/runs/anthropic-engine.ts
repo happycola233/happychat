@@ -1,8 +1,13 @@
 import { eq } from 'drizzle-orm'
-import type { MessageUsage, ModelParams, SearchAction, UrlCitation } from '@shared/types/domain'
+import type {
+  MessageUsage,
+  ModelParams,
+  ProcessStep,
+  SearchAction,
+  UrlCitation,
+} from '@shared/types/domain'
 import { RUN_EVENT_TYPE } from '@shared/types/events'
 import { isReasoningEnabled } from '@shared/util/reasoning'
-import { joinReasoningSummaryParts } from '@shared/util/reasoningSummary'
 import { db } from '../db/client'
 import { runEvents, runs } from '../db/schema'
 import {
@@ -102,10 +107,9 @@ export async function runAnthropicEngine(ctx: EngineContext): Promise<void> {
   persistEmit('response.created', {})
 
   let text = ''
-  let reasoning = ''
-  let previousReasoningPart: string | null = null
+  const processSteps: ProcessStep[] = []
+  const reasoningStepByPartKey = new Map<string, Extract<ProcessStep, { kind: 'reasoning' }>>()
   const annotations: UrlCitation[] = []
-  let searchActions: SearchAction[] = []
   let usage = { ...EMPTY_USAGE }
   let state: 'completed' | 'incomplete' | 'failed' | 'canceled'
   let incompleteReason: string | null = null
@@ -115,8 +119,10 @@ export async function runAnthropicEngine(ctx: EngineContext): Promise<void> {
   let httpStatus: number | null = null
   let upstreamResponseId: string | null = null
   let discardPartialOutput = false
+  let answerStarted = false
   const rawContent: AnthropicContentBlock[] = []
   const searchActionById = new Map<string, SearchAction>()
+  const searchStepById = new Map<string, Extract<ProcessStep, { kind: 'search' }>>()
   const searchOutputIndexById = new Map<string, number>()
 
   try {
@@ -138,16 +144,21 @@ export async function runAnthropicEngine(ctx: EngineContext): Promise<void> {
         )
         for (const effect of accumulator.accept(event)) {
           if (effect.type === 'text') {
+            if (!answerStarted) {
+              answerStarted = true
+              persistEmit(RUN_EVENT_TYPE.answerStarted, {})
+            }
             text += effect.delta
             persistEmit('response.output_text.delta', { delta: effect.delta })
           } else if (effect.type === 'thinking') {
             const partKey = `${continuation}:${effect.index}`
-            if (reasoning && previousReasoningPart && previousReasoningPart !== partKey) {
-              reasoning = joinReasoningSummaryParts([reasoning, effect.delta])
-            } else {
-              reasoning += effect.delta
+            let reasoningStep = reasoningStepByPartKey.get(partKey)
+            if (!reasoningStep) {
+              reasoningStep = { kind: 'reasoning', text: '' }
+              reasoningStepByPartKey.set(partKey, reasoningStep)
+              processSteps.push(reasoningStep)
             }
-            previousReasoningPart = partKey
+            reasoningStep.text += effect.delta
             persistEmit('response.reasoning_summary_text.delta', {
               delta: effect.delta,
               item_id: `anthropic-thinking-${partKey}`,
@@ -166,6 +177,12 @@ export async function runAnthropicEngine(ctx: EngineContext): Promise<void> {
           } else if (effect.type === 'web_search_start') {
             const outputIndex = searchOutputIndexById.size
             searchOutputIndexById.set(effect.id, outputIndex)
+            const searchStep: Extract<ProcessStep, { kind: 'search' }> = {
+              kind: 'search',
+              action: { type: 'search' },
+            }
+            searchStepById.set(effect.id, searchStep)
+            processSteps.push(searchStep)
             persistEmit('response.output_item.added', {
               output_index: outputIndex,
               item: { type: 'web_search_call', id: effect.id, status: 'in_progress' },
@@ -179,7 +196,8 @@ export async function runAnthropicEngine(ctx: EngineContext): Promise<void> {
               ...(query ? { queries: [query] } : {}),
             }
             searchActionById.set(effect.id, action)
-            searchActions = [...searchActionById.values()]
+            const searchStep = searchStepById.get(effect.id)
+            if (searchStep) searchStep.action = action
             persistEmit('response.output_item.added', {
               output_index: searchOutputIndexById.get(effect.id) ?? 0,
               item: {
@@ -195,7 +213,8 @@ export async function runAnthropicEngine(ctx: EngineContext): Promise<void> {
               ? { ...currentAction, error: effect.errorCode }
               : currentAction
             searchActionById.set(effect.toolUseId, action)
-            searchActions = [...searchActionById.values()]
+            const searchStep = searchStepById.get(effect.toolUseId)
+            if (searchStep) searchStep.action = action
             persistEmit('response.output_item.done', {
               output_index: searchOutputIndexById.get(effect.toolUseId) ?? 0,
               item: {
@@ -240,9 +259,8 @@ export async function runAnthropicEngine(ctx: EngineContext): Promise<void> {
     if (terminal.errorType === 'refusal') {
       // 官方要求 refusal 丢弃拒绝前的部分输出；usage 仍保留上游实际计量。
       text = ''
-      reasoning = ''
       annotations.length = 0
-      searchActions = []
+      processSteps.length = 0
       rawContent.length = 0
       errorMessage = '模型拒绝了此请求，请调整内容后重试。'
     } else if (terminal.errorType === 'tool_use') {
@@ -285,10 +303,9 @@ export async function runAnthropicEngine(ctx: EngineContext): Promise<void> {
     state,
     text,
     ...(discardPartialOutput ? { content: [] } : {}),
-    reasoningSummary: reasoning || null,
+    processSteps: discardPartialOutput ? [] : processSteps,
     annotations,
     usage,
-    searchActions,
     incompleteReason,
     errorMessage,
     errorType,

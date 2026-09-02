@@ -2,6 +2,7 @@ import { and, desc, eq } from 'drizzle-orm'
 import type { CreateShareInput } from '@shared/schemas/share'
 import type { MessageDTO, PublicShareDTO, SharedChatDTO } from '@shared/types/api'
 import type { ContentPart } from '@shared/types/domain'
+import { processStepsOf, type ProcessTrackSource } from '@shared/util/processTrack'
 import { resolveSelectionChain } from '@shared/util/shareSelection'
 import { getUserAvatarUrl } from '../auth/users'
 import { db } from '../db/client'
@@ -55,14 +56,19 @@ function isUserAttachmentPart(
 }
 
 /**
- * 兼容 2026-07 之前生成的分享快照：那时检索动作叫 `webSearchActions`（只有 web_search）。
- * 快照是冻结的 JSON，不做数据迁移，读取时就地映射到现在的 `searchActions`。
+ * 分享快照是冻结 JSON：读取时统一适配 processSteps，并剥离已废弃的旧字段。
+ * 其中 2026-07 之前的快照把检索动作命名为 webSearchActions。
  */
-function withLegacySearchActions(snapshot: MessageDTO[]): MessageDTO[] {
-  return snapshot.map((m) => {
-    if (m.searchActions !== undefined) return m
-    const legacy = (m as { webSearchActions?: MessageDTO['searchActions'] }).webSearchActions
-    return legacy === undefined ? m : { ...m, searchActions: legacy }
+function withProcessSteps(snapshot: MessageDTO[]): MessageDTO[] {
+  return snapshot.map((message) => {
+    const legacyMessage = message as MessageDTO & ProcessTrackSource
+    const {
+      reasoningSummary: _reasoningSummary,
+      searchActions: _searchActions,
+      webSearchActions: _webSearchActions,
+      ...currentMessage
+    } = legacyMessage
+    return { ...currentMessage, processSteps: processStepsOf(legacyMessage) }
   })
 }
 
@@ -259,7 +265,7 @@ export async function getPublicShare(token: string): Promise<PublicShareDTO | nu
       }
     }
   }
-  const snapshot = withLegacySearchActions(row.snapshot)
+  const snapshot = withProcessSteps(row.snapshot)
   const messageCostDisplay = await getMessageCostDisplay(config)
   return {
     title: row.title,

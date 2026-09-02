@@ -1,5 +1,10 @@
-import type { SearchAction, UrlCitation, XSearchActionType } from '@shared/types/domain'
-import type { WireEvent } from '@shared/types/events'
+import type {
+  ProcessStep,
+  SearchAction,
+  UrlCitation,
+  XSearchActionType,
+} from '@shared/types/domain'
+import { RUN_EVENT_TYPE, type WireEvent } from '@shared/types/events'
 import {
   appendReasoningSummaryDelta,
   appendReasoningTextDelta,
@@ -45,39 +50,52 @@ export type LiveSearchCallStatus = 'in_progress' | 'searching' | 'completed'
  * 状态，而是 0~N 个离散调用；web_search 的查询词要等调用完成才出现，x_search 的
  * 动作类型在调用出现时即可确定、参数随 custom_tool_call_input 稍后补齐。
  */
-export interface LiveSearchCall {
-  id: string
-  status: LiveSearchCallStatus
-  /** 已解析出的动作；细节未到达时可能只有 type，完全无法识别时为 null。 */
-  action: SearchAction | null
-}
+export type LiveProcessStep =
+  | { kind: 'reasoning'; id: string; text: string; partKey: string | null }
+  | { kind: 'commentary'; id: string; text: string }
+  | {
+      kind: 'search'
+      id: string
+      status: LiveSearchCallStatus
+      /** 流式细节未到达时可能只有 type，完全无法识别时为 null。 */
+      action: SearchAction | null
+    }
 
-export const hasActiveSearch = (calls: readonly LiveSearchCall[]): boolean =>
-  calls.some((call) => call.status !== 'completed')
+export type LiveSearchStep = Extract<LiveProcessStep, { kind: 'search' }>
 
-/** 持久化消息（含分享快照）没有流式调用，把动作序列适配成已完成调用供同一 UI 渲染。 */
-export function persistedSearchCalls(actions: SearchAction[] | null | undefined): LiveSearchCall[] {
-  return (actions ?? []).map((action, index) => ({
-    id: `saved-search-${index}`,
-    status: 'completed' as const,
-    action,
-  }))
+export const hasActiveSearch = (steps: readonly LiveProcessStep[]): boolean =>
+  steps.some((step) => step.kind === 'search' && step.status !== 'completed')
+
+/** 持久化消息与分享快照没有流式状态，统一适配成已完成的过程轨。 */
+export function liveStepsFromPersisted(steps: ProcessStep[] | null | undefined): LiveProcessStep[] {
+  return (steps ?? []).map((step, index): LiveProcessStep => {
+    if (step.kind === 'reasoning') {
+      return { kind: 'reasoning', id: `saved-reasoning-${index}`, text: step.text, partKey: null }
+    }
+    if (step.kind === 'commentary') {
+      return { kind: 'commentary', id: `saved-commentary-${index}`, text: step.text }
+    }
+    return {
+      kind: 'search',
+      id: `saved-search-${index}`,
+      status: 'completed',
+      action: step.action,
+    }
+  })
 }
 
 export interface LiveMessage {
   text: string
-  reasoning: string
   /** 当前展示的是摘要还是上游明文推理；摘要一旦出现便覆盖并抑制 raw 通道。 */
   reasoningKind: 'summary' | 'raw' | null
-  /** 当前 Responses reasoning part 的身份，用于在结构化 part 之间保留段落边界。 */
-  reasoningPartKey: string | null
+  processSteps: LiveProcessStep[]
+  answerStarted: boolean
   upstreamStartedAt: number | null
   reasoningDurationMs: number | null
   reasoningEnabled: boolean
   annotations: UrlCitation[]
   status: LiveStatus
   error?: string
-  searchCalls: LiveSearchCall[]
   imageStatus?: 'generating' | 'done'
   imageGenerations: LiveImageGeneration[]
   /** 兼容旧 UI 读取；新 UI 使用 imageGenerations。 */
@@ -94,15 +112,14 @@ export const initialLive = (
   reasoningEnabled = false,
 ): LiveMessage => ({
   text: '',
-  reasoning: '',
   reasoningKind: null,
-  reasoningPartKey: null,
+  processSteps: [],
+  answerStarted: false,
   upstreamStartedAt,
   reasoningDurationMs: null,
   reasoningEnabled,
   annotations: [],
   status: 'streaming',
-  searchCalls: [],
   imageGenerations: [],
   imagePreviewIndex: null,
   imagePreviewUpdatedAt: null,
@@ -188,21 +205,22 @@ interface SearchCallPatch {
   action?: SearchAction | null
 }
 
-function upsertSearchCall(s: LiveMessage, id: string, patch: SearchCallPatch): LiveMessage {
+function upsertSearchStep(s: LiveMessage, id: string, patch: SearchCallPatch): LiveMessage {
   // 无标识的事件回落到最近一个未完成调用（同图片生成的口径），避免重复建行。
   const index = id
-    ? s.searchCalls.findIndex((call) => call.id === id)
-    : s.searchCalls.findLastIndex((call) => call.status !== 'completed')
+    ? s.processSteps.findIndex((step) => step.kind === 'search' && step.id === id)
+    : s.processSteps.findLastIndex((step) => step.kind === 'search' && step.status !== 'completed')
   if (index < 0) {
-    const call: LiveSearchCall = {
-      id: id || `search-${s.searchCalls.length}`,
+    const step: LiveSearchStep = {
+      kind: 'search',
+      id: id || `search-${s.processSteps.length}`,
       status: patch.status ?? 'in_progress',
       action: patch.action ?? null,
     }
-    return { ...s, searchCalls: [...s.searchCalls, call] }
+    return { ...s, processSteps: [...s.processSteps, step] }
   }
-  const existing = s.searchCalls[index]!
-  const next: LiveSearchCall = {
+  const existing = s.processSteps[index] as LiveSearchStep
+  const next: LiveSearchStep = {
     ...existing,
     // completed 不允许回退（防御事件乱序与续传重放）。
     status: existing.status === 'completed' ? 'completed' : (patch.status ?? existing.status),
@@ -210,16 +228,16 @@ function upsertSearchCall(s: LiveMessage, id: string, patch: SearchCallPatch): L
     action: mergeSearchAction(existing.action, patch.action ?? null),
   }
   if (next.status === existing.status && next.action === existing.action) return s
-  const searchCalls = s.searchCalls.slice()
-  searchCalls[index] = next
-  return { ...s, searchCalls }
+  const processSteps = s.processSteps.slice()
+  processSteps[index] = next
+  return { ...s, processSteps }
 }
 
 function reduceSearchItemEvent(s: LiveMessage, ev: WireEvent): LiveMessage {
   const item = ev.data.item
   if (!isSearchCallItem(item)) return s
   const completed = ev.type === 'response.output_item.done' || item.status === 'completed'
-  return upsertSearchCall(s, searchCallIdFromEvent(ev.data), {
+  return upsertSearchStep(s, searchCallIdFromEvent(ev.data), {
     ...(completed ? { status: 'completed' as const } : {}),
     action: searchActionFromItem(item),
   })
@@ -231,22 +249,32 @@ function reduceSearchItemEvent(s: LiveMessage, ev: WireEvent): LiveMessage {
  */
 function reduceXSearchInputEvent(s: LiveMessage, ev: WireEvent): LiveMessage {
   const id = searchCallIdFromEvent(ev.data)
-  const pending = id ? s.searchCalls.find((call) => call.id === id)?.action : null
+  const pending = id
+    ? (
+        s.processSteps.find((step) => step.kind === 'search' && step.id === id) as
+          | LiveSearchStep
+          | undefined
+      )?.action
+    : null
   if (!pending || !isXSearchActionType(pending.type)) return s
   const type: XSearchActionType = pending.type
-  return upsertSearchCall(s, id, { action: xSearchActionFromToolInput(type, ev.data.input) })
+  return upsertSearchStep(s, id, { action: xSearchActionFromToolInput(type, ev.data.input) })
 }
 
 /**
  * 终态收口：结束所有仍在进行的调用，并丢弃始终没解析出动作的占位调用，
- * 与刷新后读到的持久化 searchActions 保持同一份内容。
+ * 与刷新后读到的持久化 processSteps 保持同一份内容。
  */
-function settleSearchCalls(calls: LiveSearchCall[]): LiveSearchCall[] {
-  const settled = calls
-    .filter((call) => call.action !== null)
-    .map((call) => (call.status === 'completed' ? call : { ...call, status: 'completed' as const }))
-  return settled.length === calls.length && settled.every((call, i) => call === calls[i])
-    ? calls
+function settleProcessSteps(steps: LiveProcessStep[]): LiveProcessStep[] {
+  const settled = steps
+    .filter((step) => step.kind !== 'search' || step.action !== null)
+    .map((step) =>
+      step.kind !== 'search' || step.status === 'completed'
+        ? step
+        : { ...step, status: 'completed' as const },
+    )
+  return settled.length === steps.length && settled.every((step, index) => step === steps[index])
+    ? steps
     : settled
 }
 
@@ -255,30 +283,139 @@ function isSearchActionShape(value: unknown): value is SearchAction {
   return isSearchActionType((value as { type?: unknown }).type)
 }
 
-/** run.done 携带的终态动作序列是权威值；与流式解析一致时保留原行身份，避免 UI 重播入场动画。 */
-function finalSearchCalls(calls: LiveSearchCall[], finalActions: unknown): LiveSearchCall[] {
-  const settled = settleSearchCalls(calls)
-  if (!Array.isArray(finalActions)) return settled
-  const actions = finalActions.filter(isSearchActionShape)
+function isProcessStepShape(value: unknown): value is ProcessStep {
+  if (typeof value !== 'object' || value === null) return false
+  const step = value as { kind?: unknown; text?: unknown; action?: unknown }
+  if (step.kind === 'reasoning' || step.kind === 'commentary') return typeof step.text === 'string'
+  return step.kind === 'search' && isSearchActionShape(step.action)
+}
+
+/** run.done 携带的终态过程轨是权威值；一致时保留行身份，避免重播入场动画。 */
+function finalProcessSteps(steps: LiveProcessStep[], finalSteps: unknown): LiveProcessStep[] {
+  const settled = settleProcessSteps(steps)
+  if (!Array.isArray(finalSteps)) return settled
+  const persisted = finalSteps.filter(isProcessStepShape)
+  const comparable = settled.map((step): ProcessStep | null => {
+    if (step.kind === 'search') return step.action ? { kind: 'search', action: step.action } : null
+    return { kind: step.kind, text: step.text }
+  })
   const unchanged =
-    actions.length === settled.length &&
-    actions.every(
-      (action, index) => JSON.stringify(action) === JSON.stringify(settled[index]?.action),
-    )
+    persisted.length === comparable.length &&
+    persisted.every((step, index) => JSON.stringify(step) === JSON.stringify(comparable[index]))
   if (unchanged) return settled
-  return actions.map((action, index) => ({
-    id: `final-search-${index}`,
-    status: 'completed' as const,
-    action,
+  return liveStepsFromPersisted(persisted).map((step) => ({
+    ...step,
+    id: step.id.replace('saved-', 'final-'),
   }))
+}
+
+function outputItemId(data: Record<string, unknown>): string {
+  const item =
+    typeof data.item === 'object' && data.item !== null
+      ? (data.item as Record<string, unknown>)
+      : null
+  return str(item?.id) || str(data.item_id)
+}
+
+function addCommentaryStep(s: LiveMessage, ev: WireEvent): LiveMessage {
+  const item =
+    typeof ev.data.item === 'object' && ev.data.item !== null
+      ? (ev.data.item as Record<string, unknown>)
+      : null
+  if (item?.type !== 'message' || item.phase !== 'commentary') return s
+  const id = outputItemId(ev.data)
+  if (!id || s.processSteps.some((step) => step.kind === 'commentary' && step.id === id)) return s
+  return {
+    ...s,
+    processSteps: [...s.processSteps, { kind: 'commentary', id, text: '' }],
+  }
+}
+
+function appendOutputText(s: LiveMessage, data: Record<string, unknown>): LiveMessage {
+  const itemId = str(data.item_id)
+  const index = itemId
+    ? s.processSteps.findIndex((step) => step.kind === 'commentary' && step.id === itemId)
+    : -1
+  if (index < 0) return { ...s, text: s.text + str(data.delta) }
+  const processSteps = s.processSteps.slice()
+  const step = processSteps[index] as Extract<LiveProcessStep, { kind: 'commentary' }>
+  processSteps[index] = { ...step, text: step.text + str(data.delta) }
+  return { ...s, processSteps }
+}
+
+function reclassifyOutputItem(s: LiveMessage, data: Record<string, unknown>): LiveMessage {
+  const itemId = str(data.itemId)
+  const commentaryText = str(data.commentaryText)
+  if (!itemId || data.phase !== 'commentary') return s
+
+  const index = s.processSteps.findIndex((step) => step.kind === 'commentary' && step.id === itemId)
+  const processSteps = s.processSteps.slice()
+  const commentaryStep: LiveProcessStep = { kind: 'commentary', id: itemId, text: commentaryText }
+  if (index >= 0) processSteps[index] = commentaryStep
+  else processSteps.push(commentaryStep)
+
+  return {
+    ...s,
+    text: typeof data.answerText === 'string' ? data.answerText : s.text,
+    annotations: Array.isArray(data.annotations)
+      ? (data.annotations as UrlCitation[])
+      : s.annotations,
+    processSteps,
+    answerStarted: false,
+    reasoningDurationMs: null,
+  }
+}
+
+function reasoningStepId(data: Record<string, unknown>): string {
+  const itemId = str(data.item_id)
+  if (itemId) return itemId
+  return typeof data.output_index === 'number' ? `output-${data.output_index}` : 'reasoning'
+}
+
+function appendReasoningDelta(
+  s: LiveMessage,
+  data: Record<string, unknown>,
+  kind: 'summary' | 'raw',
+): LiveMessage {
+  if (!str(data.delta)) return markUpstreamStarted(s)
+  if (kind === 'raw' && s.reasoningKind === 'summary') return markUpstreamStarted(s)
+
+  const baseSteps =
+    kind === 'summary' && s.reasoningKind === 'raw'
+      ? s.processSteps.map((step) =>
+          step.kind === 'reasoning' ? { ...step, text: '', partKey: null } : step,
+        )
+      : s.processSteps
+  const id = reasoningStepId(data)
+  let index = baseSteps.findIndex((step) => step.kind === 'reasoning' && step.id === id)
+  const processSteps = baseSteps.slice()
+  if (index < 0) {
+    index = processSteps.length
+    processSteps.push({ kind: 'reasoning', id, text: '', partKey: null })
+  }
+  const step = processSteps[index] as Extract<LiveProcessStep, { kind: 'reasoning' }>
+  const next =
+    kind === 'summary'
+      ? appendReasoningSummaryDelta({ text: step.text, partKey: step.partKey }, data)
+      : appendReasoningTextDelta({ text: step.text, partKey: step.partKey }, data)
+  processSteps[index] = { ...step, text: next.text, partKey: next.partKey }
+  return {
+    ...markUpstreamStarted(s),
+    processSteps,
+    reasoningKind: kind,
+  }
 }
 
 function markUpstreamStarted(s: LiveMessage): LiveMessage {
   return { ...s, upstreamStartedAt: s.upstreamStartedAt ?? Date.now() }
 }
 
-function finishReasoning(s: LiveMessage): LiveMessage {
-  if (!s.upstreamStartedAt || s.reasoningDurationMs !== null) return s
+function finishReasoning(s: LiveMessage, exactDurationMs: number | null = null): LiveMessage {
+  if (s.reasoningDurationMs !== null) return s
+  if (exactDurationMs !== null) {
+    return { ...s, reasoningDurationMs: Math.max(0, exactDurationMs) }
+  }
+  if (!s.upstreamStartedAt) return s
   return { ...s, reasoningDurationMs: Math.max(0, Date.now() - s.upstreamStartedAt) }
 }
 
@@ -287,11 +424,10 @@ function clearDiscardedOutput(s: LiveMessage): LiveMessage {
   return {
     ...s,
     text: '',
-    reasoning: '',
     reasoningKind: null,
-    reasoningPartKey: null,
+    processSteps: [],
+    answerStarted: false,
     annotations: [],
-    searchCalls: [],
     imageStatus: undefined,
     imageGenerations: [],
     imageAttachmentId: undefined,
@@ -400,58 +536,45 @@ export function reduceEvent(s: LiveMessage, ev: WireEvent): LiveMessage {
     case 'response.created':
     case 'response.in_progress':
       return markUpstreamStarted(s)
+    case 'answer.started':
+      return { ...finishReasoning(s, num(ev.data.reasoningDurationMs)), answerStarted: true }
+    case RUN_EVENT_TYPE.outputItemReclassified:
+      return reclassifyOutputItem(s, ev.data)
     case 'response.output_text.delta':
-      return { ...finishReasoning(s), text: s.text + str(ev.data.delta) }
-    case 'response.reasoning_summary_text.delta': {
-      if (!str(ev.data.delta)) return markUpstreamStarted(s)
-      // 某些上游可能同时返回 raw reasoning 与摘要。摘要是面向展示的权威通道，
-      // 首个摘要 delta 到达时原子替换此前临时展示的 raw 文本，避免重复。
-      const currentReasoning =
-        s.reasoningKind === 'raw'
-          ? { text: '', partKey: null }
-          : { text: s.reasoning, partKey: s.reasoningPartKey }
-      const nextReasoning = appendReasoningSummaryDelta(currentReasoning, ev.data)
-      return {
-        ...markUpstreamStarted(s),
-        reasoning: nextReasoning.text,
-        reasoningKind: 'summary',
-        reasoningPartKey: nextReasoning.partKey,
-      }
-    }
-    case 'response.reasoning_text.delta': {
-      if (!str(ev.data.delta)) return markUpstreamStarted(s)
-      // 已出现摘要时不再把 raw 推理混入同一展示区；原始上游事件仍会保留在审计记录。
-      if (s.reasoningKind === 'summary') return markUpstreamStarted(s)
-      const nextReasoning = appendReasoningTextDelta(
-        { text: s.reasoning, partKey: s.reasoningPartKey },
-        ev.data,
-      )
-      return {
-        ...markUpstreamStarted(s),
-        reasoning: nextReasoning.text,
-        reasoningKind: 'raw',
-        reasoningPartKey: nextReasoning.partKey,
-      }
-    }
+      return appendOutputText(s, ev.data)
+    case 'response.reasoning_summary_text.delta':
+      return appendReasoningDelta(s, ev.data, 'summary')
+    case 'response.reasoning_text.delta':
+      return appendReasoningDelta(s, ev.data, 'raw')
     case 'response.output_text.annotation.added': {
+      const itemId = str(ev.data.item_id)
+      if (
+        itemId &&
+        s.processSteps.some((step) => step.kind === 'commentary' && step.id === itemId)
+      ) {
+        return s
+      }
       const a = ev.data.annotation as UrlCitation | undefined
       if (a && a.type === 'url_citation') return { ...s, annotations: [...s.annotations, a] }
       return s
     }
     // web_search_call 的动作细节（搜索词/URL）只在 output_item 事件里出现；
     // xAI 旧实现的 item 首次出现即 completed，x_search 的 custom_tool_call 也在这里建行。
-    case 'response.output_item.added':
+    case 'response.output_item.added': {
+      const withCommentary = addCommentaryStep(s, ev)
+      return reduceSearchItemEvent(withCommentary, ev)
+    }
     case 'response.output_item.done':
       return reduceSearchItemEvent(s, ev)
     // x_search 没有专用 lifecycle 事件，参数由 custom_tool_call_input 单独下发。
     case 'response.custom_tool_call_input.done':
       return reduceXSearchInputEvent(s, ev)
     case 'response.web_search_call.in_progress':
-      return upsertSearchCall(s, searchCallIdFromEvent(ev.data), { status: 'in_progress' })
+      return upsertSearchStep(s, searchCallIdFromEvent(ev.data), { status: 'in_progress' })
     case 'response.web_search_call.searching':
-      return upsertSearchCall(s, searchCallIdFromEvent(ev.data), { status: 'searching' })
+      return upsertSearchStep(s, searchCallIdFromEvent(ev.data), { status: 'searching' })
     case 'response.web_search_call.completed':
-      return upsertSearchCall(s, searchCallIdFromEvent(ev.data), { status: 'completed' })
+      return upsertSearchStep(s, searchCallIdFromEvent(ev.data), { status: 'completed' })
     case 'image.generation.in_progress':
       return upsertImageGeneration(s, ev.data, { status: 'generating' })
     case 'image.generation.partial': {
@@ -480,21 +603,15 @@ export function reduceEvent(s: LiveMessage, ev: WireEvent): LiveMessage {
     case 'run.done': {
       const completed = finishReasoning(s)
       const finalText = typeof ev.data.text === 'string' ? ev.data.text : completed.text
-      const hasFinalReasoning =
-        Object.prototype.hasOwnProperty.call(ev.data, 'reasoningSummary') &&
-        (typeof ev.data.reasoningSummary === 'string' || ev.data.reasoningSummary === null)
       return {
         ...completed,
-        // 最终正文、思考、引用和终态一次提交；不经过空内容，避免视觉闪烁。
+        // 最终正文、过程轨、引用和终态一次提交；不经过空内容，避免视觉闪烁。
         text: finalText,
-        reasoning: hasFinalReasoning
-          ? ((ev.data.reasoningSummary as string | null) ?? '')
-          : completed.reasoning,
-        reasoningKind: hasFinalReasoning ? null : completed.reasoningKind,
-        reasoningPartKey: hasFinalReasoning ? null : completed.reasoningPartKey,
+        // 极少数兼容上游没有可用 delta；终态正文仍应触发过程轨折叠。
+        answerStarted: completed.answerStarted || finalText.length > 0,
+        processSteps: finalProcessSteps(completed.processSteps, ev.data.processSteps),
         annotations: finalAnnotations(ev.data.annotations, completed.annotations),
         status: (str(ev.data.state) as LiveStatus) || 'completed',
-        searchCalls: finalSearchCalls(completed.searchCalls, ev.data.searchActions),
       }
     }
     case 'run.error': {
@@ -502,7 +619,7 @@ export function reduceEvent(s: LiveMessage, ev: WireEvent): LiveMessage {
         ...finishReasoning(s),
         status: 'failed',
         error: str(ev.data.message) || '生成失败',
-        searchCalls: settleSearchCalls(s.searchCalls),
+        processSteps: settleProcessSteps(s.processSteps),
       }
       if (ev.data.discardPartialOutput !== true) return failed
       return clearDiscardedOutput(failed)
@@ -511,13 +628,13 @@ export function reduceEvent(s: LiveMessage, ev: WireEvent): LiveMessage {
       return {
         ...finishReasoning(s),
         status: 'canceled',
-        searchCalls: settleSearchCalls(s.searchCalls),
+        processSteps: settleProcessSteps(s.processSteps),
       }
     case 'run.interrupted':
       return {
         ...finishReasoning(s),
         status: 'interrupted',
-        searchCalls: settleSearchCalls(s.searchCalls),
+        processSteps: settleProcessSteps(s.processSteps),
       }
     default:
       return s

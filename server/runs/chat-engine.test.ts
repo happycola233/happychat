@@ -210,7 +210,7 @@ describe('runChatEngine', () => {
     expect(storedMessage).toMatchObject({
       status: 'complete',
       content: [{ type: 'output_text', text: 'answer' }],
-      reasoningSummary: 'thinking',
+      processSteps: [{ kind: 'reasoning', text: 'thinking' }],
       inputTokens: 4,
       outputTokens: 2,
       reasoningTokens: 1,

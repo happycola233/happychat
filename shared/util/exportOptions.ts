@@ -1,8 +1,4 @@
-import type {
-  ExportAttachmentMode,
-  ExportFormat,
-  ExportOptions,
-} from '../schemas/export'
+import type { ExportAttachmentMode, ExportFormat, ExportOptions } from '../schemas/export'
 
 /**
  * 每种导出格式支持的选项能力矩阵。
@@ -21,7 +17,7 @@ export interface ExportFormatCaps {
   description: string
   /** 该格式遵循的开放规范链接（弹窗内提供跳转）；无则不展示 */
   specUrl?: string
-  /** 支持思考摘要 */
+  /** 支持思考过程（含进展说明） */
   reasoning: boolean
   /** 支持模型名标注 */
   model: boolean

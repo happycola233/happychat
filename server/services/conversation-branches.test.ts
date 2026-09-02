@@ -361,7 +361,7 @@ describe('createConversationBranch', () => {
     expect(copiedPath.every((message) => message.runId === null)).toBe(true)
     expect(copiedPath[0]?.runtimeContext).toBe('runtime-context-snapshot')
     expect(copiedPath.at(-1)).toMatchObject({
-      reasoningSummary: '**已思考**',
+      processSteps: [{ kind: 'reasoning', text: '**已思考**' }],
       providerReplayContext,
       reasoningDurationMs: 5_000,
       generationDurationMs: 20_000,

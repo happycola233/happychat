@@ -2,6 +2,7 @@ import { and, eq, inArray, isNull } from 'drizzle-orm'
 import type { ContentPart, ModelParams } from '@shared/types/domain'
 import { shouldValidateGptImage2Size, validateGptImage2Size } from '@shared/util/imageSize'
 import { renderPromptTemplate } from '@shared/util/promptTemplate'
+import { processStepsOf } from '@shared/util/processTrack'
 import { isReasoningEffortAllowed } from '@shared/util/reasoning'
 import { normalizeSearchParamsForModelKind } from '@shared/util/searchTools'
 import { db } from '../db/client'
@@ -450,6 +451,7 @@ async function createAssistantAndRun(opts: {
       return {
         role: m.role,
         content: m.content,
+        processSteps: processStepsOf(m),
         runtimeContext: m.runtimeContext,
         ...(reasoningItems ? { reasoningItems } : {}),
         ...(anthropicContent ? { anthropicContent } : {}),

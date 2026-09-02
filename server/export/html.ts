@@ -11,12 +11,13 @@ import {
   attachmentDisplayName,
   attachmentRefsOf,
   dedupeCitations,
+  exportProcessSteps,
   exportHeaderNote,
   modelNameOf,
   statusLabel,
   textOfContent,
+  searchLineOf,
   usageLine,
-  searchLines,
 } from './content'
 import { formatDurationShort, formatStamp } from './time'
 import type { ExportAttachment, ExportSource } from './types'
@@ -93,28 +94,27 @@ function messageHtml(m: MessageDTO, source: ExportSource, options: ExportOptions
   }
   parts.push(`<div class="head">${head.join('')}</div>`)
 
-  if (options.includeReasoning && m.role === 'assistant') {
-    const text = (m.reasoningSummary ?? '').trim()
-    if (text || m.reasoningDurationMs != null) {
+  if ((options.includeReasoning || options.includeSearch) && m.role === 'assistant') {
+    const steps = exportProcessSteps(m, options.includeReasoning, options.includeSearch)
+    if (steps.length > 0 || (options.includeReasoning && m.reasoningDurationMs != null)) {
+      const hasThinking = steps.some((step) => step.kind !== 'search')
       const label =
-        m.reasoningDurationMs != null && m.reasoningDurationMs > 0
+        options.includeReasoning && m.reasoningDurationMs != null && m.reasoningDurationMs > 0
           ? `🤔 已思考 ${formatDurationShort(m.reasoningDurationMs)}`
-          : '🤔 思考摘要'
+          : hasThinking
+            ? '🤔 思考过程'
+            : '🌐 检索过程'
+      const processHtml = steps
+        .map((step) => {
+          if (step.kind === 'search') {
+            return `<div class="process-search">🔎 ${esc(searchLineOf(step.action))}</div>`
+          }
+          const text = step.kind === 'commentary' ? `💬 ${step.text}` : step.text
+          return `<div class="md process-${step.kind}">${renderMarkdown(text)}</div>`
+        })
+        .join('')
       parts.push(
-        `<details class="think"><summary>${esc(label)}</summary>` +
-          (text ? `<div class="md">${renderMarkdown(text)}</div>` : '') +
-          `</details>`,
-      )
-    }
-  }
-
-  if (options.includeSearch) {
-    const lines = searchLines(m)
-    if (lines.length > 0) {
-      parts.push(
-        `<div class="search"><div class="label">检索过程</div><ul>${lines
-          .map((l) => `<li>${esc(l)}</li>`)
-          .join('')}</ul></div>`,
+        `<details class="think"><summary>${esc(label)}</summary>` + processHtml + `</details>`,
       )
     }
   }
@@ -158,11 +158,7 @@ function messageHtml(m: MessageDTO, source: ExportSource, options: ExportOptions
     .join('\n')}\n</section>`
 }
 
-function attachmentBlocks(
-  m: MessageDTO,
-  source: ExportSource,
-  options: ExportOptions,
-): string[] {
+function attachmentBlocks(m: MessageDTO, source: ExportSource, options: ExportOptions): string[] {
   if (options.attachmentMode === 'omit') return []
   const blocks: string[] = []
   for (const ref of attachmentRefsOf(m.content)) {
@@ -180,9 +176,7 @@ function attachmentBlocks(
           `<figure class="att"><img src="${uri}" alt="${esc(name)}" loading="lazy">${caption}</figure>`,
         )
       } else {
-        blocks.push(
-          `<a class="att-file" href="${uri}" download="${esc(name)}">📄 ${esc(name)}</a>`,
-        )
+        blocks.push(`<a class="att-file" href="${uri}" download="${esc(name)}">📄 ${esc(name)}</a>`)
       }
     } else {
       const missingNote = attachment?.missing || !attachment ? '（文件未包含）' : ''
@@ -216,6 +210,8 @@ header.page .meta{color:#737373;font-size:.8125rem;margin:0}
 .think{margin:.6rem 0;border:1px solid #e5e5e5;border-radius:.9rem;padding:.5rem .9rem;font-size:.875rem}
 .think summary{cursor:pointer;color:#737373;user-select:none}
 .think .md{margin-top:.4rem;color:#525252}
+.think .process-search{margin-top:.4rem;color:#737373}
+.think .process-commentary{color:#404040}
 .search,.cites{margin:.6rem 0;font-size:.8125rem;color:#737373}
 .search .label,.cites .label{font-weight:600;color:#525252;margin-bottom:.15rem}
 .search ul,.cites ol{margin:.2rem 0 0;padding-left:1.4rem}
@@ -246,6 +242,7 @@ header.page .meta{color:#737373}
 .think{border-color:#333}
 .think summary{color:#a3a3a3}
 .think .md{color:#a3a3a3}
+.think .process-commentary{color:#d4d4d4}
 .search .label,.cites .label{color:#a3a3a3}
 .att img{border-color:#333}
 .att-file,.att-chip{border-color:#404040;background:#262626;color:#d4d4d4}

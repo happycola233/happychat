@@ -557,7 +557,7 @@ export default function ChatView() {
   // 流式/新内容时仅在贴底状态跟随，避免打断向上翻阅
   useEffect(() => {
     if (shouldAutoFollowRef.current) scrollToBottom()
-  }, [messages.length, optimisticUser, stream?.text, stream?.reasoning, scrollToBottom])
+  }, [messages.length, optimisticUser, stream?.text, stream?.processSteps, scrollToBottom])
 
   // 打开会话时按设置滚动到底（关闭则停留在顶部）
   useEffect(() => {

@@ -101,6 +101,64 @@ describe('buildInput', () => {
     expect(input[1]).toBe(reasoningItems[1])
   })
 
+  it('replays reasoning, commentary, and final answer as three ordered items with echoed phases', () => {
+    const reasoningItem = { type: 'reasoning', id: 'reasoning-1', encrypted_content: 'cipher' }
+    const input = buildInput([
+      {
+        role: 'assistant',
+        reasoningItems: [reasoningItem],
+        processSteps: [{ kind: 'commentary', text: '我正在核对资料。' }],
+        content: [{ type: 'output_text', text: '这是最终回答。', phase: 'final_answer' }],
+      },
+    ])
+
+    expect(input).toEqual([
+      reasoningItem,
+      {
+        type: 'message',
+        role: 'assistant',
+        status: 'completed',
+        phase: 'commentary',
+        content: [{ type: 'output_text', text: '我正在核对资料。', annotations: [] }],
+      },
+      {
+        type: 'message',
+        role: 'assistant',
+        status: 'completed',
+        phase: 'final_answer',
+        content: [{ type: 'output_text', text: '这是最终回答。', annotations: [] }],
+      },
+    ])
+  })
+
+  it('does not invent phase when the upstream assistant item had none', () => {
+    const [assistant] = buildInput([
+      { role: 'assistant', content: [{ type: 'output_text', text: '兼容网关回答' }] },
+    ]) as Array<Record<string, unknown>>
+
+    expect(assistant).not.toHaveProperty('phase')
+  })
+
+  it('does not append an empty final assistant item after commentary-only output', () => {
+    const input = buildInput([
+      {
+        role: 'assistant',
+        processSteps: [{ kind: 'commentary', text: '正在处理。' }],
+        content: [{ type: 'output_text', text: '' }],
+      },
+    ])
+
+    expect(input).toEqual([
+      {
+        type: 'message',
+        role: 'assistant',
+        status: 'completed',
+        phase: 'commentary',
+        content: [{ type: 'output_text', text: '正在处理。', annotations: [] }],
+      },
+    ])
+  })
+
   it('adds assistant generated images back into the visible branch context', () => {
     const input = buildInput(
       [

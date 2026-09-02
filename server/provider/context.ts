@@ -1,8 +1,14 @@
-import type { ContentPart, Role } from '@shared/types/domain'
+import type { ContentPart, ProcessStep, Role, SearchAction } from '@shared/types/domain'
+import { commentaryTextsOf } from '@shared/util/processTrack'
 
 export interface PathMessage {
   role: Role
   content: ContentPart[]
+  processSteps?: ProcessStep[] | null
+  /** 仅供读取升级前的调用方与夹具；新路径统一传 processSteps。 */
+  reasoningSummary?: string | null
+  searchActions?: SearchAction[] | null
+  webSearchActions?: SearchAction[] | null
   /** 用户消息创建时冻结的运行环境；数据库内部字段，不进入普通消息 DTO。 */
   runtimeContext?: string | null
   /** 服务端提存的 Responses reasoning items；仅在来源门控通过后传入本纯构建函数。 */
@@ -59,13 +65,31 @@ export function buildInput(
       // reasoning item 必须保持上游原样，并位于同轮合成 assistant message 之前。
       // 是否允许重放由 prepare.ts 负责；本函数只保持 input[] 的稳定顺序。
       if (m.reasoningItems) items.push(...m.reasoningItems)
-      const text = m.content.map((p) => (p.type === 'output_text' ? p.text : '')).join('')
-      items.push({
-        type: 'message',
-        role: 'assistant',
-        status: 'completed',
-        content: [{ type: 'output_text', text, annotations: [] }],
-      })
+      const commentaryTexts = commentaryTextsOf(m)
+      for (const text of commentaryTexts) {
+        items.push({
+          type: 'message',
+          role: 'assistant',
+          status: 'completed',
+          phase: 'commentary',
+          content: [{ type: 'output_text', text, annotations: [] }],
+        })
+      }
+      const outputParts = m.content.filter(
+        (part): part is Extract<ContentPart, { type: 'output_text' }> =>
+          part.type === 'output_text',
+      )
+      for (const part of outputParts) {
+        // 只有 commentary 的历史不能凭空追加空终答；其他空消息保持旧行为。
+        if (!part.text && commentaryTexts.length > 0) continue
+        items.push({
+          type: 'message',
+          role: 'assistant',
+          status: 'completed',
+          ...(part.phase ? { phase: part.phase } : {}),
+          content: [{ type: 'output_text', text: part.text, annotations: [] }],
+        })
+      }
       const generatedImages = m.content.filter(
         (part): part is Extract<ContentPart, { type: 'image_result' }> =>
           part.type === 'image_result' && generatedContextIds.has(part.attachment_id),

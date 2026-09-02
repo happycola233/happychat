@@ -5,14 +5,15 @@ import {
   attachmentRefsOf,
   dedupeCitations,
   encodeAssetHref,
+  exportProcessSteps,
   exportHeaderNote,
   modelNameOf,
   sanitizeLinkText,
   sanitizeLinkUrl,
   statusLabel,
   textOfContent,
+  searchLineOf,
   usageLine,
-  searchLines,
 } from './content'
 import { formatDurationShort, formatStamp } from './time'
 import type { ExportSource } from './types'
@@ -21,7 +22,9 @@ import type { ExportSource } from './types'
 export function buildMarkdown(source: ExportSource, options: ExportOptions): string {
   const out: string[] = []
   out.push(`# ${source.title}`)
-  out.push(`> ${exportHeaderNote(source, formatStamp(source.exportedAt, source.timezone, 'minute'))}`)
+  out.push(
+    `> ${exportHeaderNote(source, formatStamp(source.exportedAt, source.timezone, 'minute'))}`,
+  )
 
   for (const m of source.messages) {
     out.push(renderMessage(m, source, options))
@@ -36,16 +39,9 @@ function renderMessage(m: MessageDTO, source: ExportSource, options: ExportOptio
   const status = statusLabel(m)
   if (status) blocks.push(`> [!WARNING]\n> ${status}${statusDetail(m)}`)
 
-  if (options.includeReasoning && m.role === 'assistant') {
-    const thinking = thinkingBlock(m)
+  if ((options.includeReasoning || options.includeSearch) && m.role === 'assistant') {
+    const thinking = processBlock(m, options)
     if (thinking) blocks.push(thinking)
-  }
-
-  if (options.includeSearch) {
-    const lines = searchLines(m)
-    if (lines.length > 0) {
-      blocks.push(['**检索过程**', '', ...lines.map((l) => `- ${l}`)].join('\n'))
-    }
   }
 
   for (const line of attachmentLines(m, source, options)) blocks.push(line)
@@ -90,17 +86,29 @@ function statusDetail(m: MessageDTO): string {
   return `：${m.errorMessage.replace(/[\r\n]+/g, ' ')}`
 }
 
-function thinkingBlock(m: MessageDTO): string | null {
-  const text = (m.reasoningSummary ?? '').replace(/\r\n/g, '\n').trim()
-  if (!text && m.reasoningDurationMs == null) return null
+function processBlock(m: MessageDTO, options: ExportOptions): string | null {
+  const steps = exportProcessSteps(m, options.includeReasoning, options.includeSearch)
+  if (steps.length === 0 && (!options.includeReasoning || m.reasoningDurationMs == null))
+    return null
+  const hasThinking = steps.some((step) => step.kind !== 'search')
   const label =
-    m.reasoningDurationMs != null && m.reasoningDurationMs > 0
+    options.includeReasoning && m.reasoningDurationMs != null && m.reasoningDurationMs > 0
       ? `🤔 已思考 ${formatDurationShort(m.reasoningDurationMs)}`
-      : '🤔 思考摘要'
+      : hasThinking
+        ? '🤔 思考过程'
+        : '🌐 检索过程'
   const lines = [`> ${label}`]
-  if (text) {
+  for (const step of steps) {
     lines.push('>')
-    for (const line of text.split('\n')) lines.push(line ? `> ${line}` : '>')
+    const text =
+      step.kind === 'commentary'
+        ? `💬 ${step.text}`
+        : step.kind === 'search'
+          ? `🔎 ${searchLineOf(step.action)}`
+          : step.text
+    for (const line of text.replace(/\r\n/g, '\n').trim().split('\n')) {
+      lines.push(line ? `> ${line}` : '>')
+    }
   }
   return lines.join('\n')
 }
@@ -112,7 +120,10 @@ function attachmentLines(m: MessageDTO, source: ExportSource, options: ExportOpt
     const attachment = ref.attachmentId ? source.attachments.get(ref.attachmentId) : undefined
     const name = sanitizeLinkText(attachmentDisplayName(ref, attachment))
     const embedded =
-      options.attachmentMode === 'embed' && attachment && !attachment.missing && attachment.assetPath
+      options.attachmentMode === 'embed' &&
+      attachment &&
+      !attachment.missing &&
+      attachment.assetPath
     if (embedded) {
       const href = encodeAssetHref(attachment.assetPath!)
       lines.push(ref.kind === 'image' ? `![${name}](${href})` : `📄 [${name}](${href})`)

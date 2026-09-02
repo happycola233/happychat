@@ -269,7 +269,7 @@ export type XSearchActionType =
 export type SearchActionType = WebSearchActionType | XSearchActionType
 
 /**
- * 一步已完成的检索动作（存于 messages.search_actions，按发生顺序）。
+ * 一步已完成的检索动作（新消息存于 messages.process_steps 的 search 条目）。
  * web_search 与 x_search 共用一个有序数组，以保留两类检索真实的交错次序；
  * 具体动作要等调用完成后的 output item 才给出，查询词在协议上是可选信息。
  */
@@ -297,6 +297,15 @@ export interface SearchAction {
   postId?: string
 }
 
+/** Responses API assistant message item 的语义阶段。 */
+export type AssistantPhase = 'commentary' | 'final_answer'
+
+/** 一轮生成中按真实发生顺序持久化的过程条目。 */
+export type ProcessStep =
+  | { kind: 'reasoning'; text: string }
+  | { kind: 'commentary'; text: string }
+  | { kind: 'search'; action: SearchAction }
+
 /** web_search 引用注释（Responses API 扁平结构） */
 export interface UrlCitation {
   type: 'url_citation'
@@ -309,7 +318,13 @@ export interface UrlCitation {
 /** 消息内容部件，存于 messages.content。图片/文件用 attachment_id 引用，不内联 base64。 */
 export type ContentPart =
   | { type: 'input_text'; text: string }
-  | { type: 'output_text'; text: string; annotations?: UrlCitation[] }
+  | {
+      type: 'output_text'
+      text: string
+      annotations?: UrlCitation[]
+      /** 仅在上游明确返回时保存；历史回放不得自行补全。 */
+      phase?: AssistantPhase
+    }
   | { type: 'input_image'; attachment_id: string; detail?: 'auto' | 'low' | 'high' }
   | {
       type: 'input_file'
@@ -407,7 +422,7 @@ export interface UserPreferences {
   sendOnEnterDesktop: boolean
   /** 手机端按 Enter 发送（关闭则 Enter 换行，点发送按钮发送） */
   sendOnEnterMobile: boolean
-  /** 默认展开推理摘要（关闭则推理摘要默认保持折叠，不随生成自动展开） */
+  /** 生成时自动展开过程轨；回答开始后自动折叠，关闭时始终默认折叠。 */
   defaultExpandReasoning: boolean
   /** 模型选择器的列表视图：平铺（分组标题可折叠）/ 二级目录（先选分组再选模型） */
   modelPickerView: ModelPickerView

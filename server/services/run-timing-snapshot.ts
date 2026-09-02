@@ -1,4 +1,5 @@
 import { and, asc, eq, gt, inArray } from 'drizzle-orm'
+import { RUN_EVENT_TYPE } from '@shared/types/events'
 import { db } from '../db/client'
 import { runEvents } from '../db/schema'
 import {
@@ -23,12 +24,36 @@ async function firstTimingEvent(
       type: runEvents.type,
       sequenceNumber: runEvents.sequenceNumber,
       createdAt: runEvents.createdAt,
+      data: runEvents.data,
     })
     .from(runEvents)
     .where(and(...conditions))
     .orderBy(asc(runEvents.sequenceNumber))
     .limit(1)
   return event ?? null
+}
+
+async function timingEvents(
+  runId: string,
+  types: readonly string[],
+  afterSequenceNumber: number,
+): Promise<ReasoningTimingEvent[]> {
+  return db
+    .select({
+      type: runEvents.type,
+      sequenceNumber: runEvents.sequenceNumber,
+      createdAt: runEvents.createdAt,
+      data: runEvents.data,
+    })
+    .from(runEvents)
+    .where(
+      and(
+        eq(runEvents.runId, runId),
+        inArray(runEvents.type, [...types]),
+        gt(runEvents.sequenceNumber, afterSequenceNumber),
+      ),
+    )
+    .orderBy(asc(runEvents.sequenceNumber))
 }
 
 /** 只读取首个推理起点和结束点，避免在终结长回复时把全部 delta 事件加载进内存。 */
@@ -38,6 +63,23 @@ export async function getReasoningDurationSnapshot(
 ): Promise<number | null> {
   const start = await firstTimingEvent(runId, REASONING_START_EVENT_TYPES)
   if (!start) return null
-  const end = await firstTimingEvent(runId, REASONING_END_EVENT_TYPES, start.sequenceNumber)
-  return computeReasoningDurationMs(end ? [start, end] : [start], finishedAt)
+  const answerLifecycle = await timingEvents(
+    runId,
+    [RUN_EVENT_TYPE.answerStarted, RUN_EVENT_TYPE.outputItemReclassified],
+    start.sequenceNumber,
+  )
+  const hasAnswerStarted = answerLifecycle.some(
+    (event) => event.type === RUN_EVENT_TYPE.answerStarted,
+  )
+  const fallbackEnd = hasAnswerStarted
+    ? null
+    : await firstTimingEvent(
+        runId,
+        REASONING_END_EVENT_TYPES.filter((type) => type !== RUN_EVENT_TYPE.answerStarted),
+        start.sequenceNumber,
+      )
+  return computeReasoningDurationMs(
+    [start, ...answerLifecycle, ...(fallbackEnd ? [fallbackEnd] : [])],
+    finishedAt,
+  )
 }

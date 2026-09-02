@@ -381,8 +381,8 @@ export function ExportDialog({
               />
             </SelectRow>
             <OptionToggleRow
-              label="思考摘要"
-              hint="推理模型的思考过程摘要"
+              label="思考过程"
+              hint="生成中的思考与进展说明"
               disabled={!caps.reasoning}
               checked={includeReasoning}
               onChange={setIncludeReasoning}

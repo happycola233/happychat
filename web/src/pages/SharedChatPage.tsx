@@ -11,10 +11,9 @@ import { ImagePreviewTrigger } from '../chat/ImagePreview'
 import { FileAttachmentCard } from '../chat/FileAttachmentCard'
 import { FileAttachmentIcon } from '../chat/icons'
 import { Markdown } from '../chat/Markdown'
-import { ReasoningCard, type ReasoningCardStatus } from '../chat/ReasoningCard'
-import { SearchActivity } from '../chat/SearchActivity'
+import { ProcessTrack, type ProcessTrackStatus } from '../chat/ProcessTrack'
 import { safeCitationUrl, SHOW_CITATION_SOURCE_CHIPS } from '../chat/citationDisplay'
-import { persistedSearchCalls } from '../sse/eventReducer'
+import { liveStepsFromPersisted } from '../sse/eventReducer'
 import { CopyMessageButton, MessageTimeLabel, MessageUsageStats } from '../chat/MessageMeta'
 import { Spinner } from '../components/ui/Spinner'
 import { formatShortDate } from '../lib/format'
@@ -235,7 +234,7 @@ function SharedMessageMeta({
   )
 }
 
-function reasoningStatus(m: MessageDTO, text: string): ReasoningCardStatus {
+function processStatus(m: MessageDTO, text: string): ProcessTrackStatus {
   const stopped =
     m.status === 'interrupted' && m.errorMessage === '已停止生成' && text.trim().length === 0
   return stopped ? 'stopped' : 'completed'
@@ -274,23 +273,24 @@ export function SharedMessage({
     )
   }
 
-  const hasReasoningText = Boolean(m.reasoningSummary?.trim())
-  const showReasoningCard = hasReasoningText || m.reasoningDurationMs !== null
+  const steps = liveStepsFromPersisted(m.processSteps)
+  const showProcessTrack = steps.length > 0 || m.reasoningDurationMs !== null
 
   return (
     <div className="space-y-2">
-      {showReasoningCard && (
-        <ReasoningCard
-          text={m.reasoningSummary ?? ''}
-          status={reasoningStatus(m, text)}
+      {showProcessTrack && (
+        <ProcessTrack
+          steps={steps}
+          status={processStatus(m, text)}
           startedAt={null}
           durationMs={m.reasoningDurationMs}
-          defaultExpanded={hasReasoningText}
+          reasoningEnabled={
+            m.reasoningDurationMs !== null || steps.some((step) => step.kind === 'reasoning')
+          }
+          answerStarted
+          autoExpand={false}
           stickyTopClassName={SHARE_REASONING_STICKY_TOP_CLASS}
         />
-      )}
-      {Boolean(m.searchActions?.length) && (
-        <SearchActivity calls={persistedSearchCalls(m.searchActions)} answerStarted />
       )}
       {m.status === 'error' && m.errorMessage && (
         <div className="flex items-start gap-2 rounded-xl bg-red-50 px-3 py-2.5 text-sm text-red-600 dark:bg-red-950/30 dark:text-red-400">

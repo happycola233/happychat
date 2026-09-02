@@ -1,0 +1,1 @@
+ALTER TABLE `messages` ADD `process_steps` text;

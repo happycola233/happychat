@@ -437,11 +437,11 @@ describe('其他格式', () => {
     expect(text).toContain('## 🧑‍💻 用户 · 2025-03-28 23:04:06')
     expect(text).toContain('## 🤖 助手 · 2025-03-28 23:04:19 · 测试模型')
     expect(text).toContain('![照片.png](assets/照片.png)')
-    expect(text).toContain('**检索过程**')
-    expect(text).toContain('- 搜索：「天气」')
-    expect(text).toContain('- 打开页面：https://example.com/weather')
-    expect(text).toContain('- X 检索：「from:xai 天气」（仅 @xai，按最新排序）')
-    expect(text).toContain('- 读取 X 讨论串：https://x.com/i/status/2081485024872796427')
+    expect(text).toContain('> 🌐 检索过程')
+    expect(text).toContain('> 🔎 搜索：「天气」')
+    expect(text).toContain('> 🔎 打开页面：https://example.com/weather')
+    expect(text).toContain('> 🔎 X 检索：「from:xai 天气」（仅 @xai，按最新排序）')
+    expect(text).toContain('> 🔎 读取 X 讨论串：https://x.com/i/status/2081485024872796427')
     expect(text).toContain('[示例来源](https://example.com/a)')
   })
 
@@ -511,11 +511,25 @@ describe('其他格式', () => {
     expect(doc.messages.some((m) => m.id === u2b.id)).toBe(true)
     const assistant = doc.messages.find((m) => m.id === a2.id)!
     expect(assistant.reasoningSummary).toBeUndefined()
-    expect(assistant.searchActions).toEqual([
-      { type: 'search', queries: ['天气'] },
-      { type: 'open_page', url: 'https://example.com/weather' },
-      { type: 'x_keyword_search', queries: ['from:xai 天气'], handles: ['xai'], mode: 'Latest' },
-      { type: 'x_thread_fetch', postId: '2081485024872796427' },
+    expect(assistant.processSteps).toEqual([
+      { kind: 'search', action: { type: 'search', queries: ['天气'] } },
+      {
+        kind: 'search',
+        action: { type: 'open_page', url: 'https://example.com/weather' },
+      },
+      {
+        kind: 'search',
+        action: {
+          type: 'x_keyword_search',
+          queries: ['from:xai 天气'],
+          handles: ['xai'],
+          mode: 'Latest',
+        },
+      },
+      {
+        kind: 'search',
+        action: { type: 'x_thread_fetch', postId: '2081485024872796427' },
+      },
     ])
     expect(assistant.attachments).toEqual([expect.objectContaining({ filename: '走丢的图.png' })])
   })

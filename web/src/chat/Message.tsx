@@ -2,15 +2,13 @@ import { useMemo, useState } from 'react'
 import { AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react'
 import type { MessageCostDisplayDTO, MessageDTO } from '@shared/types/api'
 import type { UrlCitation } from '@shared/types/domain'
-import type { LiveMessage } from '../sse/eventReducer'
+import { liveStepsFromPersisted, type LiveMessage } from '../sse/eventReducer'
 import { useModels } from '../hooks/useModels'
 import { useSettings } from '../store/settings'
 import { CollapsibleUserMessageText } from './MessageContent'
 import { textFromContent } from './contentText'
 import { Markdown } from './Markdown'
-import { persistedSearchCalls } from '../sse/eventReducer'
-import { ReasoningCard, type ReasoningCardStatus } from './ReasoningCard'
-import { SearchActivity } from './SearchActivity'
+import { ProcessTrack, type ProcessTrackStatus } from './ProcessTrack'
 import { AttachmentParts } from './Attachments'
 import {
   CopyMessageButton,
@@ -134,10 +132,9 @@ export function Message({
   const models = useModels().data
   const modelName =
     message.modelLabel ?? models?.find((m) => m.id === message.modelId)?.displayName ?? null
-  // 流式期间跟随 live 调用状态；终态/刷新后回读持久化的动作序列（两者内容同口径）。
-  const searchCalls = useMemo(
-    () => (live ? live.searchCalls : persistedSearchCalls(message.searchActions)),
-    [live, message.searchActions],
+  const steps = useMemo(
+    () => (live ? live.processSteps : liveStepsFromPersisted(message.processSteps)),
+    [live, message.processSteps],
   )
 
   if (message.role === 'user') {
@@ -197,52 +194,40 @@ export function Message({
   const liveStreaming = live?.status === 'streaming'
   const streaming = live ? liveStreaming : message.status === 'streaming'
   const text = live ? live.text : textFromContent(message.content)
-  const reasoning = live ? live.reasoning : message.reasoningSummary
-  const hasReasoningText = Boolean(reasoning?.trim())
   const annotations = live ? live.annotations : (message.annotations ?? [])
   const error =
     live?.error ?? (message.status === 'error' ? (message.errorMessage ?? '生成失败') : null)
-  const liveThinking = Boolean(
-    live?.reasoningEnabled && streaming && !text && live.upstreamStartedAt,
-  )
-  const liveStoppedThinking = Boolean(live?.reasoningEnabled && live.status === 'canceled' && !text)
-  const persistedStoppedThinking = Boolean(
+  const liveStopped = Boolean(live?.status === 'canceled' && !text)
+  const persistedStopped = Boolean(
     !live && message.status === 'interrupted' && message.errorMessage === '已停止生成' && !text,
   )
-  const hasCompletedReasoning = Boolean(
-    live
-      ? live.reasoningEnabled && live.reasoningDurationMs !== null
-      : message.reasoningDurationMs !== null,
-  )
-  const reasoningStatus: ReasoningCardStatus =
-    liveStoppedThinking || persistedStoppedThinking
+  const processStatus: ProcessTrackStatus =
+    liveStopped || persistedStopped
       ? 'stopped'
-      : liveThinking
-        ? 'thinking'
+      : streaming && !text && live?.upstreamStartedAt
+        ? 'working'
         : 'completed'
-  const showReasoningCard =
-    hasReasoningText ||
-    liveThinking ||
-    liveStoppedThinking ||
-    persistedStoppedThinking ||
-    hasCompletedReasoning
+  const reasoningEnabled = live?.reasoningEnabled ?? message.reasoningDurationMs !== null
+  const reasoningDurationMs = live ? live.reasoningDurationMs : message.reasoningDurationMs
+  const showProcessTrack =
+    steps.length > 0 ||
+    reasoningDurationMs !== null ||
+    Boolean(processStatus === 'working' && reasoningEnabled)
   const hasLiveImage = Boolean(live?.imageStatus || live?.imageGenerations.length)
-  const showPendingDots =
-    streaming && !text && !reasoning && !showReasoningCard && !hasLiveImage && !searchCalls.length
+  const showPendingDots = streaming && !text && !showProcessTrack && !hasLiveImage && !steps.length
 
   return (
     <div className="group space-y-2" data-testid="assistant-message">
-      {showReasoningCard && (
-        <ReasoningCard
-          text={reasoning || ''}
-          status={reasoningStatus}
+      {showProcessTrack && (
+        <ProcessTrack
+          steps={steps}
+          status={processStatus}
           startedAt={live?.upstreamStartedAt ?? null}
-          durationMs={live ? live.reasoningDurationMs : message.reasoningDurationMs}
-          defaultExpanded={defaultExpandReasoning}
+          durationMs={reasoningDurationMs}
+          reasoningEnabled={reasoningEnabled}
+          answerStarted={live?.answerStarted ?? true}
+          autoExpand={defaultExpandReasoning}
         />
-      )}
-      {searchCalls.length > 0 && (
-        <SearchActivity calls={searchCalls} answerStarted={Boolean(text) || !streaming} />
       )}
       {error ? (
         <div className="flex items-start gap-2 rounded-xl bg-red-50 px-3 py-2.5 text-sm text-red-600 dark:bg-red-950/30 dark:text-red-400">
