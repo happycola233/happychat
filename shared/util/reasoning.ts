@@ -24,6 +24,15 @@ export function isSafeReasoningEffortValue(value: string): boolean {
   return value.length > 0 && !/[\p{White_Space}\p{C}\p{Default_Ignorable_Code_Point}]/u.test(value)
 }
 
+/** 读取请求参数中显式记录的原始推理强度，不套用模型默认值。 */
+export function requestedReasoningEffort(requestParams: unknown): ReasoningEffort | null {
+  if (!requestParams || typeof requestParams !== 'object' || Array.isArray(requestParams)) {
+    return null
+  }
+  const reasoningEffort = (requestParams as Record<string, unknown>).reasoning_effort
+  return typeof reasoningEffort === 'string' && reasoningEffort.length > 0 ? reasoningEffort : null
+}
+
 /**
  * 把 allowed_efforts 的旧字符串数组或新对象数组规范成唯一的公开形态。
  * 这里刻意只做兼容清洗，不补齐任何档位，避免覆盖管理员为特定模型配置的子集和顺序。
@@ -59,7 +68,9 @@ export function findReasoningEffortOption(
   return normalizeReasoningEffortOptions(options).find((option) => option.value === effort) ?? null
 }
 
-function canUseReasoning(model: ReasoningModelConfig | null | undefined): model is ReasoningModelConfig {
+function canUseReasoning(
+  model: ReasoningModelConfig | null | undefined,
+): model is ReasoningModelConfig {
   return Boolean(model && model.kind !== 'image' && model.capabilities.reasoning)
 }
 

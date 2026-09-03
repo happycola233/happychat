@@ -2,6 +2,7 @@ import { and, eq, inArray } from 'drizzle-orm'
 import type { ContentPart } from '@shared/types/domain'
 import { RUN_EVENT_TYPE } from '@shared/types/events'
 import { costUsd as estimateCostUsd } from '@shared/util/cost'
+import { requestedReasoningEffort } from '@shared/util/reasoning'
 import { db } from '../db/client'
 import { conversations, errorLogs, messages, runEvents, runs, usageLogs } from '../db/schema'
 import { providerClientFromRow } from '../provider/client'
@@ -178,6 +179,8 @@ export async function runImageEngine(ctx: EngineContext): Promise<void> {
         outputTokens,
         totalTokens,
         imageTokens,
+        reasoningEffort: requestedReasoningEffort(ctx.run.requestParams),
+        durationMs: generationDurationMs,
         upstreamResponseLatencyMs: upstreamResponseTiming.latencyMs,
         quotaAt: ctx.run.createdAt,
         outcome: state,

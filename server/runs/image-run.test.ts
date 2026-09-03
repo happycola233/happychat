@@ -148,6 +148,7 @@ describe('runImageEngine audit outcome', () => {
       terminalReason: null,
       success: true,
       imageTokens: 6,
+      durationMs: expect.any(Number),
     })
     expect(events.at(-1)?.type).toBe('run.done')
   })

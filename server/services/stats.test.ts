@@ -216,7 +216,7 @@ describe('usage event duration', () => {
     expect(result.items[0]?.generationTokensPerSecond).toBe(50)
   })
 
-  it('returns null when an audit log no longer has an associated run', async () => {
+  it('returns null when an audit log has neither snapshots nor an associated run', async () => {
     const user = await insertUser()
     await insertUsageLog(Date.UTC(2026, 6, 1, 9), { userId: user.id })
 
@@ -288,7 +288,7 @@ describe('usage event outcomes', () => {
     ])
   })
 
-  it('retains the conversation snapshot and terminal details after the run is deleted', async () => {
+  it('retains request metrics and terminal details after the conversation is deleted', async () => {
     const user = await insertUser()
     const [conversation] = await dbClient.db
       .insert(schema.conversations)
@@ -309,6 +309,11 @@ describe('usage event outcomes', () => {
       outcome: 'failed',
       terminalReason: 'refusal',
       success: false,
+      outputTokens: 170,
+      totalTokens: 170,
+      reasoningEffort: 'high',
+      durationMs: 5_400,
+      firstTokenLatencyMs: 2_000,
     })
     await dbClient.db
       .delete(schema.conversations)
@@ -323,6 +328,10 @@ describe('usage event outcomes', () => {
         outcome: 'failed',
         terminalReason: 'refusal',
         result: 'refused',
+        reasoningEffort: 'high',
+        durationMs: 5_400,
+        firstTokenLatencyMs: 2_000,
+        generationTokensPerSecond: 50,
       }),
     )
   })

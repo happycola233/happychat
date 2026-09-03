@@ -8,13 +8,16 @@ import type {
 } from '@shared/types/domain'
 import { RUN_EVENT_TYPE } from '@shared/types/events'
 import { costUsd as estimateCostUsd } from '@shared/util/cost'
-import { isReasoningEnabled } from '@shared/util/reasoning'
+import { isReasoningEnabled, requestedReasoningEffort } from '@shared/util/reasoning'
 import { db } from '../db/client'
 import { conversations, errorLogs, messages, runs, usageLogs } from '../db/schema'
 import { buildAssistantContent } from '../provider/normalize'
 import type { ProviderReplayContext } from '../provider/reasoning-replay'
 import { computeGenerationDurationMs } from '../services/run-timing'
-import { getReasoningDurationSnapshot } from '../services/run-timing-snapshot'
+import {
+  getFirstTokenLatencySnapshot,
+  getReasoningDurationSnapshot,
+} from '../services/run-timing-snapshot'
 import { maybeGenerateTitle } from '../services/title'
 import type { ConvRow, ModelRow, MsgRow, ProviderRow, RunRow } from './types'
 import { errorTypeForAudit, terminalReasonForUsage } from './usage-audit'
@@ -62,7 +65,11 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
     a.state === 'completed' ? 'complete' : a.state === 'failed' ? 'error' : 'interrupted'
   const finishedAt = new Date()
   const generationDurationMs = computeGenerationDurationMs(a.startedAt, finishedAt)
-  const reasoningDurationMs = await finalReasoningDurationMs(a, finishedAt)
+  const [reasoningDurationMs, firstTokenLatencyMs] = await Promise.all([
+    finalReasoningDurationMs(a, finishedAt),
+    getFirstTokenLatencySnapshot(a.run.id, a.startedAt),
+  ])
+  const reasoningEffort = requestedReasoningEffort(a.run.requestParams)
   const messageCostUsd = estimateCostUsd(
     {
       inputTokens: a.usage.inputTokens,
@@ -152,7 +159,10 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
         outputTokens: a.usage.outputTokens,
         reasoningTokens: a.usage.reasoningTokens,
         totalTokens: a.usage.totalTokens,
+        reasoningEffort,
+        durationMs: generationDurationMs,
         upstreamResponseLatencyMs: a.upstreamResponseLatencyMs,
+        firstTokenLatencyMs,
         quotaAt: a.run.createdAt,
         outcome: a.state,
         terminalReason,

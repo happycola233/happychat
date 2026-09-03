@@ -88,6 +88,7 @@ describe('recoverInterruptedRuns', () => {
       })
       .returning()
     if (!message) throw new Error('Failed to create manager message')
+    const startedAt = new Date(Date.now() - 5_000)
     const [run] = await dbClient.db
       .insert(schema.runs)
       .values({
@@ -97,10 +98,17 @@ describe('recoverInterruptedRuns', () => {
         modelId: model.id,
         state: 'running',
         requestParams: { reasoning_effort: 'medium' },
-        startedAt: new Date(),
+        startedAt,
       })
       .returning()
     if (!run) throw new Error('Failed to create manager run')
+    await dbClient.db.insert(schema.runEvents).values({
+      runId: run.id,
+      sequenceNumber: 0,
+      type: 'response.output_text.delta',
+      data: { delta: '中断前正文' },
+      createdAt: new Date(startedAt.getTime() + 2_000),
+    })
 
     await manager.recoverInterruptedRuns()
 
@@ -124,6 +132,9 @@ describe('recoverInterruptedRuns', () => {
       success: true,
       modelLabel: model.modelId,
       providerLabel: provider.name,
+      reasoningEffort: 'medium',
+      durationMs: expect.any(Number),
+      firstTokenLatencyMs: 2_000,
     })
 
     // 恢复流程可重复调用，不会为同一个 run 追加第二条请求事件。

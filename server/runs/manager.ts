@@ -1,10 +1,13 @@
 import { and, eq, inArray } from 'drizzle-orm'
 import type { ModelParams } from '@shared/types/domain'
-import { isReasoningEnabled } from '@shared/util/reasoning'
+import { isReasoningEnabled, requestedReasoningEffort } from '@shared/util/reasoning'
 import { db } from '../db/client'
 import { messages, models, providers, runs, usageLogs } from '../db/schema'
 import { computeGenerationDurationMs } from '../services/run-timing'
-import { getReasoningDurationSnapshot } from '../services/run-timing-snapshot'
+import {
+  getFirstTokenLatencySnapshot,
+  getReasoningDurationSnapshot,
+} from '../services/run-timing-snapshot'
 import { runChatEngine } from './chat-engine'
 import { runAnthropicEngine } from './anthropic-engine'
 import { runEngine } from './engine'
@@ -60,9 +63,13 @@ export async function recoverInterruptedRuns(): Promise<void> {
     const [provider] = model
       ? await db.select().from(providers).where(eq(providers.id, model.providerId)).limit(1)
       : []
-    const reasoningDurationMs = isReasoningEnabled(model, r.requestParams as ModelParams | null)
-      ? await getReasoningDurationSnapshot(r.id, finishedAt)
-      : null
+    const generationDurationMs = computeGenerationDurationMs(r.startedAt, finishedAt)
+    const [reasoningDurationMs, firstTokenLatencyMs] = await Promise.all([
+      isReasoningEnabled(model, r.requestParams as ModelParams | null)
+        ? getReasoningDurationSnapshot(r.id, finishedAt)
+        : Promise.resolve(null),
+      getFirstTokenLatencySnapshot(r.id, r.startedAt),
+    ])
     const recovered = db.transaction((tx) => {
       const recoveredRun = tx
         .update(runs)
@@ -80,7 +87,7 @@ export async function recoverInterruptedRuns(): Promise<void> {
             // 进程中断没有可信终态 Response，不能保留可能在终结写入中途留下的重放信封。
             providerReplayContext: null,
             reasoningDurationMs,
-            generationDurationMs: computeGenerationDurationMs(r.startedAt, finishedAt),
+            generationDurationMs,
           })
           .where(eq(messages.id, r.assistantMessageId))
           .run()
@@ -105,6 +112,9 @@ export async function recoverInterruptedRuns(): Promise<void> {
               providerLabel: provider?.name ?? null,
               pricingSnapshot: model?.pricing ?? null,
               conversationId: r.conversationId,
+              reasoningEffort: requestedReasoningEffort(r.requestParams),
+              durationMs: generationDurationMs,
+              firstTokenLatencyMs,
               quotaAt: r.createdAt,
               outcome: 'interrupted',
               terminalReason: 'server_restart',

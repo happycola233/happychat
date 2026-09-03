@@ -281,6 +281,13 @@
       "when": 1788325365320,
       "tag": "0039_little_frank_castle",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "6",
+      "when": 1788410278124,
+      "tag": "0040_request_metric_snapshots",
+      "breakpoints": true
     }
   ]
 }

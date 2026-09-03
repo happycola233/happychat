@@ -4,6 +4,7 @@ import {
   effectiveReasoningEffort,
   isReasoningEnabled,
   normalizeReasoningEffortOptions,
+  requestedReasoningEffort,
 } from './reasoning'
 
 const model = (overrides: Partial<ReasoningModelConfig> = {}): ReasoningModelConfig => ({
@@ -16,6 +17,13 @@ const model = (overrides: Partial<ReasoningModelConfig> = {}): ReasoningModelCon
 })
 
 describe('reasoning settings', () => {
+  it('preserves a custom raw effort from request params', () => {
+    expect(requestedReasoningEffort({ reasoning_effort: 'vendor-max' })).toBe('vendor-max')
+    expect(requestedReasoningEffort({ reasoning_effort: '' })).toBeNull()
+    expect(requestedReasoningEffort({ reasoning_effort: 3 })).toBeNull()
+    expect(requestedReasoningEffort(null)).toBeNull()
+  })
+
   it('treats explicit none as disabled even when the model default enables reasoning', () => {
     expect(isReasoningEnabled(model({ defaultEffort: 'high' }), { reasoning_effort: 'none' })).toBe(
       false,

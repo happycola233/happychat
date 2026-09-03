@@ -673,8 +673,12 @@ export const usageLogs = sqliteTable(
     reasoningTokens: integer('reasoning_tokens').notNull().default(0),
     totalTokens: integer('total_tokens').notNull().default(0),
     imageTokens: integer('image_tokens').notNull().default(0),
+    // 请求事件展示快照：runs/run_events 会随会话删除，审计指标不能依赖它们长期存在。
+    reasoningEffort: text('reasoning_effort'),
+    durationMs: integer('duration_ms'),
     // 首次实际 POST 开始到首个成功响应头；仅收到失败响应时保留首次失败响应耗时。
     upstreamResponseLatencyMs: integer('upstream_response_latency_ms'),
+    firstTokenLatencyMs: integer('first_token_latency_ms'),
     // 审计终态与原因独立于 success；后者暂时保留额度兼容语义。
     outcome: text('outcome').$type<UsageOutcome>().notNull().default('completed'),
     terminalReason: text('terminal_reason'),

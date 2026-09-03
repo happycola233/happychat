@@ -191,6 +191,7 @@ describe('标题总结', () => {
       success: true,
       outcome: 'completed',
       terminalReason: null,
+      durationMs: expect.any(Number),
     })
     // 价格快照随行落库，标题请求的成本口径与对话请求完全一致。
     expect(logs[0]?.pricingSnapshot).toEqual(PRICING)

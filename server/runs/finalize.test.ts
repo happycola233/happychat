@@ -112,6 +112,13 @@ describe('finalizeRun terminal snapshots', () => {
         data: { delta: '回答' },
         createdAt: new Date(startedAt.getTime() + 4_500),
       },
+      {
+        runId: run.id,
+        sequenceNumber: 2,
+        type: 'response.output_text.delta',
+        data: { delta: '回答' },
+        createdAt: new Date(startedAt.getTime() + 4_800),
+      },
     ])
 
     const providerReplayContext = {
@@ -190,7 +197,10 @@ describe('finalizeRun terminal snapshots', () => {
       outcome: 'completed',
       terminalReason: null,
       success: true,
+      reasoningEffort: 'high',
+      durationMs: persistedRun!.finishedAt!.getTime() - startedAt.getTime(),
       upstreamResponseLatencyMs: 1_250,
+      firstTokenLatencyMs: 4_800,
     })
     expect(persistedUsage?.quotaAt?.getTime()).toBe(run.createdAt.getTime())
     expect(emittedEvents.map((event) => event.type)).toEqual(['run.done'])

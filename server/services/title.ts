@@ -23,6 +23,7 @@ import { buildPath, getConversationMessages } from './conversations'
 import { getAppConfig } from './appConfig'
 import { conversationEvents } from './conversation-events'
 import { getFirstRunnableTextModel, getRunnableModel } from './models'
+import { computeGenerationDurationMs } from './run-timing'
 
 type ModelRow = typeof models.$inferSelect
 type ProviderRow = typeof providers.$inferSelect
@@ -173,6 +174,7 @@ async function logTitleUsage(
   outcome: UsageOutcome,
   terminalReason: string | null,
   upstreamResponseLatencyMs: number | null,
+  durationMs: number | null,
 ): Promise<void> {
   await db.insert(usageLogs).values({
     userId,
@@ -190,6 +192,7 @@ async function logTitleUsage(
     outputTokens: usage.outputTokens,
     reasoningTokens: usage.reasoningTokens,
     totalTokens: usage.totalTokens,
+    durationMs,
     upstreamResponseLatencyMs,
     success,
     errorType,
@@ -271,6 +274,7 @@ export async function maybeGenerateTitle(conversationId: string, runId?: string)
       .replaceAll('{locale}', titleLocale)
       .replaceAll('{content}', content)
     const upstreamResponseTiming = new UpstreamResponseLatencyTracker()
+    const titleStartedAt = new Date()
     let result: TitleModelResult
     try {
       result = await callTitleModel(
@@ -302,6 +306,7 @@ export async function maybeGenerateTitle(conversationId: string, runId?: string)
       result.outcome,
       result.terminalReason,
       upstreamResponseTiming.latencyMs,
+      computeGenerationDurationMs(titleStartedAt, new Date()),
     )
     const title = (result.success ? cleanTitle(result.text) : '') || fallback
     const updatedAt = new Date()

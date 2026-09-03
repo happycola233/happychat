@@ -10,6 +10,7 @@ import type {
 } from '@shared/types/api'
 import type { ModelPricing, UsageLogKind, UsageResult } from '@shared/types/domain'
 import { costUsd } from '@shared/util/cost'
+import { requestedReasoningEffort } from '@shared/util/reasoning'
 import { resolveUsageResult } from '@shared/util/usageOutcome'
 import { db } from '../db/client'
 import {
@@ -399,7 +400,11 @@ export async function listUsageEvents(filter: StatsFilter): Promise<Paginated<Us
     .limit(pageSize)
     .offset((page - 1) * pageSize)
 
-  const runIds = [...new Set(rows.flatMap(({ log }) => (log.runId ? [log.runId] : [])))]
+  const runIds = [
+    ...new Set(
+      rows.flatMap(({ log }) => (log.firstTokenLatencyMs === null && log.runId ? [log.runId] : [])),
+    ),
+  ]
   const firstOutputAtByRun = new Map<string, number>()
   if (runIds.length > 0) {
     const firstOutputRows = await db
@@ -427,16 +432,14 @@ export async function listUsageEvents(filter: StatsFilter): Promise<Paginated<Us
       startedAt,
       finishedAt,
     }) => {
-      const durationMs = computeGenerationDurationMs(startedAt, finishedAt)
-      const firstTokenLatencyMs = computeFirstTokenLatencyMs(
-        startedAt,
-        log.runId ? (firstOutputAtByRun.get(log.runId) ?? null) : null,
-      )
-      const rawReasoningEffort = (requestParams as Record<string, unknown> | null)?.reasoning_effort
-      const reasoningEffort =
-        typeof rawReasoningEffort === 'string' && rawReasoningEffort.length > 0
-          ? rawReasoningEffort
-          : null
+      const durationMs = log.durationMs ?? computeGenerationDurationMs(startedAt, finishedAt)
+      const firstTokenLatencyMs =
+        log.firstTokenLatencyMs ??
+        computeFirstTokenLatencyMs(
+          startedAt,
+          log.runId ? (firstOutputAtByRun.get(log.runId) ?? null) : null,
+        )
+      const reasoningEffort = log.reasoningEffort ?? requestedReasoningEffort(requestParams)
 
       return {
         id: log.id,

@@ -8,6 +8,7 @@ import {
   REASONING_START_EVENT_TYPES,
   type ReasoningTimingEvent,
 } from './reasoning-timing'
+import { computeFirstTokenLatencyMs, FIRST_OUTPUT_TOKEN_EVENT_TYPE } from './run-timing'
 
 async function firstTimingEvent(
   runId: string,
@@ -54,6 +55,16 @@ async function timingEvents(
       ),
     )
     .orderBy(asc(runEvents.sequenceNumber))
+}
+
+/** 在 run 被级联删除前固化首个可见正文相对生成起点的延迟。 */
+export async function getFirstTokenLatencySnapshot(
+  runId: string,
+  startedAt: Date | null,
+): Promise<number | null> {
+  if (!startedAt) return null
+  const firstOutput = await firstTimingEvent(runId, [FIRST_OUTPUT_TOKEN_EVENT_TYPE])
+  return computeFirstTokenLatencyMs(startedAt, firstOutput?.createdAt.getTime() ?? null)
 }
 
 /** 只读取首个推理起点和结束点，避免在终结长回复时把全部 delta 事件加载进内存。 */
