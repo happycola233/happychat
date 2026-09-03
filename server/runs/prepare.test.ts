@@ -577,7 +577,7 @@ describe('prepareRun active leaf', () => {
 
     expect(result.body.reasoning).toEqual({ effort: 'low' })
     expect(result.run.requestParams).not.toHaveProperty('reasoning_effort')
-    expect(lastRun.params?.reasoning_effort).toBe('low')
+    expect(lastRun.params?.reasoning_effort).toBeUndefined()
   })
 
   it('continues an existing conversation from the previous active leaf', async () => {

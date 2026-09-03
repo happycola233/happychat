@@ -7,6 +7,7 @@ import type { ReasoningEffort } from '@shared/types/domain'
  * - 选模型即时生效，并更新固定默认（作为新会话默认）。
  * - 联网/思考的选择只是「临时用一次」（active）；思考可点固定按钮设为默认（pinnedEffort）。
  * - activeWebSearch / activeXSearch=null 表示沿用当前模型的管理员默认值，避免新会话显式覆盖为 false。
+ * - activeEffort=null 表示未指定档位，请求由模型默认配置决定。
  * - 打开会话时由 ChatView 调 resetActive，从该会话最近一次的模型/联网/X 搜索/思考恢复。
  */
 interface ChatPrefs {
@@ -25,11 +26,11 @@ interface ChatPrefs {
   setActiveModel: (id: string) => void
   setActiveWebSearch: (v: boolean) => void
   setActiveXSearch: (v: boolean) => void
-  /** 临时设置推理强度（不固定）。 */
-  setActiveEffort: (e: ReasoningEffort | null) => void
+  /** 临时选择推理强度；再次选择同一档时回到自动。 */
+  toggleActiveEffort: (e: ReasoningEffort) => void
   /** 把某推理强度设为固定默认（再次点击同值取消固定）。 */
   pinEffort: (e: ReasoningEffort) => void
-  /** 打开会话时恢复控件：缺省项回退固定默认。 */
+  /** 打开会话时恢复控件：未传 effort 时回退固定默认，显式 null 保持自动。 */
   resetActive: (init: {
     modelId?: string | null
     webSearch?: boolean
@@ -39,6 +40,20 @@ interface ChatPrefs {
 
   setImageSize: (s: string) => void
   setImageQuality: (q: string) => void
+}
+
+export function toggleReasoningEffortSelection(
+  activeEffort: ReasoningEffort | null,
+  selectedEffort: ReasoningEffort,
+): ReasoningEffort | null {
+  return activeEffort === selectedEffort ? null : selectedEffort
+}
+
+export function resolveActiveReasoningEffort(
+  restoredEffort: ReasoningEffort | null | undefined,
+  pinnedEffort: ReasoningEffort | null,
+): ReasoningEffort | null {
+  return restoredEffort === undefined ? pinnedEffort : restoredEffort
 }
 
 export const useChatPrefs = create<ChatPrefs>()(
@@ -56,14 +71,15 @@ export const useChatPrefs = create<ChatPrefs>()(
       setActiveModel: (id) => set({ activeModelId: id, pinnedModelId: id }),
       setActiveWebSearch: (v) => set({ activeWebSearch: v }),
       setActiveXSearch: (v) => set({ activeXSearch: v }),
-      setActiveEffort: (e) => set({ activeEffort: e }),
+      toggleActiveEffort: (e) =>
+        set((s) => ({ activeEffort: toggleReasoningEffortSelection(s.activeEffort, e) })),
       pinEffort: (e) => set({ pinnedEffort: get().pinnedEffort === e ? null : e }),
       resetActive: ({ modelId, webSearch, xSearch, effort }) =>
         set((s) => ({
           activeModelId: modelId ?? s.pinnedModelId,
           activeWebSearch: webSearch ?? null,
           activeXSearch: xSearch ?? null,
-          activeEffort: effort ?? s.pinnedEffort,
+          activeEffort: resolveActiveReasoningEffort(effort, s.pinnedEffort),
         })),
 
       setImageSize: (s) => set({ imageSize: s }),

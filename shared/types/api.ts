@@ -273,7 +273,7 @@ export interface ConversationDetail {
   messages: MessageDTO[]
   /** 该会话最近一次生成所用模型（DB id），用于打开会话时恢复模型选择 */
   lastModelId: string | null
-  /** 该会话最近一次生成的联网/X 搜索/思考设置，用于恢复控件 */
+  /** 该会话最近一次生成的联网/X 搜索/思考设置；推理强度缺省表示自动 */
   lastParams: {
     web_search?: boolean
     x_search?: boolean
