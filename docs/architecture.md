@@ -160,6 +160,8 @@
 
 `prepareRun()`：
 
+推理参数在写库前由 `normalizeReasoningParamsForModel()` 校验；它与前端共用 `shared/util/reasoning.ts reasoningEffortSelectionError()`。非图片且开启 reasoning 能力的模型，必须能从用户选择、`defaultParams.reasoning_effort`、`defaultEffort` 中解析出属于 `allowedEfforts` 的档位，否则返回 `400 reasoning_effort_required`，不创建会话、消息、run 或固定周期锚点。`prepareRegenerate()` 同样校验；缺省和已失效档位均不允许落入上游自动默认，显式 `none` 和自定义合法档位正常放行。不支持 reasoning 的模型及图片模型不受此要求影响。
+
 1. `getRunnableModel(modelId,userId)` 取模型+Provider（两者全局启用，且模型范围包含当前用户才行；管理员也不隐式绕过）。
    1a. `prepareQuotaAdmission(userId, model.id)`（`services/quota.ts`）——放在**任何写库之前**，同时返回拦截结果与需要启动的固定周期声明；被拦下的请求不留占位消息也不建 run，`PrepareError.status` 因此扩展为 `400 | 404 | 429`，code 为 `quota_exceeded`，文案含「哪条限制 / 已用多少 / 何时重置」。`prepareRegenerate` 同样校验；标题总结属于后台维护调用，明确不走额度准入。
 2. 校验附件归属与能力（图片需 `vision`、文件需 `file_input`）；Anthropic 另校验图片 MIME/单图 base64 10MB、文件仅 PDF/`text/*`，不通过返 400。
@@ -268,6 +270,7 @@
     - ⚠ `useSizeTransition(desktopPanelRef, …)` 的 signature 现在是 `模型 id ␟ 视图`：只认模型 id 的话，切换视图导致的宽高变化会跳变而不是过渡。
   - **尺寸过渡**：切换模型引起分区增减（思考/联网/图片参数），或切换平铺/二级目录视图时，面板经 `hooks/useSizeTransition.ts` 做 FLIP 式过渡；平时不锁定 `fit-content` / flex 自然尺寸，只在 signature 变化的提交中临时接管 width / height，结束后立即交还给布局，连续切换会从在途动画的当前布局值续接。Hook 另以 `ResizeObserver` 跟踪折叠分组、二级目录钻取等仅发生在子组件内的自然尺寸变化；否则父组件未重渲染时基线会停留在旧高度，下一次切模型会先闪回旧高度再收缩。Hook 自己接管尺寸期间忽略 observer 的动画插值，并在结束时写回目标基线。新参数区先渲染而面板尚在旧高度时，模型列表可能短暂溢出；标记为 `.hc-size-transition-scroll-region` 的列表若在**目标自然布局**中并不溢出，过渡期间会临时隐藏 scrollbar，目标态确实需要滚动时则始终保留。桌面弹层同时过渡自适应宽度与高度，移动 bottom sheet 宽度固定铺满视口、仅过渡高度；reduced-motion 直接落位。**切换选项不自动关闭是有意为之**（三项设置聚合，用户常一次改多个）。侧向弹层（hero 居中）的水平位置在打开时按触发器宽度冻结 right 偏移——触发器右缘稳定、左缘随标签文字变化，若按左缘锚定（right-full）切换选项会带着面板晃动。
   - **推理强度**：横向分段选择，描述来自模型的动态有序配置，上游实际值保留在悬停提示与无障碍名称中；六档以内等宽，更多档位横向滚动。只在分区标题左侧显示当前档位的原版大脑图标（`max` 复用 `xhigh`，未知值回退 `high`），触发器和各档选项均不显示图标；高亮「本次请求实际会用」的档位（与触发器同口径），点击临时生效；分区标题右侧「固定/已固定」按钮把当前档设为新会话默认（再点取消），已固定但当前未使用的档位在右上角以小圆点标记。
+    - 无有效档位时仅在触发器显示「选择推理强度」，输入框上方和模型菜单内均不另加提示文案；`ChatView` 禁用发送并拦截编辑重发、重新生成，已有草稿保留。前端请求显式携带当前高亮的有效档位（含管理员默认值），与界面保持一致；模型未配置任何档位时校验错误提示切换模型或联系管理员。浅色/深色、桌面/移动端共用相同规则，不设「自动」档位。
   - **联网搜索 / X 搜索**：同一分区里的两行独立开关（`data-testid="web-search-toggle"` / `"x-search-toggle"`，仅在对应 `capabilities` 打开时出现），开关不关菜单；两者可同时开启，触发器上分别显示小地球与 X 标记。
   - **图片模型参数**：分辨率为 3 列预设网格，每项带按宽高比绘制的**比例缩略图**（auto 为虚线方框）；自定义宽高与画质分段各压成单行（行首对齐标签），保证整个参数分区在面板内完整可见、绝不滚动。
   - **桌面端**为锚定弹层（沉底会话在输入框内**向上**弹；宽度以 `w-80`/20rem 为紧凑下限，按模型行的固有宽度 `w-fit` 适量扩展，上限为 `min(24rem, 100vw - 1.5rem)`，因此名称与多个标签需要空间时才变宽，窄视口仍安全收敛；首选方向可用高度不足 <420px 且对侧更宽裕时在上/下之间自动翻转，并按所选方向动态限高，缩放动画原点随方向切换）。**新对话（hero 居中）时上下都窄、横向才宽裕，改为侧向弹**（`placement='left'`，由 ChatView 按 `heroComposer` 切换）：贴触发器左侧（`right-full mr-2`）、以触发器竖直中点为中心上下对称展开（`top-1/2 -translate-y-1/2`），按较窄一侧空间 ×2 动态限高、动画原点取 `right`。**移动端**为底部弹层 bottom sheet（`createPortal` 到 body，遮罩点击/Escape 关闭，顶部抓手、安全区内边距、更大的触控行高，动效 `hc-sheet-in` 克制快出），宽度仍铺满视口。面板内部为弹性布局——思考/联网/图片参数分区始终可见，仅模型列表在空间不足时收缩滚动（最低保留约 3.5 行）。

@@ -3,7 +3,7 @@ import type { ContentPart, ModelParams } from '@shared/types/domain'
 import { shouldValidateGptImage2Size, validateGptImage2Size } from '@shared/util/imageSize'
 import { renderPromptTemplate } from '@shared/util/promptTemplate'
 import { processStepsOf } from '@shared/util/processTrack'
-import { isReasoningEffortAllowed } from '@shared/util/reasoning'
+import { isReasoningEffortAllowed, reasoningEffortSelectionError } from '@shared/util/reasoning'
 import { normalizeSearchParamsForModelKind } from '@shared/util/searchTools'
 import { db } from '../db/client'
 import { attachments, conversations, messages, runs, users } from '../db/schema'
@@ -101,13 +101,17 @@ function normalizeImageParamsForModel(
 function normalizeReasoningParamsForModel(
   model: ModelRow,
   params?: ModelParams,
-): ModelParams | undefined {
+): { ok: true; params?: ModelParams } | PrepareError {
+  const selectionError = reasoningEffortSelectionError(model, params)
+  if (selectionError) {
+    return { ok: false, status: 400, message: selectionError, code: 'reasoning_effort_required' }
+  }
   if (!params?.reasoning_effort || isReasoningEffortAllowed(model, params.reasoning_effort)) {
-    return params
+    return { ok: true, params }
   }
   // 固定思考等级是跨模型偏好；落到某次请求前必须按当前模型能力裁剪。
   const { reasoning_effort: _unsupportedEffort, ...rest } = params
-  return rest
+  return { ok: true, params: rest }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -613,7 +617,8 @@ export async function prepareRun(args: PrepareArgs): Promise<PrepareResult> {
     }
   }
   const reasoningParams = normalizeReasoningParamsForModel(model, args.params)
-  const normalizedParams = normalizeImageParamsForModel(model, reasoningParams)
+  if (!reasoningParams.ok) return reasoningParams
+  const normalizedParams = normalizeImageParamsForModel(model, reasoningParams.params)
   if (!normalizedParams.ok) return normalizedParams
 
   const refs = args.attachments ?? []
@@ -886,7 +891,8 @@ export async function prepareRegenerate(args: RegenerateArgs): Promise<PrepareRe
   const quotaAdmission = await prepareQuotaOrError(args.userId, model.id)
   if (!quotaAdmission.ok) return quotaAdmission
   const reasoningParams = normalizeReasoningParamsForModel(model, args.params)
-  const normalizedParams = normalizeImageParamsForModel(model, reasoningParams)
+  if (!reasoningParams.ok) return reasoningParams
+  const normalizedParams = normalizeImageParamsForModel(model, reasoningParams.params)
   if (!normalizedParams.ok) return normalizedParams
 
   if (model.kind === 'responses' || model.kind === 'chat' || model.kind === 'anthropic') {

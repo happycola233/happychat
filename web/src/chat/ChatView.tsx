@@ -19,7 +19,11 @@ import type {
   MessageDTO,
 } from '@shared/types/api'
 import type { ModelParams } from '@shared/types/domain'
-import { isReasoningEffortAllowed, isReasoningEnabled } from '@shared/util/reasoning'
+import {
+  effectiveReasoningEffort,
+  isReasoningEnabled,
+  reasoningEffortSelectionError,
+} from '@shared/util/reasoning'
 import { createConversationBranch, switchBranch } from '../api/chat'
 import { ApiRequestError } from '../api/client'
 import { abortRun, getActiveRun, regenerateRun, startRun } from '../api/runs'
@@ -123,6 +127,9 @@ export default function ChatView() {
   const devicePixelRatio = useDevicePixelRatio()
   const { data: models } = useModels()
   const model = models?.find((m) => m.id === activeModelId)
+  const reasoningParams = { reasoning_effort: activeEffort ?? undefined }
+  const effectiveEffort = effectiveReasoningEffort(model, reasoningParams)
+  const reasoningSelectionError = reasoningEffortSelectionError(model, reasoningParams)
   const { data: quota } = useMyQuota()
   const modelQuotaExhausted = Boolean(model && quota?.blockedModelIds.includes(model.id))
   const { data: detail } = useConversation(id)
@@ -662,7 +669,8 @@ export default function ChatView() {
         if (activeWebSearch !== null) p.web_search = activeWebSearch
         if (activeXSearch !== null) p.x_search = activeXSearch
       }
-      if (isReasoningEffortAllowed(model, activeEffort)) p.reasoning_effort = activeEffort
+      // 显式发送界面高亮的档位，避免管理员默认值变更后本次请求悄悄换档。
+      if (effectiveEffort) p.reasoning_effort = effectiveEffort
     }
     return p
   }
@@ -677,6 +685,7 @@ export default function ChatView() {
         models ? '当前账号暂无可用模型，请联系管理员' : '模型列表加载中，请稍后再试',
       )
     }
+    if (reasoningSelectionError) return toast.error(reasoningSelectionError)
     if (selectedImageSources.length > 0 && model.kind !== 'image') {
       return toast.error('请使用图片模型编辑图片')
     }
@@ -725,6 +734,10 @@ export default function ChatView() {
       toast.error(models ? '当前账号暂无可用模型，请联系管理员' : '模型列表加载中，请稍后再试')
       return false
     }
+    if (reasoningSelectionError) {
+      toast.error(reasoningSelectionError)
+      return false
+    }
     if (model.kind === 'image' && !input.text.trim()) {
       toast.error('请输入图片生成或编辑提示词')
       return false
@@ -762,6 +775,10 @@ export default function ChatView() {
   const onRegenerate = (assistantMessageId: string) => {
     if (!model) {
       toast.error(models ? '当前账号暂无可用模型，请联系管理员' : '模型列表加载中，请稍后再试')
+      return
+    }
+    if (reasoningSelectionError) {
+      toast.error(reasoningSelectionError)
       return
     }
     if (modelQuotaExhausted) {
@@ -1011,7 +1028,13 @@ export default function ChatView() {
           <Composer
             onSend={onSend}
             notice={<QuotaNotice />}
-            disabled={sendMut.isPending || streaming || !model || modelQuotaExhausted}
+            disabled={
+              sendMut.isPending ||
+              streaming ||
+              !model ||
+              modelQuotaExhausted ||
+              !!reasoningSelectionError
+            }
             streaming={streaming}
             onStop={onStop}
             modelControl={

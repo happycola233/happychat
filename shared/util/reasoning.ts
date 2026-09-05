@@ -95,6 +95,17 @@ export function effectiveReasoningEffort(
   return candidates.find((effort) => isReasoningEffortAllowed(model, effort)) ?? null
 }
 
+/** 缺少有效档位时必须先选择，不能把省略参数当作可发送的「自动」档位。 */
+export function reasoningEffortSelectionError(
+  model: ReasoningModelConfig | null | undefined,
+  requestParams?: ModelParams | null,
+): string | null {
+  if (!canUseReasoning(model) || effectiveReasoningEffort(model, requestParams)) return null
+  return normalizeReasoningEffortOptions(model.allowedEfforts).length > 0
+    ? '请选择推理强度后发送消息'
+    : '该模型暂无可用的推理强度，请切换模型或联系管理员'
+}
+
 export function isReasoningEnabled(
   model: ReasoningModelConfig | null | undefined,
   requestParams?: ModelParams | null,

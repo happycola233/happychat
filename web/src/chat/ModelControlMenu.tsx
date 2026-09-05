@@ -75,8 +75,9 @@ function ReasoningSection({ model }: { model: ModelDTO }) {
   const setActiveEffort = useChatPrefs((s) => s.setActiveEffort)
   const pinnedEffort = useChatPrefs((s) => s.pinnedEffort)
   const pinEffort = useChatPrefs((s) => s.pinEffort)
-  const activeSupportedEffort = isReasoningEffortAllowed(model, activeEffort) ? activeEffort : null
-  const effectiveEffort = activeSupportedEffort ?? effectiveReasoningEffort(model)
+  const effectiveEffort = effectiveReasoningEffort(model, {
+    reasoning_effort: activeEffort ?? undefined,
+  })
   const pinnedSupported = isReasoningEffortAllowed(model, pinnedEffort) ? pinnedEffort : null
   const isPinnedCurrent = pinnedSupported !== null && pinnedSupported === effectiveEffort
   const effectiveOption = findReasoningEffortOption(model.allowedEfforts, effectiveEffort)
@@ -611,14 +612,15 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
   )
   const showWebSearch = Boolean(model && supportsSearchTools && model.capabilities.web_search)
   const showXSearch = Boolean(model && supportsSearchTools && model.capabilities.x_search)
-  const activeSupportedEffort = isReasoningEffortAllowed(model, activeEffort) ? activeEffort : null
-  const effectiveEffort = model ? (activeSupportedEffort ?? effectiveReasoningEffort(model)) : null
+  const effectiveEffort = effectiveReasoningEffort(model, {
+    reasoning_effort: activeEffort ?? undefined,
+  })
   const webEnabled = model ? (activeWebSearch ?? effectiveWebSearchEnabled(model)) : false
   const xEnabled = model ? (activeXSearch ?? effectiveXSearchEnabled(model)) : false
   const effectiveEffortOption = model
     ? findReasoningEffortOption(model.allowedEfforts, effectiveEffort)
     : null
-  const effortLabel = showReasoning ? (effectiveEffortOption?.description ?? '自动') : null
+  const effortLabel = showReasoning ? (effectiveEffortOption?.description ?? '选择推理强度') : null
   const triggerGlobe = showWebSearch && webEnabled
   const triggerXMark = showXSearch && xEnabled
 
@@ -758,7 +760,7 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
         onClick={() => setOpen((v) => !v)}
         title={
           model
-            ? `模型：${model.displayName}${showReasoning ? `；推理强度：${effectiveEffortOption ? `${effectiveEffortOption.description}（${effectiveEffortOption.value}）` : '自动（沿用上游默认）'}` : ''}`
+            ? `模型：${model.displayName}${showReasoning ? `；推理强度：${effectiveEffortOption ? `${effectiveEffortOption.description}（${effectiveEffortOption.value}）` : '请选择'}` : ''}`
             : '选择模型'
         }
         className={clsx(

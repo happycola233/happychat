@@ -1,5 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
@@ -19,7 +18,9 @@ type PreparedRunWithUser = PreparedRunResult & {
 }
 
 beforeAll(async () => {
-  tmpDir = mkdtempSync(join(tmpdir(), 'happychat-prepare-'))
+  const testTempRoot = join(process.cwd(), '.tmp')
+  mkdirSync(testTempRoot, { recursive: true })
+  tmpDir = mkdtempSync(join(testTempRoot, 'happychat-prepare-'))
   process.env.NODE_ENV = 'test'
   process.env.DATA_DIR = tmpDir
   process.env.DATABASE_URL = join(tmpDir, 'happychat-test.db')
@@ -40,7 +41,7 @@ afterAll(() => {
   if (tmpDir) rmSync(tmpDir, { recursive: true, force: true })
 })
 
-async function createRunnableModel() {
+async function createRunnableModel(overrides: Partial<typeof schema.models.$inferInsert> = {}) {
   const n = fixtureSeq++
   const userId = `user-${n}`
   const providerId = `provider-${n}`
@@ -73,6 +74,7 @@ async function createRunnableModel() {
       image_generation: false,
       reasoning: false,
     },
+    ...overrides,
   })
 
   return { userId, modelId, providerId, providerBaseUrl, upstreamModelId }
@@ -543,6 +545,129 @@ describe('prepareRun active leaf', () => {
     expect(result.body.tools).toEqual([{ type: 'web_search' }])
     expect(result.run.requestParams).not.toHaveProperty('web_search')
     expect(lastRun.params?.web_search).toBe(true)
+  })
+
+  const reasoningConfig = {
+    capabilities: {
+      vision: false,
+      file_input: false,
+      web_search: false,
+      x_search: false,
+      image_generation: false,
+      reasoning: true,
+    },
+    allowedEfforts: ['none', 'high', 'vendor-max'],
+  }
+
+  it.each(['responses', 'chat', 'anthropic'] as const)(
+    'rejects %s sends without a selected effort before creating any records',
+    async (kind) => {
+      const { userId, modelId, providerId } = await createRunnableModel({
+        ...reasoningConfig,
+        kind,
+      })
+      if (kind === 'anthropic') {
+        await dbClient.db
+          .update(schema.providers)
+          .set({ protocol: 'anthropic' })
+          .where(eq(schema.providers.id, providerId))
+      }
+      await bindAnchoredQuota(userId)
+
+      for (const params of [undefined, {}, { reasoning_effort: 'removed-level' }]) {
+        const result = await prepare.prepareRun({ userId, modelId, text: 'test message', params })
+        expect(result).toMatchObject({
+          ok: false,
+          status: 400,
+          code: 'reasoning_effort_required',
+          message: '请选择推理强度后发送消息',
+        })
+      }
+      expect(
+        await dbClient.db
+          .select()
+          .from(schema.conversations)
+          .where(eq(schema.conversations.userId, userId)),
+      ).toEqual([])
+      expect(
+        await dbClient.db.select().from(schema.runs).where(eq(schema.runs.userId, userId)),
+      ).toEqual([])
+      expect(
+        await dbClient.db
+          .select()
+          .from(schema.quotaCycles)
+          .where(eq(schema.quotaCycles.userId, userId)),
+      ).toEqual([])
+    },
+  )
+
+  it.each(['none', 'vendor-max'])(
+    'sends an explicitly selected %s unchanged without an admin default',
+    async (effort) => {
+      const { userId, modelId } = await createRunnableModel(reasoningConfig)
+      const result = assertPrepared(
+        await prepare.prepareRun({
+          userId,
+          modelId,
+          text: 'test message',
+          params: { reasoning_effort: effort },
+        }),
+      )
+      expect(result.body.reasoning).toEqual({ effort })
+      expect(result.run.requestParams?.reasoning_effort).toBe(effort)
+    },
+  )
+
+  it('rejects edit and regenerate after the selected level is removed without changing the branch', async () => {
+    const { userId, modelId } = await createRunnableModel({
+      ...reasoningConfig,
+      defaultEffort: 'high',
+    })
+    const first = assertPrepared(
+      await prepare.prepareRun({ userId, modelId, text: 'test message' }),
+    )
+    await dbClient.db
+      .update(schema.models)
+      .set({ allowedEfforts: ['none'], defaultEffort: null })
+      .where(eq(schema.models.id, modelId))
+
+    const edited = await prepare.prepareRun({
+      userId,
+      modelId,
+      conversationId: first.conversation.id,
+      parentId: null,
+      text: 'edited test message',
+      params: { reasoning_effort: 'high' },
+    })
+    const regenerated = await prepare.prepareRegenerate({
+      userId,
+      assistantMessageId: first.assistantMessage.id,
+      params: {},
+    })
+    expect(edited).toMatchObject({ ok: false, code: 'reasoning_effort_required' })
+    expect(regenerated).toMatchObject({ ok: false, code: 'reasoning_effort_required' })
+    expect(
+      await dbClient.db
+        .select()
+        .from(schema.messages)
+        .where(eq(schema.messages.conversationId, first.conversation.id)),
+    ).toHaveLength(2)
+    expect(
+      await dbClient.db.select().from(schema.runs).where(eq(schema.runs.userId, userId)),
+    ).toHaveLength(1)
+    const [conversation] = await dbClient.db
+      .select()
+      .from(schema.conversations)
+      .where(eq(schema.conversations.id, first.conversation.id))
+    expect(conversation?.activeLeafId).toBe(first.assistantMessage.id)
+
+    const retry = await prepare.prepareRegenerate({
+      userId,
+      assistantMessageId: first.assistantMessage.id,
+      params: { reasoning_effort: 'none' },
+    })
+    if (!retry.ok) throw new Error(retry.message)
+    expect(retry.body.reasoning).toEqual({ effort: 'none' })
   })
 
   it('drops a pinned reasoning effort unsupported by the selected model', async () => {

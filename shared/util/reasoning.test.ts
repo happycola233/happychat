@@ -5,6 +5,7 @@ import {
   isReasoningEnabled,
   normalizeReasoningEffortOptions,
   requestedReasoningEffort,
+  reasoningEffortSelectionError,
 } from './reasoning'
 
 const model = (overrides: Partial<ReasoningModelConfig> = {}): ReasoningModelConfig => ({
@@ -17,6 +18,45 @@ const model = (overrides: Partial<ReasoningModelConfig> = {}): ReasoningModelCon
 })
 
 describe('reasoning settings', () => {
+  it('requires a choice when a new reasoning model has no default', () => {
+    expect(reasoningEffortSelectionError(model())).toBe('请选择推理强度后发送消息')
+    expect(effectiveReasoningEffort(model())).toBeNull()
+  })
+
+  it('requires a new choice when saved and admin efforts are no longer allowed', () => {
+    const m = model({
+      allowedEfforts: ['low'],
+      defaultEffort: 'high',
+      defaultParams: { reasoning_effort: 'medium' },
+    })
+    expect(reasoningEffortSelectionError(m, { reasoning_effort: 'xhigh' })).not.toBeNull()
+  })
+
+  it('accepts explicit none, custom levels and either supported admin default', () => {
+    expect(reasoningEffortSelectionError(model(), { reasoning_effort: 'none' })).toBeNull()
+    expect(
+      reasoningEffortSelectionError(model({ allowedEfforts: ['vendor-max'] }), {
+        reasoning_effort: 'vendor-max',
+      }),
+    ).toBeNull()
+    expect(reasoningEffortSelectionError(model({ defaultEffort: 'high' }))).toBeNull()
+    expect(
+      reasoningEffortSelectionError(model({ defaultParams: { reasoning_effort: 'low' } })),
+    ).toBeNull()
+  })
+
+  it('explains when the model has no selectable levels', () => {
+    expect(reasoningEffortSelectionError(model({ allowedEfforts: [] }))).toBe(
+      '该模型暂无可用的推理强度，请切换模型或联系管理员',
+    )
+  })
+
+  it('does not require reasoning settings for image or non-reasoning models', () => {
+    expect(reasoningEffortSelectionError(model({ kind: 'image' }))).toBeNull()
+    expect(reasoningEffortSelectionError(model({ capabilities: { reasoning: false } }))).toBeNull()
+    expect(reasoningEffortSelectionError(null)).toBeNull()
+  })
+
   it('preserves a custom raw effort from request params', () => {
     expect(requestedReasoningEffort({ reasoning_effort: 'vendor-max' })).toBe('vendor-max')
     expect(requestedReasoningEffort({ reasoning_effort: '' })).toBeNull()

@@ -1,8 +1,10 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ModelParams, ReasoningEffortOption } from '@shared/types/domain'
 
 const mocks = vi.hoisted(() => ({
   sizeTransition: vi.fn(),
+  activeEffort: null as string | null,
   model: {
     id: 'model-a',
     modelId: 'gpt-test',
@@ -20,11 +22,11 @@ const mocks = vi.hoisted(() => ({
     tags: [],
     icon: null,
     groupId: null,
-    allowedEfforts: [],
-    defaultEffort: null,
+    allowedEfforts: [] as ReasoningEffortOption[],
+    defaultEffort: null as string | null,
     defaultWebSearch: false,
     defaultXSearch: false,
-    defaultParams: null,
+    defaultParams: null as ModelParams | null,
   },
 }))
 
@@ -41,7 +43,7 @@ vi.mock('../store/chat', () => ({
     selector({
       activeModelId: mocks.model.id,
       setActiveModel: vi.fn(),
-      activeEffort: null,
+      activeEffort: mocks.activeEffort,
       activeWebSearch: null,
       activeXSearch: null,
     }),
@@ -58,6 +60,11 @@ describe('ModelControlMenu size transition', () => {
   beforeEach(() => {
     mocks.sizeTransition.mockClear()
     mocks.model.kind = 'responses'
+    mocks.activeEffort = null
+    mocks.model.capabilities.reasoning = false
+    mocks.model.allowedEfforts = []
+    mocks.model.defaultEffort = null
+    mocks.model.defaultParams = null
     mocks.model.capabilities.web_search = false
     mocks.model.capabilities.x_search = false
     mocks.model.defaultWebSearch = false
@@ -73,6 +80,36 @@ describe('ModelControlMenu size transition', () => {
       ['model-a␟tree', { width: false, height: true }],
     ])
   })
+
+  it('asks for a reasoning level instead of displaying automatic mode', () => {
+    mocks.model.capabilities.reasoning = true
+    mocks.model.allowedEfforts = [{ value: 'high', description: '高' }]
+    mocks.activeEffort = 'removed-level'
+
+    const html = renderToStaticMarkup(
+      <ModelControlMenu placement="up" align="end" variant="composer" />,
+    )
+    expect(html).toContain('选择推理强度')
+    expect(html).toContain('推理强度：请选择')
+    expect(html).not.toContain('自动')
+  })
+
+  it.each(['selected', 'defaultEffort', 'defaultParams'] as const)(
+    'displays the supported %s level in the trigger',
+    (source) => {
+      mocks.model.capabilities.reasoning = true
+      mocks.model.allowedEfforts = [{ value: 'none', description: '不推理' }]
+      if (source === 'selected') mocks.activeEffort = 'none'
+      if (source === 'defaultEffort') mocks.model.defaultEffort = 'none'
+      if (source === 'defaultParams') mocks.model.defaultParams = { reasoning_effort: 'none' }
+
+      const html = renderToStaticMarkup(
+        <ModelControlMenu placement="up" align="end" variant="composer" />,
+      )
+      expect(html).toContain('推理强度：不推理（none）')
+      expect(html).not.toContain('选择推理强度')
+    },
+  )
 
   it('hides stale Web/X Search capabilities from Chat Completions models', () => {
     mocks.model.kind = 'chat'
