@@ -41,9 +41,10 @@ describe('getConversationRunPrefs', () => {
     })
   })
 
-  it('keeps automatic reasoning unselected while filling effective search defaults', () => {
+  it('fills omitted params from model defaults like the server conversation detail endpoint', () => {
     expect(getConversationRunPrefs(baseModel, {})).toEqual({
       web_search: true,
+      reasoning_effort: 'medium',
     })
   })
 

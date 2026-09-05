@@ -1,6 +1,6 @@
 import type { ModelDTO } from '@shared/types/api'
 import type { ModelParams, ReasoningEffort } from '@shared/types/domain'
-import { isReasoningEffortAllowed } from '@shared/util/reasoning'
+import { effectiveReasoningEffort } from '@shared/util/reasoning'
 import {
   effectiveWebSearchEnabled,
   effectiveXSearchEnabled,
@@ -14,8 +14,8 @@ export type ConversationRunPrefs = {
 }
 
 /**
- * 前端乐观缓存会话详情时，按服务端 getConversationLastRun 的口径记录本次 run 的偏好。
- * 检索开关回填实际生效值；推理强度只回填用户显式选择，省略时保持「自动」。
+ * 前端乐观缓存会话详情时，按服务端 getConversationLastRun 的口径记录本次 run 的有效偏好。
+ * 请求体可能省略“沿用模型默认”的项，因此不能只回填 requestParams。
  */
 export function getConversationRunPrefs(
   model: ModelDTO | null | undefined,
@@ -31,10 +31,8 @@ export function getConversationRunPrefs(
     if (supportsSearchTools && model.capabilities.x_search) {
       params.x_search = effectiveXSearchEnabled(model, requestParams)
     }
-    const requestedEffort = requestParams?.reasoning_effort
-    if (isReasoningEffortAllowed(model, requestedEffort)) {
-      params.reasoning_effort = requestedEffort
-    }
+    const effort = effectiveReasoningEffort(model, requestParams)
+    if (effort) params.reasoning_effort = effort
   } else {
     if (requestParams?.web_search !== undefined) params.web_search = requestParams.web_search
     if (requestParams?.x_search !== undefined) params.x_search = requestParams.x_search

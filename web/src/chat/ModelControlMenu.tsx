@@ -4,7 +4,11 @@ import { clsx } from 'clsx'
 import { Check, ChevronDown, Globe, Layers3, List, Pin } from 'lucide-react'
 import type { ModelDTO, ModelGroupDTO } from '@shared/types/api'
 import type { ModelPickerView } from '@shared/types/domain'
-import { findReasoningEffortOption, isReasoningEffortAllowed } from '@shared/util/reasoning'
+import {
+  effectiveReasoningEffort,
+  findReasoningEffortOption,
+  isReasoningEffortAllowed,
+} from '@shared/util/reasoning'
 import {
   effectiveWebSearchEnabled,
   effectiveXSearchEnabled,
@@ -62,44 +66,45 @@ function Divider() {
 }
 
 /**
- * 推理强度：横向分段选择（点击临时生效并保持菜单打开）。再点已选档位会取消选择，
- * 回到不显式指定 reasoning_effort 的「自动」状态；上游实际值保留在悬停提示里。
+ * 推理强度：横向分段选择（点击临时生效并保持菜单打开），高亮「本次请求实际会用」的档位，
+ * 与触发器标签同口径；上游实际值（low/high…）保留在悬停提示里。
  * 右上角「固定/已固定」按钮把当前档位设为新会话默认；已固定但当前未使用的档位以小圆点标记。
  */
 function ReasoningSection({ model }: { model: ModelDTO }) {
   const activeEffort = useChatPrefs((s) => s.activeEffort)
-  const toggleActiveEffort = useChatPrefs((s) => s.toggleActiveEffort)
+  const setActiveEffort = useChatPrefs((s) => s.setActiveEffort)
   const pinnedEffort = useChatPrefs((s) => s.pinnedEffort)
   const pinEffort = useChatPrefs((s) => s.pinEffort)
-  const selectedEffort = isReasoningEffortAllowed(model, activeEffort) ? activeEffort : null
+  const activeSupportedEffort = isReasoningEffortAllowed(model, activeEffort) ? activeEffort : null
+  const effectiveEffort = activeSupportedEffort ?? effectiveReasoningEffort(model)
   const pinnedSupported = isReasoningEffortAllowed(model, pinnedEffort) ? pinnedEffort : null
-  const isPinnedCurrent = pinnedSupported !== null && pinnedSupported === selectedEffort
-  const selectedOption = findReasoningEffortOption(model.allowedEfforts, selectedEffort)
-  const selectedButtonRef = useRef<HTMLButtonElement>(null)
+  const isPinnedCurrent = pinnedSupported !== null && pinnedSupported === effectiveEffort
+  const effectiveOption = findReasoningEffortOption(model.allowedEfforts, effectiveEffort)
+  const activeButtonRef = useRef<HTMLButtonElement>(null)
 
-  // 档位较多需要横向滚动时，让当前选中项在首次打开和切换后始终可见。
+  // 档位较多需要横向滚动时，让当前生效项在首次打开和切换后始终可见。
   useLayoutEffect(() => {
-    selectedButtonRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-  }, [selectedEffort])
+    activeButtonRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [effectiveEffort])
 
   return (
     <div className="shrink-0 p-1.5">
       <SectionLabel
         action={
-          selectedEffort && (
+          effectiveEffort && (
             <button
               type="button"
-              onClick={() => pinEffort(selectedEffort)}
+              onClick={() => pinEffort(effectiveEffort)}
               aria-pressed={isPinnedCurrent}
               aria-label={
                 isPinnedCurrent
-                  ? `取消固定「${selectedOption?.description ?? selectedEffort}」`
-                  : `固定「${selectedOption?.description ?? selectedEffort}」为新会话默认`
+                  ? `取消固定「${effectiveOption?.description ?? effectiveEffort}」`
+                  : `固定「${effectiveOption?.description ?? effectiveEffort}」为新会话默认`
               }
               title={
                 isPinnedCurrent
                   ? '已固定为新会话默认，点击取消固定'
-                  : `将「${selectedOption?.description ?? selectedEffort}」固定为新会话默认`
+                  : `将「${effectiveOption?.description ?? effectiveEffort}」固定为新会话默认`
               }
               className={clsx(
                 'flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs transition',
@@ -118,7 +123,7 @@ function ReasoningSection({ model }: { model: ModelDTO }) {
         }
       >
         <span className="inline-flex items-center gap-1.5">
-          <ReasoningEffortIcon effort={selectedEffort} className="h-3.5 w-3.5 shrink-0" />
+          <ReasoningEffortIcon effort={effectiveEffort} className="h-3.5 w-3.5 shrink-0" />
           推理强度
         </span>
       </SectionLabel>
@@ -129,17 +134,17 @@ function ReasoningSection({ model }: { model: ModelDTO }) {
       >
         {model.allowedEfforts.map((option) => {
           const effort = option.value
-          const isActive = selectedEffort === option.value
+          const isActive = effectiveEffort === option.value
           const isPinnedHere = pinnedSupported === option.value
           return (
             <button
               key={option.value}
-              ref={isActive ? selectedButtonRef : undefined}
+              ref={isActive ? activeButtonRef : undefined}
               type="button"
-              onClick={() => toggleActiveEffort(effort)}
+              onClick={() => setActiveEffort(effort)}
               aria-pressed={isActive}
               aria-label={`${option.description}（${option.value}），本次会话临时生效${isPinnedHere ? '，新会话默认' : ''}`}
-              title={`${option.description}（${option.value}），再次点击可取消选择`}
+              title={`${option.description}（${option.value}），本次会话临时生效`}
               className={clsx(
                 'relative flex h-9 items-center justify-center rounded-lg border px-1.5 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400',
                 'min-w-12 max-w-40 flex-[1_0_auto] shrink-0',
@@ -598,7 +603,7 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
   useSizeTransition(desktopPanelRef, panelSizeSignature, { width: true, height: true })
   useSizeTransition(mobileDialogRef, panelSizeSignature, { width: false, height: true })
 
-  // —— 触发器上直接反映用户选择的推理强度与检索开关状态（下方渲染与宽度过渡共用）——
+  // —— 触发器上直接反映本次请求会用到的推理强度与检索开关状态（下方渲染与宽度过渡共用）——
   const isImage = model?.kind === 'image'
   const supportsSearchTools = modelKindSupportsSearchTools(model?.kind)
   const showReasoning = Boolean(
@@ -606,13 +611,14 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
   )
   const showWebSearch = Boolean(model && supportsSearchTools && model.capabilities.web_search)
   const showXSearch = Boolean(model && supportsSearchTools && model.capabilities.x_search)
-  const selectedEffort = isReasoningEffortAllowed(model, activeEffort) ? activeEffort : null
+  const activeSupportedEffort = isReasoningEffortAllowed(model, activeEffort) ? activeEffort : null
+  const effectiveEffort = model ? (activeSupportedEffort ?? effectiveReasoningEffort(model)) : null
   const webEnabled = model ? (activeWebSearch ?? effectiveWebSearchEnabled(model)) : false
   const xEnabled = model ? (activeXSearch ?? effectiveXSearchEnabled(model)) : false
-  const selectedEffortOption = model
-    ? findReasoningEffortOption(model.allowedEfforts, selectedEffort)
+  const effectiveEffortOption = model
+    ? findReasoningEffortOption(model.allowedEfforts, effectiveEffort)
     : null
-  const effortLabel = showReasoning ? (selectedEffortOption?.description ?? '自动') : null
+  const effortLabel = showReasoning ? (effectiveEffortOption?.description ?? '自动') : null
   const triggerGlobe = showWebSearch && webEnabled
   const triggerXMark = showXSearch && xEnabled
 
@@ -752,7 +758,7 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
         onClick={() => setOpen((v) => !v)}
         title={
           model
-            ? `模型：${model.displayName}${showReasoning ? `；推理强度：${selectedEffortOption ? `${selectedEffortOption.description}（${selectedEffortOption.value}）` : '自动（使用模型默认配置）'}` : ''}`
+            ? `模型：${model.displayName}${showReasoning ? `；推理强度：${effectiveEffortOption ? `${effectiveEffortOption.description}（${effectiveEffortOption.value}）` : '自动（沿用上游默认）'}` : ''}`
             : '选择模型'
         }
         className={clsx(

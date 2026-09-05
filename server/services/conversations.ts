@@ -5,11 +5,7 @@ import { textFromContent } from '@shared/util/contentText'
 import { normalizeModelCapabilities } from '@shared/util/modelCapabilities'
 import { costUsd as estimateCostUsd } from '@shared/util/cost'
 import { processStepsOf } from '@shared/util/processTrack'
-import {
-  isReasoningEffortAllowed,
-  isReasoningEnabled,
-  requestedReasoningEffort,
-} from '@shared/util/reasoning'
+import { effectiveReasoningEffort, isReasoningEnabled } from '@shared/util/reasoning'
 import {
   effectiveWebSearchEnabled,
   effectiveXSearchEnabled,
@@ -514,10 +510,8 @@ function toConversationRunPreferences(
     if (supportsSearchTools && capabilities.x_search) {
       params.x_search = effectiveXSearchEnabled(modelConfig, rp)
     }
-    const requestedEffort = requestedReasoningEffort(rp)
-    if (isReasoningEffortAllowed(modelConfig, requestedEffort)) {
-      params.reasoning_effort = requestedEffort
-    }
+    const effort = effectiveReasoningEffort(modelConfig, rp)
+    if (effort) params.reasoning_effort = effort
   } else {
     if (rp.web_search !== undefined) params.web_search = rp.web_search
     if (rp.x_search !== undefined) params.x_search = rp.x_search
