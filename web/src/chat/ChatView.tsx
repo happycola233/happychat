@@ -118,6 +118,7 @@ export default function ChatView() {
   const imageQuality = useChatPrefs((s) => s.imageQuality)
   const setActiveModel = useChatPrefs((s) => s.setActiveModel)
   const resetActive = useChatPrefs((s) => s.resetActive)
+  const reconcileActiveModel = useChatPrefs((s) => s.reconcileActiveModel)
   const autoScrollOnOpen = useSettings((s) => s.preferences.autoScrollOnOpen)
   const showScrollToBottom = useSettings((s) => s.preferences.showScrollToBottom)
   const showTimelineNav = useSettings((s) => s.preferences.showTimelineNav)
@@ -540,26 +541,25 @@ export default function ChatView() {
     if (msg && msg.status !== 'streaming') clearStream(id)
   }, [id, stream, detail, clearStream])
 
-  // 打开会话时恢复模型/联网/思考（每会话仅应用一次，避免后续刷新覆盖临时切换）
+  // 恢复与目录校正在绘制前按顺序执行，避免新聊天闪出上一会话的模型。
+  // 每次进入会话只恢复一次；目录刷新只能校正失效模型，不能覆盖手动选择。
   const appliedActiveRef = useRef<string | undefined>(undefined)
-  useEffect(() => {
+  useLayoutEffect(() => {
     const key = id ?? '__new__'
-    if (appliedActiveRef.current === key) return
-    if (!id) {
-      appliedActiveRef.current = key
-      resetActive({})
-      return
-    }
-    if (detail && detail.conversation.id === id) {
-      appliedActiveRef.current = key
+    if (appliedActiveRef.current !== key) {
+      // 详情尚未返回时先恢复新聊天默认，不能沿用刚离开的会话临时值。
+      const conversationDetail = detail?.conversation.id === id ? detail : undefined
       resetActive({
-        modelId: detail.lastModelId,
-        webSearch: detail.lastParams?.web_search,
-        xSearch: detail.lastParams?.x_search,
-        effort: detail.lastParams?.reasoning_effort ?? null,
+        modelId: conversationDetail?.lastModelId,
+        webSearch: conversationDetail?.lastParams?.web_search,
+        xSearch: conversationDetail?.lastParams?.x_search,
+        effort: conversationDetail?.lastParams?.reasoning_effort ?? null,
       })
+      // 等详情到达后再标记已恢复；离开正在加载的会话也会触发下一次恢复。
+      appliedActiveRef.current = id && !conversationDetail ? undefined : key
     }
-  }, [id, detail, resetActive])
+    if (models) reconcileActiveModel(models)
+  }, [id, detail, models, resetActive, reconcileActiveModel])
 
   // 流式/新内容时仅在贴底状态跟随，避免打断向上翻阅
   useEffect(() => {

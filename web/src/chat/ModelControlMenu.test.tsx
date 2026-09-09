@@ -42,7 +42,7 @@ vi.mock('../store/chat', () => ({
   useChatPrefs: (selector: (state: object) => unknown) =>
     selector({
       activeModelId: mocks.model.id,
-      setActiveModel: vi.fn(),
+      selectModel: vi.fn(),
       activeEffort: mocks.activeEffort,
       activeWebSearch: null,
       activeXSearch: null,

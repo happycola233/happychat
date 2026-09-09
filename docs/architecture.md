@@ -236,6 +236,7 @@
 
 - 服务端状态：**TanStack Query**（`['me']`/`['models']`/`['conversations']`/`['conversation',id]`/`['admin',*]`）。
 - 客户端持久偏好：**zustand persist** `store/chat.ts`（localStorage `happychat-prefs`）。
+  - `pinnedModelId` 只由模型选择器的 `selectModel` 更新，代表最后一次手动选择的新聊天默认；会话恢复、目录失效回退和图片编辑的自动切换只修改 `activeModelId`。失效时优先临时使用仍可用的固定默认，再使用目录首项；目录为空时清空临时模型，保留固定默认。`ChatView` 在同一个 layout effect 中先恢复会话偏好、再校正模型，避免旧会话模型闪入新聊天；选择器只负责显示和手动选择，不再自行回退。
 - 流式实时态：`store/stream.ts`（按 conversationId，**支持多会话并发流**）。
 - 后台回复提醒态：`store/conversationActivity.ts`（按 conversationId 记录未查看 run，完成通知短时展示；仅当前标签页内存态）。
 - 主题：`store/theme.ts`（localStorage `happychat-theme`）。

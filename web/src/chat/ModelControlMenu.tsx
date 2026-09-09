@@ -503,7 +503,7 @@ function MenuSections({
   sheet: boolean
 }) {
   const activeModelId = useChatPrefs((s) => s.activeModelId)
-  const setActiveModel = useChatPrefs((s) => s.setActiveModel)
+  const selectModel = useChatPrefs((s) => s.selectModel)
   const view = useSettings((s) => s.preferences.modelPickerView)
   const { data: quota } = useMyQuota()
   // 未开启限额（或无限额度）时集合为空，列表行为与之前完全一致。
@@ -529,7 +529,7 @@ function MenuSections({
         view={view}
         exhaustedModelIds={exhaustedModelIds}
         viewToggle={<ModelViewToggle view={view} sheet={sheet} />}
-        onSelectModel={setActiveModel}
+        onSelectModel={selectModel}
         modelParameterSections={
           <>
             {showReasoning && (
@@ -571,7 +571,6 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
   const { data: models } = useModels()
   const { data: groups } = useModelGroups()
   const activeModelId = useChatPrefs((s) => s.activeModelId)
-  const setActiveModel = useChatPrefs((s) => s.setActiveModel)
   const activeEffort = useChatPrefs((s) => s.activeEffort)
   const activeWebSearch = useChatPrefs((s) => s.activeWebSearch)
   const activeXSearch = useChatPrefs((s) => s.activeXSearch)
@@ -665,14 +664,6 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
     window.addEventListener('resize', syncPosition)
     return () => window.removeEventListener('resize', syncPosition)
   }, [open, placement, isMobile])
-
-  // 当前无有效选择（首次使用或所选已失效）时，回退首个可用模型
-  useEffect(() => {
-    if (!models?.length) return
-    if (!activeModelId || !models.some((m) => m.id === activeModelId)) {
-      setActiveModel(models[0]!.id)
-    }
-  }, [models, activeModelId, setActiveModel])
 
   useEffect(() => {
     if (!open) return
