@@ -1,4 +1,5 @@
 import type { AccentColor, ModelPickerView, UserPreferences } from '../types/domain'
+import { DEFAULT_CONTEXT_POLICY } from './contextPolicy'
 
 export const ACCENT_COLORS = [
   'default',
@@ -14,6 +15,7 @@ export const MODEL_PICKER_VIEWS = ['flat', 'tree'] as const satisfies readonly M
 
 /** 账户级偏好的默认值，前后端共用以保证一致。 */
 export const DEFAULT_PREFERENCES: UserPreferences = {
+  contextPolicy: DEFAULT_CONTEXT_POLICY,
   autoScrollOnOpen: true,
   showScrollToBottom: true,
   showTimelineNav: true,
@@ -51,6 +53,7 @@ export function mergePreferences(
   const legacySendOnEnterDesktop =
     typeof legacy?.sendOnEnter === 'boolean' ? legacy.sendOnEnter : undefined
   return {
+    contextPolicy: partial?.contextPolicy ?? DEFAULT_CONTEXT_POLICY,
     autoScrollOnOpen: partial?.autoScrollOnOpen ?? DEFAULT_PREFERENCES.autoScrollOnOpen,
     showScrollToBottom: partial?.showScrollToBottom ?? DEFAULT_PREFERENCES.showScrollToBottom,
     showTimelineNav: partial?.showTimelineNav ?? DEFAULT_PREFERENCES.showTimelineNav,

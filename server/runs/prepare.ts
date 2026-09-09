@@ -1,5 +1,13 @@
 import { and, eq, inArray, isNull } from 'drizzle-orm'
 import type { ContentPart, ModelParams } from '@shared/types/domain'
+import type { ContextAttachmentSelection, ContextPolicy } from '@shared/types/context'
+import {
+  DEFAULT_CONTEXT_POLICY,
+  isContextAttachment,
+  selectContext,
+  withExtraContextAttachments,
+} from '@shared/util/contextPolicy'
+import { getUserSettings } from '../services/settings'
 import { shouldValidateGptImage2Size, validateGptImage2Size } from '@shared/util/imageSize'
 import { renderPromptTemplate } from '@shared/util/promptTemplate'
 import { processStepsOf } from '@shared/util/processTrack'
@@ -11,11 +19,7 @@ import { buildPromptVars } from './promptVars'
 import { must } from '../lib/assert'
 import { buildChatBody, buildChatMessages } from '../provider/chat'
 import { buildAnthropicBody, buildAnthropicMessages } from '../provider/anthropic'
-import {
-  buildInput,
-  MAX_GENERATED_IMAGE_CONTEXT_ITEMS,
-  type ResolvedAttachment,
-} from '../provider/context'
+import { buildInput, type ResolvedAttachment } from '../provider/context'
 import { buildImageBody, buildImageEditBody, buildResponseBody } from '../provider/params'
 import { promptCacheKeyForConversation } from '../provider/promptCache'
 import type { AnthropicReplayContextV1, ProviderReplayContext } from '../provider/reasoning-replay'
@@ -26,13 +30,7 @@ import {
   prepareQuotaAdmission,
   type QuotaCycleClaim,
 } from '../services/quota'
-import {
-  MAX_FILE_INPUT_BYTES,
-  MAX_FILE_INPUT_REQUEST_BYTES,
-  fileInputMime,
-  toDataUrl,
-  uploadFileExists,
-} from '../storage/files'
+import { fileInputMime, toDataUrl, uploadFileExists } from '../storage/files'
 import type { ConvRow, ImageOperation, ModelRow, MsgRow, ProviderRow, RunRow } from './types'
 import { appendRuntimeContextInstructions, buildRuntimeContext } from './runtimeContext'
 
@@ -50,7 +48,6 @@ export interface ImageSourceRef {
 
 const IMAGE_EDIT_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp'])
 const ANTHROPIC_IMAGE_MIMES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
-const ANTHROPIC_MAX_BASE64_IMAGE_BYTES = 10 * 1024 * 1024
 
 export interface PreparedRun {
   ok: true
@@ -65,6 +62,72 @@ export interface PreparedRun {
 }
 export type PrepareError = { ok: false; status: 400 | 404 | 429; message: string; code: string }
 export type PrepareResult = PreparedRun | PrepareError
+
+/** 人工选择只允许引用当前会话里的附件，不能借附件 ID 跨会话或跨账号读取。 */
+async function validateContextAttachmentSelection(
+  userId: string,
+  availableMessages: MsgRow[],
+  selection: ContextAttachmentSelection | undefined,
+  model: ModelRow,
+): Promise<PrepareError | null> {
+  if (!selection || selection.include.length + selection.exclude.length === 0) return null
+  const availableIds = new Set(
+    availableMessages.flatMap((message) =>
+      message.content.filter(isContextAttachment).map((part) => part.attachment_id),
+    ),
+  )
+  if ([...selection.include, ...selection.exclude].some((id) => !availableIds.has(id))) {
+    return {
+      ok: false,
+      status: 400,
+      code: 'invalid_context_attachment',
+      message: '所选附件不在当前聊天中，请重新选择',
+    }
+  }
+  const ids = [...new Set(selection.include)]
+  if (ids.length === 0) return null
+  const rows = await db
+    .select()
+    .from(attachments)
+    .where(and(eq(attachments.userId, userId), inArray(attachments.id, ids)))
+  if (rows.length !== ids.length || rows.some((row) => !uploadFileExists(row.storagePath))) {
+    return {
+      ok: false,
+      status: 400,
+      code: 'invalid_context_attachment',
+      message: '所选历史附件已无法读取，请取消勾选或重新上传',
+    }
+  }
+  if (rows.some((row) => row.kind === 'image' && !model.capabilities.vision)) {
+    return {
+      ok: false,
+      status: 400,
+      code: 'no_vision',
+      message: '当前模型不支持图片，请调整附件选择或切换模型',
+    }
+  }
+  if (
+    rows.some(
+      (row) => row.kind === 'file' && (!model.capabilities.file_input || model.kind === 'image'),
+    )
+  ) {
+    return {
+      ok: false,
+      status: 400,
+      code: 'no_file',
+      message: '当前模型不支持文件，请调整附件选择或切换模型',
+    }
+  }
+  if (model.kind === 'image' && rows.some((row) => !IMAGE_EDIT_MIMES.has(row.mime))) {
+    return {
+      ok: false,
+      status: 400,
+      code: 'unsupported_image_input',
+      message: '图片模型参考图仅支持 PNG、JPEG 或 WebP',
+    }
+  }
+  return null
+}
 
 function normalizeImageParamsForModel(
   model: ModelRow,
@@ -205,100 +268,19 @@ async function resolveAttachments(
   return map
 }
 
-/**
- * OpenAI Responses / Chat Completions 会重放当前分支上的全部 input_file，
- * 因此预算必须覆盖历史文件和本轮文件，
- * 不能只在上传接口检查单个附件。
- */
-async function validateFileInputBudget(
-  pathMessages: MsgRow[],
-  newAttachments: AttachmentRef[],
-): Promise<PrepareError | null> {
-  const fileIds = pathMessages.flatMap((message) =>
-    message.content
-      .filter(
-        (part): part is Extract<ContentPart, { type: 'input_file' }> => part.type === 'input_file',
-      )
-      .map((part) => part.attachment_id),
-  )
-  fileIds.push(
-    ...newAttachments.filter((attachment) => attachment.kind === 'file').map((a) => a.attachmentId),
-  )
-  if (fileIds.length === 0) return null
-
-  const rows = await db
-    .select({
-      id: attachments.id,
-      byteSize: attachments.byteSize,
-      mime: attachments.mime,
-      filename: attachments.filename,
-    })
-    .from(attachments)
-    .where(inArray(attachments.id, [...new Set(fileIds)]))
-  const attachmentsById = new Map(rows.map((attachment) => [attachment.id, attachment]))
-  let totalBytes = 0
-
-  for (const fileId of fileIds) {
-    const attachment = attachmentsById.get(fileId)
-    // 缺失附件会在构建上下文时跳过；这里不把不存在的字节计入预算。
-    if (!attachment) continue
-    if (!fileInputMime(attachment.filename, attachment.mime)) {
-      return {
-        ok: false,
-        status: 400,
-        message: `不支持的文件类型：${attachment.filename}`,
-        code: 'unsupported_file_type',
-      }
-    }
-    if (attachment.byteSize >= MAX_FILE_INPUT_BYTES) {
-      return {
-        ok: false,
-        status: 400,
-        message: '单个文件必须小于 50MB',
-        code: 'file_too_large',
-      }
-    }
-    totalBytes += attachment.byteSize
-  }
-
-  if (totalBytes > MAX_FILE_INPUT_REQUEST_BYTES) {
-    return {
-      ok: false,
-      status: 400,
-      message: '单次请求中的文件总大小不能超过 50MB',
-      code: 'file_request_too_large',
-    }
-  }
-  return null
-}
-
-/** 在入队前校验 Anthropic 支持的附件类型与单图编码上限。完整 JSON 大小在 fetch 前精确校验。 */
+/** 在入队前校验当前选择的附件是否能映射为 Anthropic content blocks。 */
 async function validateAnthropicAttachments(
   pathMessages: MsgRow[],
   newAttachments: AttachmentRef[],
   imageSources: ImageSourceRef[],
 ): Promise<PrepareError | null> {
-  const generatedImageIdSet = new Set(
-    pathMessages
-      .flatMap((message) =>
-        message.content
-          .filter(
-            (part): part is Extract<ContentPart, { type: 'image_result' }> =>
-              part.type === 'image_result',
-          )
-          .map((part) => part.attachment_id),
-      )
-      .slice(-MAX_GENERATED_IMAGE_CONTEXT_ITEMS),
-  )
   const historicalRefs = pathMessages.flatMap((message) =>
     message.content
       .filter(
         (
           part,
         ): part is Extract<ContentPart, { type: 'input_image' | 'input_file' | 'image_result' }> =>
-          part.type === 'input_image' ||
-          part.type === 'input_file' ||
-          (part.type === 'image_result' && generatedImageIdSet.has(part.attachment_id)),
+          part.type === 'input_image' || part.type === 'input_file' || part.type === 'image_result',
       )
       .map((part) => ({
         id: part.attachment_id,
@@ -335,15 +317,6 @@ async function validateAnthropicAttachments(
           status: 400,
           message: `Anthropic 图片输入不支持：${attachment.filename}`,
           code: 'unsupported_image_input',
-        }
-      }
-      const base64Bytes = Math.ceil(attachment.byteSize / 3) * 4
-      if (base64Bytes > ANTHROPIC_MAX_BASE64_IMAGE_BYTES) {
-        return {
-          ok: false,
-          status: 400,
-          message: 'Anthropic 单张图片的 base64 编码大小不能超过 10MB',
-          code: 'image_too_large',
         }
       }
       continue
@@ -384,6 +357,7 @@ async function createAssistantAndRun(opts: {
   provider: ProviderRow
   parentMessageId: string
   userParams?: ModelParams
+  contextAttachments?: ContextAttachmentSelection
   clientLocale?: string
   idempotencyKey?: string
   quotaCycleClaims: QuotaCycleClaim[]
@@ -400,6 +374,7 @@ async function createAssistantAndRun(opts: {
     provider,
     parentMessageId,
     userParams,
+    contextAttachments,
     clientLocale,
     idempotencyKey,
     quotaCycleClaims,
@@ -407,6 +382,9 @@ async function createAssistantAndRun(opts: {
   // Chat 路径不提供应用托管的 Web/X Search，避免把无效开关写入运行记录或恢复到 UI。
   const effectiveUserParams = normalizeSearchParamsForModelKind(model.kind, userParams) ?? undefined
   const requestParams: Record<string, unknown> = { ...(effectiveUserParams ?? {}) }
+  const contextPolicy = conv.contextPolicy ?? DEFAULT_CONTEXT_POLICY
+  requestParams.contextPolicy = contextPolicy
+  if (contextAttachments) requestParams.contextAttachments = contextAttachments
   if (clientLocale) requestParams.clientLocale = clientLocale
 
   const all = await getConversationMessages(conv.id)
@@ -421,7 +399,15 @@ async function createAssistantAndRun(opts: {
       .map((p) => (p.type === 'input_text' ? p.text : ''))
       .join('\n')
       .trim()
-    const imageUrls = await resolveImageUrls(userMsg?.content ?? [])
+    const selected = selectContext(
+      path,
+      { ...contextPolicy, historyTurns: 0 },
+      path.length - 1,
+      contextAttachments,
+      all,
+    )
+    const currentContext = withExtraContextAttachments(selected.messages, selected.extraAttachments)
+    const imageUrls = await resolveImageUrls(currentContext.at(-1)?.content ?? [])
     if (imageUrls.length > 0) {
       body = buildImageEditBody(model, prompt, imageUrls, effectiveUserParams)
       imageOperation = 'edit'
@@ -430,8 +416,11 @@ async function createAssistantAndRun(opts: {
       imageOperation = 'generate'
     }
   } else {
-    const attMap = await resolveAttachments(path)
-    const pathMessages = path.map((m) => {
+    // 先按当前分支选出上下文，再读文件，避免被省略的历史附件仍耗费磁盘 / base64 开销。
+    const selected = selectContext(path, contextPolicy, path.length - 1, contextAttachments, all)
+    const selectedPath = withExtraContextAttachments(selected.messages, selected.extraAttachments)
+    const attMap = await resolveAttachments(selectedPath)
+    const pathMessages = selectedPath.map((m) => {
       const reasoningItems =
         model.kind === 'responses' && m.role === 'assistant'
           ? selectReasoningReplayItems({
@@ -461,7 +450,6 @@ async function createAssistantAndRun(opts: {
         ...(anthropicContent ? { anthropicContent } : {}),
       }
     })
-    const input = buildInput(pathMessages, attMap)
     // 始终读取模型当前提示词：管理员更新后，旧会话的下一次请求立即生效。
     // runs.instructions 仅保存本次最终值，不参与后续请求选择。
     instructions = model.defaultSystemPrompt
@@ -500,7 +488,7 @@ async function createAssistantAndRun(opts: {
     } else {
       body = buildResponseBody({
         model,
-        input,
+        input: buildInput(pathMessages, attMap),
         instructions,
         userParams: effectiveUserParams,
         stream: true,
@@ -572,6 +560,8 @@ async function createAssistantAndRun(opts: {
 export interface PrepareArgs {
   userId: string
   conversationId?: string
+  contextPolicy?: ContextPolicy
+  contextAttachments?: ContextAttachmentSelection
   modelId: string
   text: string
   params?: ModelParams
@@ -672,14 +662,37 @@ export async function prepareRun(args: PrepareArgs): Promise<PrepareResult> {
     return { ok: false, status: 404, message: '会话不存在', code: 'not_found' }
   }
   const parentId = args.parentId !== undefined ? args.parentId : (conv?.activeLeafId ?? null)
-  if (model.kind === 'responses' || model.kind === 'chat' || model.kind === 'anthropic') {
-    const allMessages = conv ? await getConversationMessages(conv.id) : []
-    const parentPath = parentId ? buildPath(allMessages, parentId) : []
-    const attachmentBudgetError =
-      model.kind === 'anthropic'
-        ? await validateAnthropicAttachments(parentPath, refs, sourceRefs)
-        : await validateFileInputBudget(parentPath, refs)
-    if (attachmentBudgetError) return attachmentBudgetError
+  const contextPolicy = conv
+    ? (conv.contextPolicy ?? DEFAULT_CONTEXT_POLICY)
+    : (args.contextPolicy ?? (await getUserSettings(args.userId)).preferences.contextPolicy)
+  const availableMessages = conv ? await getConversationMessages(conv.id) : []
+  const selectionError = await validateContextAttachmentSelection(
+    args.userId,
+    availableMessages,
+    args.contextAttachments,
+    model,
+  )
+  if (selectionError) return selectionError
+  if (model.kind === 'anthropic') {
+    const parentPath = parentId ? buildPath(availableMessages, parentId) : []
+    const selected = selectContext(
+      parentPath,
+      contextPolicy,
+      -1,
+      args.contextAttachments,
+      availableMessages,
+    )
+    const extraRefs = selected.extraAttachments.map((part) => ({
+      attachmentId: part.attachment_id,
+      kind: part.type === 'input_file' ? ('file' as const) : ('image' as const),
+      filename: part.type === 'input_file' ? part.filename : '',
+    }))
+    const attachmentValidationError = await validateAnthropicAttachments(
+      selected.messages,
+      [...refs, ...extraRefs],
+      sourceRefs,
+    )
+    if (attachmentValidationError) return attachmentValidationError
   }
 
   const userContent: ContentPart[] = []
@@ -771,6 +784,7 @@ export async function prepareRun(args: PrepareArgs): Promise<PrepareResult> {
             .values({
               userId: args.userId,
               modelId: model.id,
+              contextPolicy,
               // 标题留空，待首条助手回复完成后异步总结（见 services/title.ts）
               title: null,
             })
@@ -842,6 +856,7 @@ export async function prepareRun(args: PrepareArgs): Promise<PrepareResult> {
       provider,
       parentMessageId: userMessage.id,
       userParams: normalizedParams.params,
+      contextAttachments: args.contextAttachments,
       clientLocale: args.clientLocale,
       idempotencyKey: args.idempotencyKey,
       quotaCycleClaims: quotaAdmission.cycleClaims,
@@ -862,6 +877,7 @@ export async function prepareRun(args: PrepareArgs): Promise<PrepareResult> {
 }
 
 export interface RegenerateArgs {
+  contextAttachments?: ContextAttachmentSelection
   userId: string
   assistantMessageId: string
   modelId?: string
@@ -895,14 +911,26 @@ export async function prepareRegenerate(args: RegenerateArgs): Promise<PrepareRe
   const normalizedParams = normalizeImageParamsForModel(model, reasoningParams.params)
   if (!normalizedParams.ok) return normalizedParams
 
-  if (model.kind === 'responses' || model.kind === 'chat' || model.kind === 'anthropic') {
-    const allMessages = await getConversationMessages(conv.id)
+  const allMessages = await getConversationMessages(conv.id)
+  const selectionError = await validateContextAttachmentSelection(
+    args.userId,
+    allMessages,
+    args.contextAttachments,
+    model,
+  )
+  if (selectionError) return selectionError
+  if (model.kind === 'anthropic') {
     const parentPath = buildPath(allMessages, oldAssistant.parentId)
-    const attachmentBudgetError =
-      model.kind === 'anthropic'
-        ? await validateAnthropicAttachments(parentPath, [], [])
-        : await validateFileInputBudget(parentPath, [])
-    if (attachmentBudgetError) return attachmentBudgetError
+    const selected = selectContext(
+      parentPath,
+      conv.contextPolicy ?? DEFAULT_CONTEXT_POLICY,
+      parentPath.length - 1,
+      args.contextAttachments,
+      allMessages,
+    )
+    const selectedPath = withExtraContextAttachments(selected.messages, selected.extraAttachments)
+    const attachmentValidationError = await validateAnthropicAttachments(selectedPath, [], [])
+    if (attachmentValidationError) return attachmentValidationError
   }
 
   const { conversation, assistantMessage, run, body, imageOperation } = await createAssistantAndRun(
@@ -912,6 +940,7 @@ export async function prepareRegenerate(args: RegenerateArgs): Promise<PrepareRe
       provider,
       parentMessageId: oldAssistant.parentId,
       userParams: normalizedParams.params,
+      contextAttachments: args.contextAttachments,
       clientLocale: args.clientLocale,
       idempotencyKey: args.idempotencyKey,
       quotaCycleClaims: quotaAdmission.cycleClaims,

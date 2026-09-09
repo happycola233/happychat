@@ -2,6 +2,8 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { DEFAULT_CONTEXT_POLICY } from '@shared/util/contextPolicy'
+import type { ContentPart } from '@shared/types/domain'
 
 let tmpDir: string
 let dbClient: typeof import('../db/client')
@@ -212,6 +214,256 @@ function assertPrepared(
   if (!result.userMessage) throw new Error('Expected user message')
   return result as PreparedRunWithUser
 }
+
+describe('上下文优化请求链路', () => {
+  it.each(['responses', 'chat', 'anthropic'] as const)(
+    '%s 在读文件前裁剪，并对发送、重生成和编辑分支采用同一策略',
+    async (kind) => {
+      const { userId, modelId } = await createRunnableModel({
+        kind,
+        defaultParams: { max_output_tokens: 1024 },
+        capabilities: {
+          vision: true,
+          file_input: true,
+          web_search: false,
+          x_search: false,
+          image_generation: false,
+          reasoning: false,
+        },
+      })
+      const old = await createImageAttachment(userId, 'image/png', 'old.png')
+      const first = assertPrepared(
+        await prepare.prepareRun({
+          userId,
+          modelId,
+          text: '旧图片',
+          attachments: [{ ...old, kind: 'image' }],
+        }),
+      )
+      const generated: ContentPart[] = []
+      for (let i = 0; i < 14; i++) {
+        const image = await createImageAttachment(
+          userId,
+          'image/png',
+          `generated-${i}.png`,
+          first.assistantMessage.id,
+        )
+        generated.push({ type: 'image_result', attachment_id: image.attachmentId })
+      }
+      await dbClient.db
+        .update(schema.messages)
+        .set({ status: 'complete', content: generated })
+        .where(eq(schema.messages.id, first.assistantMessage.id))
+      const contextPolicy = {
+        historyTurns: null,
+        uploads: { mode: 'none' },
+        generatedImages: { mode: 'all' },
+      } as const
+      await dbClient.db
+        .update(schema.conversations)
+        .set({ contextPolicy })
+        .where(eq(schema.conversations.id, first.conversation.id))
+      const current = await createImageAttachment(userId, 'image/png', 'current.png')
+      const read = vi.spyOn(storage, 'toDataUrl')
+      try {
+        const second = assertPrepared(
+          await prepare.prepareRun({
+            userId,
+            modelId,
+            conversationId: first.conversation.id,
+            text: '本次图片',
+            attachments: [{ ...current, kind: 'image' }],
+          }),
+        )
+        // 14 张历史生成图 + 1 张本次上传；被省略的 old.png 连 base64 都不读取。
+        expect(read).toHaveBeenCalledTimes(15)
+        expect(read.mock.calls.map((call) => String(call[0]))).not.toContain(
+          expect.stringContaining(old.attachmentId),
+        )
+        const serialized = JSON.stringify(second.body)
+        expect(serialized.match(/data:image\/png|"type":"image"/g)).toHaveLength(15)
+        expect(second.run.requestParams?.contextPolicy).toEqual(contextPolicy)
+
+        await dbClient.db
+          .update(schema.conversations)
+          .set({ contextPolicy: { ...contextPolicy, historyTurns: 0 } })
+          .where(eq(schema.conversations.id, first.conversation.id))
+        read.mockClear()
+        const regenerated = await prepare.prepareRegenerate({
+          userId,
+          modelId,
+          assistantMessageId: second.assistantMessage.id,
+        })
+        expect(regenerated.ok).toBe(true)
+        expect(read).toHaveBeenCalledTimes(1)
+        if (regenerated.ok) expect(JSON.stringify(regenerated.body)).not.toContain('旧图片')
+
+        read.mockClear()
+        const edited = assertPrepared(
+          await prepare.prepareRun({
+            userId,
+            modelId,
+            conversationId: first.conversation.id,
+            parentId: null,
+            text: '编辑首问',
+            attachments: [{ ...old, kind: 'image' }],
+          }),
+        )
+        expect(read).toHaveBeenCalledTimes(1)
+        expect(JSON.stringify(edited.body)).not.toContain('本次图片')
+        const persisted = await conversationServices.getConversationMessages(first.conversation.id)
+        expect(
+          persisted.find((message) => message.id === first.userMessage.id)?.content,
+        ).toContainEqual(expect.objectContaining({ attachment_id: old.attachmentId }))
+        expect(
+          persisted.find((message) => message.id === first.assistantMessage.id)?.content,
+        ).toHaveLength(14)
+      } finally {
+        read.mockRestore()
+      }
+    },
+  )
+
+  it('账户默认值只在创建时快照，后续默认值不会改变已有聊天', async () => {
+    const { userId, modelId } = await createRunnableModel()
+    const settings = await import('../services/settings')
+    const contextPolicy = { ...DEFAULT_CONTEXT_POLICY, historyTurns: 2 }
+    await settings.updateUserSettings(userId, { preferences: { contextPolicy } })
+    const first = assertPrepared(await prepare.prepareRun({ userId, modelId, text: '第一问' }))
+    expect(first.conversation.contextPolicy).toEqual(contextPolicy)
+    await settings.updateUserSettings(userId, {
+      preferences: { contextPolicy: DEFAULT_CONTEXT_POLICY },
+    })
+    const next = assertPrepared(
+      await prepare.prepareRun({
+        userId,
+        modelId,
+        text: '第二问',
+        conversationId: first.conversation.id,
+      }),
+    )
+    expect(next.conversation.contextPolicy).toEqual(contextPolicy)
+  })
+
+  it.each(['responses', 'chat', 'anthropic'] as const)(
+    '%s 只读取手选的其他分支附件，不恢复其文字，也不改写消息',
+    async (kind) => {
+      const { userId, modelId } = await createRunnableModel({
+        kind,
+        defaultParams: { max_output_tokens: 1024 },
+        capabilities: {
+          vision: true,
+          file_input: true,
+          web_search: false,
+          x_search: false,
+          image_generation: false,
+          reasoning: false,
+        },
+      })
+      const old = await createImageAttachment(userId)
+      const first = assertPrepared(
+        await prepare.prepareRun({
+          userId,
+          modelId,
+          text: '其他分支的文字',
+          attachments: [{ ...old, kind: 'image' }],
+        }),
+      )
+      const contextAttachments = { include: [old.attachmentId], exclude: [] }
+      const read = vi.spyOn(storage, 'toDataUrl')
+      try {
+        const edited = assertPrepared(
+          await prepare.prepareRun({
+            userId,
+            modelId,
+            conversationId: first.conversation.id,
+            parentId: null,
+            text: '新分支提问',
+            contextAttachments,
+          }),
+        )
+        expect(read).toHaveBeenCalledTimes(1)
+        expect(JSON.stringify(edited.body)).not.toContain('其他分支的文字')
+        expect(edited.userMessage.content).toEqual([{ type: 'input_text', text: '新分支提问' }])
+        expect(edited.run.requestParams?.contextAttachments).toEqual(contextAttachments)
+        expect(edited.body).not.toHaveProperty('contextAttachments')
+        read.mockClear()
+        const next = assertPrepared(
+          await prepare.prepareRun({
+            userId,
+            modelId,
+            conversationId: first.conversation.id,
+            text: '继续当前分支',
+          }),
+        )
+        expect(read).not.toHaveBeenCalled()
+        expect(next.run.requestParams).not.toHaveProperty('contextAttachments')
+      } finally {
+        read.mockRestore()
+      }
+    },
+  )
+
+  it('手选不能跨聊天读取附件，校验失败不新建消息', async () => {
+    const { userId, modelId } = await createRunnableImageModel()
+    const image = await createImageAttachment(userId)
+    const first = assertPrepared(
+      await prepare.prepareRun({
+        userId,
+        modelId,
+        text: '有附件的聊天',
+        attachments: [{ ...image, kind: 'image' }],
+      }),
+    )
+    const other = assertPrepared(await prepare.prepareRun({ userId, modelId, text: '另一聊天' }))
+    const result = await prepare.prepareRun({
+      userId,
+      modelId,
+      conversationId: other.conversation.id,
+      text: '跨聊天选择',
+      contextAttachments: { include: [image.attachmentId], exclude: [] },
+    })
+    expect(result).toMatchObject({ ok: false, code: 'invalid_context_attachment' })
+    expect(await conversationServices.getConversationMessages(other.conversation.id)).toHaveLength(
+      2,
+    )
+    const selected = assertPrepared(
+      await prepare.prepareRun({
+        userId,
+        modelId,
+        conversationId: first.conversation.id,
+        text: '调整参考图',
+        contextAttachments: { include: [image.attachmentId], exclude: [] },
+      }),
+    )
+    expect(selected.imageOperation).toBe('edit')
+    expect(selected.body.images).toHaveLength(1)
+    expect(selected.userMessage.content).toEqual([{ type: 'input_text', text: '调整参考图' }])
+  })
+
+  it('Anthropic 校验跳过已省略的历史 Office 文件', async () => {
+    const { userId, modelId } = await createRunnableFileModel()
+    const file = await createFileAttachment(userId, { filename: 'report.docx' })
+    const first = assertPrepared(
+      await prepare.prepareRun({ userId, modelId, text: '文件', attachments: [file] }),
+    )
+    await dbClient.db
+      .update(schema.models)
+      .set({ kind: 'anthropic', defaultParams: { max_output_tokens: 1024 } })
+      .where(eq(schema.models.id, modelId))
+    await dbClient.db
+      .update(schema.conversations)
+      .set({ contextPolicy: { ...DEFAULT_CONTEXT_POLICY, uploads: { mode: 'none' } } })
+      .where(eq(schema.conversations.id, first.conversation.id))
+    const second = await prepare.prepareRun({
+      userId,
+      modelId,
+      conversationId: first.conversation.id,
+      text: '接着聊',
+    })
+    expect(second.ok).toBe(true)
+  })
+})
 
 describe('selectReasoningReplayItems', () => {
   const items = [
@@ -1058,7 +1310,7 @@ describe('prepareRun file inputs', () => {
     expect(result.run.requestParams).not.toHaveProperty('x_search')
   })
 
-  it('applies the exclusive 50 MB file limit to Chat models', async () => {
+  it('does not impose a fixed per-file upstream size limit on Chat models', async () => {
     const { userId, modelId } = await createRunnableFileModel('chat')
     const attachment = await createFileAttachment(userId, { byteSize: 50 * 1024 * 1024 })
 
@@ -1069,7 +1321,7 @@ describe('prepareRun file inputs', () => {
       attachments: [attachment],
     })
 
-    expect(result).toMatchObject({ ok: false, code: 'file_too_large' })
+    expect(result.ok).toBe(true)
   })
 
   it('repairs a historic application/octet-stream MIME using the .log extension', async () => {
@@ -1111,7 +1363,7 @@ describe('prepareRun file inputs', () => {
     })
   })
 
-  it('rejects a file whose size is exactly the exclusive 50 MB boundary', async () => {
+  it('does not impose a fixed per-file upstream size limit', async () => {
     const { userId, modelId } = await createRunnableFileModel()
     const attachment = await createFileAttachment(userId, { byteSize: 50 * 1024 * 1024 })
 
@@ -1122,10 +1374,10 @@ describe('prepareRun file inputs', () => {
       attachments: [attachment],
     })
 
-    expect(result).toMatchObject({ ok: false, code: 'file_too_large' })
+    expect(result.ok).toBe(true)
   })
 
-  it('counts historical branch files when enforcing the 50 MB request budget', async () => {
+  it('does not impose an upstream-specific budget on historical files', async () => {
     const { userId, modelId } = await createRunnableFileModel()
     const firstAttachment = await createFileAttachment(userId, { byteSize: 30 * 1024 * 1024 })
     const first = assertPrepared(
@@ -1146,7 +1398,7 @@ describe('prepareRun file inputs', () => {
       attachments: [secondAttachment],
     })
 
-    expect(result).toMatchObject({ ok: false, code: 'file_request_too_large' })
+    expect(result.ok).toBe(true)
   })
 
   it('allows multiple sub-50 MB files whose combined size is exactly 50 MB', async () => {

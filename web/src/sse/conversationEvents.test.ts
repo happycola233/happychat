@@ -4,11 +4,13 @@ import type { ConversationDTO } from '@shared/types/api'
 import { useConversationActivityStore } from '../store/conversationActivity'
 import { useTitleTypingStore } from '../store/titleTyping'
 import { applyConversationTitleUpdate } from './conversationEvents'
+import { DEFAULT_CONTEXT_POLICY } from '@shared/util/contextPolicy'
 
 const CONVERSATION_ID = 'conversation-title-test'
 
 function conversation(title: string | null): ConversationDTO {
   return {
+    contextPolicy: DEFAULT_CONTEXT_POLICY,
     id: CONVERSATION_ID,
     title,
     modelId: null,

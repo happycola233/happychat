@@ -43,7 +43,7 @@ export function friendlyUpstreamMessage(
     case 'overloaded_error':
       return 'Anthropic 上游当前过载，请稍后重试。'
     case 'request_too_large':
-      return '请求体超过 Anthropic Messages 的 32MB 限制。'
+      return '上游认为请求内容过大，请在「上下文优化」中减少历史记录或附件后重试。'
     case 'billing_error':
       return rawMessage ? `Anthropic 账户计费异常：${rawMessage}` : 'Anthropic 账户计费异常。'
     case 'server_error':

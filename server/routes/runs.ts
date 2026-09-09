@@ -84,6 +84,8 @@ runRoutes.post('/', jsonValidator(sendMessageSchema), async (c) => {
   const prepared = await prepareRun({
     userId: user.id,
     conversationId: input.conversationId,
+    contextPolicy: input.contextPolicy,
+    contextAttachments: input.contextAttachments,
     modelId: input.modelId,
     text: input.text,
     params: input.params,
@@ -121,6 +123,7 @@ runRoutes.post('/regenerate', jsonValidator(regenerateSchema), async (c) => {
   const prepared = await prepareRegenerate({
     userId: user.id,
     assistantMessageId: input.assistantMessageId,
+    contextAttachments: input.contextAttachments,
     modelId: input.modelId,
     params: input.params,
     clientLocale: input.clientLocale,

@@ -122,8 +122,17 @@ describe('ProviderClient / Anthropic', () => {
     })
   })
 
-  it('按最终序列化 JSON 精确拒绝超过 32MB 的 Messages 请求', async () => {
-    const fetchMock = vi.fn<typeof fetch>()
+  it('请求体大小交由上游判定，并保留上游错误', async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: { type: 'request_too_large', message: 'Upstream capacity exceeded' },
+          }),
+          { status: 413 },
+        ),
+      )
     vi.stubGlobal('fetch', fetchMock)
     const client = new ProviderClient('https://api.anthropic.com', 'test-key', 'anthropic')
 
@@ -134,6 +143,6 @@ describe('ProviderClient / Anthropic', () => {
         messages: [{ role: 'user', content: 'x'.repeat(32 * 1024 * 1024) }],
       }),
     ).rejects.toMatchObject({ status: 413, type: 'request_too_large' })
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(fetchMock).toHaveBeenCalledOnce()
   })
 })

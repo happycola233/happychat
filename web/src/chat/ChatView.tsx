@@ -47,6 +47,8 @@ import { startStream } from '../sse/streamManager'
 import { toast } from '../store/toast'
 import { buildPath, getSiblings } from './buildPath'
 import { Composer, type ComposerMetrics } from './Composer'
+import { ContextSettings } from './ContextSettings'
+import { useContextSelection } from '../store/contextSelection'
 import { ConversationMenu } from './ConversationMenu'
 import { ArrowUpIcon } from './icons'
 import { Message } from './Message'
@@ -139,6 +141,10 @@ export default function ChatView() {
   const markConversationViewed = useConversationActivityStore((s) => s.markViewed)
   const [optimisticUser, setOptimisticUser] = useState<string | null>(null)
   const [imageSources, setImageSources] = useState<ImageEditSource[]>([])
+  const [contextOpen, setContextOpen] = useState(false)
+  const hasContextAttachments = useContextSelection((state) =>
+    Boolean(id && state.byConversation[id]?.include.length),
+  )
   const [branchingMessageId, setBranchingMessageId] = useState<string | null>(null)
   // mutation.isPending 要等 React 提交后才更新；同步锁可堵住同一帧内的快速双击。
   const branchRequestInFlightRef = useRef(false)
@@ -194,6 +200,20 @@ export default function ChatView() {
   const messages = detail ? buildPath(allMessages, detail.conversation.activeLeafId) : []
   const streaming = stream?.status === 'streaming'
 
+  useEffect(() => {
+    // 刷新期间 run 也可能结束；从持久化消息补齐一次性选择的消费或失败恢复。
+    if (!detail) return
+    const selections = useContextSelection.getState()
+    for (const message of detail.messages) {
+      if (message.runId && selections.pending[message.runId] && message.status !== 'streaming') {
+        selections.finish(
+          message.runId,
+          message.status === 'error' || message.status === 'interrupted',
+        )
+      }
+    }
+  }, [detail])
+
   const invalidateDetail = useCallback(
     (convId: string) => qc.invalidateQueries({ queryKey: ['conversation', convId] }),
     [qc],
@@ -202,6 +222,11 @@ export default function ChatView() {
   const handleRunTerminal = useCallback(
     (convId: string, runId: string) => {
       const terminalStream = useStreamStore.getState().byConversation[convId]
+      if (terminalStream?.runId === runId) {
+        useContextSelection
+          .getState()
+          .finish(runId, ['failed', 'interrupted', 'canceled'].includes(terminalStream.status))
+      }
       if (
         terminalStream &&
         shouldRecordBackgroundCompletion({
@@ -599,6 +624,10 @@ export default function ChatView() {
   const sendMut = useMutation({
     mutationFn: startRun,
     onSuccess: (res, vars) => {
+      if (vars.conversationId)
+        useContextSelection
+          .getState()
+          .accept(vars.conversationId, res.runId, vars.contextAttachments)
       setOptimisticUser(null)
       setImageSources([])
       applyRunResult(res, vars.params)
@@ -611,11 +640,15 @@ export default function ChatView() {
 
   useEffect(() => {
     setImageSources([])
+    setContextOpen(false)
   }, [id])
 
   const regenMut = useMutation({
     mutationFn: regenerateRun,
-    onSuccess: (res, vars) => applyRunResult(res, vars.params),
+    onSuccess: (res, vars) => {
+      useContextSelection.getState().accept(res.conversation.id, res.runId, vars.contextAttachments)
+      applyRunResult(res, vars.params)
+    },
     onError: (e) => handleRunError(e, '重新生成失败'),
   })
 
@@ -705,6 +738,8 @@ export default function ChatView() {
     setOptimisticUser(text || null)
     sendMut.mutate({
       conversationId: id,
+      contextPolicy: id ? undefined : useSettings.getState().preferences.contextPolicy,
+      contextAttachments: id ? useContextSelection.getState().byConversation[id] : undefined,
       modelId: model.id,
       text,
       params: params(),
@@ -763,6 +798,7 @@ export default function ChatView() {
       conversationId: id,
       modelId: model.id,
       text: input.text,
+      contextAttachments: id ? useContextSelection.getState().byConversation[id] : undefined,
       params: params(),
       clientLocale: getBrowserLocale(),
       clientTimezone: getBrowserTimezone(),
@@ -788,6 +824,7 @@ export default function ChatView() {
     shouldAutoFollowRef.current = true
     regenMut.mutate({
       assistantMessageId,
+      contextAttachments: id ? useContextSelection.getState().byConversation[id] : undefined,
       modelId: model.id,
       params: params(),
       clientLocale: getBrowserLocale(),
@@ -870,7 +907,20 @@ export default function ChatView() {
                 <ModelControlMenu placement="down" align="start" variant="header" />
               </div>
             )}
-            <div className="pointer-events-auto ml-auto flex items-center gap-0.5">
+            <div className="pointer-events-auto ml-auto flex items-center gap-1">
+              {id && detail && (
+                <ContextSettings
+                  key={id}
+                  conversation={detail.conversation}
+                  messages={messages}
+                  allMessages={allMessages}
+                  imageModel={model?.kind === 'image'}
+                  canImage={Boolean(model?.capabilities.vision)}
+                  canFile={Boolean(model?.capabilities.file_input)}
+                  open={contextOpen}
+                  onOpenChange={setContextOpen}
+                />
+              )}
               <NotificationBell />
               {id && <ConversationMenu conversationId={id} />}
             </div>
@@ -1027,6 +1077,7 @@ export default function ChatView() {
           </div>
           <Composer
             onSend={onSend}
+            hasContextAttachments={hasContextAttachments && model?.kind !== 'image'}
             notice={<QuotaNotice />}
             disabled={
               sendMut.isPending ||

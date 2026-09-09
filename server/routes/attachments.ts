@@ -5,8 +5,6 @@ import { attachments } from '../db/schema'
 import { requireUser } from '../auth/middleware'
 import { newId } from '../lib/id'
 import {
-  MAX_FILE_INPUT_BYTES,
-  MAX_IMAGE_BYTES,
   isImageMime,
   readUpload,
   removeUploadStrict,
@@ -43,16 +41,6 @@ attachmentRoutes.post('/', async (c) => {
   }
 
   const kind = isImageMime(mime) ? 'image' : 'file'
-  const limit = kind === 'image' ? MAX_IMAGE_BYTES : MAX_FILE_INPUT_BYTES
-  // File inputs 的 50 MB 是严格上限；图片仍沿用原有的 32 MB（含边界）限制。
-  const tooLarge = kind === 'file' ? file.size >= limit : file.size > limit
-  if (tooLarge) {
-    const message =
-      kind === 'file'
-        ? `文件必须小于 ${Math.floor(limit / 1024 / 1024)}MB`
-        : `文件过大，最大 ${Math.floor(limit / 1024 / 1024)}MB`
-    return c.json({ error: { message, code: 'too_large' } }, 400)
-  }
   if (file.size === 0) {
     return c.json({ error: { message: '文件为空', code: 'empty' } }, 400)
   }

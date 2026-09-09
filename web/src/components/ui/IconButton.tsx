@@ -7,20 +7,30 @@ interface Props extends ButtonHTMLAttributes<HTMLButtonElement> {
   /** 无障碍名称（同时用作悬停 title）。 */
   label: string
   tone?: Tone
+  variant?: 'inline' | 'toolbar'
 }
 
 /**
- * 统一的方形图标按钮（行内操作用）：固定 8×8 尺寸保证同行按钮天然对齐，
- * danger 色调悬停转红，禁用降透明度。
+ * 统一 32px 点击区域；顶栏图标为 18px，开合、悬停和焦点样式一致。
  */
-export function IconButton({ label, tone = 'default', className, children, ...rest }: Props) {
+export function IconButton({
+  label,
+  tone = 'default',
+  variant = 'inline',
+  className,
+  children,
+  ...rest
+}: Props) {
   return (
     <button
       type="button"
       aria-label={label}
       title={label}
       className={clsx(
-        'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-neutral-400 transition focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent',
+        'relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent',
+        variant === 'toolbar'
+          ? 'text-neutral-500 aria-expanded:bg-neutral-100 dark:text-neutral-400 dark:aria-expanded:bg-neutral-800 [&>svg]:h-4.5 [&>svg]:w-4.5'
+          : 'text-neutral-400',
         tone === 'default' &&
           'hover:bg-neutral-100 hover:text-neutral-700 focus-visible:ring-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200',
         tone === 'danger' &&

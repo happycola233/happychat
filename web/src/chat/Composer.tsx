@@ -45,6 +45,8 @@ interface Props {
    * 而 `boxCenterFromBottom` 由「根底边 → 盒中心」计算、不受上方内容影响，hero 居中几何不变。
    */
   notice?: ReactNode
+  /** 已从历史清单主动选中附件，允许直接发起对话。 */
+  hasContextAttachments?: boolean
   canImage?: boolean
   canFile?: boolean
   imageSources?: ImageEditSource[]
@@ -157,6 +159,7 @@ export function Composer({
   onStop,
   modelControl,
   notice,
+  hasContextAttachments = false,
   canImage,
   canFile,
   imageSources = [],
@@ -329,7 +332,10 @@ export function Composer({
   // 上传中或有失败项时不可发送：失败项须重试或移除，避免静默丢附件。
   const readyAttachments: AttachmentDTO[] = completedUploadAttachments(uploads)
   const canSubmit =
-    (text.trim().length > 0 || readyAttachments.length > 0) && !disabled && !uploading && !hasFailed
+    (text.trim().length > 0 || readyAttachments.length > 0 || hasContextAttachments) &&
+    !disabled &&
+    !uploading &&
+    !hasFailed
 
   const submit = () => {
     if (!canSubmit) return

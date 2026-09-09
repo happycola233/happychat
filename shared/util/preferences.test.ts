@@ -4,6 +4,11 @@ import { DEFAULT_PREFERENCES, mergePreferences } from './preferences'
 describe('mergePreferences', () => {
   it('matches the default settings for new users', () => {
     expect(DEFAULT_PREFERENCES).toEqual({
+      contextPolicy: {
+        historyTurns: null,
+        uploads: { mode: 'all' },
+        generatedImages: { mode: 'items', limit: 12 },
+      },
       autoScrollOnOpen: true,
       showScrollToBottom: true,
       showTimelineNav: true,

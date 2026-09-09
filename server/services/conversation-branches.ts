@@ -317,6 +317,7 @@ export async function createConversationBranch(
             id: newConversationId,
             userId,
             title: branchConversationTitle(sourceConversation.title),
+            contextPolicy: sourceConversation.contextPolicy,
             modelId: targetMessage.modelId ?? sourceConversation.modelId,
             folderId: sourceConversation.folderId,
             activeLeafId: targetMessageCopyId,

@@ -19,8 +19,6 @@ export interface UpstreamModel {
   max_tokens?: number
 }
 
-const ANTHROPIC_MAX_REQUEST_BYTES = 32 * 1024 * 1024
-
 /**
  * 集中封装的上游客户端：OpenAI 兼容与 Anthropic Provider 的请求都经此类，
  * 不在各处散落 fetch。两种协议分别通过对应 URL helper 兼容根地址和已含版本路径的网关。
@@ -116,13 +114,6 @@ export class ProviderClient {
   /** Anthropic 原生 JSON POST；与 OpenAI 兼容路径隔离鉴权头和版本路径。 */
   private async postAnthropicMessage(body: unknown, signal?: AbortSignal): Promise<Response> {
     const serializedBody = JSON.stringify(body)
-    if (Buffer.byteLength(serializedBody, 'utf8') > ANTHROPIC_MAX_REQUEST_BYTES) {
-      throw new UpstreamError({
-        message: '请求体超过 Anthropic Messages 的 32MB 限制。',
-        status: 413,
-        type: 'request_too_large',
-      })
-    }
     const requestStartedAtMs = Date.now()
     this.responseTimingObserver?.onRequestStart(requestStartedAtMs)
     try {

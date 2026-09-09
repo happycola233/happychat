@@ -235,6 +235,7 @@ export interface MessageDTO {
 }
 
 export interface ConversationDTO {
+  contextPolicy: import('./context').ContextPolicy
   id: string
   title: string | null
   modelId: string | null
@@ -244,6 +245,15 @@ export interface ConversationDTO {
   pinnedAt: number | null
   createdAt: number
   updatedAt: number
+}
+
+/** 聊天附件清单只提供展示元数据，原文件按需加载。 */
+export interface ConversationAttachmentDTO {
+  id: string
+  filename: string
+  mime: string | null
+  byteSize: number | null
+  available: boolean
 }
 
 /** 聊天文件夹（侧边栏分组）：支持自定义主题色、Emoji 图标与置顶。 */

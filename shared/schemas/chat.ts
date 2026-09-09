@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { modelParamsSchema } from './model-config'
+import { contextAttachmentSelectionSchema, contextPolicySchema } from './context'
 
 export const attachmentRefSchema = z.object({
   attachmentId: z.string().min(1),
@@ -16,6 +17,9 @@ export const imageSourceSchema = z.object({
 export const sendMessageSchema = z
   .object({
     conversationId: z.string().optional(),
+    /** 仅新聊天使用；已有聊天在专用设置接口保存策略。 */
+    contextPolicy: contextPolicySchema.optional(),
+    contextAttachments: contextAttachmentSelectionSchema.optional(),
     modelId: z.string().min(1, '请选择模型'),
     /** 文本容量由所选上游模型的 Token/上下文窗口约束，不在应用层设置统一字符上限。 */
     text: z.string().default(''),
@@ -29,7 +33,7 @@ export const sendMessageSchema = z
     idempotencyKey: z.string().max(64).optional(),
     /** 编辑重发：被编辑用户消息的 parentId，使新消息成为兄弟分支 */
     parentId: z.string().nullable().optional(),
-    /** 附件数量交由所选上游约束；文件字节预算在 prepareRun 中按当前分支统一校验。 */
+    /** 附件数量和体积交由所选上游约束。 */
     attachments: z.array(attachmentRefSchema).optional(),
     /** 显式选择的图片编辑源（不改写已绑定附件；未绑定上传会归属本轮消息） */
     imageSources: z.array(imageSourceSchema).max(16).optional(),
@@ -38,6 +42,7 @@ export const sendMessageSchema = z
     (v) =>
       v.text.trim().length > 0 ||
       (v.attachments?.length ?? 0) > 0 ||
+      (v.contextAttachments?.include.length ?? 0) > 0 ||
       (v.imageSources?.length ?? 0) > 0,
     {
       message: '消息不能为空',
@@ -56,6 +61,7 @@ export const pinConversationSchema = z.object({
 })
 
 export const regenerateSchema = z.object({
+  contextAttachments: contextAttachmentSelectionSchema.optional(),
   assistantMessageId: z.string().min(1),
   modelId: z.string().min(1).optional(),
   params: modelParamsSchema.optional(),

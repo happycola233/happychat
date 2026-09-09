@@ -1,10 +1,12 @@
 import type {
   ConversationDTO,
+  ConversationAttachmentDTO,
   ConversationDetail,
   ConversationSearchResultDTO,
   SendResult,
 } from '@shared/types/api'
 import type { SendMessageInput } from '@shared/schemas/chat'
+import type { ContextPolicy } from '@shared/types/context'
 import { apiDelete, apiGet, apiPatch, apiPost } from './client'
 
 export const listConversations = () =>
@@ -12,10 +14,20 @@ export const listConversations = () =>
 
 export const getConversation = (id: string) => apiGet<ConversationDetail>(`/conversations/${id}`)
 
+export const getConversationAttachments = (id: string) =>
+  apiGet<{ attachments: ConversationAttachmentDTO[] }>(`/conversations/${id}/attachments`).then(
+    (result) => result.attachments,
+  )
+
 export const sendMessage = (input: SendMessageInput) => apiPost<SendResult>('/chat', input)
 
 export const renameConversation = (id: string, title: string) =>
   apiPatch<{ ok: true }>(`/conversations/${id}`, { title })
+
+export const updateConversationContext = (id: string, contextPolicy: ContextPolicy) =>
+  apiPatch<{ conversation: ConversationDTO }>(`/conversations/${id}/context`, {
+    contextPolicy,
+  }).then((result) => result.conversation)
 
 export const pinConversation = (id: string, pinned: boolean) =>
   apiPatch<{ conversation: ConversationDTO }>(`/conversations/${id}/pin`, { pinned }).then(

@@ -9,6 +9,7 @@ import {
 } from '../hooks/useAnnouncements'
 import { formatAnnouncementTime, LEVEL_META } from '../lib/announcementMeta'
 import { useAnnouncementView } from '../store/announcementView'
+import { IconButton } from '../components/ui/IconButton'
 
 /** 从 Markdown 正文提取一行纯文本预览（去掉常见标记符号）。 */
 function plainPreview(md: string): string {
@@ -108,26 +109,20 @@ export function NotificationBell() {
 
   return (
     <div className="relative">
-      <button
-        type="button"
+      <IconButton
+        variant="toolbar"
+        label={unread > 0 ? `通知中心，${unread} 条未读` : '通知中心'}
         onClick={() => setOpen((v) => !v)}
-        className="relative rounded-lg p-2 text-neutral-500 transition hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
-        aria-label={unread > 0 ? `通知中心，${unread} 条未读` : '通知中心'}
         aria-haspopup="dialog"
         aria-expanded={open}
       >
-        {/* 铃铛轮廓视觉体量偏大，特意使用 18px，使其与右侧 20px 三点图标在视觉上保持一致。 */}
-        {unread > 0 ? (
-          <BellRing className="h-[18px] w-[18px]" />
-        ) : (
-          <Bell className="h-[18px] w-[18px]" />
-        )}
+        {unread > 0 ? <BellRing strokeWidth={1.75} /> : <Bell strokeWidth={1.75} />}
         {unread > 0 && (
           <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-semibold text-white tabular-nums">
             {unread > 99 ? '99+' : unread}
           </span>
         )}
-      </button>
+      </IconButton>
 
       {open && (
         <>

@@ -1,7 +1,13 @@
 import { and, asc, desc, eq, inArray } from 'drizzle-orm'
-import type { ConversationDTO, ConversationSearchResultDTO, MessageDTO } from '@shared/types/api'
+import type {
+  ConversationAttachmentDTO,
+  ConversationDTO,
+  ConversationSearchResultDTO,
+  MessageDTO,
+} from '@shared/types/api'
 import type { ContentPart, ModelParams, ReasoningEffort } from '@shared/types/domain'
 import { textFromContent } from '@shared/util/contentText'
+import { DEFAULT_CONTEXT_POLICY, isContextAttachment } from '@shared/util/contextPolicy'
 import { normalizeModelCapabilities } from '@shared/util/modelCapabilities'
 import { costUsd as estimateCostUsd } from '@shared/util/cost'
 import { processStepsOf } from '@shared/util/processTrack'
@@ -21,7 +27,7 @@ import {
   runs,
   usageLogs,
 } from '../db/schema'
-import { removeUpload } from '../storage/files'
+import { removeUpload, uploadFileExists } from '../storage/files'
 import {
   computeReasoningDurationMs,
   REASONING_TIMING_EVENT_TYPES,
@@ -32,6 +38,30 @@ import { getAppConfig } from './appConfig'
 
 export type ConvRow = typeof conversations.$inferSelect
 export type MsgRow = typeof messages.$inferSelect
+
+export async function getConversationAttachments(
+  conversation: ConvRow,
+): Promise<ConversationAttachmentDTO[]> {
+  const all = await getConversationMessages(conversation.id)
+  const parts = all.flatMap((message) => message.content.filter(isContextAttachment))
+  const ids = [...new Set(parts.map((part) => part.attachment_id))]
+  if (ids.length === 0) return []
+  const rows = await db
+    .select()
+    .from(attachments)
+    .where(and(eq(attachments.userId, conversation.userId), inArray(attachments.id, ids)))
+  const byId = new Map(rows.map((row) => [row.id, row]))
+  return ids.map((id) => {
+    const row = byId.get(id)
+    return {
+      id,
+      filename: row?.filename ?? '附件已不可用',
+      mime: row?.mime ?? null,
+      byteSize: row?.byteSize ?? null,
+      available: Boolean(row && uploadFileExists(row.storagePath)),
+    }
+  })
+}
 
 /** 消息展示计时：优先使用仍存在的 run 数据，独立分支等场景回退到消息快照。 */
 export interface MessageTiming {
@@ -66,6 +96,7 @@ function withFileAttachmentMetadata(
 
 export function toConversationDTO(c: ConvRow): ConversationDTO {
   return {
+    contextPolicy: c.contextPolicy ?? DEFAULT_CONTEXT_POLICY,
     id: c.id,
     title: c.title,
     modelId: c.modelId,

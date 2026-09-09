@@ -245,7 +245,7 @@ describe('buildInput', () => {
     expect(input[2]).toMatchObject({ type: 'message', role: 'user' })
   })
 
-  it('keeps only the most recent generated images when building image context', () => {
+  it('preserves all images already selected by the context policy', () => {
     const messages = Array.from({ length: 13 }, (_, index) => ({
       role: 'assistant' as const,
       content: [
@@ -268,7 +268,7 @@ describe('buildInput', () => {
     const input = buildInput(messages, attachments)
     const serialized = JSON.stringify(input)
 
-    expect(serialized).not.toContain('data:image/png;base64,0')
+    expect(serialized).toContain('data:image/png;base64,0')
     expect(serialized).toContain('data:image/png;base64,1')
     expect(serialized).toContain('data:image/png;base64,12')
   })

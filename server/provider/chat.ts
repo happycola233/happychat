@@ -70,6 +70,20 @@ export function buildChatMessages(
       const answer = m.content.map((p) => (p.type === 'output_text' ? p.text : '')).join('')
       const text = [commentary, answer].filter(Boolean).join('\n\n')
       out.push({ role: 'assistant', content: text })
+      const generatedImages = m.content.flatMap((part) => {
+        if (part.type !== 'image_result') return []
+        const attachment = atts.get(part.attachment_id)
+        return attachment ? [{ type: 'image_url', image_url: { url: attachment.dataUrl } }] : []
+      })
+      if (generatedImages.length > 0) {
+        out.push({
+          role: 'user',
+          content: [
+            { type: 'text', text: '以下图片由助手在此前对话中生成，供后续提问参考。' },
+            ...generatedImages,
+          ],
+        })
+      }
       continue
     }
     if (m.role === 'system') {

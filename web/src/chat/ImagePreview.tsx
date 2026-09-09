@@ -49,7 +49,9 @@ export function ImagePreviewTrigger({
           className,
         )}
       >
-        {children ?? <img src={src} alt={alt} title={title ?? undefined} className={imageClassName} />}
+        {children ?? (
+          <img src={src} alt={alt} title={title ?? undefined} className={imageClassName} />
+        )}
       </button>
       {open && (
         <ImagePreviewDialog
@@ -64,20 +66,17 @@ export function ImagePreviewTrigger({
   )
 }
 
-function ImagePreviewDialog({
-  src,
-  alt,
-  caption,
-  downloadName,
-  onClose,
-}: ImagePreviewDialogProps) {
+function ImagePreviewDialog({ src, alt, caption, downloadName, onClose }: ImagePreviewDialogProps) {
   const titleId = useId()
   const captionId = useId()
   const closeRef = useRef<HTMLButtonElement>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
   const visibleCaption = caption?.trim() || ''
   const hasCaption = Boolean(visibleCaption)
 
   useEffect(() => {
+    const previouslyFocused =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null
     closeRef.current?.focus()
 
     const previousOverflow = document.body.style.overflow
@@ -85,16 +84,31 @@ function ImagePreviewDialog({
 
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose()
+      if (event.key === 'Tab') {
+        const focusable = dialogRef.current?.querySelectorAll<HTMLElement>('a[href], button')
+        if (!focusable?.length) return
+        const first = focusable[0]!
+        const last = focusable[focusable.length - 1]!
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault()
+          last.focus()
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault()
+          first.focus()
+        }
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => {
       document.body.style.overflow = previousOverflow
       window.removeEventListener('keydown', onKey)
+      if (previouslyFocused?.isConnected) previouslyFocused.focus({ preventScroll: true })
     }
   }, [onClose])
 
   return createPortal(
     <div
+      ref={dialogRef}
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}

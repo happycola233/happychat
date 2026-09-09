@@ -409,6 +409,8 @@ export type ModelPickerView = 'flat' | 'tree'
  * 编排器临时态（选中模型 / 联网 / 思考等级 / 图片选项）。
  */
 export interface UserPreferences {
+  /** 新聊天的上下文默认值；已有聊天保存独立快照。 */
+  contextPolicy: import('./context').ContextPolicy
   // —— 聊天行为 ——
   /** 打开对话时自动滚动到最新消息 */
   autoScrollOnOpen: boolean

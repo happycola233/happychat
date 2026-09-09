@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { ACCENT_COLORS, MODEL_PICKER_VIEWS } from '../util/preferences'
 import { passwordSchema, usernameSchema } from './auth'
+import { contextPolicySchema } from './context'
 
 export const themePreferenceSchema = z.enum(['system', 'light', 'dark'])
 export const accentColorSchema = z.enum(ACCENT_COLORS)
@@ -10,6 +11,7 @@ export const modelPickerViewSchema = z.enum(MODEL_PICKER_VIEWS)
 /** 偏好局部更新：所有字段可选，仅校验传入项。 */
 export const userPreferencesPatchSchema = z
   .object({
+    contextPolicy: contextPolicySchema,
     autoScrollOnOpen: z.boolean(),
     showScrollToBottom: z.boolean(),
     showTimelineNav: z.boolean(),

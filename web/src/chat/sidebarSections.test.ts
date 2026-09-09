@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ConversationDTO, FolderDTO } from '@shared/types/api'
 import { buildSidebarSections } from './sidebarSections'
+import { DEFAULT_CONTEXT_POLICY } from '@shared/util/contextPolicy'
 
 const folder = (id: string, pinnedAt: number | null = null): FolderDTO => ({
   id,
@@ -16,6 +17,7 @@ const conversation = (
   id: string,
   { pinnedAt = null, folderId = null }: { pinnedAt?: number | null; folderId?: string | null } = {},
 ): ConversationDTO => ({
+  contextPolicy: DEFAULT_CONTEXT_POLICY,
   id,
   title: id,
   modelId: null,

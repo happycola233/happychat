@@ -132,6 +132,11 @@ describe('createConversationBranch', () => {
       .values({
         userId: user.id,
         title: '原对话',
+        contextPolicy: {
+          historyTurns: 5,
+          uploads: { mode: 'rounds', limit: 2 },
+          generatedImages: { mode: 'all' },
+        },
         modelId: model.id,
         folderId: folder.id,
         pinnedAt: new Date(),
@@ -338,6 +343,11 @@ describe('createConversationBranch', () => {
     )
     expect(branchConversation).toMatchObject({
       title: '分支 • 原对话',
+      contextPolicy: {
+        historyTurns: 5,
+        uploads: { mode: 'rounds', limit: 2 },
+        generatedImages: { mode: 'all' },
+      },
       modelId: model.id,
       folderId: folder.id,
       pinnedAt: null,

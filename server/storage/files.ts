@@ -14,11 +14,6 @@ import { env } from '../env'
 
 const uploadsDir = join(env.DATA_DIR, 'uploads')
 
-export const MAX_IMAGE_BYTES = 32 * 1024 * 1024
-/** OpenAI File inputs 要求单个文件严格小于 50 MB。 */
-export const MAX_FILE_INPUT_BYTES = 50 * 1024 * 1024
-/** OpenAI File inputs 要求单次请求内的文件原始字节数合计不超过 50 MB。 */
-export const MAX_FILE_INPUT_REQUEST_BYTES = 50 * 1024 * 1024
 export const MAX_AVATAR_BYTES = 5 * 1024 * 1024
 
 const IMAGE_MIMES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])

@@ -5,6 +5,7 @@ import { Search, X } from 'lucide-react'
 import type { ConversationDTO, ConversationSearchResultDTO } from '@shared/types/api'
 import { searchConversations } from '../api/chat'
 import { ChatBubbleIcon, NewChatIcon } from './icons'
+import { HighlightedText } from '../components/ui/HighlightedText'
 
 interface Props {
   open: boolean
@@ -25,37 +26,6 @@ function useDebouncedValue(value: string, delayMs: number) {
     return () => window.clearTimeout(timer)
   }, [value, delayMs])
   return debounced
-}
-
-function HighlightedText({ text, query }: { text: string; query?: string }) {
-  const needle = query?.trim()
-  if (!needle) return text
-
-  const lowerText = text.toLocaleLowerCase()
-  const lowerNeedle = needle.toLocaleLowerCase()
-  const parts: React.ReactNode[] = []
-  let cursor = 0
-
-  while (cursor < text.length) {
-    const index = lowerText.indexOf(lowerNeedle, cursor)
-    if (index === -1) break
-    if (index > cursor) parts.push(text.slice(cursor, index))
-    const end = index + needle.length
-    parts.push(
-      <mark
-        key={`${index}-${end}`}
-        data-testid="search-highlight"
-        className="rounded bg-amber-200/80 px-0.5 text-inherit dark:bg-amber-500/30"
-      >
-        {text.slice(index, end)}
-      </mark>,
-    )
-    cursor = end
-  }
-
-  if (parts.length === 0) return text
-  if (cursor < text.length) parts.push(text.slice(cursor))
-  return <>{parts}</>
 }
 
 function SearchItem({
@@ -140,7 +110,8 @@ export function SearchDialog({
   useEffect(() => {
     if (!open) return
     setQuery('')
-    returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    returnFocusRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null
     window.setTimeout(() => inputRef.current?.focus(), 0)
     return () => returnFocusRef.current?.focus()
   }, [open])

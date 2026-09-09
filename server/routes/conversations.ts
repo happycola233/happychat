@@ -11,10 +11,8 @@ import {
   switchBranchSchema,
 } from '@shared/schemas/chat'
 import { createShareSchema } from '@shared/schemas/share'
-import {
-  exportBatchRequestSchema,
-  exportConversationRequestSchema,
-} from '@shared/schemas/export'
+import { updateContextPolicySchema } from '@shared/schemas/context'
+import { exportBatchRequestSchema, exportConversationRequestSchema } from '@shared/schemas/export'
 import { db } from '../db/client'
 import { conversations } from '../db/schema'
 import { requireUser } from '../auth/middleware'
@@ -24,6 +22,7 @@ import {
   deepestLeaf,
   deleteConversations,
   getConversationLastRun,
+  getConversationAttachments,
   getConversationMessageDTOs,
   getConversationMessages,
   getOwnedConversation,
@@ -41,11 +40,7 @@ import {
   listOwnerShares,
   revokeShare,
 } from '../services/shares'
-import {
-  exportConversation,
-  exportConversationsBatch,
-  previewConversationExport,
-} from '../export'
+import { exportConversation, exportConversationsBatch, previewConversationExport } from '../export'
 import type { BuiltExport } from '../export/types'
 import { createConversationBranch } from '../services/conversation-branches'
 import { conversationEvents, type ConversationEvent } from '../services/conversation-events'
@@ -271,6 +266,24 @@ conversationRoutes.patch('/:id/pin', jsonValidator(pinConversationSchema), async
   )
   if (!updated) return c.json({ error: { message: '会话不存在', code: 'not_found' } }, 404)
   return c.json({ conversation: updated })
+})
+
+conversationRoutes.get('/:id/attachments', async (c) => {
+  const conversation = await getOwnedConversation(c.get('user').id, c.req.param('id'))
+  if (!conversation) return c.json({ error: { message: '会话不存在', code: 'not_found' } }, 404)
+  return c.json({ attachments: await getConversationAttachments(conversation) })
+})
+
+conversationRoutes.patch('/:id/context', jsonValidator(updateContextPolicySchema), async (c) => {
+  const conv = await getOwnedConversation(c.get('user').id, c.req.param('id'))
+  if (!conv) return c.json({ error: { message: '会话不存在', code: 'not_found' } }, 404)
+  const [updated] = await db
+    .update(conversations)
+    // 修改携带规则不代表产生了新消息，保持聊天列表中的原有排序。
+    .set({ contextPolicy: c.req.valid('json').contextPolicy, updatedAt: conv.updatedAt })
+    .where(eq(conversations.id, conv.id))
+    .returning()
+  return c.json({ conversation: toConversationDTO(updated!) })
 })
 
 /** 以指定助手消息为终点，创建一份可独立续聊的会话分支副本。 */

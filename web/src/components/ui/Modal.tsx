@@ -11,9 +11,11 @@ interface Props {
   title: ReactNode
   children: ReactNode
   footer?: ReactNode
-  size?: 'default' | 'form' | 'reading' | 'wide'
+  size?: 'default' | 'form' | 'reading' | 'workspace' | 'wide'
+  /** 复杂双栏面板可自行安排内部滚动，其余弹窗保持统一正文边距。 */
+  bodyClassName?: string
   /** 面板高度：auto=随内容收缩（默认）；fixed=固定高度，内容很短时也保持体面的窗体比例。 */
-  height?: 'auto' | 'fixed'
+  height?: 'auto' | 'fixed' | 'workspace'
   /** 分隔线范围：all=头脚都画（默认）；header=只画标题下的一条（内容展示类弹窗底部按钮悬浮更轻）。 */
   dividers?: 'all' | 'header'
   /** false 时隐藏关闭按钮，并忽略 Escape 与背景点击；适用于必须明确确认的阻断式提示。 */
@@ -25,12 +27,14 @@ const SIZE_CLASS: Record<NonNullable<Props['size']>, string> = {
   form: 'max-w-2xl',
   /** 内容阅读档：给公告/文档类正文（含表格）留足排版宽度。 */
   reading: 'max-w-3xl',
+  workspace: 'max-w-5xl',
   wide: 'max-w-[min(80vw,calc(100vw-2rem))]',
 }
 
 const HEIGHT_CLASS: Record<NonNullable<Props['height']>, string> = {
   auto: 'max-h-[90vh]',
   fixed: 'h-[min(85vh,40rem)]',
+  workspace: 'h-[min(86dvh,42rem)]',
 }
 
 const FOCUSABLE_SELECTOR = [
@@ -52,6 +56,7 @@ export function Modal({
   height = 'auto',
   dividers = 'all',
   dismissible = true,
+  bodyClassName,
 }: Props) {
   const titleId = useId()
   const dialogRef = useRef<HTMLDivElement>(null)
@@ -136,10 +141,11 @@ export function Modal({
           HEIGHT_CLASS[height],
         )}
       >
-        <div className="flex shrink-0 items-center justify-between gap-4 border-b border-neutral-200 px-5 py-3.5 sm:px-6 dark:border-neutral-800">
+        <div className="flex min-h-11 shrink-0 items-center justify-between gap-3 border-b border-neutral-200 px-4 py-2.5 sm:px-5 dark:border-neutral-800">
+          {/* 富标题按 flex 居中，避免内层 inline-flex 的基线留白把整组图文抬高。 */}
           <h3
             id={titleId}
-            className="min-w-0 text-lg font-medium text-neutral-900 dark:text-neutral-100"
+            className="flex min-w-0 items-center text-sm font-semibold leading-5 text-neutral-900 dark:text-neutral-100"
           >
             {title}
           </h3>
@@ -150,18 +156,25 @@ export function Modal({
               className="rounded-lg p-1 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800"
               aria-label="关闭"
             >
-              <X className="h-5 w-5" />
+              <X className="h-4 w-4" />
             </button>
           )}
         </div>
-        <div className="hc-scrollbar flex-1 overflow-y-auto px-5 py-4 sm:px-6">{children}</div>
+        <div
+          className={clsx(
+            'min-h-0 flex-1',
+            bodyClassName ?? 'hc-scrollbar overflow-y-auto px-5 py-4 sm:px-6',
+          )}
+        >
+          {children}
+        </div>
         {footer && (
           <div
             className={clsx(
-              'flex shrink-0 justify-end gap-2 px-5 sm:px-6',
+              'flex shrink-0 justify-end gap-2 px-4 sm:px-5',
               dividers === 'all'
-                ? 'border-t border-neutral-200 py-3.5 dark:border-neutral-800'
-                : 'pt-1 pb-4 sm:pb-5',
+                ? 'border-t border-neutral-200 py-2.5 dark:border-neutral-800'
+                : 'pt-1 pb-3',
             )}
           >
             {footer}

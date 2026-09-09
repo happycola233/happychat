@@ -256,6 +256,15 @@ html.dark.hc-accent-purple {
   background-color: rgb(163 163 163 / 0.75);
 }
 
+/* Chromium 的标准 scrollbar-* 会覆盖自绘滚动条，恢复 auto 后才能隐藏 Windows 箭头。 */
+@supports selector(::-webkit-scrollbar) {
+  .hc-scrollbar,
+  .dark .hc-scrollbar {
+    scrollbar-width: auto;
+    scrollbar-color: auto;
+  }
+}
+
 .hc-scrollbar-hidden {
   -ms-overflow-style: none;
   scrollbar-width: none;

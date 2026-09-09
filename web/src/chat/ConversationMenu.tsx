@@ -10,6 +10,7 @@ import { ShareDialog } from './ShareDialog'
 import { ExportDialog } from './ExportDialog'
 import { FolderMenuList } from './FolderMenuList'
 import { DeleteIcon, EditIcon, PinnedIcon, ShareIcon, UnpinIcon } from './icons'
+import { IconButton } from '../components/ui/IconButton'
 
 interface Props {
   conversationId: string
@@ -114,8 +115,9 @@ export function ConversationMenu({ conversationId }: Props) {
 
   return (
     <div ref={rootRef} className="relative">
-      <button
-        type="button"
+      <IconButton
+        label="会话操作"
+        variant="toolbar"
         data-testid="conversation-menu-trigger"
         onClick={() => {
           setMenuView('root')
@@ -123,15 +125,9 @@ export function ConversationMenu({ conversationId }: Props) {
         }}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label="会话操作"
-        title="会话操作"
-        className={clsx(
-          'rounded-lg p-2 text-neutral-500 transition hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800',
-          open && 'bg-neutral-100 dark:bg-neutral-800',
-        )}
       >
-        <MoreHorizontal className="h-5 w-5" />
-      </button>
+        <MoreHorizontal strokeWidth={1.75} />
+      </IconButton>
 
       {open && (
         <div

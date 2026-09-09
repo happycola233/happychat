@@ -45,6 +45,7 @@ import type {
   UserRole,
 } from '../../shared/types/domain'
 import type { MessageDTO } from '../../shared/types/api'
+import type { ContextPolicy } from '../../shared/types/context'
 import type { ProviderReplayContext } from '../provider/reasoning-replay'
 
 // ---- 通用列工厂（每次返回新的 builder 实例）----
@@ -484,6 +485,7 @@ export const conversations = sqliteTable(
     activeLeafId: text('active_leaf_id'),
     systemPromptOverride: text('system_prompt_override'),
     paramsOverride: text('params_override', { mode: 'json' }).$type<ModelParams>(),
+    contextPolicy: text('context_policy', { mode: 'json' }).$type<ContextPolicy>(),
     archived: integer('archived', { mode: 'boolean' }).notNull().default(false),
     pinnedAt: ts('pinned_at'),
     createdAt: createdAt(),

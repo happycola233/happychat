@@ -30,7 +30,7 @@ interface Props {
   id?: string
   name?: string
   'aria-label'?: string
-  /** sm=筛选条紧凑款；md=与表单输入框同高。 */
+  /** sm=32px 紧凑控件；md=与表单输入框同高。字号、菜单行距随尺寸统一调整。 */
   size?: 'sm' | 'md'
 }
 
@@ -241,14 +241,14 @@ export function Select({
       }}
       onKeyDown={onTriggerKeyDown}
       className={clsx(
-        'inline-flex w-full items-center justify-between gap-2 border text-left text-sm outline-none transition select-none',
+        'inline-flex w-full items-center justify-between gap-2 border text-left outline-none transition select-none',
         'border-neutral-300 bg-white text-neutral-800',
         'hover:border-neutral-400',
         'focus-visible:border-sky-500 focus-visible:ring-2 focus-visible:ring-sky-500/15',
         'disabled:cursor-not-allowed disabled:opacity-50',
         'dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:hover:border-neutral-500',
         'dark:focus-visible:border-sky-400 dark:focus-visible:ring-sky-400/20',
-        size === 'md' ? 'min-h-10 rounded-xl px-3.5' : 'min-h-9 rounded-lg px-3',
+        size === 'md' ? 'min-h-10 rounded-xl px-3.5 text-sm' : 'min-h-8 rounded-lg px-2.5 text-xs',
         open && 'border-sky-500 ring-2 ring-sky-500/15 dark:border-sky-400 dark:ring-sky-400/20',
       )}
     >
@@ -256,7 +256,7 @@ export function Select({
       <ChevronDown
         aria-hidden="true"
         className={clsx(
-          'h-4 w-4 shrink-0 text-neutral-400 transition-transform dark:text-neutral-500',
+          'h-3.5 w-3.5 shrink-0 text-neutral-400 transition-transform dark:text-neutral-500',
           open && 'rotate-180 text-sky-500 dark:text-sky-400',
         )}
       />
@@ -304,7 +304,8 @@ export function Select({
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => commit(option.value)}
               className={clsx(
-                'flex min-h-9 cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition',
+                'flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 transition',
+                size === 'md' ? 'min-h-9 text-sm' : 'min-h-7 text-xs',
                 highlighted && !active && 'bg-neutral-100 dark:bg-white/10',
                 active && 'bg-sky-50 text-sky-800 dark:bg-sky-500/15 dark:text-sky-100',
               )}
@@ -333,8 +334,8 @@ export function Select({
           key={`sizer-${option.value}-${index}`}
           aria-hidden
           className={clsx(
-            'invisible col-start-1 row-start-1 whitespace-nowrap text-sm',
-            size === 'md' ? 'px-3.5 pr-10' : 'px-3 pr-9',
+            'invisible col-start-1 row-start-1 whitespace-nowrap',
+            size === 'md' ? 'px-3.5 pr-10 text-sm' : 'px-2.5 pr-8 text-xs',
           )}
         >
           {option.label}

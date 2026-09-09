@@ -24,20 +24,6 @@ export interface ResolvedAttachment {
   kind: 'image' | 'file'
 }
 
-export const MAX_GENERATED_IMAGE_CONTEXT_ITEMS = 12
-
-function generatedImageContextIds(messages: PathMessage[]): Set<string> {
-  const ids = messages.flatMap((message) =>
-    message.content
-      .filter(
-        (part): part is Extract<ContentPart, { type: 'image_result' }> =>
-          part.type === 'image_result',
-      )
-      .map((part) => part.attachment_id),
-  )
-  return new Set(ids.slice(-MAX_GENERATED_IMAGE_CONTEXT_ITEMS))
-}
-
 /**
  * 由「当前分支路径」的消息构建上游 input[]（本地上下文重放，store=false）。
  * 助手历史用 output_text（annotations 置空），其最终生成图作为合成图片上下文追加。
@@ -49,7 +35,6 @@ export function buildInput(
   attachments?: Map<string, ResolvedAttachment>,
 ): unknown[] {
   const atts = attachments ?? new Map<string, ResolvedAttachment>()
-  const generatedContextIds = generatedImageContextIds(messages)
   const items: unknown[] = []
 
   for (const m of messages) {
@@ -92,7 +77,7 @@ export function buildInput(
       }
       const generatedImages = m.content.filter(
         (part): part is Extract<ContentPart, { type: 'image_result' }> =>
-          part.type === 'image_result' && generatedContextIds.has(part.attachment_id),
+          part.type === 'image_result',
       )
       const generatedImageContent: unknown[] = [
         {

@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { ConversationDetail, MessageDTO } from '@shared/types/api'
 import { ActiveRunRecoveryGate } from './activeRunRecovery'
+import { DEFAULT_CONTEXT_POLICY } from '@shared/util/contextPolicy'
 
 function detailWithStatus(status: MessageDTO['status']): ConversationDetail {
   return {
     conversation: {
+      contextPolicy: DEFAULT_CONTEXT_POLICY,
       id: 'conversation-1',
       title: '测试',
       modelId: null,

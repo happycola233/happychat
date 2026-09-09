@@ -4,11 +4,7 @@ import { effectiveReasoningEffort } from '@shared/util/reasoning'
 import { effectiveWebSearchEnabled } from '@shared/util/searchTools'
 import { commentaryTextsOf } from '@shared/util/processTrack'
 import type { models } from '../db/schema'
-import {
-  MAX_GENERATED_IMAGE_CONTEXT_ITEMS,
-  type PathMessage,
-  type ResolvedAttachment,
-} from './context'
+import type { PathMessage, ResolvedAttachment } from './context'
 import { isPlainObject, mergeDeep } from './params'
 
 type ModelRow = typeof models.$inferSelect
@@ -72,14 +68,6 @@ export function buildAnthropicMessages(
   attachments?: Map<string, ResolvedAttachment>,
 ): AnthropicMessage[] {
   const resolvedAttachments = attachments ?? new Map<string, ResolvedAttachment>()
-  const generatedImageIds = messages
-    .flatMap((message) =>
-      message.content
-        .filter((part) => part.type === 'image_result')
-        .map((part) => part.attachment_id),
-    )
-    .slice(-MAX_GENERATED_IMAGE_CONTEXT_ITEMS)
-  const generatedImageIdSet = new Set(generatedImageIds)
   const output: AnthropicMessage[] = []
 
   for (const message of messages) {
@@ -99,7 +87,7 @@ export function buildAnthropicMessages(
 
       const generatedImages = message.content.filter(
         (part): part is Extract<PathMessage['content'][number], { type: 'image_result' }> =>
-          part.type === 'image_result' && generatedImageIdSet.has(part.attachment_id),
+          part.type === 'image_result',
       )
       if (generatedImages.length > 0) {
         const imageContext: AnthropicContentBlock[] = [
