@@ -2,6 +2,8 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { appConfigUpdateSchema } from '@shared/schemas/app-config'
+import { DEFAULT_RETRY_POLICY } from '@shared/schemas/retry'
 
 let temporaryDirectory: string
 let dbClient: typeof import('../db/client')
@@ -31,6 +33,18 @@ afterAll(() => {
 })
 
 describe('全局应用配置', () => {
+  it('较大的重试等待设置可以通过接口校验并完整保存', async () => {
+    const upstreamRetry = {
+      ...DEFAULT_RETRY_POLICY,
+      enabled: true,
+      attemptTimeoutSeconds: 3600,
+      maxElapsedSeconds: 9000,
+    }
+    await appConfigService.updateAppConfig(appConfigUpdateSchema.parse({ upstreamRetry }))
+    await appConfigService.updateAppConfig({ sharingEnabled: false })
+    expect((await appConfigService.getAppConfig()).upstreamRetry).toEqual(upstreamRetry)
+  })
+
   it('保存提醒文案和上下文阈值，局部修改不丢失已保存的提示', async () => {
     const initial = await appConfigService.getAppConfig()
     expect(initial.quotaWarningMessage).toBeNull()

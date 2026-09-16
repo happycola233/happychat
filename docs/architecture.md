@@ -220,13 +220,14 @@
 | `maxDelaySeconds` | 60 | 1–600 秒，退避与抖动的上限，不能小于首次等待 |
 | `backoffMultiplier` | 2 | 1–5 倍，连续失败时递增 |
 | `jitterPercent` | 20 | 0–50%，额外随机等待；如基础 5 秒、20% 时为 5–6 秒，受最长间隔限制 |
-| `attemptTimeoutSeconds` | 120 | 5–600 秒，每次等待 HTTP 响应头的超时 |
-| `maxElapsedSeconds` | 900 | 10–7200 秒，单次上游请求及重试的总等待预算，不能小于首响应超时 |
+| `attemptTimeoutSeconds` | 120 | 正整数秒，不设固定上限；每次等待 HTTP 响应头的超时 |
+| `maxElapsedSeconds` | 900 | 正整数秒，不设固定上限；单次上游请求及重试的总等待预算，不能小于单次连接等待上限 |
 | `retryNetworkErrors` | `true` | 是否重试连接失败与首响应超时 |
 | `retryStatusCodes` | 408、409、429、500、502、503、504、529 | 可从这些临时错误中选择；鉴权、参数、余额错误按上游 type/code 排除 |
 
 - 四种生成引擎通过 `runs/retry.ts runRetryOptions(persistEmit)` 读取策略，`provider/client.ts` 的 JSON POST 交给 `provider/retry.ts fetchWithRetry()`。重试复用同一请求，不创建新 run 或额外的用户额度计数；标题总结和模型目录不启用这套生成重试。
 - 可重试 HTTP 失败先消费错误响应；连接失败与响应头超时受独立开关控制。等待取 `max(递增间隔含抖动, Retry-After)`，支持秒数与 HTTP 日期；上游要求的等待可超过单次间隔上限，但不会越过总预算。次数或预算耗尽返回最后错误，用户停止会中断在途请求或等待计时器。
+- 首响应超时与重试等待共用分段计时；超过 [Node.js 单个计时器的 32 位延时上限](https://nodejs.org/api/timers.html#settimeoutcallback-delay-args)时继续等待剩余时长，避免大数值被截成 1ms，取消或收到响应后清理当前计时器。
 - **收到成功 HTTP 响应头后即交给引擎，之后不重试或重放正文。** HTTP 200 中的 SSE error、流中断及非流式正文读取失败仍按原链路终结，用户可手动重新生成。首响应超时不限制已连接后的模型生成时长。
 - `run.retry` 的 `waiting / attempting / connected` 与其他事件共用序号和 `run_events` 持久化；等待期间 run 仍为 `running`。`eventReducer.ts` 保存 `LiveMessage.retry`，`RetryStatus.tsx` 展示次数、倒计时及稍后回来的提示，连通或终态后清除。刷新、切换聊天或关闭浏览器不会取消服务端重试，返回时走原有 active-run 与 SSE 续传；**服务进程重启仍按 §5.5 标记中断，不会从数据库自动续跑。**
 

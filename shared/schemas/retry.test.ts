@@ -21,4 +21,32 @@ describe('重试策略', () => {
     ).toBe(false)
     expect(retryPolicySchema.safeParse(DEFAULT_RETRY_POLICY).success).toBe(true)
   })
+
+  it.each([
+    [1, 1],
+    [600, 9000],
+    [3600, 86400],
+    [3_000_000, 6_000_000],
+  ])('接受单次等待 %i 秒、总等待 %i 秒', (attemptTimeoutSeconds, maxElapsedSeconds) => {
+    expect(
+      retryPolicySchema.safeParse({
+        ...DEFAULT_RETRY_POLICY,
+        attemptTimeoutSeconds,
+        maxElapsedSeconds,
+      }).success,
+    ).toBe(true)
+  })
+
+  it.each(['attemptTimeoutSeconds', 'maxElapsedSeconds'] as const)(
+    '%s 仅接受正整数秒数，非法输入显示中文提示',
+    (field) => {
+      for (const value of [0, -1, 1.5, NaN, Infinity, '9000']) {
+        const result = retryPolicySchema.safeParse({ ...DEFAULT_RETRY_POLICY, [field]: value })
+        expect(result.success).toBe(false)
+        if (!result.success) {
+          expect(result.error.issues[0]?.message).toMatch(/正整数秒数|必须大于 0 秒/)
+        }
+      }
+    },
+  )
 })

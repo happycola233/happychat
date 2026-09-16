@@ -2,6 +2,11 @@ import { z } from 'zod'
 
 export const RETRYABLE_HTTP_STATUSES = [408, 409, 429, 500, 502, 503, 504, 529] as const
 
+const waitSecondsSchema = z
+  .number('请输入正整数秒数')
+  .int('请输入正整数秒数')
+  .positive('等待时间必须大于 0 秒')
+
 export const retryPolicySchema = z
   .object({
     enabled: z.boolean(),
@@ -10,8 +15,8 @@ export const retryPolicySchema = z
     maxDelaySeconds: z.number().min(1).max(600),
     backoffMultiplier: z.number().min(1).max(5),
     jitterPercent: z.number().int().min(0).max(50),
-    attemptTimeoutSeconds: z.number().int().min(5).max(600),
-    maxElapsedSeconds: z.number().int().min(10).max(7200),
+    attemptTimeoutSeconds: waitSecondsSchema,
+    maxElapsedSeconds: waitSecondsSchema,
     retryNetworkErrors: z.boolean(),
     retryStatusCodes: z
       .array(
@@ -30,7 +35,7 @@ export const retryPolicySchema = z
     path: ['maxDelaySeconds'],
   })
   .refine((policy) => policy.maxElapsedSeconds >= policy.attemptTimeoutSeconds, {
-    message: '总等待上限不能小于首响应超时',
+    message: '总等待上限不能小于单次连接等待上限',
     path: ['maxElapsedSeconds'],
   })
 

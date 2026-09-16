@@ -31,7 +31,7 @@ const fields: {
   label: string
   unit: string
   min: number
-  max: number
+  max?: number
   step?: number
   description?: string
 }[] = [
@@ -43,11 +43,10 @@ const fields: {
     key: 'attemptTimeoutSeconds',
     label: '单次连接等待上限',
     unit: '秒',
-    min: 5,
-    max: 600,
+    min: 1,
     description: '从发送请求到收到响应头的最长时间，不限制后续生成时长。',
   },
-  { key: 'maxElapsedSeconds', label: '总等待上限', unit: '秒', min: 10, max: 7200 },
+  { key: 'maxElapsedSeconds', label: '总等待上限', unit: '秒', min: 1 },
   {
     key: 'jitterPercent',
     label: '额外随机等待',

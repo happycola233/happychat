@@ -16,15 +16,28 @@ export function retryAfterMs(value: string | null, now = Date.now()): number {
   return Number.isFinite(date) ? Math.max(0, date - now) : 0
 }
 
+/** Node.js 超过 32 位有符号整数的延时会变成 1ms；分段计时以保留完整等待时长。 */
+function scheduleLongTimeout(callback: () => void, delayMs: number): () => void {
+  const maxTimerDelayMs = 2_147_483_647
+  const deadline = Date.now() + delayMs
+  let timer = setTimeout(checkDeadline, Math.min(delayMs, maxTimerDelayMs))
+  function checkDeadline() {
+    const remainingMs = deadline - Date.now()
+    if (remainingMs <= 0) callback()
+    else timer = setTimeout(checkDeadline, Math.min(remainingMs, maxTimerDelayMs))
+  }
+  return () => clearTimeout(timer)
+}
+
 function waitForRetry(delay: number, signal?: AbortSignal): Promise<void> {
   signal?.throwIfAborted()
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
+    const cancelTimeout = scheduleLongTimeout(() => {
       signal?.removeEventListener('abort', abort)
       resolve()
     }, delay)
     function abort() {
-      clearTimeout(timer)
+      cancelTimeout()
       reject(signal!.reason)
     }
     signal?.addEventListener('abort', abort, { once: true })
@@ -55,7 +68,7 @@ export async function fetchWithRetry(
         reason: '正在重新连接',
       })
     const timeoutController = new AbortController()
-    const timer = setTimeout(
+    const cancelTimeout = scheduleLongTimeout(
       () => timeoutController.abort(),
       Math.min(policy.attemptTimeoutSeconds * 1000, Math.max(0, deadline - Date.now())),
     )
@@ -92,7 +105,7 @@ export async function fetchWithRetry(
           ? error
           : networkError(error)
     } finally {
-      clearTimeout(timer)
+      cancelTimeout()
     }
     // 金额耗尽与鉴权等永久失败即使被网关误用 429/5xx 表达，也不会反复扣请求。
     const permanent = [failure.code, failure.type].some(

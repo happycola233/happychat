@@ -7,6 +7,10 @@ const options = (patch: Partial<UpstreamRetryOptions['policy']> = {}): UpstreamR
   onProgress: vi.fn(),
 })
 const unavailable = () => new Response('{"error":{"type":"server_error"}}', { status: 503 })
+const pendingUntilAborted = (signal?: AbortSignal) =>
+  new Promise<Response>((_, reject) => {
+    signal?.addEventListener('abort', () => reject(signal.reason), { once: true })
+  })
 
 afterEach(() => {
   vi.useRealTimers()
@@ -100,18 +104,90 @@ describe('上游请求自动重试', () => {
     vi.useFakeTimers()
     const request = vi
       .fn()
-      .mockImplementationOnce(
-        (signal: AbortSignal) =>
-          new Promise((_, reject) => {
-            signal.addEventListener('abort', () => reject(signal.reason), { once: true })
-          }),
-      )
+      .mockImplementationOnce(pendingUntilAborted)
       .mockResolvedValue(new Response('ok'))
     const result = fetchWithRetry(request, undefined, options({ attemptTimeoutSeconds: 5 }))
     await vi.advanceTimersByTimeAsync(10000)
     const response = await result
     await vi.advanceTimersByTimeAsync(600000)
     expect(await response.text()).toBe('ok')
+    expect(request).toHaveBeenCalledTimes(2)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('单次等待超过计时器范围时仍在配置的时刻超时', async () => {
+    vi.useFakeTimers()
+    const request = vi.fn(pendingUntilAborted)
+    const result = fetchWithRetry(
+      request,
+      undefined,
+      options({
+        attemptTimeoutSeconds: 3_000_000,
+        maxElapsedSeconds: 6_000_000,
+        retryNetworkErrors: false,
+      }),
+    )
+    const rejected = expect(result).rejects.toMatchObject({ type: 'timeout_error' })
+    await vi.advanceTimersByTimeAsync(3_000_000_000 - 1)
+    expect(request.mock.calls[0]?.[0]?.aborted).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    await rejected
+    expect(request).toHaveBeenCalledTimes(1)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('较大的总等待预算耗尽时结束正在连接的请求', async () => {
+    vi.useFakeTimers()
+    const request = vi.fn(pendingUntilAborted)
+    const result = fetchWithRetry(
+      request,
+      undefined,
+      options({ attemptTimeoutSeconds: 3600, maxElapsedSeconds: 9000 }),
+    )
+    const rejected = expect(result).rejects.toMatchObject({ type: 'timeout_error' })
+    await vi.advanceTimersByTimeAsync(9_000_000 - 1)
+    expect(request).toHaveBeenCalledTimes(3)
+    expect(request.mock.calls[2]?.[0]?.aborted).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    await rejected
+    expect(request.mock.calls[2]?.[0]?.aborted).toBe(true)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('长时间连接等待在分段后仍可立即取消', async () => {
+    vi.useFakeTimers()
+    const request = vi.fn(pendingUntilAborted)
+    const controller = new AbortController()
+    const result = fetchWithRetry(
+      request,
+      controller.signal,
+      options({ attemptTimeoutSeconds: 3_000_000, maxElapsedSeconds: 6_000_000 }),
+    )
+    const rejected = expect(result).rejects.toMatchObject({ name: 'AbortError' })
+    await vi.advanceTimersByTimeAsync(2_147_483_647)
+    controller.abort()
+    await rejected
+    expect(request).toHaveBeenCalledTimes(1)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('较大的 Retry-After 不会提前重试，连接成功后清理长计时器', async () => {
+    vi.useFakeTimers()
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response('{}', { status: 429, headers: { 'Retry-After': '3000000' } }),
+      )
+      .mockResolvedValue(new Response('ok'))
+    const result = fetchWithRetry(
+      request,
+      undefined,
+      options({ attemptTimeoutSeconds: 3_000_000, maxElapsedSeconds: 6_000_000 }),
+    )
+    await vi.advanceTimersByTimeAsync(3_000_000_000 - 1)
+    expect(request).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(await (await result).text()).toBe('ok')
     expect(request).toHaveBeenCalledTimes(2)
     expect(vi.getTimerCount()).toBe(0)
   })
