@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { eq } from 'drizzle-orm'
 import type { ModelPricing } from '@shared/types/domain'
 
 let tmpDir: string
@@ -47,6 +48,7 @@ async function logUsage(
   options: {
     at: Date
     modelLabel?: string
+    modelId?: string
     tokens?: number
     success?: boolean
     imageTokens?: number
@@ -54,6 +56,7 @@ async function logUsage(
 ) {
   await dbClient.db.insert(schema.usageLogs).values({
     userId,
+    modelId: options.modelId,
     modelLabel: options.modelLabel ?? 'gpt-test',
     pricingSnapshot: PRICING,
     inputTokens: options.tokens ?? 1,
@@ -65,6 +68,73 @@ async function logUsage(
 }
 
 describe('个人使用情况统计', () => {
+  it('按当前外显名称汇总同一模型的历史 ID 与旧名称，停用模型也可识别', async () => {
+    const userId = await createUser()
+    const providerId = 'usage-name-provider-' + fixtureSeq++
+    const modelId = 'usage-name-model-' + fixtureSeq++
+    await dbClient.db.insert(schema.providers).values({
+      id: providerId,
+      name: '示例供应商',
+      baseUrl: 'https://example.test',
+      apiKey: 'test-key',
+    })
+    await dbClient.db.insert(schema.models).values({
+      id: modelId,
+      providerId,
+      modelId: 'upstream-raw-id',
+      displayName: '模型外显名称',
+      enabled: false,
+      capabilities: {
+        vision: false,
+        file_input: false,
+        web_search: false,
+        x_search: false,
+        image_generation: false,
+        reasoning: false,
+      },
+    })
+    await logUsage(userId, { at: new Date(), modelId, modelLabel: 'upstream-raw-id', tokens: 2 })
+    await logUsage(userId, { at: new Date(), modelId, modelLabel: '模型旧名称', tokens: 3 })
+    const stats = await usageStats.getMyUsageStats(userId)
+    expect(stats.byModel).toEqual([
+      { modelId, modelLabel: '模型外显名称', requests: 2, totalTokens: 5, costUsd: 5 },
+    ])
+    expect(stats.topModel?.modelLabel).toBe('模型外显名称')
+    expect(await usageStats.getUserModelUsage(userId, 30)).toEqual(stats.byModel)
+  })
+
+  it('删除模型后仍保留历史名称与用量', async () => {
+    const userId = await createUser()
+    const providerId = 'usage-deleted-provider-' + fixtureSeq++
+    const modelId = 'usage-deleted-model-' + fixtureSeq++
+    await dbClient.db.insert(schema.providers).values({
+      id: providerId,
+      name: '示例供应商',
+      baseUrl: 'https://example.test',
+      apiKey: 'test-key',
+    })
+    await dbClient.db.insert(schema.models).values({
+      id: modelId,
+      providerId,
+      modelId: 'upstream-retired',
+      displayName: '历史模型',
+      capabilities: {
+        vision: false,
+        file_input: false,
+        web_search: false,
+        x_search: false,
+        image_generation: false,
+        reasoning: false,
+      },
+    })
+    await logUsage(userId, { at: new Date(), modelId, modelLabel: '历史模型', tokens: 7 })
+    await dbClient.db.delete(schema.models).where(eq(schema.models.id, modelId))
+    const stats = await usageStats.getMyUsageStats(userId)
+    expect(stats.byModel).toEqual([
+      { modelId: null, modelLabel: '历史模型', requests: 1, totalTokens: 7, costUsd: 7 },
+    ])
+  })
+
   it('热力图按用户本地日分格（东八区凌晨算当天）', async () => {
     const userId = await createUser()
     // UTC 2026-03-14T17:30Z = 东八区 3/15 01:30

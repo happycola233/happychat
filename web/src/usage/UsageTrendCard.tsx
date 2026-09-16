@@ -1,62 +1,154 @@
 import { useState } from 'react'
-import { clsx } from 'clsx'
+import { ChartNoAxesCombined, Table2 } from 'lucide-react'
 import type { UsageStatsDTO } from '@shared/types/api'
-import { formatQuotaCostUsd } from '@shared/util/quota'
 import { TrendChart } from '../components/charts'
-import { formatCompact, formatInt } from '../lib/format'
+import { Button } from '../components/ui/Button'
+import { SegmentedControl } from '../components/ui/SegmentedControl'
+import { formatInt } from '../lib/format'
+import { UsageSection, UsageSectionFooter, UsageValue } from './UsagePrimitives'
+import { formatUsageMetric, USAGE_METRICS, type UsageMetric } from './usagePresentation'
 
-type Metric = 'requests' | 'totalTokens' | 'costUsd'
-
-/** 三个测度量级差得远（次 / 万 token / 美元），同轴叠加会让小的那条贴地，所以一次只画一条。 */
-const METRICS: { key: Metric; label: string; format: (value: number) => string }[] = [
-  { key: 'requests', label: '请求次数', format: formatInt },
-  { key: 'totalTokens', label: 'Token', format: formatCompact },
-  { key: 'costUsd', label: '花费', format: formatQuotaCostUsd },
-]
-
-/** 窗口内的用量趋势；分桶粒度由服务端按窗口给出（今日按小时、本年按月）。 */
-export function UsageTrendCard({ stats, viewLabel }: { stats: UsageStatsDTO; viewLabel: string }) {
-  const [metric, setMetric] = useState<Metric>('requests')
-  const active = METRICS.find((item) => item.key === metric)!
-
+/** 请求、Token、花费分别作图，避免量级不同导致同轴曲线失真。 */
+export function UsageTrendCard({
+  stats,
+  viewLabel,
+  timeZone,
+}: {
+  stats: UsageStatsDTO
+  viewLabel: string
+  timeZone?: string
+}) {
+  const [metric, setMetric] = useState<UsageMetric>('requests')
+  const [showTable, setShowTable] = useState(false)
+  const label = USAGE_METRICS.find((item) => item.value === metric)!.label
+  const bucketLabel = { hour: '小时', day: '天', month: '月' }[stats.granularity]
+  const peak = stats.trend.reduce(
+    (best, point) => (point[metric] > (best?.[metric] ?? 0) ? point : best),
+    null as UsageStatsDTO['trend'][number] | null,
+  )
+  const formatBucket = (ts: number) =>
+    new Date(ts).toLocaleString('zh-CN', {
+      timeZone,
+      month: 'numeric',
+      ...(stats.granularity !== 'month' ? { day: 'numeric' } : {}),
+      ...(stats.granularity === 'hour'
+        ? { hour: '2-digit', minute: '2-digit', hour12: false }
+        : {}),
+    })
   return (
-    <div className="rounded-2xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">
-          {viewLabel}趋势
-        </h2>
-        <div className="flex items-center gap-0.5 rounded-lg bg-neutral-100 p-0.5 dark:bg-neutral-800">
-          {METRICS.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              aria-pressed={metric === item.key}
-              onClick={() => setMetric(item.key)}
-              className={clsx(
-                'rounded-md px-2 py-1 text-[11px] font-medium transition',
-                metric === item.key
-                  ? 'bg-white text-neutral-800 shadow-sm dark:bg-neutral-700 dark:text-neutral-100'
-                  : 'text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200',
-              )}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
+    <UsageSection
+      title="用量趋势"
+      description={viewLabel + ' · 按' + bucketLabel + '汇总'}
+      actions={
+        <SegmentedControl
+          label="趋势指标"
+          value={metric}
+          onChange={setMetric}
+          options={USAGE_METRICS}
+        />
+      }
+    >
+      <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <UsageValue
+          exact={formatUsageMetric(stats.totals[metric], metric, true)}
+          className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100"
+        >
+          {formatUsageMetric(stats.totals[metric], metric)}
+        </UsageValue>
+        <span className="text-xs text-neutral-500 dark:text-neutral-400">
+          {viewLabel}
+          {label}
+          {metric === 'costUsd' ? ' · USD' : '总量'}
+        </span>
       </div>
-      {stats.trend.length === 0 ? (
-        <p className="py-10 text-center text-xs text-neutral-400 dark:text-neutral-500">
-          {viewLabel}还没有用量记录。
-        </p>
+      {showTable ? (
+        <div
+          className="hc-scrollbar h-[228px] overflow-auto rounded-lg"
+          tabIndex={0}
+          aria-label="趋势数据表"
+        >
+          <table className="w-full text-right text-xs tabular-nums">
+            <caption className="sr-only">
+              {viewLabel}每{bucketLabel}用量
+            </caption>
+            <thead className="sticky top-0 bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+              <tr>
+                {['时间', '请求', 'Token', '花费 · USD'].map((title) => (
+                  <th
+                    key={title}
+                    scope="col"
+                    className="whitespace-nowrap px-2 py-2.5 font-medium first:text-left"
+                  >
+                    {title}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-neutral-200/50 text-neutral-700 dark:divide-neutral-800 dark:text-neutral-300">
+              {stats.trend.map((point) => (
+                <tr key={point.ts}>
+                  <th
+                    scope="row"
+                    className="whitespace-nowrap px-2 py-2.5 text-left font-normal"
+                    title={new Date(point.ts).toISOString()}
+                  >
+                    {formatBucket(point.ts)}
+                  </th>
+                  <td className="px-2">{formatInt(point.requests)}</td>
+                  <td className="px-2">{formatInt(point.totalTokens)}</td>
+                  <td className="px-2">{formatUsageMetric(point.costUsd, 'costUsd', true)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : stats.totals.requests === 0 ? (
+        <div className="flex h-[228px] flex-col items-center justify-center gap-2 text-sm text-neutral-500 dark:text-neutral-400">
+          <ChartNoAxesCombined
+            aria-hidden
+            className="h-7 w-7 text-neutral-300 dark:text-neutral-600"
+          />
+          <p>{viewLabel}还没有用量记录</p>
+          <p className="text-xs">开始对话后，可以在这里查看变化。</p>
+        </div>
       ) : (
         <TrendChart
-          data={stats.trend.map((point) => ({ ts: point.ts, [metric]: point[metric] }))}
-          series={[{ key: metric, name: active.label, color: '#0ea5e9' }]}
+          data={stats.trend}
+          series={[{ key: metric, name: label, color: '#0ea5e9' }]}
           bucket={stats.granularity}
-          height={220}
-          valueFormat={active.format}
+          height={228}
+          timeZone={timeZone}
+          valueFormat={(value) => formatUsageMetric(value, metric)}
+          tooltipValueFormat={(value) => formatUsageMetric(value, metric, true)}
+          showLegend={false}
         />
       )}
-    </div>
+      <UsageSectionFooter
+        note={
+          peak
+            ? '峰值 ' +
+              formatBucket(peak.ts) +
+              ' · ' +
+              formatUsageMetric(peak[metric], metric) +
+              (metric === 'requests' ? ' 次' : '')
+            : '暂无峰值记录'
+        }
+        actions={
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-pressed={showTable}
+            onClick={() => setShowTable(!showTable)}
+          >
+            {showTable ? (
+              <ChartNoAxesCombined className="h-3.5 w-3.5" />
+            ) : (
+              <Table2 className="h-3.5 w-3.5" />
+            )}
+            {showTable ? '查看图表' : '查看明细'}
+          </Button>
+        }
+      />
+    </UsageSection>
   )
 }

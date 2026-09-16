@@ -1,140 +1,282 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { clsx } from 'clsx'
+import { ChevronLeft, ChevronRight, Flame } from 'lucide-react'
 import type { UsageHeatmapCellDTO } from '@shared/types/api'
-import { formatQuotaCostUsd } from '@shared/util/quota'
-import { formatCompact, formatInt } from '../lib/format'
+import { Button } from '../components/ui/Button'
+import { SegmentedControl } from '../components/ui/SegmentedControl'
+import { inputClass } from '../components/ui/controlStyles'
+import { formatInt } from '../lib/format'
 import { buildHeatmapGrid, type HeatmapDay, type HeatmapMetric } from './heatmapGrid'
+import { UsageSection } from './UsagePrimitives'
+import { formatUsageMetric } from './usagePresentation'
 
 const METRIC_OPTIONS: { value: HeatmapMetric; label: string }[] = [
-  { value: 'requests', label: '请求数' },
+  { value: 'requests', label: '请求' },
   { value: 'tokens', label: 'Token' },
   { value: 'cost', label: '花费' },
 ]
-
 const LEVEL_CLASS = ['hc-heat-0', 'hc-heat-1', 'hc-heat-2', 'hc-heat-3', 'hc-heat-4'] as const
 
-function formatDate(date: string): string {
-  const [, month, day] = date.split('-')
-  return `${Number(month)} 月 ${Number(day)} 日`
-}
-
-/** 单格的完整读数：三个口径同时给出，切换口径时不必反复 hover。 */
 function cellTitle(day: HeatmapDay): string {
-  if (day.requests === 0) return `${formatDate(day.date)} · 无活动`
-  return [
-    formatDate(day.date),
-    `请求 ${formatInt(day.requests)} 次`,
-    `Token ${formatCompact(day.totalTokens)}`,
-    `花费 ${formatQuotaCostUsd(day.costUsd)}`,
-  ].join(' · ')
+  return (
+    day.date +
+    ' · ' +
+    formatInt(day.requests) +
+    ' 次请求 · ' +
+    formatInt(day.totalTokens) +
+    ' Token · ' +
+    formatUsageMetric(day.costUsd, 'costUsd', true)
+  )
 }
 
-/**
- * GitHub 贡献图风格的活跃热力图。
- *
- * 编码口径：单色 sky 序列表示量级（0 档为中性灰＝无活动），列＝周、行＝星期。
- * 刻意不引 recharts——这张图是纯网格，自绘既省包体积又能精确控制格子尺寸与对齐。
- */
-export function UsageHeatmap({ cells }: { cells: UsageHeatmapCellDTO[] }) {
+/** 全年日历保留独立时间范围；同一份读数支持指针预览、触屏选择与键盘导航。 */
+export function UsageHeatmap({
+  cells,
+  currentStreak,
+  longestStreak,
+}: {
+  cells: UsageHeatmapCellDTO[]
+  currentStreak: number
+  longestStreak: number
+}) {
   const [metric, setMetric] = useState<HeatmapMetric>('requests')
+  const [selectedDate, setSelectedDate] = useState(cells.at(-1)?.date ?? '')
+  const [hoveredDate, setHoveredDate] = useState<string | null>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
   const grid = useMemo(() => buildHeatmapGrid(cells, { metric }), [cells, metric])
-  const totalLabel =
-    metric === 'cost'
-      ? formatQuotaCostUsd(grid.total)
-      : metric === 'tokens'
-        ? formatCompact(grid.total)
-        : `${formatInt(grid.total)} 次`
+  const selectedIndex = Math.max(
+    0,
+    cells.findIndex((day) => day.date === selectedDate),
+  )
+  const selected = cells[selectedIndex]
+  const inspected = cells.find((day) => day.date === hoveredDate) ?? selected
+  const gridTemplateColumns = '2rem repeat(' + grid.weeks.length + ', minmax(14px, 1fr))'
+
+  // 窄屏首次打开即看到最近的活动；切换口径和点选日期不重置用户滚动位置。
+  useEffect(() => {
+    const node = scrollRef.current
+    if (!node) return
+    let previousWidth = 0
+    const observer = new ResizeObserver(() => {
+      if (node.clientWidth !== previousWidth) {
+        previousWidth = node.clientWidth
+        node.scrollLeft = node.scrollWidth
+      }
+    })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
+
+  const selectDay = (index: number, focus = false) => {
+    const day = cells[Math.max(0, Math.min(cells.length - 1, index))]
+    if (!day) return
+    setSelectedDate(day.date)
+    setHoveredDate(null)
+    const button = scrollRef.current?.querySelector<HTMLButtonElement>(
+      '[data-date="' + day.date + '"]',
+    )
+    if (focus) button?.focus({ preventScroll: true })
+    // 只移动图内的横向滚动，不把整个页面拖到日历处。
+    const container = scrollRef.current
+    if (button && container) {
+      const box = button.getBoundingClientRect()
+      const bounds = container.getBoundingClientRect()
+      if (box.left < bounds.left) container.scrollLeft += box.left - bounds.left - 4
+      else if (box.right > bounds.right) container.scrollLeft += box.right - bounds.right + 4
+    }
+  }
 
   return (
-    <div>
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div className="text-xs text-neutral-500 dark:text-neutral-400">
-          近一年共 <span className="font-medium text-neutral-700 dark:text-neutral-200">{totalLabel}</span>
-          ，活跃 {grid.activeDays} 天
-        </div>
-        {/* 口径切换：一行分段控件，放在图上方（filters in one row above the chart）。 */}
-        <div
-          role="group"
-          aria-label="热力图口径"
-          className="flex items-center gap-0.5 rounded-lg bg-neutral-100 p-0.5 dark:bg-neutral-800"
-        >
-          {METRIC_OPTIONS.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              aria-pressed={metric === option.value}
-              onClick={() => setMetric(option.value)}
-              className={clsx(
-                'rounded-md px-2 py-1 text-[11px] font-medium transition',
-                metric === option.value
-                  ? 'bg-white text-neutral-800 shadow-sm dark:bg-neutral-700 dark:text-neutral-100'
-                  : 'text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200',
-              )}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
+    <UsageSection
+      id="usage-activity"
+      title="活跃记录"
+      description="近一年 · 每格代表一天"
+      actions={
+        <SegmentedControl
+          label="热力图口径"
+          value={metric}
+          options={METRIC_OPTIONS}
+          onChange={setMetric}
+        />
+      }
+    >
+      <div className="mb-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-neutral-500 dark:text-neutral-400">
+        <span>
+          活跃{' '}
+          <strong className="font-semibold text-neutral-800 dark:text-neutral-200">
+            {grid.activeDays}
+          </strong>{' '}
+          天
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <Flame aria-hidden className="h-3.5 w-3.5 text-orange-500" />
+          连续 {currentStreak} 天
+        </span>
+        <span>最长连续 {longestStreak} 天</span>
+        <span className="sm:ml-auto">
+          累计{' '}
+          {metric === 'cost'
+            ? formatUsageMetric(grid.total, 'costUsd')
+            : metric === 'tokens'
+              ? formatUsageMetric(grid.total, 'totalTokens') + ' Token'
+              : formatInt(grid.total) + ' 次请求'}
+        </span>
       </div>
-
-      {/* 横向滚动：一年 53 列在窄屏放不下，滚动比压缩格子更可读。 */}
-      <div className="hc-scrollbar overflow-x-auto pb-1">
-        <div className="inline-flex gap-1.5">
-          {/* 行标签只显示周一/周三/周五，与 GitHub 同样避免 7 行标签把图挤窄。 */}
-          <div className="flex flex-col gap-[3px] pt-[18px] pr-1">
-            {grid.weekdayLabels.map((label, index) => (
+      <div
+        ref={scrollRef}
+        className="hc-scrollbar overflow-x-auto p-1 pb-2"
+        onPointerLeave={() => setHoveredDate(null)}
+      >
+        <div className="min-w-[920px]">
+          <div
+            className="mb-2 grid gap-[3px] text-[11px] text-neutral-500 dark:text-neutral-400"
+            style={{ gridTemplateColumns }}
+            aria-hidden
+          >
+            {grid.monthLabels.map((month) => (
               <span
-                key={label}
-                className="h-[11px] text-[10px] leading-[11px] text-neutral-400 dark:text-neutral-500"
+                key={month.weekIndex}
+                style={{ gridColumn: month.weekIndex + 2, gridRow: 1 }}
+                className="whitespace-nowrap"
               >
-                {index % 2 === 0 ? label : ''}
+                {month.label}
               </span>
             ))}
           </div>
-          <div>
-            {/* 月份刻度 */}
-            <div className="relative mb-1 h-[14px]">
-              {grid.monthLabels.map((month) => (
+          <div role="grid" aria-label="近一年每日活动" className="space-y-[3px]">
+            {grid.weekdayLabels.map((label, dayIndex) => (
+              <div
+                key={label}
+                role="row"
+                className="grid items-center gap-[3px]"
+                style={{ gridTemplateColumns }}
+              >
                 <span
-                  key={`${month.weekIndex}-${month.label}`}
-                  className="absolute text-[10px] leading-[14px] text-neutral-400 dark:text-neutral-500"
-                  style={{ left: `${month.weekIndex * 14}px` }}
+                  role="rowheader"
+                  className="text-[10px] text-neutral-500 dark:text-neutral-400"
                 >
-                  {month.label}
+                  {dayIndex % 2 === 0 ? label : <span className="sr-only">{label}</span>}
                 </span>
-              ))}
-            </div>
-            <div className="flex gap-[3px]">
-              {grid.weeks.map((week, weekIndex) => (
-                <div key={weekIndex} className="flex flex-col gap-[3px]">
-                  {week.map((day, dayIndex) =>
-                    day ? (
-                      <button
-                        key={day.date}
-                        type="button"
-                        title={cellTitle(day)}
-                        aria-label={cellTitle(day)}
-                        className={clsx('hc-heat-cell h-[11px] w-[11px]', LEVEL_CLASS[day.level])}
-                      />
-                    ) : (
-                      <span key={`pad-${weekIndex}-${dayIndex}`} className="h-[11px] w-[11px]" />
-                    ),
-                  )}
-                </div>
-              ))}
-            </div>
+                {grid.weeks.map((week, weekIndex) => {
+                  const day = week[dayIndex]
+                  return (
+                    <div
+                      key={weekIndex}
+                      role="gridcell"
+                      aria-selected={day ? day.date === selected?.date : undefined}
+                    >
+                      {day ? (
+                        <button
+                          type="button"
+                          data-date={day.date}
+                          title={cellTitle(day)}
+                          aria-label={cellTitle(day)}
+                          tabIndex={day.date === selected?.date ? 0 : -1}
+                          className={clsx(
+                            'hc-heat-cell block aspect-square w-full',
+                            LEVEL_CLASS[day.level],
+                            day.date === selected?.date &&
+                              'ring-2 ring-sky-600 ring-offset-1 ring-offset-neutral-50 dark:ring-sky-300 dark:ring-offset-neutral-900',
+                          )}
+                          onFocus={() => setSelectedDate(day.date)}
+                          onClick={() => {
+                            setSelectedDate(day.date)
+                            setHoveredDate(null)
+                          }}
+                          onPointerEnter={(event) => {
+                            if (event.pointerType === 'mouse') setHoveredDate(day.date)
+                          }}
+                          onKeyDown={(event) => {
+                            const index = cells.findIndex((cell) => cell.date === day.date)
+                            const destination = {
+                              ArrowLeft: index - 7,
+                              ArrowRight: index + 7,
+                              ArrowUp: index - 1,
+                              ArrowDown: index + 1,
+                              Home: 0,
+                              End: cells.length - 1,
+                            }[event.key]
+                            if (destination !== undefined) {
+                              event.preventDefault()
+                              selectDay(destination, true)
+                            }
+                          }}
+                        />
+                      ) : (
+                        <span className="block aspect-square" />
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            ))}
           </div>
         </div>
       </div>
-
-      {/* 图例：色阶本身就是「少 → 多」的说明，不需要数值刻度 */}
-      <div className="mt-2 flex items-center justify-end gap-1.5 text-[10px] text-neutral-400 dark:text-neutral-500">
-        <span>少</span>
-        {LEVEL_CLASS.map((levelClass) => (
-          <span key={levelClass} className={clsx('hc-heat-cell h-[10px] w-[10px]', levelClass)} />
-        ))}
-        <span>多</span>
+      <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-neutral-500 dark:text-neutral-400">
+        <span>
+          选择日期查看明细<span className="sm:hidden"> · 左右滑动</span>
+        </span>
+        <div className="flex items-center gap-1.5" aria-label="颜色由浅到深表示用量由少到多">
+          <span>少</span>
+          {LEVEL_CLASS.map((level) => (
+            <span key={level} className={clsx('hc-heat-cell h-2.5 w-2.5', level)} />
+          ))}
+          <span>多</span>
+        </div>
       </div>
-    </div>
+      {inspected && (
+        <div className="mt-4 grid items-center gap-x-8 gap-y-4 rounded-lg bg-white px-3 py-3 sm:grid-cols-[auto_minmax(0,1fr)] dark:bg-neutral-950/50">
+          <div className="flex items-center gap-1">
+            <Button
+              aria-label="前一天"
+              variant="ghost"
+              size="sm"
+              className="px-1.5"
+              disabled={selectedIndex === 0}
+              onClick={() => selectDay(selectedIndex - 1)}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <input
+              type="date"
+              aria-label="查看某天用量"
+              className={clsx(inputClass, 'w-36')}
+              min={cells[0]?.date}
+              max={cells.at(-1)?.date}
+              value={inspected.date}
+              onChange={(event) => {
+                const index = cells.findIndex((day) => day.date === event.target.value)
+                if (index >= 0) selectDay(index)
+              }}
+            />
+            <Button
+              aria-label="后一天"
+              variant="ghost"
+              size="sm"
+              className="px-1.5"
+              disabled={selectedIndex === cells.length - 1}
+              onClick={() => selectDay(selectedIndex + 1)}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+          <dl aria-live="polite" className="grid min-w-0 grid-cols-3 gap-4 text-xs tabular-nums">
+            {[
+              ['请求', formatInt(inspected.requests)],
+              ['Token', formatInt(inspected.totalTokens)],
+              ['花费 · USD', formatUsageMetric(inspected.costUsd, 'costUsd', true)],
+            ].map(([label, value]) => (
+              <div key={label}>
+                <dt className="mb-1 text-neutral-500 dark:text-neutral-400">{label}</dt>
+                <dd className="break-all font-medium text-neutral-800 dark:text-neutral-100">
+                  {value}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      )}
+    </UsageSection>
   )
 }

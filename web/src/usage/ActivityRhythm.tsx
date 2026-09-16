@@ -1,53 +1,101 @@
+import { useState } from 'react'
 import { clsx } from 'clsx'
-import { formatInt } from '../lib/format'
+import { formatInt, formatPercent } from '../lib/format'
+import { UsageSection } from './UsagePrimitives'
 
 const WEEKDAY_LABELS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
 
-/** 单序列细柱：数据端 3px 圆角、柱间 2px 表面缝隙，坐标轴与刻度保持弱化。 */
-function BarRow({
+/** 柱图始终有文字读数；触屏点选、键盘左右键与悬停使用同一份数据。 */
+function ActivityBars({
   values,
   labelOf,
-  tooltipOf,
+  detailOf,
+  initialIndex,
+  label,
   compact,
 }: {
   values: number[]
   labelOf: (index: number) => string
-  tooltipOf: (index: number, value: number) => string
-  /** 24 格时刻度只标偶数点，避免文字互相挤压 */
+  detailOf: (index: number) => string
+  initialIndex: number
+  label: string
   compact?: boolean
 }) {
+  const [selectedIndex, setSelectedIndex] = useState(initialIndex)
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
+  const inspected = hoveredIndex ?? selectedIndex
   const max = Math.max(1, ...values)
+  const total = values.reduce((sum, value) => sum + value, 0)
   return (
-    <div className="flex items-end gap-[2px]">
-      {values.map((value, index) => (
-        <div key={index} className="flex min-w-0 flex-1 flex-col items-center gap-1">
-          <div className="flex h-20 w-full items-end" title={tooltipOf(index, value)}>
-            <div
-              className="hc-activity-bar w-full transition-[height] duration-300"
-              data-empty={value === 0 ? 'true' : undefined}
-              style={{ height: `${value === 0 ? 2 : Math.max(6, (value / max) * 80)}px` }}
-              role="img"
-              aria-label={tooltipOf(index, value)}
-            />
+    <div>
+      <div
+        role="group"
+        aria-label={label}
+        className="flex items-end gap-1"
+        onPointerLeave={() => setHoveredIndex(null)}
+      >
+        {values.map((value, index) => (
+          <div key={index} className="min-w-0 flex-1 text-center">
+            <button
+              type="button"
+              aria-label={detailOf(index) + ' · ' + formatInt(value) + ' 次请求'}
+              aria-pressed={selectedIndex === index}
+              tabIndex={selectedIndex === index ? 0 : -1}
+              className="flex h-24 w-full items-end rounded-sm focus-visible:outline-2 focus-visible:outline-sky-500"
+              onClick={() => setSelectedIndex(index)}
+              onFocus={() => setSelectedIndex(index)}
+              onPointerEnter={(event) => {
+                if (event.pointerType === 'mouse') setHoveredIndex(index)
+              }}
+              onKeyDown={(event) => {
+                const next = {
+                  ArrowLeft: Math.max(0, index - 1),
+                  ArrowRight: Math.min(values.length - 1, index + 1),
+                  Home: 0,
+                  End: values.length - 1,
+                }[event.key]
+                if (next !== undefined) {
+                  event.preventDefault()
+                  const group = event.currentTarget.closest('[role="group"]')
+                  group?.querySelectorAll('button')[next]?.focus()
+                }
+              }}
+            >
+              <span
+                aria-hidden
+                className={clsx(
+                  'hc-activity-bar w-full transition-opacity',
+                  inspected !== index && 'opacity-45',
+                )}
+                data-empty={value === 0 ? 'true' : undefined}
+                style={{ height: (value === 0 ? 2 : Math.max(4, (value / max) * 88)) + 'px' }}
+              />
+            </button>
+            <span
+              className={clsx(
+                'mt-2 block text-[10px] text-neutral-500 dark:text-neutral-400',
+                compact && index % 3 !== 0 && 'invisible',
+              )}
+            >
+              {labelOf(index)}
+            </span>
           </div>
-          <span
-            className={clsx(
-              'text-[10px] tabular-nums text-neutral-400 dark:text-neutral-500',
-              compact && index % 2 === 1 && 'invisible',
-            )}
-          >
-            {labelOf(index)}
-          </span>
-        </div>
-      ))}
+        ))}
+      </div>
+      <div
+        className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-neutral-500 dark:text-neutral-400"
+        aria-live="polite"
+      >
+        <span>{detailOf(inspected)}</span>
+        <strong className="font-medium text-neutral-800 dark:text-neutral-200">
+          {formatInt(values[inspected] ?? 0)} 次
+        </strong>
+        <span>占比 {formatPercent(total ? (values[inspected] ?? 0) / total : 0)}</span>
+      </div>
     </div>
   )
 }
 
-/**
- * 活跃节律：按本地小时与星期的请求分布。
- * 两张图都是单序列（只有「请求数」一个测度），因此不需要图例，标题即序列名。
- */
 export function ActivityRhythm({
   byHour,
   byWeekday,
@@ -59,45 +107,49 @@ export function ActivityRhythm({
   byWeekday: number[]
   busiestHour: number | null
   busiestWeekday: number | null
-  /** 「今日」窗口下一周分布必然只有一根柱子，没有信息量，直接隐藏 */
   showWeekday?: boolean
 }) {
+  // 星期分布从周一开始展示，保留服务端 0=周日的统计口径。
+  const weekdays = [1, 2, 3, 4, 5, 6, 0]
   return (
-    <div className={clsx('grid gap-4', showWeekday && 'lg:grid-cols-[1.6fr_1fr]')}>
-      <div className="rounded-2xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900">
-        <div className="mb-4 flex items-baseline justify-between gap-2">
-          <h2 className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">
-            一天中的分布
-          </h2>
-          <span className="text-[11px] text-neutral-400 dark:text-neutral-500">
-            {busiestHour === null ? '暂无数据' : `最活跃 ${busiestHour}:00`}
-          </span>
-        </div>
-        <BarRow
-          values={byHour}
-          compact
-          labelOf={(index) => String(index)}
-          tooltipOf={(index, value) => `${index}:00–${index}:59 · ${formatInt(value)} 次请求`}
-        />
-      </div>
-
-      {showWeekday && (
-        <div className="rounded-2xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900">
-          <div className="mb-4 flex items-baseline justify-between gap-2">
-            <h2 className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">
-              一周中的分布
-            </h2>
-            <span className="text-[11px] text-neutral-400 dark:text-neutral-500">
-              {busiestWeekday === null ? '暂无数据' : `最活跃 ${WEEKDAY_LABELS[busiestWeekday]}`}
+    <UsageSection title="活跃时段" description="看看你通常在什么时候使用">
+      <div className={clsx('grid gap-7', showWeekday && 'lg:grid-cols-[1.5fr_1fr] lg:gap-10')}>
+        <div className="min-w-0">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-xs">
+            <h3 className="font-medium text-neutral-700 dark:text-neutral-200">一天中的分布</h3>
+            <span className="text-neutral-500 dark:text-neutral-400">
+              {busiestHour === null ? '暂无活动' : '最常用时段 ' + busiestHour + ':00'}
             </span>
           </div>
-          <BarRow
-            values={byWeekday}
-            labelOf={(index) => WEEKDAY_LABELS[index]!.slice(1)}
-            tooltipOf={(index, value) => `${WEEKDAY_LABELS[index]} · ${formatInt(value)} 次请求`}
+          <ActivityBars
+            values={byHour}
+            label="每小时请求分布"
+            compact
+            initialIndex={busiestHour ?? 0}
+            labelOf={(index) => String(index).padStart(2, '0')}
+            detailOf={(index) => index + ':00–' + index + ':59'}
           />
         </div>
-      )}
-    </div>
+        {showWeekday && (
+          <div className="min-w-0">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <h3 className="font-medium text-neutral-700 dark:text-neutral-200">一周中的分布</h3>
+              <span className="text-neutral-500 dark:text-neutral-400">
+                {busiestWeekday === null
+                  ? '暂无活动'
+                  : '最常使用 ' + WEEKDAY_LABELS[busiestWeekday]}
+              </span>
+            </div>
+            <ActivityBars
+              values={weekdays.map((day) => byWeekday[day]!)}
+              label="每周请求分布"
+              initialIndex={Math.max(0, weekdays.indexOf(busiestWeekday ?? 1))}
+              labelOf={(index) => WEEKDAY_LABELS[weekdays[index]!]!}
+              detailOf={(index) => WEEKDAY_LABELS[weekdays[index]!]!}
+            />
+          </div>
+        )}
+      </div>
+    </UsageSection>
   )
 }

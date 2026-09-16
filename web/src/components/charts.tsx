@@ -74,6 +74,8 @@ interface TrendChartProps<T extends { ts: number }> {
   bucket: Bucket
   height?: number
   valueFormat?: ValueFormat
+  tooltipValueFormat?: ValueFormat
+  showLegend?: boolean
   timeZone?: string
 }
 
@@ -84,6 +86,8 @@ export function TrendChart<T extends { ts: number }>({
   bucket,
   height = 260,
   valueFormat = formatCompact,
+  tooltipValueFormat = valueFormat,
+  showLegend = true,
   timeZone,
 }: TrendChartProps<T>) {
   const dark = useIsDark()
@@ -117,15 +121,17 @@ export function TrendChart<T extends { ts: number }>({
         />
         <Tooltip
           cursor={{ stroke: dark ? '#525252' : '#d4d4d4', strokeDasharray: '3 3' }}
-          content={<ChartTooltip valueFormat={valueFormat} timeZone={timeZone} />}
+          content={<ChartTooltip valueFormat={tooltipValueFormat} timeZone={timeZone} />}
         />
-        <Legend
-          wrapperStyle={{ fontSize: 12 }}
-          iconType="plainline"
-          formatter={(label) => (
-            <span className="text-neutral-600 dark:text-neutral-300">{label}</span>
-          )}
-        />
+        {showLegend && (
+          <Legend
+            wrapperStyle={{ fontSize: 12 }}
+            iconType="plainline"
+            formatter={(label) => (
+              <span className="text-neutral-600 dark:text-neutral-300">{label}</span>
+            )}
+          />
+        )}
         {series.map((s) => (
           <Line
             key={s.key}

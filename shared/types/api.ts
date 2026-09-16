@@ -743,6 +743,7 @@ export interface UsageHeatmapCellDTO {
 
 export interface UsageModelStatDTO {
   modelId: string | null
+  /** 模型外显名称；模型已删除时保留日志中的历史名称。 */
   modelLabel: string
   requests: number
   totalTokens: number

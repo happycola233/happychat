@@ -8,11 +8,8 @@ import {
   groupQuotaBucketsByRule,
 } from '@shared/util/quota'
 import { describeQuotaWindow } from '@shared/util/quotaWindow'
-import {
-  describeQuotaReset,
-  quotaResetKey,
-  type QuotaResetDisplay,
-} from '../lib/quotaResetDisplay'
+import { describeQuotaReset, quotaResetKey, type QuotaResetDisplay } from '../lib/quotaResetDisplay'
+import { UsageSection, UsageSectionFooter } from './UsagePrimitives'
 
 /** 进度条配色跟随「剩余程度」这一状态语义：正常 sky、接近上限 amber、已耗尽 rose。 */
 function barTone(rule: QuotaBucketUsageDTO, warnThreshold: number) {
@@ -63,12 +60,22 @@ function QuotaBar({ rule, warnThreshold }: { rule: QuotaBucketUsageDTO; warnThre
   const unlimited = rule.limit.kind === 'unlimited'
   const percent = Math.min(100, Math.round((rule.percent ?? 0) * 100))
   if (unlimited) {
-    return (
-      <div className="h-1.5 rounded-full border border-dashed border-neutral-200 dark:border-neutral-700" />
-    )
+    return null
   }
   return (
-    <div className="h-1.5 overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
+    <div
+      role="progressbar"
+      aria-label={rule.bucketLabel ?? describeQuotaRuleGroupTitle([rule])}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={percent}
+      aria-valuetext={
+        formatQuotaAmount(rule.metric, rule.used) +
+        ' / ' +
+        formatQuotaAmount(rule.metric, rule.effectiveLimit ?? 0)
+      }
+      className="h-1.5 overflow-hidden rounded-full bg-neutral-200/70 dark:bg-neutral-800"
+    >
       <div
         className={clsx(
           'h-full rounded-full transition-[width] duration-300',
@@ -108,8 +115,30 @@ function QuotaFootnotes({
   reset?: QuotaResetDisplay | null
   warnThreshold?: number
 }) {
+  if (
+    rule.limit.kind === 'unlimited' &&
+    !extras?.some(Boolean) &&
+    !reset &&
+    !rule.granted &&
+    !rule.invalid
+  )
+    return null
   return (
-    <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-neutral-400 dark:text-neutral-500">
+    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-neutral-500 dark:text-neutral-400">
+      {rule.limit.kind === 'amount' && !rule.invalid && (
+        <span
+          className={clsx(
+            'font-medium',
+            rule.blocked
+              ? 'text-rose-600 dark:text-rose-400'
+              : 'text-neutral-700 dark:text-neutral-300',
+          )}
+        >
+          {rule.blocked
+            ? '额度已用尽'
+            : '剩余 ' + formatQuotaAmount(rule.metric, rule.remaining ?? 0)}
+        </span>
+      )}
       {extras?.filter(Boolean).map((item) => (
         <span key={item}>{item}</span>
       ))}
@@ -160,8 +189,8 @@ function SingleQuotaRow({
   const targetNames = formatQuotaTargetLabels(rule.targetLabels)
   return (
     <div className="py-3 first:pt-0 last:pb-0">
-      <div className="flex items-baseline justify-between gap-3">
-        <span className="min-w-0 truncate text-sm text-neutral-800 dark:text-neutral-100">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <span className="min-w-0 break-words text-sm font-medium text-neutral-800 dark:text-neutral-100">
           {describeQuotaRuleGroupTitle([rule])}
         </span>
         <span className="shrink-0 text-xs tabular-nums text-neutral-500 dark:text-neutral-400">
@@ -171,14 +200,16 @@ function SingleQuotaRow({
       {targetNames && (
         <div
           title={targetNames}
-          className="mt-0.5 text-[11px] leading-4 text-neutral-400 dark:text-neutral-500"
+          className="mt-1 break-words text-xs leading-5 text-neutral-500 dark:text-neutral-400"
         >
           {targetNames}
         </div>
       )}
-      <div className="mt-2">
-        <QuotaBar rule={rule} warnThreshold={warnThreshold} />
-      </div>
+      {rule.limit.kind === 'amount' && (
+        <div className="mt-2">
+          <QuotaBar rule={rule} warnThreshold={warnThreshold} />
+        </div>
+      )}
       <QuotaFootnotes
         rule={rule}
         warnThreshold={warnThreshold}
@@ -212,7 +243,7 @@ function IndependentQuotaGroup({
   return (
     <div className="py-3 first:pt-0 last:pb-0">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="min-w-0 truncate text-sm text-neutral-800 dark:text-neutral-100">
+        <span className="min-w-0 break-words text-sm font-medium text-neutral-800 dark:text-neutral-100">
           {title}
         </span>
         {exhausted > 0 && (
@@ -230,17 +261,19 @@ function IndependentQuotaGroup({
       <div className="mt-2.5 space-y-3">
         {buckets.map((rule) => (
           <div key={`${rule.ruleId}:${rule.bucketKey ?? ''}`}>
-            <div className="flex items-baseline justify-between gap-3">
-              <span className="min-w-0 truncate text-sm text-neutral-800 dark:text-neutral-100">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+              <span className="min-w-0 break-words text-sm text-neutral-800 dark:text-neutral-100">
                 {rule.bucketLabel ?? '未命名目标'}
               </span>
               <span className="shrink-0 text-xs tabular-nums text-neutral-500 dark:text-neutral-400">
                 <UsageFigure rule={rule} />
               </span>
             </div>
-            <div className="mt-2">
-              <QuotaBar rule={rule} warnThreshold={warnThreshold} />
-            </div>
+            {rule.limit.kind === 'amount' && (
+              <div className="mt-2">
+                <QuotaBar rule={rule} warnThreshold={warnThreshold} />
+              </div>
+            )}
             <QuotaFootnotes
               rule={rule}
               warnThreshold={warnThreshold}
@@ -287,62 +320,81 @@ export function QuotaProgressCard({ quota }: { quota: MyQuotaDTO }) {
   const groups = groupQuotaBucketsByRule(quota.rules)
   const attention = attentionSummary(quota.rules, quota.warnThreshold)
 
-  return (
-    <div className="rounded-2xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <h2 className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">我的额度</h2>
-          {attention.exhausted > 0 && (
-            <span className="rounded-md bg-rose-50 px-1.5 py-px text-[10px] font-medium text-rose-600 dark:bg-rose-500/10 dark:text-rose-300">
-              已耗尽 {attention.exhausted}
-            </span>
-          )}
-          {attention.warning > 0 && (
-            <span className="rounded-md bg-amber-50 px-1.5 py-px text-[10px] font-medium text-amber-600 dark:bg-amber-400/10 dark:text-amber-300">
-              接近上限 {attention.warning}
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-2 text-[11px] text-neutral-400 dark:text-neutral-500">
-          {quota.policyName && <span>策略：{quota.policyName}</span>}
-          {quota.paused && (
-            <span className="inline-flex items-center gap-1 rounded-md bg-sky-50 px-1.5 py-0.5 font-medium text-sky-600 dark:bg-sky-500/10 dark:text-sky-300">
-              <PauseCircle className="h-3 w-3" /> 限额已暂停
-            </span>
-          )}
-        </div>
-      </div>
+  if (quota.rules.length === 0) {
+    return (
+      <section
+        id="usage-quota"
+        aria-label="我的额度"
+        className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl bg-neutral-50 px-4 py-3.5 text-sm dark:bg-neutral-900/60"
+      >
+        <span className="inline-flex items-center gap-2 font-medium text-neutral-800 dark:text-neutral-100">
+          <InfinityIcon aria-hidden className="h-5 w-5 text-sky-600 dark:text-sky-400" />
+          无限额度
+        </span>
+        <span className="text-xs text-neutral-500 dark:text-neutral-400">
+          当前账号不受用量限制{quota.policyName ? ' · ' + quota.policyName : ''}
+        </span>
+      </section>
+    )
+  }
 
-      {quota.unlimited || quota.rules.length === 0 ? (
-        <div className="flex items-center gap-2 rounded-xl bg-neutral-50 px-3 py-4 text-sm text-neutral-500 dark:bg-neutral-800/50 dark:text-neutral-400">
-          <InfinityIcon className="h-4 w-4 text-neutral-400 dark:text-neutral-500" />
-          当前账号为无限额度，不受用量限制。
-        </div>
-      ) : (
-        <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
-          {groups.map((group) =>
-            group.buckets.length > 1 ? (
-              <IndependentQuotaGroup
-                key={group.ruleId}
-                buckets={group.buckets}
-                warnThreshold={quota.warnThreshold}
-              />
-            ) : (
-              <SingleQuotaRow
-                key={group.ruleId}
-                rule={group.buckets[0]!}
-                warnThreshold={quota.warnThreshold}
-              />
-            ),
-          )}
+  return (
+    <UsageSection
+      id="usage-quota"
+      title="我的额度"
+      description={quota.policyName ?? '当前可用额度'}
+    >
+      {(attention.exhausted > 0 || attention.warning > 0 || quota.paused) && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            {attention.exhausted > 0 && (
+              <span className="rounded-md bg-rose-50 px-1.5 py-px text-[10px] font-medium text-rose-600 dark:bg-rose-500/10 dark:text-rose-300">
+                已耗尽 {attention.exhausted}
+              </span>
+            )}
+            {attention.warning > 0 && (
+              <span className="rounded-md bg-amber-50 px-1.5 py-px text-[10px] font-medium text-amber-600 dark:bg-amber-400/10 dark:text-amber-300">
+                接近上限 {attention.warning}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2 text-[11px] text-neutral-400 dark:text-neutral-500">
+            {quota.paused && (
+              <span className="inline-flex items-center gap-1 rounded-md bg-sky-50 px-1.5 py-0.5 font-medium text-sky-600 dark:bg-sky-500/10 dark:text-sky-300">
+                <PauseCircle className="h-3 w-3" /> 限额已暂停
+              </span>
+            )}
+          </div>
         </div>
       )}
+
+      <div className="divide-y divide-neutral-200/60 dark:divide-neutral-800">
+        {groups.map((group) =>
+          // 单个模型也保留目标行，不能因桶数只有一条而丢失模型名。
+          group.buckets.length > 1 ||
+          (group.buckets[0]!.scope.type === 'models' && group.buckets[0]!.bucketKey !== null) ? (
+            <IndependentQuotaGroup
+              key={group.ruleId}
+              buckets={group.buckets}
+              warnThreshold={quota.warnThreshold}
+            />
+          ) : (
+            <SingleQuotaRow
+              key={group.ruleId}
+              rule={group.buckets[0]!}
+              warnThreshold={quota.warnThreshold}
+            />
+          ),
+        )}
+      </div>
+
+      <UsageSectionFooter note="额度按各自周期统计，标题总结不占额度。" />
 
       {quota.paused && (
         <p className="mt-3 text-[11px] leading-5 text-neutral-400 dark:text-neutral-500">
           管理员已暂停对你的限额检查：期间用量仍照常统计，恢复后会按累计用量重新判定。
         </p>
       )}
-    </div>
+    </UsageSection>
   )
 }

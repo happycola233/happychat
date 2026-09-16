@@ -309,6 +309,17 @@
 
 ---
 
+### 7.4 个人使用情况页
+
+`web/src/pages/UsagePage.tsx` 负责自然周期窗口、URL 状态、每分钟刷新和周期边界刷新；`usage/` 下的组件只消费同一份统计快照。切换窗口期间沿用旧数据自身的窗口标签，首次加载、失败重试及刷新失败保留数据均有对应状态。页面只有一个带定位的内部滚动容器，表格的无障碍标题不会撑大根页面滚动范围。
+
+- `UsageSummary` / `UsagePrimitives`：四项概览、统一轻量区块与完整数值提示；手机两列，提示支持悬停、聚焦和点按并钳制到视口内。
+- `QuotaProgressCard`：按策略顺序单栏排列，始终展示全部规则与目标，无需展开。共享池列出目标名称并保留一个额度；独立计量的单模型与多模型都展示目标行，无限额度不伪造进度或周期。各周期不与统计窗口混算。
+- `UsageTrendCard`：请求 / Token / 花费分别作图，可切换完整数据表；复用 `TrendChart`，通过可选 `tooltipValueFormat` 保留精确读数、`showLegend` 控制单序列图例，管理图表默认行为不变。
+- `ModelUsageTable` / `usagePresentation`：搜索、三种降序排列、完整列表、移动端保留三项用量与品牌图标；占比分母始终为当前窗口的全部模型。统计服务通过模型 ID 关联当前外显名称，停用模型仍能识别；删除后使用日志名称，不修改历史日志。同一模型的旧名称与原始 ID 记录归入当前名称。
+- `UsageHeatmap` / `ActivityRhythm`：全年日历可悬停、点选、日期选择、逐日与方向键浏览；格子使用单一 Tab 入口，窄屏默认展示最近日期。小时与星期分布均有可点选和键盘读取的文字明细。
+- `UsageExportDialog` / `usageExport`：页首导出趋势、全部模型用量、全年每日活动 CSV，使用 BOM、标准字段转义与名称公式防护；数字不使用缩写。趋势同时保留 UTC 时间、本地时间和时区，夏令时回拨的重复小时可区分；全年日明细不受统计窗口或模型搜索影响。
+
 ## 8. 鉴权与权限
 
 - 会话：登录建 `sessions` 行 + 签名 httpOnly cookie `hc_session`（`auth/session.ts`），同时记录登录 IP；每次成功解析登录态后按 5 分钟 / IP 变化节流刷新最近活动 IP。**用 cookie 而非 Bearer**，正是为了让 `EventSource` 能自动带凭证做续传。
@@ -376,7 +387,7 @@
 
 ## 11. 测试与验证（`scripts/` + vitest）
 
-- 单测（`npm run test`，当前 **185 个文件 / 1416 个用例**）：上下文专项覆盖整组保留、重复引用去重、手选分支隔离、发送前文件读取次数、跨聊天引用拦截、一次性选择的成功消费与失败恢复；除原有注册、权限、分支、导出、Responses/chat、附件清理与前端流式覆盖外，公告专项覆盖精确受众可见性、确认越权拦截、受众原子替换、强提示不可绕过、历史曝光迁移与共享面板渲染；分享卡片专项覆盖公开快照摘要优先级与截断、动态值 HTML 转义、Open Graph / Twitter Card / canonical / 现有应用图标、反向代理公开地址还原、撤销链接不再产出预览数据及动态 HTML 的 `no-cache`；Anthropic 专项覆盖 URL 拼接、原生鉴权头、分页模型目录/capabilities、模型代际 profile、必填输出上限、manual thinking 预算约束、可见 body 与“删模板不补回”、reasoning 开关保留管理员 thinking 模板、manual/adaptive thinking、sampling 限制、大请求交由上游判断、图片/PDF/文本映射、SSE index 聚合、signature/redacted/encrypted/citation opaque 保留、流内错误状态映射、`refusal` 作废部分输出、客户端工具失败、截断工具 replay 门控、网关缺失 `message_stop` 的完整性判定、web search 业务错误及其人类可读导出、citation 安全协议、usage、`pause_turn` 续跑与来源门控 replay 隔离。
+- 单测（`npm run test`，当前 **187 个文件 / 1432 个用例**）：上下文专项覆盖整组保留、重复引用去重、手选分支隔离、发送前文件读取次数、跨聊天引用拦截、一次性选择的成功消费与失败恢复；除原有注册、权限、分支、导出、Responses/chat、附件清理与前端流式覆盖外，公告专项覆盖精确受众可见性、确认越权拦截、受众原子替换、强提示不可绕过、历史曝光迁移与共享面板渲染；分享卡片专项覆盖公开快照摘要优先级与截断、动态值 HTML 转义、Open Graph / Twitter Card / canonical / 现有应用图标、反向代理公开地址还原、撤销链接不再产出预览数据及动态 HTML 的 `no-cache`；Anthropic 专项覆盖 URL 拼接、原生鉴权头、分页模型目录/capabilities、模型代际 profile、必填输出上限、manual thinking 预算约束、可见 body 与“删模板不补回”、reasoning 开关保留管理员 thinking 模板、manual/adaptive thinking、sampling 限制、大请求交由上游判断、图片/PDF/文本映射、SSE index 聚合、signature/redacted/encrypted/citation opaque 保留、流内错误状态映射、`refusal` 作废部分输出、客户端工具失败、截断工具 replay 门控、网关缺失 `message_stop` 的完整性判定、web search 业务错误及其人类可读导出、citation 安全协议、usage、`pause_turn` 续跑与来源门控 replay 隔离。
   **请求事件指标专项**：`server/provider/response-timing.test.ts` 锁定失败后兼容重试、连续请求与无 HTTP Response 的上游响应口径，`server/provider/client.anthropic.test.ts` 验证 OpenAI / Anthropic POST 的真实网络边界；`server/db/request-metric-snapshots-migration.test.ts`、`server/runs/finalize.test.ts` 与 `server/services/stats.test.ts` 锁定升级回填、结算快照、删除会话后的指标保留，以及旧行关联 run/event 的兼容现算；`server/services/run-timing.test.ts` 锁定总延时、首个正文 delta 延时及首字后输出速度；`web/src/pages/admin/requestEventDisplay.test.ts` 锁定两行本地时间、分钟文案、生成速度与缓存率格式。
   **模型管理专项**：`server/services/models.test.ts` 覆盖副本的全配置/指定用户名单复制与独立修改，以及同协议切换、跨协议迁移和失败无副作用；`server/routes/model-icons.test.ts` 覆盖实际 duplicate/PATCH 管理接口；`web/src/pages/admin/ModelsPage.test.tsx` 锁定复制入口与编辑时的完整供应商选择。
   **后台回复提醒专项**：`web/src/store/conversationActivity.test.ts` 覆盖当前/后台会话与 run 身份门控、可提醒终态、Unicode 摘要、图片回退、终态去重、通知超时但未读保留、打开即清除及自动标题同步；`ConversationActivityIndicator.test.tsx` 与 `ConversationCompletionToaster.test.tsx` 锁定转圈/重点色圆点语义、polite live region、右上角卡片与移动端抽屉遮挡规避；`conversationEvents.test.ts` 验证标题事件会更新仍在显示的完成通知。

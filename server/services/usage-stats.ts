@@ -20,7 +20,7 @@ import {
   type ZonedDateParts,
 } from '@shared/util/timezone'
 import { db } from '../db/client'
-import { conversations, messages, usageLogs } from '../db/schema'
+import { conversations, messages, models, usageLogs } from '../db/schema'
 
 const HOUR_MS = 3_600_000
 const DAY_MS = 86_400_000
@@ -344,7 +344,8 @@ async function aggregate(
       bucket: sql<number>`${shifted} - (${shifted} % 3600000)`,
       offsetMs: offset,
       modelId: usageLogs.modelId,
-      modelLabel: usageLogs.modelLabel,
+      // 用量表展示当前外显名称；模型删除后继续使用请求日志里的历史名称。
+      modelLabel: sql<string | null>`coalesce(${models.displayName}, ${usageLogs.modelLabel})`,
       pricingSnapshot: usageLogs.pricingSnapshot,
       requests: sql<number>`count(*)`,
       inputTokens: sql<number>`coalesce(sum(${usageLogs.inputTokens}),0)`,
@@ -356,12 +357,14 @@ async function aggregate(
       imageRequests: sql<number>`coalesce(sum(case when ${usageLogs.imageTokens} > 0 then 1 else 0 end),0)`,
     })
     .from(usageLogs)
+    .leftJoin(models, eq(usageLogs.modelId, models.id))
     .where(and(...conditions))
     .groupBy(
       sql`${shifted} - (${shifted} % 3600000)`,
       offset,
       usageLogs.modelId,
       usageLogs.modelLabel,
+      models.displayName,
       usageLogs.pricingSnapshot,
     )
   return rows as AggregatedRow[]

@@ -44,6 +44,63 @@ const quota = (rules: QuotaBucketUsageDTO[]): MyQuotaDTO => ({
 })
 
 describe('QuotaProgressCard', () => {
+  it('只选一个独立计量模型时，仍展示规则名称与模型明细', () => {
+    const html = renderToStaticMarkup(
+      <QuotaProgressCard
+        quota={quota([
+          bucket({
+            label: '日常对话额度',
+            scope: { type: 'models', modelIds: ['luna'], mode: 'each' },
+            bucketKey: 'luna',
+            bucketLabel: 'GPT 示例模型',
+          }),
+        ])}
+      />,
+    )
+    expect(html).toContain('日常对话额度')
+    expect(html).toContain('GPT 示例模型')
+    expect(html).toContain('role="progressbar"')
+    expect(html).toContain('剩余')
+  })
+
+  it('单个模型豁免仍显示模型名，不生成假的进度与周期', () => {
+    const snapshot = quota([
+      bucket({
+        label: '轻量模型豁免',
+        scope: { type: 'models', modelIds: ['luna'], mode: 'each' },
+        bucketKey: 'luna',
+        bucketLabel: 'GPT 示例模型',
+        limit: { kind: 'unlimited' },
+        effectiveLimit: null,
+        remaining: null,
+        percent: null,
+      }),
+    ])
+    snapshot.unlimited = true
+    const html = renderToStaticMarkup(<QuotaProgressCard quota={snapshot} />)
+    expect(html).toContain('轻量模型豁免')
+    expect(html).toContain('GPT 示例模型')
+    expect(html).toContain('无限额度')
+    expect(html).not.toContain('role="progressbar"')
+    expect(html).not.toContain('重置')
+  })
+
+  it('单模型共享池列出模型名并且只有一条进度', () => {
+    const html = renderToStaticMarkup(
+      <QuotaProgressCard
+        quota={quota([
+          bucket({
+            label: '共享对话额度',
+            scope: { type: 'models', modelIds: ['luna'], mode: 'shared' },
+            targetLabels: ['GPT 示例模型'],
+          }),
+        ])}
+      />,
+    )
+    expect(html).toContain('GPT 示例模型')
+    expect(html.match(/role="progressbar"/g)).toHaveLength(1)
+  })
+
   it('全模型规则被部分接管后展示实际范围', () => {
     const html = renderToStaticMarkup(
       <QuotaProgressCard
