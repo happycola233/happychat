@@ -3,11 +3,8 @@ import { anthropicModelProfile, hasAnthropicThinkingBudgetConflict } from '@shar
 import { effectiveReasoningEffort } from '@shared/util/reasoning'
 import { effectiveWebSearchEnabled } from '@shared/util/searchTools'
 import { commentaryTextsOf } from '@shared/util/processTrack'
-import type { models } from '../db/schema'
 import type { PathMessage, ResolvedAttachment } from './context'
-import { isPlainObject, mergeDeep } from './params'
-
-type ModelRow = typeof models.$inferSelect
+import { isPlainObject, mergeDeep, type RequestModelConfig } from './params'
 
 export type AnthropicContentBlock = Record<string, unknown>
 
@@ -145,7 +142,7 @@ function buildAnthropicTools(
 }
 
 export interface BuildAnthropicBodyOptions {
-  model: ModelRow
+  model: RequestModelConfig
   messages: AnthropicMessage[]
   instructions: string | null
   userParams?: ModelParams | null

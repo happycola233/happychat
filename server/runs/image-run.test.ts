@@ -148,9 +148,19 @@ describe('runImageEngine audit outcome', () => {
       terminalReason: null,
       success: true,
       imageTokens: 6,
+      generatedImageCount: 1,
+      kind: 'chat',
       durationMs: expect.any(Number),
     })
     expect(events.at(-1)?.type).toBe('run.done')
+
+    await dbClient.db
+      .delete(schema.conversations)
+      .where(eq(schema.conversations.id, fixture.conversation.id))
+    const retainedUsage = await dbClient.db.query.usageLogs.findFirst({
+      where: eq(schema.usageLogs.id, usage!.id),
+    })
+    expect(retainedUsage).toMatchObject({ runId: null, generatedImageCount: 1, imageTokens: 6 })
   })
 
   it('keeps upstream failure details in both usage and error audit rows', async () => {
@@ -189,6 +199,7 @@ describe('runImageEngine audit outcome', () => {
       terminalReason: 'rate_limit_exceeded',
       success: false,
       errorType: 'rate_limit_error',
+      generatedImageCount: 0,
     })
     expect(error).toMatchObject({
       errorType: 'rate_limit_error',
@@ -225,6 +236,7 @@ describe('runImageEngine audit outcome', () => {
       terminalReason: 'user_cancelled',
       success: true,
       errorType: null,
+      generatedImageCount: 0,
     })
     expect(errors).toHaveLength(0)
   })

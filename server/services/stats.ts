@@ -577,6 +577,7 @@ export async function listUsageEvents(filter: StatsFilter): Promise<Paginated<Us
         reasoningTokens: log.reasoningTokens,
         totalTokens: log.totalTokens,
         imageTokens: log.imageTokens,
+        generatedImageCount: log.generatedImageCount,
         outcome: log.outcome,
         terminalReason: log.terminalReason,
         result: resolveUsageResult(log.outcome, log.terminalReason),

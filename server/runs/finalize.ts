@@ -61,6 +61,10 @@ async function finalReasoningDurationMs(a: FinalizeArgs, finishedAt: Date): Prom
 
 /** 终态处理（一次性 CAS）：落最终消息内容、usage_logs、run 状态，并发终止事件。 */
 export async function finalizeRun(a: FinalizeArgs): Promise<void> {
+  const content = a.content ?? buildAssistantContent(a.text)
+  const generatedImageCount = new Set(
+    content.flatMap((part) => (part.type === 'image_result' ? [part.attachment_id] : [])),
+  ).size
   const msgStatus =
     a.state === 'completed' ? 'complete' : a.state === 'failed' ? 'error' : 'interrupted'
   const finishedAt = new Date()
@@ -107,7 +111,7 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
 
     tx.update(messages)
       .set({
-        content: a.content ?? buildAssistantContent(a.text),
+        content,
         status: msgStatus,
         processSteps: a.processSteps,
         annotations: a.annotations.length ? a.annotations : null,
@@ -160,6 +164,7 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
         reasoningTokens: a.usage.reasoningTokens,
         totalTokens: a.usage.totalTokens,
         reasoningEffort,
+        generatedImageCount,
         durationMs: generationDurationMs,
         upstreamResponseLatencyMs: a.upstreamResponseLatencyMs,
         firstTokenLatencyMs,

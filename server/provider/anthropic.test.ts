@@ -7,17 +7,8 @@ type ModelRow = BuildBodyOptions['model']
 
 function model(overrides: Partial<ModelRow> = {}): ModelRow {
   return {
-    id: 'model-1',
-    providerId: 'provider-1',
     modelId: 'claude-sonnet-5',
-    displayName: 'Claude Sonnet 5',
-    description: null,
-    tags: null,
-    icon: null,
-    groupId: null,
     kind: 'anthropic',
-    enabled: true,
-    accessMode: 'all',
     capabilities: {
       vision: true,
       file_input: true,
@@ -26,10 +17,8 @@ function model(overrides: Partial<ModelRow> = {}): ModelRow {
       image_generation: false,
       reasoning: true,
     },
-    defaultSystemPrompt: null,
     defaultParams: { max_output_tokens: 16000 },
     hardParams: createAnthropicDefaultHardParams(),
-    pricing: null,
     allowedEfforts: [
       { value: 'none', description: '关闭' },
       { value: 'high', description: '高' },
@@ -38,9 +27,6 @@ function model(overrides: Partial<ModelRow> = {}): ModelRow {
     replayProviderContext: true,
     defaultWebSearch: false,
     defaultXSearch: false,
-    sort: 0,
-    createdAt: new Date(0),
-    updatedAt: new Date(0),
     ...overrides,
   }
 }

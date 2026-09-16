@@ -12,17 +12,8 @@ type ModelRow = BuildBodyOptions['model']
 
 function model(overrides: Partial<ModelRow> = {}): ModelRow {
   return {
-    id: 'model-1',
-    providerId: 'provider-1',
     modelId: 'gpt-test',
-    displayName: 'GPT Test',
-    description: null,
-    tags: null,
-    icon: null,
-    groupId: null,
     kind: 'chat',
-    enabled: true,
-    accessMode: 'all',
     capabilities: {
       vision: false,
       file_input: false,
@@ -31,18 +22,13 @@ function model(overrides: Partial<ModelRow> = {}): ModelRow {
       image_generation: false,
       reasoning: false,
     },
-    defaultSystemPrompt: null,
     defaultParams: null,
     hardParams: null,
-    pricing: null,
     allowedEfforts: null,
     defaultEffort: null,
     replayProviderContext: false,
     defaultWebSearch: false,
     defaultXSearch: false,
-    sort: 0,
-    createdAt: new Date(0),
-    updatedAt: new Date(0),
     ...overrides,
   }
 }

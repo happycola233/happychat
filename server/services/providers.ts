@@ -29,7 +29,8 @@ function sameProviderConnection(current: ProviderRow, fetchedFrom: ProviderRow):
   return (
     current.protocol === fetchedFrom.protocol &&
     current.baseUrl === fetchedFrom.baseUrl &&
-    current.apiKey === fetchedFrom.apiKey
+    current.apiKey === fetchedFrom.apiKey &&
+    JSON.stringify(current.extraHeaders) === JSON.stringify(fetchedFrom.extraHeaders)
   )
 }
 

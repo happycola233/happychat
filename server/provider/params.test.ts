@@ -6,17 +6,8 @@ type ModelForBuild = BuildBodyOptions['model']
 
 function model(overrides: Partial<ModelForBuild> = {}): ModelForBuild {
   return {
-    id: 'model-1',
-    providerId: 'provider-1',
     modelId: 'gpt-test',
-    displayName: 'GPT Test',
-    description: null,
-    tags: null,
-    icon: null,
-    groupId: null,
     kind: 'responses',
-    enabled: true,
-    accessMode: 'all',
     capabilities: {
       vision: false,
       file_input: false,
@@ -25,18 +16,13 @@ function model(overrides: Partial<ModelForBuild> = {}): ModelForBuild {
       image_generation: false,
       reasoning: false,
     },
-    defaultSystemPrompt: null,
     defaultParams: null,
     hardParams: null,
-    pricing: null,
     allowedEfforts: null,
     defaultEffort: null,
     replayProviderContext: false,
     defaultWebSearch: true,
     defaultXSearch: false,
-    sort: 0,
-    createdAt: new Date(0),
-    updatedAt: new Date(0),
     ...overrides,
   }
 }

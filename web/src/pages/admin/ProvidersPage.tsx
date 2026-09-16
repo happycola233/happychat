@@ -7,7 +7,6 @@ import { ListPlus, Plus, PlugZap, RefreshCw, Search, Server } from 'lucide-react
 import { clsx } from 'clsx'
 import type { ProviderDTO } from '@shared/types/api'
 import type { ProviderProtocol } from '@shared/types/domain'
-import { ApiRequestError } from '../../api/client'
 import * as adminApi from '../../api/admin'
 import { Button } from '../../components/ui/Button'
 import { cardSurface } from '../../components/ui/Card'
@@ -24,6 +23,8 @@ import { SegmentedControl } from '../../components/ui/SegmentedControl'
 import { askConfirm } from '../../store/confirm'
 import { toast } from '../../store/toast'
 import { DeleteIcon } from '../../chat/icons'
+import { createHeaderDrafts, parseHeaderDrafts, type HeaderDraft } from './providerHeaderDrafts'
+import { ProviderHeadersEditor } from './ProviderHeadersEditor'
 
 export default function ProvidersPage() {
   const qc = useQueryClient()
@@ -206,6 +207,12 @@ export default function ProvidersPage() {
                     [
                       ['Base URL', p.baseUrl],
                       ['API Key', p.apiKeyMask ?? '未设置'],
+                      [
+                        '请求头',
+                        p.extraHeaderCount
+                          ? `${p.extraHeaderCount} 个额外请求头`
+                          : '使用默认请求头',
+                      ],
                     ] as const
                   ).map(([label, value]) => (
                     <div key={label} className="flex items-baseline gap-2">
@@ -466,6 +473,7 @@ function ProviderModal({
   const [baseUrl, setBaseUrl] = useState(provider?.baseUrl ?? '')
   const [protocol, setProtocol] = useState<ProviderProtocol>(provider?.protocol ?? 'openai')
   const [apiKey, setApiKey] = useState('')
+  const [headerDrafts, setHeaderDrafts] = useState<HeaderDraft[]>([])
   const [error, setError] = useState('')
   const providerDetail = useQuery({
     queryKey: ['admin', 'providers', provider?.id],
@@ -482,15 +490,18 @@ function ProviderModal({
     setBaseUrl(providerDetail.data.baseUrl)
     setProtocol(providerDetail.data.protocol)
     setApiKey(providerDetail.data.apiKey)
+    setHeaderDrafts(createHeaderDrafts(providerDetail.data.extraHeaders ?? {}))
   }, [providerDetail.data])
 
   const save = useMutation({
     mutationFn: async () => {
+      const extraHeaders = parseHeaderDrafts(headerDrafts)
       if (isEdit && provider) {
         await adminApi.updateProvider(provider.id, {
           name,
           baseUrl,
           protocol,
+          extraHeaders,
           ...(apiKey.length > 0 ? { apiKey } : {}),
         })
       } else {
@@ -499,6 +510,7 @@ function ProviderModal({
           baseUrl,
           apiKey,
           protocol,
+          extraHeaders,
         })
       }
     },
@@ -506,7 +518,7 @@ function ProviderModal({
       toast.success(isEdit ? '已保存' : '已添加')
       onSaved()
     },
-    onError: (e) => setError(e instanceof ApiRequestError ? e.message : '保存失败'),
+    onError: (e) => setError(e instanceof Error ? e.message : '保存失败'),
   })
 
   const onSubmit = (e: FormEvent) => {
@@ -520,12 +532,17 @@ function ProviderModal({
       open
       onClose={onClose}
       title={isEdit ? '编辑供应商' : '添加供应商'}
+      size="form"
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>
             取消
           </Button>
-          <Button onClick={onSubmit} loading={save.isPending} disabled={loadingProvider}>
+          <Button
+            onClick={onSubmit}
+            loading={save.isPending}
+            disabled={loadingProvider || providerDetail.isError}
+          >
             保存
           </Button>
         </>
@@ -582,6 +599,11 @@ function ProviderModal({
               : '加载 API Key 失败'}
           </p>
         )}
+        <ProviderHeadersEditor
+          drafts={headerDrafts}
+          onChange={setHeaderDrafts}
+          disabled={loadingProvider || save.isPending}
+        />
         {error && <p className="text-sm text-red-500">{error}</p>}
       </form>
     </Modal>

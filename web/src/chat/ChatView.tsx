@@ -56,6 +56,7 @@ import type { MessageEditSubmit } from './MessageEditForm'
 import { CollapsibleUserMessageText } from './MessageContent'
 import { ModelControlMenu } from './ModelControlMenu'
 import { QuotaNotice } from './QuotaNotice'
+import { ModelUsageNotice } from './ModelUsageNotice'
 import { TimelineNav } from './TimelineNav'
 import { shouldShowTimeline, timelineItemsFromMessages } from './timelineItems'
 import { shouldShowTopFade } from './topFade'
@@ -907,7 +908,7 @@ export default function ChatView() {
                 <ModelControlMenu placement="down" align="start" variant="header" />
               </div>
             )}
-            <div className="pointer-events-auto ml-auto flex items-center gap-1">
+            <div className="pointer-events-auto relative ml-auto flex items-center gap-1">
               {id && detail && (
                 <ContextSettings
                   key={id}
@@ -918,6 +919,7 @@ export default function ChatView() {
                   canImage={Boolean(model?.capabilities.vision)}
                   canFile={Boolean(model?.capabilities.file_input)}
                   open={contextOpen}
+                  streaming={streaming}
                   onOpenChange={setContextOpen}
                 />
               )}
@@ -1078,7 +1080,12 @@ export default function ChatView() {
           <Composer
             onSend={onSend}
             hasContextAttachments={hasContextAttachments && model?.kind !== 'image'}
-            notice={<QuotaNotice />}
+            notice={
+              <>
+                {model && <ModelUsageNotice key={`${id ?? 'new'}:${model.id}`} model={model} />}
+                <QuotaNotice />
+              </>
+            }
             disabled={
               sendMut.isPending ||
               streaming ||

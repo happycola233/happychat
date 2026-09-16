@@ -29,6 +29,25 @@ afterEach(() => {
 })
 
 describe('reduceEvent', () => {
+  it('restores retry progress from replay and clears it on recovery or termination', () => {
+    const waiting = event('run.retry', {
+      phase: 'waiting',
+      attempt: 2,
+      maxAttempts: 6,
+      nextRetryAt: 12345,
+      reason: '服务暂时不可用',
+    })
+    const restored = reduceEvents(initialLive(), [event('run.created'), waiting])
+    expect(restored.status).toBe('streaming')
+    expect(restored.retry?.nextRetryAt).toBe(12345)
+    expect(
+      reduceEvent(restored, event('run.retry', { ...waiting.data, phase: 'connected' })).retry,
+    ).toBeUndefined()
+    for (const type of ['run.done', 'run.error', 'run.canceled', 'run.interrupted']) {
+      expect(reduceEvent(restored, event(type)).retry).toBeUndefined()
+    }
+  })
+
   it('does not start the upstream timer when the local run is created', () => {
     const next = reduceEvent(
       initialLive(null, false),

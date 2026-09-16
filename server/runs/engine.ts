@@ -45,6 +45,7 @@ import { removeGeneratedImageAttachments, storeGeneratedImageAttachment } from '
 import { buildReasoningReplayContext } from './reasoning-replay-capture'
 import { streamResponseWithFallback } from './response-stream-fallback'
 import type { EngineContext } from './types'
+import { runRetryOptions } from './retry'
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '')
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)
@@ -611,7 +612,11 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
   }
 
   try {
-    const client = providerClientFromRow(ctx.provider, upstreamResponseTiming)
+    const client = providerClientFromRow(
+      ctx.provider,
+      upstreamResponseTiming,
+      await runRetryOptions(persistEmit),
+    )
     const stream = streamResponseWithFallback({
       body: ctx.body,
       openStream: (body) => client.createResponseStream(body, ctx.abortController.signal),

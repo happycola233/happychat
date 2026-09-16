@@ -44,7 +44,12 @@ import { accessJoinForUser, accessibleToUser } from './models'
 /** 限额相关的全局配置切片；快照与判定只依赖这几项。 */
 export type QuotaConfig = Pick<
   AppConfigDTO,
-  'quotaEnabled' | 'quotaTimezone' | 'quotaWeekStart' | 'quotaWarnThreshold'
+  | 'quotaEnabled'
+  | 'quotaTimezone'
+  | 'quotaWeekStart'
+  | 'quotaWarnThreshold'
+  | 'quotaWarningMessage'
+  | 'quotaExhaustedMessage'
 >
 
 /** 参与判定的用户级配置（无 user_quotas 行时即为等价默认值）。 */
@@ -122,6 +127,8 @@ export async function getQuotaConfig(): Promise<QuotaConfig> {
     quotaTimezone: config.quotaTimezone,
     quotaWeekStart: config.quotaWeekStart,
     quotaWarnThreshold: config.quotaWarnThreshold,
+    quotaWarningMessage: config.quotaWarningMessage,
+    quotaExhaustedMessage: config.quotaExhaustedMessage,
   }
 }
 
@@ -764,6 +771,8 @@ export async function getMyQuota(userId: string): Promise<MyQuotaDTO> {
     unlimited: snapshot.unlimited,
     allModelsBlocked: snapshot.allModelsBlocked,
     policyName: snapshot.binding.policyName,
+    warningMessage: config.quotaWarningMessage,
+    exhaustedMessage: config.quotaExhaustedMessage,
     warnThreshold: config.quotaWarnThreshold,
     // 用户只看实际生效的额度；完全被接管的桶仍留在管理快照中解释配置。
     // 顺序与策略 / 专属规则的展示顺序一致，不再按紧张程度重排。

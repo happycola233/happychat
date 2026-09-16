@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { requireUser } from '../auth/middleware'
 import { listVisibleModelGroups } from '../services/model-groups'
 import { listEnabledModels } from '../services/models'
+import { getAppConfig } from '../services/appConfig'
 import type { AppEnv } from '../http/types'
 
 export const modelRoutes = new Hono<AppEnv>()
@@ -15,9 +16,10 @@ modelRoutes.use('*', requireUser)
  */
 modelRoutes.get('/', async (c) => {
   const userId = c.get('user').id
-  const [models, groups] = await Promise.all([
+  const [models, groups, config] = await Promise.all([
     listEnabledModels(userId),
     listVisibleModelGroups(userId),
+    getAppConfig(),
   ])
-  return c.json({ models, groups })
+  return c.json({ models, groups, contextOptimizationSuggestion: config.contextOptimizationSuggestion })
 })

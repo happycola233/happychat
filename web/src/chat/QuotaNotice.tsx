@@ -12,38 +12,34 @@ import { quotaWarningDismissKey } from './quotaNoticeDismissal'
 
 type NoticeLevel = Exclude<QuotaNoticeLevel, 'none'>
 
-/** 卡片跟输入框同一套不透明表面：浅色纯白、深色 #212121，不透出底下聊天。 */
-const SURFACE =
-  'border-black/[0.07] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_18px_rgba(0,0,0,0.045)] dark:border-[#303030] dark:bg-[#212121] dark:shadow-none'
-
-/** 状态色只落在图标井、进度条和重置芯片，整卡不再铺警示底。 */
+/** 极淡的状态色轮廓区分聊天正文，图标与进度保留主要视觉强调。 */
 const LEVEL_STYLES: Record<
   NoticeLevel,
-  { icon: typeof AlertTriangle; well: string; bar: string; chip: string }
+  { icon: typeof AlertTriangle; color: string; bar: string; ring: string }
 > = {
   warning: {
     icon: AlertTriangle,
-    well: 'bg-amber-100 text-amber-600 dark:bg-amber-400/15 dark:text-amber-300',
+    color: 'text-amber-600 dark:text-amber-300',
     bar: 'bg-amber-500 dark:bg-amber-400',
-    chip: 'bg-amber-100 text-amber-800 dark:bg-amber-400/15 dark:text-amber-200',
+    ring: 'ring-amber-500/25 dark:ring-amber-400/20',
   },
   exhausted: {
     icon: CircleSlash,
-    well: 'bg-rose-100 text-rose-600 dark:bg-rose-500/15 dark:text-rose-300',
+    color: 'text-rose-600 dark:text-rose-300',
     bar: 'bg-rose-500 dark:bg-rose-400',
-    chip: 'bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300',
+    ring: 'ring-rose-500/20 dark:ring-rose-400/20',
   },
   'model-exhausted': {
     icon: CircleSlash,
-    well: 'bg-rose-100 text-rose-600 dark:bg-rose-500/15 dark:text-rose-300',
+    color: 'text-rose-600 dark:text-rose-300',
     bar: 'bg-rose-500 dark:bg-rose-400',
-    chip: 'bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300',
+    ring: 'ring-rose-500/20 dark:ring-rose-400/20',
   },
   paused: {
     icon: PauseCircle,
-    well: 'bg-sky-100 text-sky-600 dark:bg-sky-500/15 dark:text-sky-300',
+    color: 'text-sky-600 dark:text-sky-300',
     bar: 'bg-sky-500 dark:bg-sky-400',
-    chip: 'bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300',
+    ring: 'ring-sky-500/20 dark:ring-sky-400/20',
   },
 }
 
@@ -54,14 +50,7 @@ function noticeTitle(level: NoticeLevel): string {
   return '额度已用尽'
 }
 
-function noticeHint(level: NoticeLevel): string | null {
-  if (level === 'model-exhausted') return '可切换到其他仍有额度的模型继续对话。'
-  if (level === 'paused') return '管理员已暂停限额，当前仍可正常使用。'
-  if (level === 'exhausted') return '请联系管理员调整额度。'
-  return null
-}
-
-/** 「首次请求起 5 小时消费」这类窗口 + 计量短语，单独成行便于扫读。 */
+/** 将周期与计量合成短语，例如「首次请求起 5 小时消费」。 */
 function windowPhrase(rule: QuotaBucketUsageDTO): string {
   const metric = rule.metric === 'cost' ? '消费' : '请求'
   return `${describeQuotaWindow(rule.window)}${metric}`
@@ -79,16 +68,13 @@ function barPercent(rule: QuotaBucketUsageDTO): number {
   return Math.max(percent > 0 ? 2 : 0, percent)
 }
 
-function ResetChip({ reset, chip }: { reset: QuotaResetDisplay; chip: string }) {
+function ResetLabel({ reset }: { reset: QuotaResetDisplay }) {
   const scheduled = reset.kind === 'scheduled'
   return (
     <span
       title={reset.detail}
       aria-label={reset.detail ? `${reset.label}（${reset.detail}）` : reset.label}
-      className={clsx(
-        'inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium tabular-nums',
-        scheduled ? chip : 'bg-neutral-100 text-neutral-500 dark:bg-white/8 dark:text-neutral-400',
-      )}
+      className="inline-flex shrink-0 items-center gap-1 text-[11px] tabular-nums text-neutral-500 dark:text-neutral-400"
     >
       {(scheduled || reset.kind === 'pending') && <Clock3 className="h-3 w-3" />}
       {reset.label}
@@ -114,30 +100,36 @@ export function QuotaNotice() {
 
   if (level === 'none' || !rule) return null
   const dismissible = level === 'warning' || level === 'paused'
-  const key = `${level}:${quotaWarningDismissKey(rule)}`
+  const key = `${level}:${quotaWarningDismissKey(rule)}:${level === 'warning' ? (quota?.warningMessage ?? '') : ''}`
   if (dismissible && dismissedKey === key) return null
 
   const style = LEVEL_STYLES[level]
   const Icon = style.icon
   const reset = describeQuotaReset(rule)
   const figures = usageFigures(rule)
-  const hint = noticeHint(level)
+  const hint =
+    level === 'warning'
+      ? quota?.warningMessage?.trim()
+      : level === 'paused'
+        ? null
+        : quota?.exhaustedMessage?.trim()
   const scope = rule.bucketLabel ?? formatQuotaTargetLabels(rule.targetLabels)
 
   return (
-    <div className="pointer-events-auto pb-2">
+    <div className="pointer-events-auto pb-3">
       <div
         role={level === 'exhausted' || level === 'model-exhausted' ? 'alert' : undefined}
+        // 不透明底色遮住滚动正文，细轮廓和轻阴影让提示独立于聊天与输入框。
         className={clsx(
-          'hc-anim-in rounded-[22px] border px-3 py-2.5 text-neutral-800 dark:text-neutral-100',
-          SURFACE,
+          'hc-anim-in rounded-2xl bg-white px-4 py-3 text-neutral-800 ring-1 ring-inset shadow-[0_3px_14px_-8px_rgba(0,0,0,0.24)] dark:bg-[#111111] dark:text-neutral-100 dark:shadow-[0_3px_14px_-6px_rgba(0,0,0,0.5)]',
+          style.ring,
         )}
       >
         <div className="flex items-start gap-2.5">
           <span
             className={clsx(
-              'flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px]',
-              style.well,
+              'mt-0.5 flex h-5 w-4 shrink-0 items-center justify-center',
+              style.color,
             )}
           >
             <Icon className="h-4 w-4" />
@@ -148,25 +140,16 @@ export function QuotaNotice() {
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
                   <p className="text-[13px] leading-5 font-medium">{noticeTitle(level)}</p>
-                  <p className="text-[13px] leading-5 tabular-nums text-neutral-600 dark:text-neutral-300">
-                    {figures.used}
-                    <span className="text-neutral-300 dark:text-neutral-600"> / </span>
-                    {figures.limit}
-                  </p>
-                </div>
-                <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] leading-4 text-neutral-500 dark:text-neutral-400">
-                  {scope && (
-                    <>
-                      <span className="min-w-0 truncate" title={scope}>
-                        {scope}
-                      </span>
-                      <span className="text-neutral-300 dark:text-neutral-600" aria-hidden="true">
-                        ·
-                      </span>
-                    </>
+                  {level === 'model-exhausted' && (
+                    <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                      可切换模型
+                    </span>
                   )}
-                  <span>{windowPhrase(rule)}</span>
-                  {reset && <ResetChip reset={reset} chip={style.chip} />}
+                  {level === 'paused' && (
+                    <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                      限额已暂停，仍可使用
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -194,21 +177,42 @@ export function QuotaNotice() {
               </div>
             </div>
 
-            <div
-              aria-hidden="true"
-              className="mt-2 h-1 overflow-hidden rounded-full bg-black/[0.06] dark:bg-white/10"
-            >
-              <div
-                className={clsx('h-full rounded-full transition-[width] duration-300', style.bar)}
-                style={{ width: `${barPercent(rule)}%` }}
-              />
-            </div>
-
             {hint && (
-              <p className="mt-1.5 text-[11px] leading-4 text-neutral-500 dark:text-neutral-400">
+              <p className="mt-1 max-h-24 overflow-y-auto whitespace-pre-wrap break-words text-[13px] leading-relaxed text-neutral-600 dark:text-neutral-300">
                 {hint}
               </p>
             )}
+
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] leading-4 text-neutral-500 dark:text-neutral-400">
+              <span className="inline-flex items-center gap-2">
+                <span className="whitespace-nowrap tabular-nums">
+                  已用 {figures.used}
+                  <span className="mx-1 opacity-50">/</span>
+                  {figures.limit}
+                </span>
+                <span
+                  aria-hidden="true"
+                  className="inline-flex h-0.5 w-12 overflow-hidden rounded-full bg-black/[0.06] dark:bg-white/10"
+                >
+                  <span
+                    className={clsx(
+                      'h-full rounded-full transition-[width] duration-300',
+                      style.bar,
+                    )}
+                    style={{ width: `${barPercent(rule)}%` }}
+                  />
+                </span>
+                <span className="tabular-nums">{Math.round((rule.percent ?? 0) * 100)}%</span>
+              </span>
+              {reset && <ResetLabel reset={reset} />}
+              <span
+                className="min-w-0 truncate text-neutral-400 dark:text-neutral-500"
+                title={scope || undefined}
+              >
+                {scope ? `${scope} · ` : ''}
+                {windowPhrase(rule)}
+              </span>
+            </div>
           </div>
         </div>
       </div>

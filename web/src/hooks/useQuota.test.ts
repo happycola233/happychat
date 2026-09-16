@@ -90,6 +90,29 @@ const quota = (patch: Partial<MyQuotaDTO> = {}): MyQuotaDTO => ({
 })
 
 describe('resolveQuotaNotice', () => {
+  it('只提示当前模型生效的规则，其他模型耗尽不会盖住当前模型的预警', () => {
+    const state = resolveQuotaNotice(
+      quota({
+        rules: [
+          bucket({ ruleId: 'other', effectiveModelIds: ['m2'], blocked: true, percent: 1 }),
+          bucket({ ruleId: 'current', effectiveModelIds: ['m1'], percent: 0.9 }),
+        ],
+        blockedModelIds: ['m2'],
+      }),
+      'm1',
+    )
+    expect(state.level).toBe('warning')
+    expect(state.rule?.ruleId).toBe('current')
+  })
+
+  it('另一模型接近限额时不向当前模型发出预警', () => {
+    expect(
+      resolveQuotaNotice(
+        quota({ rules: [bucket({ effectiveModelIds: ['m2'], percent: 0.9 })] }),
+        'm1',
+      ).level,
+    ).toBe('none')
+  })
   it('未开启限额 / 无限额度 / 数据未到达时都不提示', () => {
     expect(resolveQuotaNotice(undefined, 'm1').level).toBe('none')
     expect(resolveQuotaNotice(quota({ enabled: false }), 'm1').level).toBe('none')

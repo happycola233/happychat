@@ -116,6 +116,8 @@ import {
 } from '../services/providers'
 import { removeUpload, removeUploadStrict, saveUpload } from '../storage/files'
 import type { AppEnv } from '../http/types'
+import { requestPreviewSchema } from '@shared/schemas/request-preview'
+import { buildRequestPreview } from '../provider/request-preview'
 
 export const adminRoutes = new Hono<AppEnv>()
 
@@ -140,8 +142,11 @@ adminRoutes.get('/providers/:id', async (c) => {
 })
 
 adminRoutes.post('/providers', jsonValidator(providerCreateSchema), async (c) => {
-  const { name, baseUrl, apiKey, protocol } = c.req.valid('json')
-  const rows = await db.insert(providers).values({ name, baseUrl, apiKey, protocol }).returning()
+  const { name, baseUrl, apiKey, protocol, extraHeaders } = c.req.valid('json')
+  const rows = await db
+    .insert(providers)
+    .values({ name, baseUrl, apiKey, protocol, extraHeaders })
+    .returning()
   const row = rows[0]
   if (!row) return c.json({ error: { message: '创建失败' } }, 500)
   return c.json({ id: row.id })
@@ -160,6 +165,7 @@ adminRoutes.patch('/providers/:id', jsonValidator(providerUpdateSchema), async (
       if (input.baseUrl !== undefined) patch.baseUrl = input.baseUrl
       if (input.enabled !== undefined) patch.enabled = input.enabled
       if (input.apiKey !== undefined) patch.apiKey = input.apiKey
+      if (input.extraHeaders !== undefined) patch.extraHeaders = input.extraHeaders
       if (input.protocol !== undefined && input.protocol !== existing.protocol) {
         const providerModels = tx
           .select({ kind: models.kind })
@@ -261,6 +267,36 @@ adminRoutes.post('/providers/:id/import-models', jsonValidator(modelImportSchema
 })
 
 // ---------------- Models ----------------
+
+adminRoutes.post('/models/request-preview', jsonValidator(requestPreviewSchema), async (c) => {
+  const input = c.req.valid('json')
+  const provider = await db
+    .select()
+    .from(providers)
+    .where(eq(providers.id, input.model.providerId))
+    .get()
+  if (!provider) return c.json({ error: { message: '提供商不存在', code: 'not_found' } }, 404)
+  if (!providerProtocolSupportsModelKind(provider.protocol, input.model.kind)) {
+    return c.json(
+      { error: { message: '模型类型与提供商协议不匹配', code: 'provider_protocol_mismatch' } },
+      400,
+    )
+  }
+  c.header('Cache-Control', 'no-store')
+  try {
+    return c.json(buildRequestPreview(provider, input))
+  } catch (error) {
+    return c.json(
+      {
+        error: {
+          message: error instanceof Error ? error.message : '无法构建请求，请检查参数',
+          code: 'invalid_request_configuration',
+        },
+      },
+      400,
+    )
+  }
+})
 
 const MODEL_CONFIGURATION_ERROR_MESSAGES: Record<ModelConfigurationErrorCode, string> = {
   provider_missing: '所属供应商不存在',

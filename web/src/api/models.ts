@@ -1,9 +1,11 @@
 import type { LobeIconCatalogDTO, ModelDTO, ModelGroupDTO } from '@shared/types/api'
+import type { ContextOptimizationSuggestion } from '@shared/schemas/user-notices'
 import { apiGet } from './client'
 
 export interface ModelListResult {
   models: ModelDTO[]
   groups: ModelGroupDTO[]
+  contextOptimizationSuggestion?: ContextOptimizationSuggestion
 }
 
 /** 模型与分组同一份响应返回，避免选择器出现「模型已到、分组未到」的一帧无分组闪烁。 */

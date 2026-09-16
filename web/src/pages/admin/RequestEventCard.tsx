@@ -4,6 +4,7 @@ import { formatInt, formatUsd } from '../../lib/format'
 import { CopyButton } from '../../components/ui/CopyButton'
 import { RequestKindBadge } from './RequestKindBadge'
 import { RequestOutcomeBadge } from './RequestOutcomeBadge'
+import { RequestGeneratedImagesBadge } from './RequestGeneratedImagesBadge'
 import {
   formatCacheRate,
   formatGenerationSpeed,
@@ -43,6 +44,7 @@ export function RequestEventCard({ row }: { row: UsageLogDTO }) {
           {time.date} {time.time}
         </span>
         <RequestKindBadge kind={row.kind} />
+        <RequestGeneratedImagesBadge row={row} />
       </div>
       <dl className="mt-3 grid grid-cols-3 gap-2">
         {[

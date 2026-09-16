@@ -28,6 +28,8 @@ import {
   setContextAttachmentSelection,
 } from './contextAttachments'
 import { formatByteSize } from './uploadDraft'
+import { useContextSuggestion } from './useContextSuggestion'
+import { ContextSuggestionPopover } from './ContextSuggestionPopover'
 
 interface ContextSettingsProps {
   conversation: ConversationDTO
@@ -37,6 +39,7 @@ interface ContextSettingsProps {
   canImage: boolean
   canFile: boolean
   open: boolean
+  streaming: boolean
   onOpenChange: (open: boolean) => void
 }
 
@@ -288,6 +291,15 @@ function ContextSettingsDialog({
 
 export function ContextSettings(props: ContextSettingsProps) {
   const { conversation, open, onOpenChange } = props
+  const suggestion = useContextSuggestion(
+    conversation,
+    props.messages,
+    !props.imageModel && !props.streaming && !open,
+  )
+  const openSettings = () => {
+    suggestion.dismiss()
+    onOpenChange(true)
+  }
   const selection =
     useContextSelection((state) => state.byConversation[conversation.id]) ?? EMPTY_CONTEXT_SELECTION
   const policy = conversation.contextPolicy
@@ -302,13 +314,20 @@ export function ContextSettings(props: ContextSettingsProps) {
         aria-haspopup="dialog"
         aria-expanded={open}
         title={`上下文优化${customized ? '（已调整）' : ''}：${contextPolicyLabel(policy)}`}
-        onClick={() => onOpenChange(true)}
+        onClick={openSettings}
       >
         <ContextIcon />
         {customized && (
           <span aria-hidden className="absolute right-1 top-1 h-1 w-1 rounded-full bg-sky-500" />
         )}
       </IconButton>
+      {suggestion.visible && (
+        <ContextSuggestionPopover
+          tokens={suggestion.tokens}
+          onOpen={openSettings}
+          onDismiss={suggestion.dismiss}
+        />
+      )}
       {open && (
         <ContextSettingsDialog
           {...props}

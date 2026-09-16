@@ -61,7 +61,15 @@ export function resolveQuotaNotice(
   const idle: QuotaNoticeState = { level: 'none', rule: null, modelScoped: false }
   if (!quota?.enabled || quota.unlimited) return idle
 
-  const limited = quota.rules.filter((rule) => rule.limit.kind === 'amount' && !rule.invalid)
+  const limited = quota.rules.filter(
+    (rule) =>
+      rule.limit.kind === 'amount' &&
+      !rule.invalid &&
+      !rule.shadowed &&
+      (!activeModelId ||
+        rule.effectiveModelIds === null ||
+        rule.effectiveModelIds.includes(activeModelId)),
+  )
   if (limited.length === 0) return idle
 
   const blocked = limited.filter((rule) => rule.blocked)

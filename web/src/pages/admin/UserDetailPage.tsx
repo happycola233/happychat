@@ -33,6 +33,7 @@ import { quotaTimezoneLabel } from './userQuotaDisplay'
 import { RequestKindBadge } from './RequestKindBadge'
 import { RequestOutcomeBadge } from './RequestOutcomeBadge'
 import { RequestEventCard } from './RequestEventCard'
+import { RequestGeneratedImagesBadge } from './RequestGeneratedImagesBadge'
 
 /**
  * 限额状态卡：生效规则（含覆写来源）与按模型的消费构成。
@@ -291,6 +292,7 @@ export default function UserDetailPage() {
                           <span className="inline-flex items-center gap-1.5">
                             {e.modelLabel ?? '—'}
                             <RequestKindBadge kind={e.kind} />
+                            <RequestGeneratedImagesBadge row={e} />
                           </span>
                         </td>
                         <td className={`${td} text-neutral-500 dark:text-neutral-400`}>

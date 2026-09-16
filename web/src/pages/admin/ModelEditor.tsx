@@ -48,13 +48,22 @@ import {
 } from './modelProtocolMigration'
 import { TagsInput } from './TagsInput'
 import { ModelEditorNavigation } from './ModelEditorNavigation'
+import { RequestPreview } from './RequestPreview'
+import { ModelUsageNoticeEditor } from './ModelUsageNoticeEditor'
+import { DEFAULT_MODEL_USAGE_NOTICE, modelUsageNoticeSchema } from '@shared/schemas/user-notices'
 
 const fieldClass = inputClass
 
 /** 紧凑输入：参数/定价这类短数值多列排布用，避免一屏全是大输入框。 */
 const compactFieldClass = `${inputClass} tabular-nums`
 
-export type ModelEditorSection = 'general' | 'capabilities' | 'prompt' | 'pricing' | 'advanced'
+export type ModelEditorSection =
+  | 'general'
+  | 'capabilities'
+  | 'prompt'
+  | 'pricing'
+  | 'advanced'
+  | 'preview'
 
 const MODEL_INPUT_EXAMPLES: Record<ModelKind, { modelId: string; displayName: string }> = {
   responses: { modelId: 'gpt-5.6-sol', displayName: 'GPT-5.6 Sol' },
@@ -185,6 +194,7 @@ export function ModelEditor({
   const [tags, setTags] = useState<ModelTag[]>(model?.tags ?? [])
   const [icon, setIcon] = useState<ModelIcon | null>(model?.icon ?? null)
   const [groupId, setGroupId] = useState(model?.groupId ?? '')
+  const [usageNotice, setUsageNotice] = useState(model?.usageNotice ?? DEFAULT_MODEL_USAGE_NOTICE)
   // 未显式设置图标时，用户端会按模型 ID 自动识别品牌图标；这里把结果预告给管理员。
   const hasModelIdentity = Boolean(displayName.trim() || modelId.trim())
   const autoIconSlug = guessModelIconSlug(modelId, displayName)
@@ -217,6 +227,7 @@ export function ModelEditor({
     modelId,
     displayName,
     description,
+    usageNotice,
     tags,
     icon,
     groupId,
@@ -400,6 +411,7 @@ export function ModelEditor({
       const shared = {
         displayName,
         description: description.trim() || null,
+        usageNotice: modelUsageNoticeSchema.parse(usageNotice),
         tags,
         icon,
         groupId: groupId || null,
@@ -415,12 +427,7 @@ export function ModelEditor({
         replayProviderContext,
         defaultWebSearch: capabilities.web_search ? defaultWebSearch : false,
         defaultXSearch: capabilities.x_search ? defaultXSearch : false,
-        defaultParams: {
-          temperature: params.temperature,
-          top_p: params.top_p,
-          verbosity: params.verbosity,
-          max_output_tokens: params.max_output_tokens,
-        },
+        defaultParams: params,
         pricing: cleanedPricing(),
         hardParams,
       }
@@ -496,10 +503,13 @@ export function ModelEditor({
       (draft) => draft.draftId === defaultEffortDraftId && Boolean(draft.value.trim()),
     )
   const missingIdentity = !providerId || !modelId.trim() || !displayName.trim()
-  const canSave = !missingIdentity && !effortValidationError && hasValidDefault
+  const usageNoticeValid = modelUsageNoticeSchema.safeParse(usageNotice).success
+  const canSave = !missingIdentity && !effortValidationError && hasValidDefault && usageNoticeValid
   const validationMessage = missingIdentity
     ? '请在基本信息中填写供应商、模型 ID 和显示名称。'
-    : effortValidationError || (!hasValidDefault ? '请在能力参数中重新选择默认思考等级。' : null)
+    : !usageNoticeValid
+      ? '请在基本信息中填写使用提示正文。'
+      : effortValidationError || (!hasValidDefault ? '请在能力参数中重新选择默认思考等级。' : null)
   const switchModel = (next: AdminModelDTO) => {
     if (next.id === model?.id || save.isPending) return
     if (dirty) setSwitchTarget(next)
@@ -558,6 +568,7 @@ export function ModelEditor({
                 { value: 'prompt', label: '提示词' },
                 { value: 'pricing', label: '定价' },
                 { value: 'advanced', label: '高级' },
+                { value: 'preview', label: '请求预览' },
               ]}
             />
           </div>
@@ -602,7 +613,9 @@ export function ModelEditor({
           {validationMessage && (
             <button
               type="button"
-              onClick={() => setSection(missingIdentity ? 'general' : 'capabilities')}
+              onClick={() =>
+                setSection(missingIdentity || !usageNoticeValid ? 'general' : 'capabilities')
+              }
               className="mb-4 w-full rounded-lg bg-amber-50 p-3 text-left text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300"
             >
               {validationMessage}
@@ -742,6 +755,14 @@ export function ModelEditor({
             </Field>
           </FormSection>
 
+          <FormSection title="使用提示" hidden={section !== 'general'}>
+            <ModelUsageNoticeEditor
+              value={usageNotice}
+              onChange={setUsageNotice}
+              modelName={displayName}
+            />
+          </FormSection>
+
           {/* ============ 能力 ============ */}
           <FormSection title="能力" hidden={section !== 'capabilities'}>
             {/* 两列开关：四项能力收进两行，缩短长表单。 */}
@@ -824,7 +845,7 @@ export function ModelEditor({
           >
             <textarea
               ref={promptRef}
-              className={`${fieldClass} min-h-[168px] resize-y leading-6`}
+              className={`${fieldClass} min-h-[320px] resize-y leading-6 sm:min-h-[380px]`}
               value={systemPrompt}
               onChange={(e) => setSystemPrompt(e.target.value)}
               placeholder="例如：你是 {{model_name}}，当前用户是 {{current_user}}，今天是 {{current_date}}……"
@@ -982,7 +1003,7 @@ export function ModelEditor({
           <FormSection title="高级" hidden={section !== 'advanced'}>
             <Field label="请求体硬参数（JSON）">
               <textarea
-                className={`${fieldClass} min-h-[168px] resize-y font-mono text-xs`}
+                className={`${fieldClass} min-h-[320px] resize-y font-mono text-xs leading-5 sm:min-h-[380px]`}
                 value={hardParamsText}
                 onChange={(e) => {
                   managedAnthropicHardParamsPresetRef.current = null
@@ -1053,6 +1074,34 @@ export function ModelEditor({
               </p>
             )}
           </FormSection>
+          {section === 'preview' && (
+            <RequestPreview
+              draft={{
+                providerId,
+                modelId: modelId.trim(),
+                displayName,
+                kind,
+                capabilities: normalizeModelCapabilitiesForKind(kind, {
+                  ...caps,
+                  image_generation: kind === 'image',
+                }),
+                defaultSystemPrompt: systemPrompt.trim() ? systemPrompt : null,
+                defaultParams: params,
+                hardParamsText,
+                allowedEfforts: reasoningEffortDrafts.map((item) => ({
+                  value: item.value.trim(),
+                  description: item.description.trim(),
+                })),
+                defaultEffort:
+                  reasoningEffortDrafts
+                    .find((item) => item.draftId === defaultEffortDraftId)
+                    ?.value.trim() || null,
+                replayProviderContext,
+                defaultWebSearch,
+                defaultXSearch,
+              }}
+            />
+          )}
         </fieldset>
       </Modal>
       {switchTarget && (

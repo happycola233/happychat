@@ -7,12 +7,15 @@ import {
 } from '../util/modelTags'
 import { isSafeReasoningEffortValue } from '../util/reasoning'
 import { modelIconSchema } from './model-group'
+import { providerHeadersSchema } from './provider-headers'
+import { modelUsageNoticeSchema } from './user-notices'
 
 export const providerCreateSchema = z.object({
   name: z.string().trim().min(1, '请填写名称').max(60),
   baseUrl: z.string().url('Base URL 格式不正确'),
   apiKey: z.string().min(1, '请填写 API Key'),
   protocol: z.enum(['openai', 'anthropic']).default('openai'),
+  extraHeaders: providerHeadersSchema.optional(),
 })
 
 export const providerUpdateSchema = z.object({
@@ -21,6 +24,7 @@ export const providerUpdateSchema = z.object({
   apiKey: z.string().min(1).optional(),
   protocol: z.enum(['openai', 'anthropic']).optional(),
   enabled: z.boolean().optional(),
+  extraHeaders: providerHeadersSchema.optional(),
 })
 
 export const capabilitiesSchema = z.object({
@@ -145,6 +149,7 @@ export const pricingSchema = z.object({
 })
 
 export const modelUpdateSchema = z.object({
+  usageNotice: modelUsageNoticeSchema.nullable().optional(),
   providerId: z.string().min(1, '请选择所属供应商').optional(),
   modelId: z.string().trim().min(1).max(120).optional(),
   displayName: z.string().trim().min(1).max(MODEL_DISPLAY_NAME_MAX_LENGTH).optional(),
@@ -178,6 +183,7 @@ const defaultCapabilities = {
 
 /** 手动添加模型：providerId + modelId 必填，其余给合理默认。 */
 export const modelCreateSchema = z.object({
+  usageNotice: modelUsageNoticeSchema.nullable().optional(),
   providerId: z.string().min(1, '请选择所属供应商'),
   modelId: z.string().trim().min(1, '请填写模型 ID').max(120),
   displayName: z.string().trim().min(1, '请填写显示名称').max(MODEL_DISPLAY_NAME_MAX_LENGTH),

@@ -1,8 +1,9 @@
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import type { ContentPart } from '@shared/types/domain'
+import type { FinalizeArgs } from './finalize'
 
 let tmpDir: string
 let dbClient: typeof import('../db/client')
@@ -10,7 +11,9 @@ let schema: typeof import('../db/schema')
 let finalize: typeof import('./finalize')
 
 beforeAll(async () => {
-  tmpDir = mkdtempSync(join(tmpdir(), 'happychat-finalize-'))
+  const testTempRoot = join(process.cwd(), '.tmp')
+  mkdirSync(testTempRoot, { recursive: true })
+  tmpDir = mkdtempSync(join(testTempRoot, 'happychat-finalize-'))
   process.env.NODE_ENV = 'test'
   process.env.DATA_DIR = tmpDir
   process.env.DATABASE_URL = join(tmpDir, 'happychat-test.db')
@@ -201,6 +204,7 @@ describe('finalizeRun terminal snapshots', () => {
       durationMs: persistedRun!.finishedAt!.getTime() - startedAt.getTime(),
       upstreamResponseLatencyMs: 1_250,
       firstTokenLatencyMs: 4_800,
+      generatedImageCount: 0,
     })
     expect(persistedUsage?.quotaAt?.getTime()).toBe(run.createdAt.getTime())
     expect(emittedEvents.map((event) => event.type)).toEqual(['run.done'])
@@ -452,5 +456,199 @@ describe('finalizeRun terminal snapshots', () => {
     expect(rolledBackMessage?.status).toBe('streaming')
     expect(rolledBackUsage).toHaveLength(0)
     expect(rollbackEvents).toHaveLength(0)
+  })
+})
+
+describe('finalizeRun generated image audit', () => {
+  const cases: Array<{
+    name: string
+    state: FinalizeArgs['state']
+    content: ContentPart[]
+    imageCapability: boolean
+    expectedCount: number
+    discardPartialOutput?: boolean
+  }> = [
+    {
+      name: 'counts distinct final images from a model-routed response, excluding input images',
+      state: 'completed',
+      content: [
+        { type: 'output_text', text: '测试图片结果' },
+        { type: 'input_image', attachment_id: 'input-image' },
+        { type: 'image_result', attachment_id: 'final-a' },
+        { type: 'image_result', attachment_id: 'final-b' },
+        { type: 'image_result', attachment_id: 'final-a' },
+      ],
+      imageCapability: false,
+      expectedCount: 2,
+    },
+    {
+      name: 'does not infer a generated image from model capability or partial events',
+      state: 'completed',
+      content: [{ type: 'output_text', text: '测试文本结果' }],
+      imageCapability: true,
+      expectedCount: 0,
+    },
+    {
+      name: 'counts a final image retained when the remaining generation is canceled',
+      state: 'canceled',
+      content: [{ type: 'image_result', attachment_id: 'retained-final' }],
+      imageCapability: true,
+      expectedCount: 1,
+    },
+    {
+      name: 'does not count discarded image output after a refusal',
+      state: 'failed',
+      content: [],
+      imageCapability: true,
+      expectedCount: 0,
+      discardPartialOutput: true,
+    },
+  ]
+
+  it.each(cases)('$name', async (testCase) => {
+    const suffix = cases.indexOf(testCase)
+    const user = dbClient.db
+      .insert(schema.users)
+      .values({
+        username: `generated-image-audit-${suffix}`,
+        passwordHash: 'hash',
+      })
+      .returning()
+      .get()
+    const provider = dbClient.db
+      .insert(schema.providers)
+      .values({
+        name: `Generated image audit ${suffix}`,
+        baseUrl: 'https://example.test/v1',
+        apiKey: 'test-key',
+      })
+      .returning()
+      .get()
+    const model = dbClient.db
+      .insert(schema.models)
+      .values({
+        providerId: provider.id,
+        modelId: `routed-model-${suffix}`,
+        displayName: 'Routed model',
+        kind: 'responses',
+        capabilities: {
+          vision: true,
+          file_input: false,
+          web_search: false,
+          x_search: false,
+          reasoning: false,
+          image_generation: testCase.imageCapability,
+        },
+        pricing: { input: 2, output: 8, image: 99 },
+      })
+      .returning()
+      .get()
+    const conversation = dbClient.db
+      .insert(schema.conversations)
+      .values({
+        userId: user.id,
+        modelId: model.id,
+        title: '生成图审计测试',
+      })
+      .returning()
+      .get()
+    const assistantMessage = dbClient.db
+      .insert(schema.messages)
+      .values({
+        conversationId: conversation.id,
+        role: 'assistant',
+        status: 'streaming',
+        modelId: model.id,
+        content: [],
+      })
+      .returning()
+      .get()
+    const startedAt = new Date()
+    const run = dbClient.db
+      .insert(schema.runs)
+      .values({
+        conversationId: conversation.id,
+        userId: user.id,
+        assistantMessageId: assistantMessage.id,
+        modelId: model.id,
+        state: 'running',
+        startedAt,
+      })
+      .returning()
+      .get()
+    dbClient.db
+      .insert(schema.runEvents)
+      .values({
+        runId: run.id,
+        sequenceNumber: 0,
+        type: 'image.generation.partial',
+        data: { attachmentId: 'partial-image', partialIndex: 0 },
+      })
+      .run()
+
+    await finalize.finalizeRun({
+      run,
+      assistantMessage,
+      conversation,
+      model,
+      provider,
+      state: testCase.state,
+      text: '',
+      content: testCase.content,
+      processSteps: [],
+      annotations: [],
+      usage: {
+        inputTokens: 10,
+        cacheWriteTokens: 0,
+        cachedTokens: 0,
+        outputTokens: 5,
+        reasoningTokens: 0,
+        totalTokens: 15,
+      },
+      incompleteReason: null,
+      errorMessage: testCase.state === 'failed' ? '测试拒绝' : null,
+      errorType: testCase.state === 'failed' ? 'refusal' : null,
+      discardPartialOutput: testCase.discardPartialOutput,
+      upstreamResponseId: null,
+      startedAt,
+      upstreamResponseLatencyMs: 100,
+      persistEmit: () => 1,
+    })
+
+    const usage = dbClient.db
+      .select()
+      .from(schema.usageLogs)
+      .where(eq(schema.usageLogs.runId, run.id))
+      .get()!
+    const message = dbClient.db
+      .select()
+      .from(schema.messages)
+      .where(eq(schema.messages.id, assistantMessage.id))
+      .get()!
+    expect(usage).toMatchObject({
+      generatedImageCount: testCase.expectedCount,
+      kind: 'chat',
+      imageTokens: 0,
+      inputTokens: 10,
+      outputTokens: 5,
+    })
+    expect(message.content).toEqual(testCase.content)
+    expect(message.costUsd).toBeCloseTo(0.00006, 10)
+
+    // 删除会话会级联清理 run / message / partial 事件，图片数量仍是请求自己的审计快照。
+    dbClient.db
+      .delete(schema.conversations)
+      .where(eq(schema.conversations.id, conversation.id))
+      .run()
+    expect(
+      dbClient.db.select().from(schema.runs).where(eq(schema.runs.id, run.id)).get(),
+    ).toBeUndefined()
+    expect(
+      dbClient.db.select().from(schema.usageLogs).where(eq(schema.usageLogs.id, usage.id)).get(),
+    ).toMatchObject({
+      runId: null,
+      generatedImageCount: testCase.expectedCount,
+      kind: 'chat',
+    })
   })
 })

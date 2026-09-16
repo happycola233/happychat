@@ -17,6 +17,8 @@ import { SegmentedControl } from '../../components/ui/SegmentedControl'
 import { inputClass } from '../../components/ui/controlStyles'
 import { APP_VERSION } from '../../lib/buildInfo'
 import { toast } from '../../store/toast'
+import { RetrySettings } from './RetrySettings'
+import { ContextSuggestionSettings } from './ContextSuggestionSettings'
 
 /** 只读信息行（「关于」卡片用）。 */
 function InfoRow({ label, value }: { label: string; value: string }) {
@@ -161,6 +163,7 @@ export default function SettingsPage() {
         options={[
           { value: 'general', label: '常用设置' },
           { value: 'title', label: '标题总结' },
+          { value: 'retry', label: '自动重试' },
           { value: 'about', label: '站点信息' },
         ]}
       />
@@ -173,7 +176,7 @@ export default function SettingsPage() {
         </div>
       ) : (
         <>
-          <div hidden={section !== 'general'}>
+          <div hidden={section !== 'general'} className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <Card title="注册">
                 <div className="flex items-start justify-between gap-4">
@@ -276,6 +279,7 @@ export default function SettingsPage() {
                 </div>
               </Card>
             </div>
+            <ContextSuggestionSettings config={config} />
           </div>
           <div hidden={section !== 'title'}>
             <Card title="标题总结" description="首条回复完成后用模型自动生成简短的会话标题。">
@@ -355,6 +359,9 @@ export default function SettingsPage() {
                 </div>
               </div>
             </Card>
+          </div>
+          <div hidden={section !== 'retry'}>
+            <RetrySettings config={config} />
           </div>
         </>
       )}

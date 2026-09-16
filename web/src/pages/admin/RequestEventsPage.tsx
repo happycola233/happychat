@@ -15,6 +15,7 @@ import { Button } from '../../components/ui/Button'
 import { LoadError } from '../../components/ui/LoadError'
 import { RefreshButton } from './DashboardPrimitives'
 import { RequestEventCard } from './RequestEventCard'
+import { RequestGeneratedImagesBadge } from './RequestGeneratedImagesBadge'
 import { buildUsageEventsQuery, usageEventsQueryKey } from './eventFilters'
 import { RequestKindBadge } from './RequestKindBadge'
 import { RequestOutcomeBadge } from './RequestOutcomeBadge'
@@ -370,6 +371,9 @@ export default function RequestEventsPage() {
                             result={row.result}
                             terminalReason={row.terminalReason}
                           />
+                          <div>
+                            <RequestGeneratedImagesBadge row={row} />
+                          </div>
                         </td>
                       </tr>
                     )

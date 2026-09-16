@@ -41,6 +41,14 @@ export function useModelGroups() {
   })
 }
 
+export function useContextOptimizationSuggestion() {
+  return useQuery({
+    queryKey: ['models'],
+    queryFn: listModels,
+    select: (data) => data.contextOptimizationSuggestion,
+  })
+}
+
 /**
  * 内置图标目录：判断某个 slug 是单色（CSS mask）还是彩色，并为长缓存 URL 提供版本号。
  * 内容随依赖版本固定，缓存到会话结束即可，不必反复校验。

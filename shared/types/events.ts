@@ -13,6 +13,7 @@ export interface WireEvent {
 /** 合成事件类型（与上游 response.* 共用同一 SSE 通道与 seq 计数器） */
 export const RUN_EVENT_TYPE = {
   created: 'run.created',
+  retry: 'run.retry',
   answerStarted: 'answer.started',
   /** 兼容上游在 raw reasoning 流中把中间进展误标为 final_answer。 */
   outputItemReclassified: 'response.output_item.reclassified',
@@ -45,6 +46,15 @@ export interface RunCreatedData {
   assistantMessageId: string
   startedAt: number
   reasoningEnabled: boolean
+}
+
+export interface RunRetryData {
+  phase: 'waiting' | 'attempting' | 'connected'
+  /** 包含首次请求；attempt=2 表示第一次重试。 */
+  attempt: number
+  maxAttempts: number
+  nextRetryAt: number | null
+  reason: string
 }
 
 export interface RunDoneData {

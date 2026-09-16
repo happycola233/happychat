@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react'
 import type { MessageCostDisplayDTO, MessageDTO } from '@shared/types/api'
 import type { UrlCitation } from '@shared/types/domain'
@@ -18,6 +18,7 @@ import {
 } from './MessageMeta'
 import type { ImageEditSource } from './imageSource'
 import { ProgressiveImageStage } from './ProgressiveImageStage'
+import { RetryStatus } from './RetryStatus'
 import { attachmentDraftsFromContent } from './attachmentDraft'
 import { MessageEditForm, type MessageEditSubmit } from './MessageEditForm'
 import { BranchConversationIcon, EditIcon, RetryMessageIcon } from './icons'
@@ -124,6 +125,10 @@ export function Message({
   costDisplay,
 }: Props) {
   const [editing, setEditing] = useState(false)
+  const [lastImageLive, setLastImageLive] = useState<LiveMessage | null>(null)
+  useEffect(() => {
+    if (live) setLastImageLive(live.imageStatus || live.imageGenerations.length ? live : null)
+  }, [live])
   const showMessageTime = useSettings((s) => s.preferences.showMessageTime)
   const messageTimeFormat = useSettings((s) => s.preferences.messageTimeFormat)
   const showModelLabel = useSettings((s) => s.preferences.showModelLabel)
@@ -212,12 +217,22 @@ export function Message({
   const showProcessTrack =
     steps.length > 0 ||
     reasoningDurationMs !== null ||
-    Boolean(processStatus === 'working' && reasoningEnabled)
-  const hasLiveImage = Boolean(live?.imageStatus || live?.imageGenerations.length)
-  const showPendingDots = streaming && !text && !showProcessTrack && !hasLiveImage && !steps.length
+    Boolean(processStatus === 'working' && reasoningEnabled && !live?.retry)
+  // 流结束后保留原图片舞台，用入库附件补齐最终帧；避免卸载打断 partial → final 的淡入。
+  const imageLive = live
+    ? live.imageStatus || live.imageGenerations.length
+      ? live
+      : null
+    : lastImageLive
+  const hasLiveImage = Boolean(imageLive)
+  const showPendingDots =
+    streaming && !text && !showProcessTrack && !hasLiveImage && !steps.length && !live?.retry
 
   return (
     <div className="group space-y-2" data-testid="assistant-message">
+      {liveStreaming && live?.retry && (
+        <RetryStatus key={`${live.retry.phase}:${live.retry.nextRetryAt}`} retry={live.retry} />
+      )}
       {showProcessTrack && (
         <ProcessTrack
           steps={steps}
@@ -234,9 +249,23 @@ export function Message({
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{error}</span>
         </div>
-      ) : hasLiveImage && live ? (
+      ) : null}
+      {imageLive ? (
         <>
-          <ProgressiveImageStage live={live} />
+          <ProgressiveImageStage
+            live={
+              !live && message.status !== 'streaming'
+                ? {
+                    ...imageLive,
+                    status: message.status === 'complete' ? 'completed' : 'interrupted',
+                  }
+                : imageLive
+            }
+            completedImages={
+              !live ? message.content.filter((part) => part.type === 'image_result') : undefined
+            }
+            onUseImageSource={onUseImageSource}
+          />
           {text && <Markdown text={text} animate={streaming} />}
         </>
       ) : showPendingDots ? (
@@ -248,7 +277,7 @@ export function Message({
       ) : text ? (
         <Markdown text={text} animate={streaming} />
       ) : null}
-      {message.content.some((p) => p.type === 'image_result') && (
+      {!hasLiveImage && message.content.some((p) => p.type === 'image_result') && (
         <AttachmentParts content={message.content} onUseImageSource={onUseImageSource} />
       )}
       {SHOW_CITATION_SOURCE_CHIPS && annotations.length > 0 && <Citations items={annotations} />}

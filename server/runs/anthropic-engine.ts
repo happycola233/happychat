@@ -27,6 +27,7 @@ import { runEmitter } from './emitter'
 import { collectProviderOpaqueStrings, redactProviderOpaqueContent } from './event-sanitize'
 import { finalizeRun } from './finalize'
 import type { EngineContext } from './types'
+import { runRetryOptions } from './retry'
 
 const MAX_PAUSE_TURN_CONTINUATIONS = 8
 
@@ -126,7 +127,11 @@ export async function runAnthropicEngine(ctx: EngineContext): Promise<void> {
   const searchOutputIndexById = new Map<string, number>()
 
   try {
-    const client = providerClientFromRow(ctx.provider, upstreamResponseTiming)
+    const client = providerClientFromRow(
+      ctx.provider,
+      upstreamResponseTiming,
+      await runRetryOptions(persistEmit),
+    )
     let requestBody = ctx.body
     let messages = continuationMessages(requestBody)
     let finalStopReason: string | null

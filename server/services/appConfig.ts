@@ -1,6 +1,8 @@
 import { eq } from 'drizzle-orm'
 import type { AppConfigDTO } from '@shared/types/api'
 import type { AppConfigUpdateInput } from '@shared/schemas/app-config'
+import { DEFAULT_RETRY_POLICY } from '@shared/schemas/retry'
+import { DEFAULT_CONTEXT_OPTIMIZATION_SUGGESTION } from '@shared/schemas/user-notices'
 import { db } from '../db/client'
 import { appSettings } from '../db/schema'
 
@@ -19,6 +21,11 @@ async function ensureRow(): Promise<AppSettingsRow> {
 
 function toDTO(row: AppSettingsRow): AppConfigDTO {
   return {
+    upstreamRetry: row.upstreamRetry ?? DEFAULT_RETRY_POLICY,
+    quotaWarningMessage: row.quotaWarningMessage,
+    quotaExhaustedMessage: row.quotaExhaustedMessage,
+    contextOptimizationSuggestion:
+      row.contextOptimizationSuggestion ?? DEFAULT_CONTEXT_OPTIMIZATION_SUGGESTION,
     registrationRequiresInviteCode: row.registrationRequiresInviteCode,
     sharingEnabled: row.sharingEnabled,
     showCost: row.showCost,
@@ -60,6 +67,12 @@ export async function updateAppConfig(patch: AppConfigUpdateInput): Promise<AppC
   if (patch.quotaTimezone !== undefined) set.quotaTimezone = patch.quotaTimezone
   if (patch.quotaWeekStart !== undefined) set.quotaWeekStart = patch.quotaWeekStart
   if (patch.quotaWarnThreshold !== undefined) set.quotaWarnThreshold = patch.quotaWarnThreshold
+  if (patch.quotaWarningMessage !== undefined) set.quotaWarningMessage = patch.quotaWarningMessage
+  if (patch.quotaExhaustedMessage !== undefined)
+    set.quotaExhaustedMessage = patch.quotaExhaustedMessage
+  if (patch.contextOptimizationSuggestion !== undefined)
+    set.contextOptimizationSuggestion = patch.contextOptimizationSuggestion
+  if (patch.upstreamRetry !== undefined) set.upstreamRetry = patch.upstreamRetry
   await db.update(appSettings).set(set).where(eq(appSettings.id, row.id))
   return getAppConfig()
 }

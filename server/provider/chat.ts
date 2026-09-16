@@ -2,13 +2,10 @@ import { REASONING_MIN_OUTPUT_TOKENS } from '@shared/constants'
 import type { MessageUsage, ModelParams } from '@shared/types/domain'
 import { effectiveReasoningEffort } from '@shared/util/reasoning'
 import { commentaryTextsOf } from '@shared/util/processTrack'
-import type { models } from '../db/schema'
 import type { PathMessage, ResolvedAttachment } from './context'
 import { friendlyUpstreamMessage, UpstreamError } from './errors'
-import { isPlainObject, mergeDeep } from './params'
+import { isPlainObject, mergeDeep, type RequestModelConfig } from './params'
 import { applyPromptCacheKey } from './promptCache'
-
-type ModelRow = typeof models.$inferSelect
 
 export interface ChatDelta {
   role?: string
@@ -121,7 +118,7 @@ export function buildChatMessages(
 }
 
 export interface BuildChatBodyOptions {
-  model: ModelRow
+  model: RequestModelConfig
   messages: unknown[]
   userParams?: ModelParams | null
   stream: boolean

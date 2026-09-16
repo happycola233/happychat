@@ -41,6 +41,7 @@ import { UserQuotaBuckets } from './UserQuotaBuckets'
 import { UserQuotaDialog } from './UserQuotaDialog'
 import { AdminUserAvatar } from './AdminUserAvatar'
 import { UserQuotaOverview } from './UserQuotaOverview'
+import { QuotaNoticeSettings } from './QuotaNoticeSettings'
 import { QUOTA_TIMEZONE_OPTIONS, quotaTimezoneLabel } from './userQuotaDisplay'
 import {
   USER_QUOTA_STATUS_META,
@@ -325,7 +326,7 @@ export default function QuotasPage() {
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <IconButton
-              label="周期设置"
+              label="周期与提醒"
               onClick={() => setSettingsOpen((open) => !open)}
               aria-expanded={settingsOpen}
             >
@@ -385,6 +386,7 @@ export default function QuotasPage() {
             <p className="mt-2 text-[11px] leading-5 text-neutral-400 dark:text-neutral-500">
               切换即保存，影响全站自然日 / 周 / 月的周期边界。
             </p>
+            <QuotaNoticeSettings config={config} />
           </div>
         )}
       </div>

@@ -1,3 +1,4 @@
+import type { ModelUsageNotice } from '../schemas/user-notices'
 import type {
   AnnouncementAudience,
   AnnouncementChannel,
@@ -91,6 +92,7 @@ export interface ProviderDTO {
   enabled: boolean
   hasApiKey: boolean
   apiKeyMask: string | null
+  extraHeaderCount?: number
   modelCount: number
   createdAt: number
 }
@@ -98,10 +100,13 @@ export interface ProviderDTO {
 /** 管理员编辑 Provider 时按需读取的详情，包含完整 API Key。 */
 export interface ProviderDetailDTO extends ProviderDTO {
   apiKey: string
+  extraHeaders?: Record<string, string>
 }
 
 /** 用户可见的模型信息（不含系统提示词、硬参数、密钥） */
 export interface ModelDTO {
+  /** 选用模型时展示的使用提示；null 表示未配置。 */
+  usageNotice?: ModelUsageNotice | null
   id: string
   modelId: string
   displayName: string
@@ -411,6 +416,8 @@ export interface UsageLogDTO {
   reasoningTokens: number
   totalTokens: number
   imageTokens: number
+  /** 请求实际保留的最终成图数量快照；不含输入图片和中间预览。 */
+  generatedImageCount: number
   /** 已结算调用的生命周期终态；不再从 success 布尔值猜测。 */
   outcome: UsageOutcome
   /** 终止原因，例如 max_output_tokens、refusal、content_filter、user_cancelled。 */
@@ -541,6 +548,10 @@ export interface AdminSessionDTO {
 
 /** 全局应用设置（管理员可改）。 */
 export interface AppConfigDTO {
+  upstreamRetry: import('../schemas/retry').RetryPolicy
+  quotaWarningMessage: string | null
+  quotaExhaustedMessage: string | null
+  contextOptimizationSuggestion: import('../schemas/user-notices').ContextOptimizationSuggestion
   registrationRequiresInviteCode: boolean
   sharingEnabled: boolean
   /** 是否在助手消息用量明细中展示本次预估成本。 */
@@ -661,6 +672,10 @@ export interface QuotaBucketUsageDTO {
 
 /** 用户自己的额度视图；quotaEnabled=false 时只返回 `enabled:false`。 */
 export interface MyQuotaDTO {
+  /** 接近限额时展示的站点文案；不参与额度判断。 */
+  warningMessage?: string | null
+  /** 已达到限额时展示的站点文案；为空时仅展示额度状态。 */
+  exhaustedMessage?: string | null
   enabled: boolean
   /** 管理员已暂停限额：不拦截，但用量仍在累计 */
   paused: boolean

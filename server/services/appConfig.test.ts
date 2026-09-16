@@ -31,6 +31,30 @@ afterAll(() => {
 })
 
 describe('全局应用配置', () => {
+  it('保存提醒文案和上下文阈值，局部修改不丢失已保存的提示', async () => {
+    const initial = await appConfigService.getAppConfig()
+    expect(initial.quotaWarningMessage).toBeNull()
+    expect(initial.quotaExhaustedMessage).toBeNull()
+    expect(initial.contextOptimizationSuggestion).toEqual({ enabled: true, tokenThreshold: 100000 })
+    await appConfigService.updateAppConfig({
+      quotaWarningMessage: '额度快用完时请联系管理员。',
+      quotaExhaustedMessage: '需要更多额度时请联系管理员。',
+      contextOptimizationSuggestion: { enabled: false, tokenThreshold: 16000 },
+    })
+    await appConfigService.updateAppConfig({ sharingEnabled: false })
+    const saved = await appConfigService.getAppConfig()
+    expect(saved.quotaWarningMessage).toBe('额度快用完时请联系管理员。')
+    expect(saved.quotaExhaustedMessage).toBe('需要更多额度时请联系管理员。')
+    expect(saved.contextOptimizationSuggestion).toEqual({ enabled: false, tokenThreshold: 16000 })
+    await appConfigService.updateAppConfig({
+      quotaWarningMessage: null,
+      quotaExhaustedMessage: null,
+    })
+    const cleared = await appConfigService.getAppConfig()
+    expect(cleared.quotaWarningMessage).toBeNull()
+    expect(cleared.quotaExhaustedMessage).toBeNull()
+  })
+
   it('新部署默认要求邀请码并展示消息成本', async () => {
     const config = await appConfigService.getAppConfig()
 

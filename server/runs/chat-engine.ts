@@ -12,6 +12,7 @@ import { UpstreamResponseLatencyTracker } from '../provider/response-timing'
 import { runEmitter } from './emitter'
 import { finalizeRun } from './finalize'
 import type { EngineContext } from './types'
+import { runRetryOptions } from './retry'
 
 /**
  * chat/completions 引擎：消费 chat 流，把 delta 翻译成与 Responses 一致的合成事件
@@ -64,7 +65,11 @@ export async function runChatEngine(ctx: EngineContext): Promise<void> {
   let answerStarted = false
 
   try {
-    const client = providerClientFromRow(ctx.provider, upstreamResponseTiming)
+    const client = providerClientFromRow(
+      ctx.provider,
+      upstreamResponseTiming,
+      await runRetryOptions(persistEmit),
+    )
     for await (const event of client.createChatStream(ctx.body, ctx.abortController.signal)) {
       if (event.type === 'done') {
         receivedDone = true

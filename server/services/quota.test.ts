@@ -163,6 +163,24 @@ const anchoredRequests = (value: number, hours: number, id = 'r-anchor'): QuotaR
 })
 
 describe('额度快照与拦截', () => {
+  it('可选提示随用户额度下发，清空后保留空值，关闭限额后不再下发提醒', async () => {
+    const { userId } = await createFixture()
+    await appConfig.updateAppConfig({
+      quotaWarningMessage: '测试额度提醒',
+      quotaExhaustedMessage: '测试额度耗尽提醒',
+    })
+    const configured = await quota.getMyQuota(userId)
+    expect(configured.warningMessage).toBe('测试额度提醒')
+    expect(configured.exhaustedMessage).toBe('测试额度耗尽提醒')
+    await appConfig.updateAppConfig({ quotaWarningMessage: null, quotaExhaustedMessage: null })
+    const cleared = await quota.getMyQuota(userId)
+    expect(cleared.warningMessage).toBeNull()
+    expect(cleared.exhaustedMessage).toBeNull()
+    await appConfig.updateAppConfig({ quotaEnabled: false })
+    expect((await quota.getMyQuota(userId)).warningMessage).toBeUndefined()
+    expect((await quota.getMyQuota(userId)).exhaustedMessage).toBeUndefined()
+  })
+
   it('未配置任何策略时无限额度、不拦截', async () => {
     const { userId, modelA } = await createFixture()
     const snapshot = await quota.getQuotaSnapshot(userId)

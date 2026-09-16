@@ -182,6 +182,54 @@ async function readResult(fixture: Awaited<ReturnType<typeof createFixture>>) {
 }
 
 describe('runChatEngine', () => {
+  it('persists retry progress and records one business result after recovery', async () => {
+    const fixture = await createFixture()
+    const { DEFAULT_RETRY_POLICY } = await import('@shared/schemas/retry')
+    const { updateAppConfig } = await import('../services/appConfig')
+    await updateAppConfig({
+      titleEnabled: false,
+      upstreamRetry: {
+        ...DEFAULT_RETRY_POLICY,
+        enabled: true,
+        initialDelaySeconds: 1,
+        jitterPercent: 0,
+      },
+    })
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response('{"error":{"type":"server_error"}}', { status: 503 }))
+      .mockResolvedValueOnce(
+        chatSseResponse([chatChunk({ content: 'recovered', finishReason: 'stop' })]),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      await chatEngine.runChatEngine(fixture)
+      const { storedRun, storedMessage } = await readResult(fixture)
+      expect(storedRun?.state).toBe('completed')
+      expect(storedMessage?.content).toEqual([{ type: 'output_text', text: 'recovered' }])
+      const events = dbClient.db
+        .select()
+        .from(schema.runEvents)
+        .where(eq(schema.runEvents.runId, fixture.run.id))
+        .all()
+      expect(events.filter((row) => row.type === 'run.retry').map((row) => row.data.phase)).toEqual(
+        ['waiting', 'attempting', 'connected'],
+      )
+      expect(events.map((row) => row.sequenceNumber)).toEqual(events.map((_, index) => index))
+      expect(events.filter((row) => row.type === 'run.done')).toHaveLength(1)
+      expect(
+        dbClient.db
+          .select()
+          .from(schema.usageLogs)
+          .where(eq(schema.usageLogs.runId, fixture.run.id))
+          .all(),
+      ).toHaveLength(1)
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    } finally {
+      await updateAppConfig({ upstreamRetry: DEFAULT_RETRY_POLICY })
+    }
+  })
+
   it('completes only after a supported terminal finish reason', async () => {
     const fixture = await createFixture()
     vi.stubGlobal(

@@ -56,6 +56,11 @@ import type {
 } from '@shared/schemas/quota'
 import type { UsageResult } from '@shared/types/domain'
 import { apiDelete, apiGet, apiPatch, apiPost, apiPut, apiUpload } from './client'
+import type { RequestPreviewInput } from '@shared/schemas/request-preview'
+import type { RequestPreviewDTO } from '@shared/types/request-preview'
+
+export const previewModelRequest = (input: RequestPreviewInput) =>
+  apiPost<RequestPreviewDTO>('/admin/models/request-preview', input)
 
 /** 统计/事件查询参数（与后端 statsFilterSchema 对应）。 */
 export interface StatsQuery {

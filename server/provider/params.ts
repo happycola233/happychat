@@ -5,7 +5,19 @@ import { effectiveWebSearchEnabled, effectiveXSearchEnabled } from '@shared/util
 import type { models } from '../db/schema'
 import { applyPromptCacheKey } from './promptCache'
 
-type ModelRow = typeof models.$inferSelect
+export type RequestModelConfig = Pick<
+  typeof models.$inferSelect,
+  | 'modelId'
+  | 'kind'
+  | 'capabilities'
+  | 'defaultParams'
+  | 'hardParams'
+  | 'allowedEfforts'
+  | 'defaultEffort'
+  | 'replayProviderContext'
+  | 'defaultWebSearch'
+  | 'defaultXSearch'
+>
 
 export function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -100,7 +112,7 @@ export function mergeDeep(target: Record<string, unknown>, src: Record<string, u
 }
 
 export interface BuildBodyOptions {
-  model: ModelRow
+  model: RequestModelConfig
   input: unknown[]
   instructions: string | null
   userParams?: ModelParams | null
@@ -163,7 +175,7 @@ export function buildResponseBody(o: BuildBodyOptions): Record<string, unknown> 
 
 /** 构建 /images/generations 请求体（gpt-image-2 等图片模型）。 */
 export function buildImageBody(
-  model: ModelRow,
+  model: RequestModelConfig,
   prompt: string,
   userParams?: ModelParams | null,
 ): Record<string, unknown> {
@@ -171,7 +183,7 @@ export function buildImageBody(
 }
 
 export function buildImageEditBody(
-  model: ModelRow,
+  model: RequestModelConfig,
   prompt: string,
   imageUrls: string[],
   userParams?: ModelParams | null,
@@ -183,7 +195,7 @@ export function buildImageEditBody(
 }
 
 function buildImageRequestBody(
-  model: ModelRow,
+  model: RequestModelConfig,
   prompt: string,
   userParams?: ModelParams | null,
 ): Record<string, unknown> {

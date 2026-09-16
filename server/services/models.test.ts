@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { eq } from 'drizzle-orm'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import { MODEL_DISPLAY_NAME_MAX_LENGTH } from '@shared/schemas/model-config'
+import { MODEL_DISPLAY_NAME_MAX_LENGTH, modelCreateSchema } from '@shared/schemas/model-config'
+import { DEFAULT_MODEL_USAGE_NOTICE } from '@shared/schemas/user-notices'
 
 let tmpDir: string
 let dbClient: typeof import('../db/client')
@@ -93,6 +94,43 @@ async function createFixture(
 }
 
 describe('model user access', () => {
+  it('模型使用提示随创建、修改和复制完整保留，并向可用用户公开', async () => {
+    const fixture = await createFixture()
+    const usageNotice = {
+      ...DEFAULT_MODEL_USAGE_NOTICE,
+      enabled: true,
+      body: '请为深入推理留出时间。',
+    }
+    const created = await modelServices.createModel(
+      modelCreateSchema.parse({
+        providerId: fixture.providerId,
+        modelId: 'notice-test-model',
+        displayName: '提示模型',
+        usageNotice,
+      }),
+    )
+    expect(created.ok).toBe(true)
+    if (!created.ok) return
+    expect(created.model.usageNotice).toEqual(usageNotice)
+    expect(
+      (await modelServices.listEnabledModels(fixture.userId)).find(
+        (model) => model.id === created.model.id,
+      )?.usageNotice,
+    ).toEqual(usageNotice)
+
+    const changed = { ...usageNotice, body: '更新后的注意事项', tone: 'warning' as const }
+    await modelServices.updateModel(created.model.id, { usageNotice: changed })
+    const copy = await modelServices.duplicateModel(created.model.id)
+    expect(copy.ok).toBe(true)
+    if (copy.ok) expect(copy.model.usageNotice).toEqual(changed)
+    await modelServices.updateModel(created.model.id, { usageNotice: null })
+    expect(
+      (await modelServices.listEnabledModels(fixture.userId)).find(
+        (model) => model.id === created.model.id,
+      )?.usageNotice,
+    ).toBeNull()
+  })
+
   it('keeps replay configuration private to the administrator model DTO', async () => {
     const fixture = await createFixture()
     await dbClient.db

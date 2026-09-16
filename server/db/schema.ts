@@ -8,6 +8,8 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/sqlite-core'
 import { newId } from '../lib/id'
+import type { RetryPolicy } from '../../shared/schemas/retry'
+import type { ContextOptimizationSuggestion } from '../../shared/schemas/user-notices'
 // 注意：schema.ts 仅用相对路径导入（含 type-only），以规避 drizzle-kit 对 @shared/* 别名解析的不确定性。
 import type {
   AnnouncementAudience,
@@ -46,6 +48,7 @@ import type {
 } from '../../shared/types/domain'
 import type { MessageDTO } from '../../shared/types/api'
 import type { ContextPolicy } from '../../shared/types/context'
+import type { ModelUsageNotice } from '../../shared/schemas/user-notices'
 import type { ProviderReplayContext } from '../provider/reasoning-replay'
 
 // ---- 通用列工厂（每次返回新的 builder 实例）----
@@ -156,6 +159,12 @@ export const appSettings = sqliteTable('app_settings', {
   quotaWeekStart: text('quota_week_start').$type<QuotaWeekStart>().notNull().default('mon'),
   // 用户端「即将用尽」提示的触发占比。
   quotaWarnThreshold: real('quota_warn_threshold').notNull().default(0.8),
+  quotaWarningMessage: text('quota_warning_message'),
+  quotaExhaustedMessage: text('quota_exhausted_message'),
+  contextOptimizationSuggestion: text('context_optimization_suggestion', {
+    mode: 'json',
+  }).$type<ContextOptimizationSuggestion>(),
+  upstreamRetry: text('upstream_retry', { mode: 'json' }).$type<RetryPolicy>(),
   updatedAt: updatedAt(),
 })
 
@@ -243,6 +252,10 @@ export const providers = sqliteTable('providers', {
   baseUrl: text('base_url').notNull(),
   // API Key 明文存库；管理员列表 DTO 固定脱敏，编辑详情接口按需返回完整值。
   apiKey: text('api_key').notNull(),
+  extraHeaders: text('extra_headers', { mode: 'json' })
+    .$type<Record<string, string>>()
+    .notNull()
+    .default({}),
   protocol: text('protocol').$type<ProviderProtocol>().notNull().default('openai'),
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
   createdAt: createdAt(),
@@ -278,6 +291,7 @@ export const modelIcons = sqliteTable('model_icons', {
 export const models = sqliteTable(
   'models',
   {
+    usageNotice: text('usage_notice', { mode: 'json' }).$type<ModelUsageNotice>(),
     id: pk(),
     providerId: text('provider_id')
       .notNull()
@@ -675,6 +689,8 @@ export const usageLogs = sqliteTable(
     reasoningTokens: integer('reasoning_tokens').notNull().default(0),
     totalTokens: integer('total_tokens').notNull().default(0),
     imageTokens: integer('image_tokens').notNull().default(0),
+    // 最终消息实际保留的生成图数量；不含输入图或 partial，随请求日志长期保留。
+    generatedImageCount: integer('generated_image_count').notNull().default(0),
     // 请求事件展示快照：runs/run_events 会随会话删除，审计指标不能依赖它们长期存在。
     reasoningEffort: text('reasoning_effort'),
     durationMs: integer('duration_ms'),

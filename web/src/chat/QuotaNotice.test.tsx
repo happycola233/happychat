@@ -83,7 +83,7 @@ describe('QuotaNotice', () => {
     expect(render()).toBe('')
   })
 
-  it('接近上限时标题、用量、窗口与重置分行展示，并提供关闭按钮', () => {
+  it('接近上限时展示标题、用量、窗口与重置，并提供关闭按钮', () => {
     quotaState.data = quota()
     const html = render()
     expect(html).toContain('额度即将用尽')
@@ -124,7 +124,7 @@ describe('QuotaNotice', () => {
     const html = render()
     expect(html).toContain('当前模型额度已用尽')
     expect(html).toContain('GPT-5.5')
-    expect(html).toContain('可切换到其他仍有额度的模型')
+    expect(html).toContain('可切换模型')
   })
 
   it('暂停限额时说明仍可使用，并提供关闭按钮', () => {
@@ -133,8 +133,8 @@ describe('QuotaNotice', () => {
       rules: [bucket({ used: 15, percent: 1.5, blocked: true })],
     })
     const html = render()
-    expect(html).toContain('管理员已暂停限额')
-    expect(html).toContain('仍可正常使用')
+    expect(html).toContain('限额已暂停')
+    expect(html).toContain('仍可使用')
     expect(html).toContain('暂不提示')
     expect(html).not.toContain('role="alert"')
   })
@@ -142,6 +142,54 @@ describe('QuotaNotice', () => {
   it('提供「使用情况」入口', () => {
     quotaState.data = quota()
     expect(render()).toContain('href="/usage"')
+  })
+
+  it('分别展示接近限额与已达限额的管理员文案', () => {
+    quotaState.data = quota({
+      warningMessage: '如需增加额度，请联系站点管理员。',
+      exhaustedMessage: '测试额度已耗尽',
+    })
+    expect(render()).toContain('如需增加额度，请联系站点管理员。')
+    expect(render()).not.toContain('测试额度已耗尽')
+    quotaState.data = quota({
+      warningMessage: '自定义预警',
+      exhaustedMessage: '测试额度已耗尽',
+      rules: [bucket({ blocked: true, percent: 1 })],
+      blockedModelIds: ['m1'],
+      allModelsBlocked: true,
+    })
+    expect(render()).not.toContain('自定义预警')
+    expect(render()).toContain('测试额度已耗尽')
+  })
+
+  it.each([undefined, null, '', '  '])(
+    '提示文案为空 %s 时不添加正文，额度状态仍可见',
+    (message) => {
+      quotaState.data = quota({ warningMessage: message })
+      const warning = render()
+      expect(warning).toContain('额度即将用尽')
+      expect(warning).not.toContain('whitespace-pre-wrap')
+      quotaState.data = quota({
+        exhaustedMessage: message,
+        rules: [bucket({ blocked: true, percent: 1 })],
+        blockedModelIds: ['m1'],
+        allModelsBlocked: true,
+      })
+      const exhausted = render()
+      expect(exhausted).toContain('额度已用尽')
+      expect(exhausted).toContain('使用情况')
+      expect(exhausted).toContain('重置')
+      expect(exhausted).not.toContain('whitespace-pre-wrap')
+    },
+  )
+
+  it('模型额度耗尽同样展示对应的自定义提示', () => {
+    quotaState.data = quota({
+      exhaustedMessage: '当前模型的测试提示',
+      rules: [bucket({ blocked: true, percent: 1 })],
+      blockedModelIds: ['m1'],
+    })
+    expect(render()).toContain('当前模型的测试提示')
   })
 
   it('滚动窗口关闭键不使用不断移动的 periodStart', () => {

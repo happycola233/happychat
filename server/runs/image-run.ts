@@ -12,6 +12,7 @@ import { computeGenerationDurationMs } from '../services/run-timing'
 import { runEmitter } from './emitter'
 import { storeGeneratedImageAttachment } from './generated-images'
 import type { EngineContext } from './types'
+import { runRetryOptions } from './retry'
 import { errorTypeForAudit, terminalReasonForUsage } from './usage-audit'
 
 interface ImageResponse {
@@ -66,7 +67,11 @@ export async function runImageEngine(ctx: EngineContext): Promise<void> {
   let imageTokens = 0
 
   try {
-    const client = providerClientFromRow(ctx.provider, upstreamResponseTiming)
+    const client = providerClientFromRow(
+      ctx.provider,
+      upstreamResponseTiming,
+      await runRetryOptions(persistEmit),
+    )
     const resp = (await (ctx.imageOperation === 'edit'
       ? client.editImage(ctx.body, ctx.abortController.signal)
       : client.createImage(ctx.body, ctx.abortController.signal))) as ImageResponse
@@ -179,6 +184,9 @@ export async function runImageEngine(ctx: EngineContext): Promise<void> {
         outputTokens,
         totalTokens,
         imageTokens,
+        generatedImageCount: new Set(
+          content.flatMap((part) => (part.type === 'image_result' ? [part.attachment_id] : [])),
+        ).size,
         reasoningEffort: requestedReasoningEffort(ctx.run.requestParams),
         durationMs: generationDurationMs,
         upstreamResponseLatencyMs: upstreamResponseTiming.latencyMs,

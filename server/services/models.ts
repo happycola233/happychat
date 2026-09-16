@@ -43,6 +43,7 @@ export function toModelDTO(m: ModelRow): ModelDTO {
     // 老记录可能缺少后加入的能力位，出参前统一补齐。
     capabilities,
     description: m.description ?? null,
+    usageNotice: m.usageNotice ?? null,
     // 旧记录的 string[] 与新对象数组在 API 边界统一升级，非法颜色安全回退为自动配色。
     tags: normalizeModelTags(m.tags),
     // 图标要拼进 URL 与 CSS mask，出参前统一归一化，非法值降级为 null（前端回退自动识别）。
@@ -87,6 +88,7 @@ export function toProviderDTO(p: ProviderRow, modelCount: number): ProviderDTO {
     enabled: p.enabled,
     hasApiKey: Boolean(p.apiKey),
     apiKeyMask: p.apiKey ? maskSecret(p.apiKey) : null,
+    extraHeaderCount: Object.keys(p.extraHeaders).length,
     modelCount,
     createdAt: p.createdAt.getTime(),
   }
@@ -96,6 +98,7 @@ export function toProviderDetailDTO(p: ProviderRow, modelCount: number): Provide
   return {
     ...toProviderDTO(p, modelCount),
     apiKey: p.apiKey,
+    extraHeaders: p.extraHeaders,
   }
 }
 
@@ -367,6 +370,7 @@ export async function createModel(input: ModelCreateInput): Promise<CreateModelR
             modelId: input.modelId,
             displayName: input.displayName,
             description: input.description ?? null,
+            usageNotice: input.usageNotice ?? null,
             tags: input.tags,
             icon: input.icon ?? null,
             groupId: input.groupId ?? null,
@@ -439,6 +443,7 @@ export async function duplicateModel(id: string): Promise<DuplicateModelResult> 
             modelId: source.model.modelId,
             displayName: copiedDisplayName,
             description: source.model.description,
+            usageNotice: source.model.usageNotice,
             tags: normalizeModelTags(source.model.tags),
             icon: normalizeModelIcon(source.model.icon),
             groupId: source.model.groupId,
@@ -567,6 +572,7 @@ export async function updateModel(id: string, input: ModelUpdateInput): Promise<
       if (input.modelId !== undefined) patch.modelId = input.modelId
       if (input.displayName !== undefined) patch.displayName = input.displayName
       if (input.description !== undefined) patch.description = input.description
+      if (input.usageNotice !== undefined) patch.usageNotice = input.usageNotice
       if (input.tags !== undefined) patch.tags = input.tags
       if (input.icon !== undefined) patch.icon = input.icon
       if (input.groupId !== undefined) patch.groupId = input.groupId

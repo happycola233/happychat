@@ -4,7 +4,7 @@ import type {
   UrlCitation,
   XSearchActionType,
 } from '@shared/types/domain'
-import { RUN_EVENT_TYPE, type WireEvent } from '@shared/types/events'
+import { RUN_EVENT_TYPE, type RunRetryData, type WireEvent } from '@shared/types/events'
 import {
   appendReasoningSummaryDelta,
   appendReasoningTextDelta,
@@ -85,6 +85,7 @@ export function liveStepsFromPersisted(steps: ProcessStep[] | null | undefined):
 }
 
 export interface LiveMessage {
+  retry?: RunRetryData
   text: string
   /** 当前展示的是摘要还是上游明文推理；摘要一旦出现便覆盖并抑制 raw 通道。 */
   reasoningKind: 'summary' | 'raw' | null
@@ -525,6 +526,11 @@ function upsertImageGeneration(
 /** 将一个 SSE WireEvent 折叠进流式消息状态。 */
 export function reduceEvent(s: LiveMessage, ev: WireEvent): LiveMessage {
   switch (ev.type) {
+    case RUN_EVENT_TYPE.retry:
+      return {
+        ...s,
+        retry: ev.data.phase === 'connected' ? undefined : (ev.data as unknown as RunRetryData),
+      }
     case 'run.created':
       return {
         ...s,
@@ -612,12 +618,14 @@ export function reduceEvent(s: LiveMessage, ev: WireEvent): LiveMessage {
         processSteps: finalProcessSteps(completed.processSteps, ev.data.processSteps),
         annotations: finalAnnotations(ev.data.annotations, completed.annotations),
         status: (str(ev.data.state) as LiveStatus) || 'completed',
+        retry: undefined,
       }
     }
     case 'run.error': {
       const failed: LiveMessage = {
         ...finishReasoning(s),
         status: 'failed',
+        retry: undefined,
         error: str(ev.data.message) || '生成失败',
         processSteps: settleProcessSteps(s.processSteps),
       }
@@ -628,12 +636,14 @@ export function reduceEvent(s: LiveMessage, ev: WireEvent): LiveMessage {
       return {
         ...finishReasoning(s),
         status: 'canceled',
+        retry: undefined,
         processSteps: settleProcessSteps(s.processSteps),
       }
     case 'run.interrupted':
       return {
         ...finishReasoning(s),
         status: 'interrupted',
+        retry: undefined,
         processSteps: settleProcessSteps(s.processSteps),
       }
     default:

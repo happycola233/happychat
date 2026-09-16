@@ -7,6 +7,8 @@ import { UpstreamError, networkError, toUpstreamError } from './errors'
 import type { UpstreamResponseTimingObserver } from './response-timing'
 import { parseSSEStream, type StreamEvent } from './sse-parse'
 import type { UpstreamResponse } from './upstream-types'
+import { buildProviderHeaders } from './request-headers'
+import { fetchWithRetry, type UpstreamRetryOptions } from './retry'
 
 export interface UpstreamModel {
   id: string
@@ -29,22 +31,20 @@ export class ProviderClient {
     private readonly apiKey: string,
     private readonly protocol: ProviderProtocol = 'openai',
     private readonly responseTimingObserver?: UpstreamResponseTimingObserver,
+    private readonly extraHeaders: Record<string, string> = {},
+    private readonly retryOptions?: UpstreamRetryOptions,
   ) {}
 
   private endpoint(path: string): string {
     return joinBaseUrl(this.baseUrl, path)
   }
 
-  private authHeaders(extra?: Record<string, string>): Record<string, string> {
-    return { Authorization: `Bearer ${this.apiKey}`, ...extra }
+  private authHeaders(json = false): Record<string, string> {
+    return buildProviderHeaders('openai', this.apiKey, this.extraHeaders, json)
   }
 
-  private anthropicHeaders(extra?: Record<string, string>): Record<string, string> {
-    return {
-      'x-api-key': this.apiKey,
-      'anthropic-version': '2023-06-01',
-      ...extra,
-    }
+  private anthropicHeaders(json = false): Record<string, string> {
+    return buildProviderHeaders('anthropic', this.apiKey, this.extraHeaders, json)
   }
 
   /** GET /models —— 拉取上游可用模型列表。 */
@@ -54,7 +54,7 @@ export class ProviderClient {
     try {
       res = await fetch(this.endpoint('/models'), { headers: this.authHeaders() })
     } catch (e) {
-      throw networkError(e)
+      throw e instanceof UpstreamError ? e : networkError(e)
     }
     if (!res.ok) throw await toUpstreamError(res)
     const data = (await res.json()) as { data?: UpstreamModel[] }
@@ -73,7 +73,7 @@ export class ProviderClient {
       try {
         res = await fetch(url, { headers: this.anthropicHeaders() })
       } catch (e) {
-        throw networkError(e)
+        throw e instanceof UpstreamError ? e : networkError(e)
       }
       if (!res.ok) throw await toUpstreamError(res)
       const page = (await res.json()) as {
@@ -91,46 +91,58 @@ export class ProviderClient {
   /** 通用 JSON POST（流式/非流式由后续阶段在此基础上扩展）。 */
   async postJson(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
     const serializedBody = JSON.stringify(body)
-    const requestStartedAtMs = Date.now()
-    this.responseTimingObserver?.onRequestStart(requestStartedAtMs)
     try {
-      const response = await fetch(this.endpoint(path), {
-        method: 'POST',
-        headers: this.authHeaders({ 'Content-Type': 'application/json' }),
-        body: serializedBody,
+      return await fetchWithRetry(
+        async (attemptSignal) => {
+          const requestStartedAtMs = Date.now()
+          this.responseTimingObserver?.onRequestStart(requestStartedAtMs)
+          const response = await fetch(this.endpoint(path), {
+            method: 'POST',
+            headers: this.authHeaders(true),
+            body: serializedBody,
+            signal: attemptSignal,
+          })
+          this.responseTimingObserver?.onResponseHeaders({
+            requestStartedAtMs,
+            responseHeadersAtMs: Date.now(),
+            ok: response.ok,
+          })
+          return response
+        },
         signal,
-      })
-      this.responseTimingObserver?.onResponseHeaders({
-        requestStartedAtMs,
-        responseHeadersAtMs: Date.now(),
-        ok: response.ok,
-      })
-      return response
+        this.retryOptions,
+      )
     } catch (e) {
-      throw networkError(e)
+      throw e instanceof UpstreamError ? e : networkError(e)
     }
   }
 
   /** Anthropic 原生 JSON POST；与 OpenAI 兼容路径隔离鉴权头和版本路径。 */
   private async postAnthropicMessage(body: unknown, signal?: AbortSignal): Promise<Response> {
     const serializedBody = JSON.stringify(body)
-    const requestStartedAtMs = Date.now()
-    this.responseTimingObserver?.onRequestStart(requestStartedAtMs)
     try {
-      const response = await fetch(joinAnthropicUrl(this.baseUrl, '/v1/messages'), {
-        method: 'POST',
-        headers: this.anthropicHeaders({ 'Content-Type': 'application/json' }),
-        body: serializedBody,
+      return await fetchWithRetry(
+        async (attemptSignal) => {
+          const requestStartedAtMs = Date.now()
+          this.responseTimingObserver?.onRequestStart(requestStartedAtMs)
+          const response = await fetch(joinAnthropicUrl(this.baseUrl, '/v1/messages'), {
+            method: 'POST',
+            headers: this.anthropicHeaders(true),
+            body: serializedBody,
+            signal: attemptSignal,
+          })
+          this.responseTimingObserver?.onResponseHeaders({
+            requestStartedAtMs,
+            responseHeadersAtMs: Date.now(),
+            ok: response.ok,
+          })
+          return response
+        },
         signal,
-      })
-      this.responseTimingObserver?.onResponseHeaders({
-        requestStartedAtMs,
-        responseHeadersAtMs: Date.now(),
-        ok: response.ok,
-      })
-      return response
+        this.retryOptions,
+      )
     } catch (e) {
-      throw networkError(e)
+      throw e instanceof UpstreamError ? e : networkError(e)
     }
   }
 
@@ -213,6 +225,14 @@ export class ProviderClient {
 export function providerClientFromRow(
   row: typeof providers.$inferSelect,
   responseTimingObserver?: UpstreamResponseTimingObserver,
+  retryOptions?: UpstreamRetryOptions,
 ): ProviderClient {
-  return new ProviderClient(row.baseUrl, row.apiKey, row.protocol, responseTimingObserver)
+  return new ProviderClient(
+    row.baseUrl,
+    row.apiKey,
+    row.protocol,
+    responseTimingObserver,
+    row.extraHeaders,
+    retryOptions,
+  )
 }
