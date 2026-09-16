@@ -234,17 +234,6 @@ export function mapAnthropicUsage(usage: AnthropicUsage | null | undefined): Mes
   }
 }
 
-export function addMessageUsage(left: MessageUsage, right: MessageUsage): MessageUsage {
-  return {
-    inputTokens: left.inputTokens + right.inputTokens,
-    cacheWriteTokens: left.cacheWriteTokens + right.cacheWriteTokens,
-    cachedTokens: left.cachedTokens + right.cachedTokens,
-    outputTokens: left.outputTokens + right.outputTokens,
-    reasoningTokens: left.reasoningTokens + right.reasoningTokens,
-    totalTokens: left.totalTokens + right.totalTokens,
-  }
-}
-
 export function anthropicCitation(
   citation: unknown,
   startIndex: number,

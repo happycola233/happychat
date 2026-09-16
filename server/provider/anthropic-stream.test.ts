@@ -262,7 +262,7 @@ describe('AnthropicStreamAccumulator', () => {
 
     expect(thrown).toBeInstanceOf(UpstreamError)
     expect(thrown).toMatchObject({
-      message: 'Anthropic 上游当前过载，请稍后重试。',
+      message: '上游服务当前过载，请稍后重试。',
       status: 529,
       type: 'overloaded_error',
       rawMessage: 'Overloaded',

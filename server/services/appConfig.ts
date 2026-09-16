@@ -21,7 +21,7 @@ async function ensureRow(): Promise<AppSettingsRow> {
 
 function toDTO(row: AppSettingsRow): AppConfigDTO {
   return {
-    upstreamRetry: row.upstreamRetry ?? DEFAULT_RETRY_POLICY,
+    upstreamRetry: { ...DEFAULT_RETRY_POLICY, ...row.upstreamRetry },
     quotaWarningMessage: row.quotaWarningMessage,
     quotaExhaustedMessage: row.quotaExhaustedMessage,
     contextOptimizationSuggestion:

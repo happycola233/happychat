@@ -9,6 +9,7 @@ import {
 } from 'drizzle-orm/sqlite-core'
 import { newId } from '../lib/id'
 import type { RetryPolicy } from '../../shared/schemas/retry'
+import type { RunRetrySummary } from '../../shared/types/retry'
 import type { ContextOptimizationSuggestion } from '../../shared/schemas/user-notices'
 // 注意：schema.ts 仅用相对路径导入（含 type-only），以规避 drizzle-kit 对 @shared/* 别名解析的不确定性。
 import type {
@@ -697,6 +698,7 @@ export const usageLogs = sqliteTable(
     // 首次实际 POST 开始到首个成功响应头；仅收到失败响应时保留首次失败响应耗时。
     upstreamResponseLatencyMs: integer('upstream_response_latency_ms'),
     firstTokenLatencyMs: integer('first_token_latency_ms'),
+    retrySummary: text('retry_summary', { mode: 'json' }).$type<RunRetrySummary>(),
     // 审计终态与原因独立于 success；后者暂时保留额度兼容语义。
     outcome: text('outcome').$type<UsageOutcome>().notNull().default('completed'),
     terminalReason: text('terminal_reason'),

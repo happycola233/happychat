@@ -9,7 +9,6 @@ import type {
   UrlCitation,
 } from '@shared/types/domain'
 import { RUN_EVENT_TYPE } from '@shared/types/events'
-import { isReasoningEnabled } from '@shared/util/reasoning'
 import {
   appendReasoningSummaryDelta,
   appendReasoningTextDelta,
@@ -23,29 +22,23 @@ import {
   xSearchActionFromToolInput,
 } from '@shared/util/searchActivity'
 import { db } from '../db/client'
-import { runEvents, runs } from '../db/schema'
+import { runEvents } from '../db/schema'
 import { providerClientFromRow } from '../provider/client'
-import { UpstreamResponseLatencyTracker } from '../provider/response-timing'
-import { UpstreamError } from '../provider/errors'
+import { friendlyUpstreamMessage, UpstreamError } from '../provider/errors'
 import type { ReasoningReplayContextV1 } from '../provider/reasoning-replay'
 import {
   classifyResponsesTerminal,
   type ResponsesTerminalState,
 } from '../provider/responses-terminal'
 import type { UpstreamOutputItem, UpstreamResponse } from '../provider/upstream-types'
-import { runEmitter } from './emitter'
-import {
-  collectProviderOpaqueStrings,
-  redactProviderOpaqueContent,
-  sanitizeEventData,
-} from './event-sanitize'
+import { collectProviderOpaqueStrings, redactProviderOpaqueContent } from './event-sanitize'
 import { reconcileFinalResponse } from './final-response'
-import { finalizeRun } from './finalize'
+import type { FinalizeArgs } from './finalize'
 import { removeGeneratedImageAttachments, storeGeneratedImageAttachment } from './generated-images'
 import { buildReasoningReplayContext } from './reasoning-replay-capture'
 import { streamResponseWithFallback } from './response-stream-fallback'
 import type { EngineContext } from './types'
-import { runRetryOptions } from './retry'
+import { executeRun, type RunAttemptRuntime } from './execute-run'
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '')
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)
@@ -119,40 +112,15 @@ interface MutableAnswerPart {
 
 /** 驱动单个 run：流式调用上游 → 逐事件持久化到 run_events + 发射 → 终结。 */
 export async function runEngine(ctx: EngineContext): Promise<void> {
-  // 既包含历史请求密文，也持续吸收本轮 added/done/terminal 中出现的新版本，
-  // 以防兼容上游稍后的错误消息回显任一 opaque 值。
+  await executeRun(ctx, runResponseAttempt)
+}
+
+async function runResponseAttempt(
+  ctx: EngineContext,
+  runtime: RunAttemptRuntime,
+): Promise<FinalizeArgs> {
+  const { startedAt, persistEmit, upstreamResponseTiming, recordError } = runtime
   const sensitiveProviderContent = new Set(collectProviderOpaqueStrings(ctx.body))
-  let seq = 0
-  const persistEmit = (type: string, data: Record<string, unknown>, observedAt?: Date): number => {
-    collectProviderOpaqueStrings(data).forEach((value) => sensitiveProviderContent.add(value))
-    // 所有落库/浏览器事件共用唯一净化入口；原始上游对象仍留给终态校准和私有提取。
-    const sanitizedData = sanitizeEventData(type, data, [...sensitiveProviderContent])
-    const sequenceNumber = seq++
-    db.insert(runEvents)
-      .values({
-        runId: ctx.run.id,
-        sequenceNumber,
-        type,
-        data: sanitizedData,
-        ...(observedAt ? { createdAt: observedAt } : {}),
-      })
-      .run()
-    db.update(runs).set({ lastSequenceNumber: sequenceNumber }).where(eq(runs.id, ctx.run.id)).run()
-    runEmitter.emit({ runId: ctx.run.id, sequenceNumber, type, data: sanitizedData })
-    return sequenceNumber
-  }
-
-  const startedAt = new Date()
-  const upstreamResponseTiming = new UpstreamResponseLatencyTracker()
-  persistEmit(RUN_EVENT_TYPE.created, {
-    runId: ctx.run.id,
-    conversationId: ctx.conversation.id,
-    assistantMessageId: ctx.assistantMessage.id,
-    startedAt: startedAt.getTime(),
-    reasoningEnabled: isReasoningEnabled(ctx.model, ctx.run.requestParams as ModelParams | null),
-  })
-  db.update(runs).set({ state: 'running', startedAt }).where(eq(runs.id, ctx.run.id)).run()
-
   let text = ''
   const mutableProcessSteps: MutableProcessStep[] = []
   let authoritativeProcessSteps: ProcessStep[] | null = null
@@ -612,11 +580,7 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
   }
 
   try {
-    const client = providerClientFromRow(
-      ctx.provider,
-      upstreamResponseTiming,
-      await runRetryOptions(persistEmit),
-    )
+    const client = providerClientFromRow(ctx.provider, upstreamResponseTiming)
     const stream = streamResponseWithFallback({
       body: ctx.body,
       openStream: (body) => client.createResponseStream(body, ctx.abortController.signal),
@@ -837,16 +801,24 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
         case 'error':
           receivedTerminalEvent = true
           state = 'failed'
-          errorType = 'response_error'
-          errorCode = str(ev.data.code) || null
-          errorMessage = redactProviderOpaqueContent(str(ev.data.message) || '生成失败', [
-            ...sensitiveProviderContent,
-            ...collectProviderOpaqueStrings(ev.data),
-          ])
+          errorType = isRecord(ev.data.error)
+            ? str(ev.data.error.type) || 'response_error'
+            : 'response_error'
+          errorCode = str(isRecord(ev.data.error) ? ev.data.error.code : ev.data.code) || null
+          errorMessage = redactProviderOpaqueContent(
+            friendlyUpstreamMessage(
+              errorCode ?? errorType,
+              str(isRecord(ev.data.error) ? ev.data.error.message : ev.data.message) || '生成失败',
+              200,
+            ),
+            [...sensitiveProviderContent, ...collectProviderOpaqueStrings(ev.data)],
+          )
           break
         default:
           break
       }
+      // 终态到达就释放响应体；部分网关发出 error 后仍保持 SSE 连接。
+      if (receivedTerminalEvent) break
     }
     if (!receivedTerminalEvent) {
       if (ctx.abortController.signal.aborted) {
@@ -862,6 +834,7 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
       state = 'canceled'
     } else {
       const ue = e instanceof UpstreamError ? e : null
+      recordError(ue)
       state = 'failed'
       errorMessage = redactProviderOpaqueContent(
         ue?.message ?? (e instanceof Error ? e.message : '生成失败'),
@@ -875,6 +848,15 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
         : null
       httpStatus = ue?.status ?? null
     }
+  }
+
+  // 拒绝标记可能先于断流到达；不能因缺少终态把明确拒绝降级成可重试的网络错误。
+  if (refusalObserved) {
+    state = 'failed'
+    errorType = 'refusal'
+    errorCode = null
+    errorMessage = '模型拒绝了此请求，请调整内容后重试。'
+    discardPartialOutput = true
   }
 
   if (discardPartialOutput) {
@@ -911,7 +893,7 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
     ...imageContentParts,
   ]
 
-  await finalizeRun({
+  const result: FinalizeArgs = {
     run: ctx.run,
     assistantMessage: ctx.assistantMessage,
     conversation: ctx.conversation,
@@ -934,9 +916,10 @@ export async function runEngine(ctx: EngineContext): Promise<void> {
     upstreamResponseLatencyMs: upstreamResponseTiming.latencyMs,
     content: discardPartialOutput ? [] : finalContentParts,
     persistEmit,
-  })
+  }
 
   if ((state === 'completed' || state === 'incomplete') && imageContentParts.length) {
     cleanupPartialImages()
   }
+  return result
 }

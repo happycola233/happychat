@@ -30,6 +30,7 @@ import {
 } from '../../components/ui/tableStyles'
 import { formatDateTime } from '../../lib/format'
 import { buildErrorEventsQuery, errorEventsQueryKey } from './eventFilters'
+import { RetryAuditBadge, RetryAuditDetails } from './RetryAuditDetails'
 
 const SCOPE_OPTIONS = [
   { value: '', label: '全部来源' },
@@ -78,6 +79,7 @@ function ErrorLogDetail({ row }: { row: ErrorLogDTO }) {
           <div className="break-all text-neutral-700 dark:text-neutral-200">{row.runId ?? '—'}</div>
         </div>
       </div>
+      <RetryAuditDetails summary={row.retrySummary} />
       {row.detail != null && (
         <details>
           <summary className="min-h-7 cursor-pointer text-neutral-500">原始数据</summary>
@@ -129,7 +131,7 @@ export default function ErrorEventsPage() {
     <div className="space-y-5">
       <PageHeader
         title="错误日志"
-        description="定位异常，展开查看完整信息与请求详情。"
+        description="查看失败原因、发生阶段与重试经过，已恢复的请求会单独标明。"
         actions={
           <>
             <Button
@@ -253,6 +255,9 @@ export default function ErrorEventsPage() {
                             className={`${td} whitespace-nowrap text-neutral-700 dark:text-neutral-200`}
                           >
                             {row.errorType ?? row.code ?? '—'}
+                            <div className="mt-1">
+                              <RetryAuditBadge summary={row.retrySummary} />
+                            </div>
                           </td>
                           <td
                             className={`${td} tabular-nums text-neutral-700 dark:text-neutral-200`}
@@ -329,6 +334,7 @@ export default function ErrorEventsPage() {
                     aria-expanded={isOpen}
                   >
                     <div className="flex flex-wrap items-center gap-2">
+                      <RetryAuditBadge summary={row.retrySummary} />
                       <Badge tone={scopeTone(row.scope)}>
                         {SCOPE_OPTIONS.find((option) => option.value === row.scope)?.label ??
                           row.scope}

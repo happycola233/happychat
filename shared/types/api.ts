@@ -380,6 +380,7 @@ export interface StatsDTO {
 }
 
 export interface ErrorLogDTO {
+  retrySummary?: import('./retry').RunRetrySummary | null
   id: string
   scope: string
   errorType: string | null
@@ -394,6 +395,7 @@ export interface ErrorLogDTO {
 }
 
 export interface UsageLogDTO {
+  retrySummary?: import('./retry').RunRetrySummary | null
   id: string
   /** 对话生成对应的 run；标题总结及 run 已被级联删除的历史事件为 null。 */
   runId: string | null

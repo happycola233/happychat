@@ -3,12 +3,11 @@ import type { AnthropicCatalogCapabilities } from '@shared/util/anthropic'
 import { joinAnthropicUrl, joinBaseUrl } from '@shared/util/url'
 import type { providers } from '../db/schema'
 import { type ChatStreamEvent, parseChatStream } from './chat'
-import { UpstreamError, networkError, toUpstreamError } from './errors'
+import { UpstreamError, friendlyUpstreamMessage, networkError, toUpstreamError } from './errors'
 import type { UpstreamResponseTimingObserver } from './response-timing'
 import { parseSSEStream, type StreamEvent } from './sse-parse'
 import type { UpstreamResponse } from './upstream-types'
 import { buildProviderHeaders } from './request-headers'
-import { fetchWithRetry, type UpstreamRetryOptions } from './retry'
 
 export interface UpstreamModel {
   id: string
@@ -32,7 +31,6 @@ export class ProviderClient {
     private readonly protocol: ProviderProtocol = 'openai',
     private readonly responseTimingObserver?: UpstreamResponseTimingObserver,
     private readonly extraHeaders: Record<string, string> = {},
-    private readonly retryOptions?: UpstreamRetryOptions,
   ) {}
 
   private endpoint(path: string): string {
@@ -88,62 +86,41 @@ export class ProviderClient {
     }
   }
 
-  /** 通用 JSON POST（流式/非流式由后续阶段在此基础上扩展）。 */
-  async postJson(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
-    const serializedBody = JSON.stringify(body)
+  /** 重试由生成编排层统一管理，此处只执行一次网络请求。 */
+  private async post(
+    url: string,
+    headers: Record<string, string>,
+    body: unknown,
+    signal?: AbortSignal,
+  ): Promise<Response> {
     try {
-      return await fetchWithRetry(
-        async (attemptSignal) => {
-          const requestStartedAtMs = Date.now()
-          this.responseTimingObserver?.onRequestStart(requestStartedAtMs)
-          const response = await fetch(this.endpoint(path), {
-            method: 'POST',
-            headers: this.authHeaders(true),
-            body: serializedBody,
-            signal: attemptSignal,
-          })
-          this.responseTimingObserver?.onResponseHeaders({
-            requestStartedAtMs,
-            responseHeadersAtMs: Date.now(),
-            ok: response.ok,
-          })
-          return response
-        },
-        signal,
-        this.retryOptions,
-      )
-    } catch (e) {
-      throw e instanceof UpstreamError ? e : networkError(e)
+      const serializedBody = JSON.stringify(body)
+      const requestStartedAtMs = Date.now()
+      this.responseTimingObserver?.onRequestStart(requestStartedAtMs)
+      const response = await fetch(url, { method: 'POST', headers, body: serializedBody, signal })
+      this.responseTimingObserver?.onResponseHeaders({
+        requestStartedAtMs,
+        responseHeadersAtMs: Date.now(),
+        ok: response.ok,
+        status: response.status,
+      })
+      return response
+    } catch (error) {
+      throw error instanceof UpstreamError ? error : networkError(error)
     }
   }
 
-  /** Anthropic 原生 JSON POST；与 OpenAI 兼容路径隔离鉴权头和版本路径。 */
+  async postJson(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
+    return this.post(this.endpoint(path), this.authHeaders(true), body, signal)
+  }
+
   private async postAnthropicMessage(body: unknown, signal?: AbortSignal): Promise<Response> {
-    const serializedBody = JSON.stringify(body)
-    try {
-      return await fetchWithRetry(
-        async (attemptSignal) => {
-          const requestStartedAtMs = Date.now()
-          this.responseTimingObserver?.onRequestStart(requestStartedAtMs)
-          const response = await fetch(joinAnthropicUrl(this.baseUrl, '/v1/messages'), {
-            method: 'POST',
-            headers: this.anthropicHeaders(true),
-            body: serializedBody,
-            signal: attemptSignal,
-          })
-          this.responseTimingObserver?.onResponseHeaders({
-            requestStartedAtMs,
-            responseHeadersAtMs: Date.now(),
-            ok: response.ok,
-          })
-          return response
-        },
-        signal,
-        this.retryOptions,
-      )
-    } catch (e) {
-      throw e instanceof UpstreamError ? e : networkError(e)
-    }
+    return this.post(
+      joinAnthropicUrl(this.baseUrl, '/v1/messages'),
+      this.anthropicHeaders(true),
+      body,
+      signal,
+    )
   }
 
   /** POST /responses（非流式）：返回完整 Response 对象。 */
@@ -164,7 +141,11 @@ export class ProviderClient {
     const res = await this.postJson('/responses', { ...body, stream: true }, signal)
     if (!res.ok) throw await toUpstreamError(res)
     if (!res.body) throw new UpstreamError({ message: '上游未返回流式响应', status: res.status })
-    yield* parseSSEStream(res.body)
+    try {
+      yield* parseSSEStream(res.body)
+    } catch (error) {
+      throw error instanceof UpstreamError ? error : networkError(error)
+    }
   }
 
   /** POST /chat/completions（非流式）：返回完整 JSON（用于标题总结等）。 */
@@ -182,7 +163,11 @@ export class ProviderClient {
     const res = await this.postJson('/chat/completions', { ...body, stream: true }, signal)
     if (!res.ok) throw await toUpstreamError(res)
     if (!res.body) throw new UpstreamError({ message: '上游未返回流式响应', status: res.status })
-    yield* parseChatStream(res.body)
+    try {
+      yield* parseChatStream(res.body)
+    } catch (error) {
+      throw error instanceof UpstreamError ? error : networkError(error)
+    }
   }
 
   /** POST /v1/messages（非流式）：用于标题生成等短任务。 */
@@ -203,21 +188,51 @@ export class ProviderClient {
     const res = await this.postAnthropicMessage({ ...body, stream: true }, signal)
     if (!res.ok) throw await toUpstreamError(res)
     if (!res.body) throw new UpstreamError({ message: '上游未返回流式响应', status: res.status })
-    yield* parseSSEStream(res.body)
+    try {
+      yield* parseSSEStream(res.body)
+    } catch (error) {
+      throw error instanceof UpstreamError ? error : networkError(error)
+    }
   }
 
   /** POST /images/generations（非流式）：返回原始 JSON（含 data[].b64_json）。 */
   async createImage(body: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
     const res = await this.postJson('/images/generations', body, signal)
     if (!res.ok) throw await toUpstreamError(res)
-    return res.json()
+    return this.readImageResponse(res)
   }
 
   /** POST /images/edits（非流式）：用输入图 + prompt 生成编辑结果。 */
   async editImage(body: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
     const res = await this.postJson('/images/edits', body, signal)
     if (!res.ok) throw await toUpstreamError(res)
-    return res.json()
+    return this.readImageResponse(res)
+  }
+
+  private async readImageResponse(res: Response): Promise<unknown> {
+    let data: unknown
+    try {
+      data = await res.json()
+    } catch (error) {
+      if (error instanceof SyntaxError)
+        throw new UpstreamError({
+          message: '上游返回了无效的图片响应',
+          status: res.status,
+          type: 'invalid_response',
+        })
+      throw networkError(error)
+    }
+    const error = (data as { error?: { type?: string; code?: string; message?: string } } | null)
+      ?.error
+    if (error)
+      throw new UpstreamError({
+        message: friendlyUpstreamMessage(error.type ?? error.code, error.message, res.status),
+        status: res.status,
+        type: error.type,
+        code: error.code,
+        rawMessage: error.message,
+      })
+    return data
   }
 }
 
@@ -225,7 +240,6 @@ export class ProviderClient {
 export function providerClientFromRow(
   row: typeof providers.$inferSelect,
   responseTimingObserver?: UpstreamResponseTimingObserver,
-  retryOptions?: UpstreamRetryOptions,
 ): ProviderClient {
   return new ProviderClient(
     row.baseUrl,
@@ -233,6 +247,5 @@ export function providerClientFromRow(
     row.protocol,
     responseTimingObserver,
     row.extraHeaders,
-    retryOptions,
   )
 }

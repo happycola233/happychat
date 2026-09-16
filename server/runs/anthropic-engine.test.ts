@@ -442,7 +442,7 @@ describe('runAnthropicEngine', () => {
       errorMessage: '模型拒绝了此请求，请调整内容后重试。',
     })
     expect(usageLog).toMatchObject({ success: false, errorType: 'refusal' })
-    expect(errorLog).toMatchObject({ errorType: 'refusal', httpStatus: null })
+    expect(errorLog).toMatchObject({ errorType: 'refusal', httpStatus: 200 })
     expect(runError).toMatchObject({
       type: 'run.error',
       data: {
@@ -762,7 +762,7 @@ describe('runAnthropicEngine', () => {
     expect(storedErrors).toEqual([
       expect.objectContaining({
         errorType: 'invalid_request_error',
-        httpStatus: 400,
+        httpStatus: 200,
       }),
     ])
   })

@@ -4,12 +4,14 @@ export class UpstreamError extends Error {
   readonly type?: string
   readonly code?: string
   readonly rawMessage?: string
+  readonly retryAfterMs: number
   constructor(opts: {
     message: string
     status: number
     type?: string
     code?: string
     rawMessage?: string
+    retryAfterMs?: number
   }) {
     super(opts.message)
     this.name = 'UpstreamError'
@@ -17,6 +19,7 @@ export class UpstreamError extends Error {
     this.type = opts.type
     this.code = opts.code
     this.rawMessage = opts.rawMessage
+    this.retryAfterMs = opts.retryAfterMs ?? 0
   }
 }
 
@@ -41,7 +44,9 @@ export function friendlyUpstreamMessage(
     case 'rate_limit_exceeded':
       return '已触发上游限流，请稍后重试。'
     case 'overloaded_error':
-      return 'Anthropic 上游当前过载，请稍后重试。'
+    case 'server_is_overloaded':
+    case 'server_overloaded':
+      return '上游服务当前过载，请稍后重试。'
     case 'request_too_large':
       return '上游认为请求内容过大，请在「上下文优化」中减少历史记录或附件后重试。'
     case 'billing_error':
@@ -76,7 +81,16 @@ export async function toUpstreamError(res: Response): Promise<UpstreamError> {
     type: err?.type,
     code: err?.code,
     rawMessage: err?.message,
+    retryAfterMs: retryAfterMs(res.headers.get('retry-after')),
   })
+}
+
+export function retryAfterMs(value: string | null, now = Date.now()): number {
+  if (!value) return 0
+  const seconds = Number(value)
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000)
+  const date = Date.parse(value)
+  return Number.isFinite(date) ? Math.max(0, date - now) : 0
 }
 
 /** 把网络层异常（DNS、超时、连接拒绝等）转为友好中文 UpstreamError。 */

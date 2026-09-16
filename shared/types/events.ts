@@ -14,6 +14,7 @@ export interface WireEvent {
 export const RUN_EVENT_TYPE = {
   created: 'run.created',
   retry: 'run.retry',
+  outputReset: 'run.output_reset',
   answerStarted: 'answer.started',
   /** 兼容上游在 raw reasoning 流中把中间进展误标为 final_answer。 */
   outputItemReclassified: 'response.output_item.reclassified',
@@ -55,6 +56,7 @@ export interface RunRetryData {
   maxAttempts: number
   nextRetryAt: number | null
   reason: string
+  stage?: import('./retry').RetryFailureStage
 }
 
 export interface RunDoneData {

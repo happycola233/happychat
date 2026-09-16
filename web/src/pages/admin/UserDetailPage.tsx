@@ -324,6 +324,7 @@ export default function UserDetailPage() {
                             kind={e.kind}
                             result={e.result}
                             terminalReason={e.terminalReason}
+                            retrySummary={e.retrySummary}
                           />
                         </td>
                       </tr>

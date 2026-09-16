@@ -175,7 +175,7 @@
 ### 5.2 引擎（`runs/manager.ts` 按 `model.kind` 分派）
 
 - `runManager.start()`：建 `AbortController` 存进 `active` Map，按 kind 调 `runEngine` / `runChatEngine` / `runAnthropicEngine` / `runImageEngine`，`.finally` 时从 Map 删除。
-- `runEngine`（`engine.ts`，文本）：`persistEmit(type,data)` 先用纯拷贝净化图片结果与 reasoning 密文，再**写 `run_events`（同步 better-sqlite3）并 `runEmitter.emit`**，自增 `seq`；原始对象仍留在内存供终态处理。先发合成 `run.created`，置 run `running`；然后 `for await` 消费 `client.createResponseStream(body, signal)`。内部只维护一条按发生顺序追加的过程序列：reasoning 按 `item_id`（无 id 时回落 `output_index`）累积并保留 part 边界，message 的 `phase=commentary` 单独累积，搜索调用就地插入；其他 output text 原样进入终答正文，首个终答 delta 前发 `answer.started`。`response.completed/incomplete/failed` 的完整 `response.output` 在覆盖前必须包含流中见过的全部 output item id：拓扑完整则按终态数组整体重建正文/过程/引用，added/done 已捕获的 phase/action 可补齐终态缺字段；兼容网关若把终态压扁、删 item，则保留已验证的流式拓扑，仅采用终态 usage/id，避免 commentary 与浏览页面丢失。raw `reasoning_text` 兼容网关可能在 `output_item.added` 把所有 message 误标成 `final_answer`、到 `output_item.done` 才纠正 phase；这类候选 delta 只在服务端内存累积，不先进入浏览器正文：done=commentary 时用 append-only 校正事件原子加入过程轨，done=final_answer 时先发带精确耗时的 `answer.started`，再用一条聚合 delta 呈现终答，因此不会闪错位置或反复折叠。在开关/effort 门控通过时仍从原始终态提取 reasoning items（单轮 JSON >256KB 整轮放弃并告警）形成私有重放信封；没有任何终态事件就 EOF 视为失败。建流 4xx 可按原始 type/code/message 识别“不支持 include”或“历史 reasoning 无效”，仅在首个上游事件前去掉对应字段重试一次，流开始后绝不重试。中止（signal.aborted）→ state `canceled`。
+- 四种引擎通过 `executeRun()` 共用事件持久化、取消、重试和结算（§5.7）。`runEngine`（`engine.ts`，文本）的 `persistEmit(type,data)` 先用纯拷贝净化图片结果与 reasoning 密文，再**写 `run_events`（同步 better-sqlite3）并 `runEmitter.emit`**，自增 `seq`；原始对象仍留在内存供终态处理。先发合成 `run.created`，置 run `running`；然后 `for await` 消费 `client.createResponseStream(body, signal)`。内部只维护一条按发生顺序追加的过程序列：reasoning 按 `item_id`（无 id 时回落 `output_index`）累积并保留 part 边界，message 的 `phase=commentary` 单独累积，搜索调用就地插入；其他 output text 原样进入终答正文，首个终答 delta 前发 `answer.started`。`response.completed/incomplete/failed` 的完整 `response.output` 在覆盖前必须包含流中见过的全部 output item id：拓扑完整则按终态数组整体重建正文/过程/引用，added/done 已捕获的 phase/action 可补齐终态缺字段；兼容网关若把终态压扁、删 item，则保留已验证的流式拓扑，仅采用终态 usage/id，避免 commentary 与浏览页面丢失。raw `reasoning_text` 兼容网关可能在 `output_item.added` 把所有 message 误标成 `final_answer`、到 `output_item.done` 才纠正 phase；这类候选 delta 只在服务端内存累积，不先进入浏览器正文：done=commentary 时用 append-only 校正事件原子加入过程轨，done=final_answer 时先发带精确耗时的 `answer.started`，再用一条聚合 delta 呈现终答，因此不会闪错位置或反复折叠。在开关/effort 门控通过时仍从原始终态提取 reasoning items（单轮 JSON >256KB 整轮放弃并告警）形成私有重放信封；没有任何终态事件就 EOF 视为失败。建流 4xx 可按原始 type/code/message 识别“不支持 include”或“历史 reasoning 无效”，仅在首个上游事件前去掉对应字段重试一次，该参数降级不在流开始后执行；临时故障的整次重试见 §5.7。中止（signal.aborted）→ state `canceled`。
 - `runAnthropicEngine` 消费 `message_start`、`content_block_*`、`message_delta`、`message_stop`，把 `text_delta`、`thinking_delta`、URL citation 与 `server_tool_use:web_search` 翻译成本站统一 Responses 风格事件。thinking signature、`redacted_thinking`、搜索密文与引用索引只进入私有 replay；`pause_turn` 把上一段 assistant content 原样追加后继续请求（上限 8 段），各段 usage 相加。`max_tokens`/上下文窗口耗尽映射为 incomplete，但若截断内容含未配对的客户端或服务端工具调用，则不保存该轮 replay，避免下一轮构造出缺少 `tool_result` 的非法历史。`refusal` 不自动切换模型：该轮明确失败，作废已流出的正文、思考、引用与搜索动作；普通客户端 `tool_use` 因本站没有执行器同样明确失败并展示原因。严格要求终态与所有 content block 完整；仅兼容“已有 `stop_reason` 且所有 block 均收到 `content_block_stop`，但网关省略 `message_stop`”这一可证明完整的 EOF 变体。
 - `runImageEngine`（`image-run.ts`，图片）：合成 `run.created`/`image.generation.in_progress` → `createImage` → b64 落盘为 attachment（关联 assistant 消息）→ 合成 `image.generation.completed{attachmentId}` → 内联 finalize（assistant content = `[{type:'image_result',...}]`，usage 记 `image_tokens`）。**非流式，无 partial_images**（见 §12）。
 
@@ -210,26 +210,29 @@
 
 ### 5.7 自动重试与用户进度
 
-- `shared/schemas/retry.ts` 是配置校验、默认值与 `retryDelayMs()` 的唯一来源；「系统设置 → 自动重试」由 `RetrySettings.tsx` 提供草稿、校验、等待节奏预览与保存。设置只对新发起的生成生效，默认关闭。
+- `shared/schemas/retry.ts` 是配置校验、默认值与 `retryDelayMs()` 的唯一来源；「系统设置 → 自动重试」由 `RetrySettings.tsx` 提供草稿、校验、等待节奏预览与保存。总开关默认关闭，只对新发起的生成生效；旧 JSON 配置读取时合并新增字段默认值。
 
 | 配置字段 | 默认值 | 范围 / 含义 |
 | --- | --- | --- |
 | `enabled` | `false` | 自动重试总开关 |
-| `maxRetries` | 5 | 1–20 次，不含首次请求 |
+| `maxRetries` | 5 | 1–20 次，不含首次请求；HTTP、流内失败与断流共用次数 |
 | `initialDelaySeconds` | 5 | 1–120 秒，首次失败后的等待 |
 | `maxDelaySeconds` | 60 | 1–600 秒，退避与抖动的上限，不能小于首次等待 |
 | `backoffMultiplier` | 2 | 1–5 倍，连续失败时递增 |
-| `jitterPercent` | 20 | 0–50%，额外随机等待；如基础 5 秒、20% 时为 5–6 秒，受最长间隔限制 |
-| `attemptTimeoutSeconds` | 120 | 正整数秒，不设固定上限；每次等待 HTTP 响应头的超时 |
-| `maxElapsedSeconds` | 900 | 正整数秒，不设固定上限；单次上游请求及重试的总等待预算，不能小于单次连接等待上限 |
-| `retryNetworkErrors` | `true` | 是否重试连接失败与首响应超时 |
-| `retryStatusCodes` | 408、409、429、500、502、503、504、529 | 可从这些临时错误中选择；鉴权、参数、余额错误按上游 type/code 排除 |
+| `jitterPercent` | 20 | 0–50%，额外随机等待，受最长间隔限制 |
+| `attemptTimeoutSeconds` | 120 | 正整数秒，不设固定上限；发送请求到首次实际输出的等待上限，HTTP 200/created/ping/空 delta 不结束计时 |
+| `streamIdleTimeoutSeconds` | 300 | 非负整数秒；输出开始后连续无新内容的等待上限，0 表示关闭；不限制正常持续输出的总时长 |
+| `maxElapsedSeconds` | 900 | 从首次请求开始的重试时间预算，不能小于首次输出等待上限；耗尽后不再发起重试，正常输出可继续完成 |
+| `retryNetworkErrors` | `true` | 连接失败、缺少终态的 EOF、读取断流、首次输出与输出停滞超时 |
+| `retryAfterOutput` | `true` | 输出中断后从原始输入重新生成；等待时保留旧内容，新内容到达后整体替换；关闭后仅未输出时重试 |
+| `retryStatusCodes` | 408、409、429、500、502、503、504、529 | HTTP 临时错误及已知 SSE code/type 的对应类别；永久错误优先排除 |
 
-- 四种生成引擎通过 `runs/retry.ts runRetryOptions(persistEmit)` 读取策略，`provider/client.ts` 的 JSON POST 交给 `provider/retry.ts fetchWithRetry()`。重试复用同一请求，不创建新 run 或额外的用户额度计数；标题总结和模型目录不启用这套生成重试。
-- 可重试 HTTP 失败先消费错误响应；连接失败与响应头超时受独立开关控制。等待取 `max(递增间隔含抖动, Retry-After)`，支持秒数与 HTTP 日期；上游要求的等待可超过单次间隔上限，但不会越过总预算。次数或预算耗尽返回最后错误，用户停止会中断在途请求或等待计时器。
-- 首响应超时与重试等待共用分段计时；超过 [Node.js 单个计时器的 32 位延时上限](https://nodejs.org/api/timers.html#settimeoutcallback-delay-args)时继续等待剩余时长，避免大数值被截成 1ms，取消或收到响应后清理当前计时器。
-- **收到成功 HTTP 响应头后即交给引擎，之后不重试或重放正文。** HTTP 200 中的 SSE error、流中断及非流式正文读取失败仍按原链路终结，用户可手动重新生成。首响应超时不限制已连接后的模型生成时长。
-- `run.retry` 的 `waiting / attempting / connected` 与其他事件共用序号和 `run_events` 持久化；等待期间 run 仍为 `running`。`eventReducer.ts` 保存 `LiveMessage.retry`，`RetryStatus.tsx` 展示次数、倒计时及稍后回来的提示，连通或终态后清除。刷新、切换聊天或关闭浏览器不会取消服务端重试，返回时走原有 active-run 与 SSE 续传；**服务进程重启仍按 §5.5 标记中断，不会从数据库自动续跑。**
+- **统一编排**：四种引擎都通过 `runs/execute-run.ts executeRun()` 执行；引擎只负责单次协议累积并返回结果，由编排器统一管理 run.created、事件序号、取消、超时、重试与最终结算。`provider/client.ts` 每次只发一次请求，避免 HTTP 与流重试嵌套放大次数。Responses 首事件前的参数兼容降级仍有独立的一次性限制；Anthropic pause_turn 续跑属于同次生成，失败后的重试从原始输入开始。
+- **阶段判定**：`connecting` 为成功 HTTP 响应前（包括非 2xx），`before_output` 为已建立响应但尚无实际输出，`after_output` 为已有正文、思考摘要、检索进展或图片。单纯 response.created/in_progress、ping 和空 delta 不算输出。Responses 的 error/response.failed、Chat 的 HTTP 200 error frame、Anthropic 的流内 error 和 Images 的 HTTP 200 JSON error 都能按结构化 code/type 判定；未知错误不靠英文文案猜测重试。`server_is_overloaded` 对应 503，`overloaded_error` 对应 529；推断类别只用于策略，不伪造 HTTP 审计值。
+- **预算与停止**：`provider/retry.ts retryDecision()` 是唯一判定入口；等待取 max(指数退避含随机延迟, Retry-After)，支持秒数和 HTTP 日期。上游等待可超过单次间隔但不能越过总预算。首次输出/停滞/退避均使用分段计时，超过 Node 32 位延时上限不会变成 1ms。用户停止同时中断在途请求与等待。鉴权、余额/支出上限、参数、拒绝、内容过滤、未知协议错误不自动重试；max_output_tokens 保留截断结果。成功/失败终态到达后主动取消流 reader，避免网关保持连接导致挂起。
+- **内容与恢复**：每次尝试使用全新的正文、过程轨、引用、图片和私有上下文累积器。重试期间保留上一轮内容；新一轮真实输出到达时先持久化 `run.output_reset`，前后端同步清空旧状态，再接受新内容。被替换图片清理磁盘与附件行，旧事件引用标记已删除。后续尝试始终未输出就失败或取消时，仍保留此前内容。`run.retry` 的 waiting/attempting/connected 共用事件序号，connected 在实际输出恢复后发出。刷新、切换聊天、关闭浏览器不取消服务端；服务重启仍标记中断，不自动续跑。
+- **计费与审计**：全程只建一个 run、一个助手消息和一个 usage_log，不额外消耗请求次数；累加各次尝试已经上报的用量，缺失用量不估算。上游可能重复计费，设置页明确提示。迁移 `0045_run_retry_audit` 新增 `usage_logs.retry_summary` JSON，固化总尝试数、最终结果与每次失败的阶段/时间/code/type/真实 HTTP 状态/等待和停止原因；会话删除后仍保留。一条 error_log 汇总整个生成的失败经过，成功恢复也保留并标明恢复结果，不把已恢复请求计为最终失败。请求事件、用户详情和移动卡片共用 `RetryAuditDetails`；上游 HTTP 200 的流内失败明确展示。首字指标仍保留第一次可见正文时间与全程总耗时，思考耗时按最后一次输出重置后的过程计算。
+- **文档依据**：[OpenAI 错误与重试](https://developers.openai.com/api/docs/guides/error-codes)、[OpenAI 流式响应](https://developers.openai.com/api/docs/guides/streaming-responses)、[Anthropic HTTP 200 后的流内错误](https://platform.claude.com/docs/en/api/errors)。
 
 ---
 
@@ -237,7 +240,7 @@
 
 所有上游事实以**真实冒烟 + 官方文档/SDK 类型双重确认**为准。OpenAI Responses：`store` 默认 false（故本地重放，不发 `previous_response_id`）；`output_text.delta.obfuscation` 必剥；推理等级按模型配置门控。Anthropic Messages：`max_tokens` 必填、系统提示词是顶层 `system`、消息角色仅 user/assistant、SSE 是按 index 分块的增量协议。两条路径的错误都归一为 `UpstreamError` 与本站统一终态。
 
-- `client.ts` `ProviderClient`：唯一对上游 fetch 的地方。OpenAI 用 `Authorization: Bearer` + `joinBaseUrl`；Anthropic 用 `x-api-key`、`anthropic-version: 2023-06-01` + `joinAnthropicUrl`，后者同时兼容根地址与已含 `/v1` 的网关。方法：`listModels`（Anthropic 自动按 `after_id` 分页并保留 capabilities/max_tokens）、`createResponse(Stream)`、`createChat(Stream)`、`createAnthropicMessage(Stream)`、`createImage`/`editImage`。JSON body 在 fetch 前序列化一次，自动重试复用同一份请求体；不在应用内固化上游请求体容量上限。
+- `client.ts` `ProviderClient`：唯一对上游 fetch 的地方。OpenAI 用 `Authorization: Bearer` + `joinBaseUrl`；Anthropic 用 `x-api-key`、`anthropic-version: 2023-06-01` + `joinAnthropicUrl`，后者同时兼容根地址与已含 `/v1` 的网关。方法：`listModels`（Anthropic 自动按 `after_id` 分页并保留 capabilities/max_tokens）、`createResponse(Stream)`、`createChat(Stream)`、`createAnthropicMessage(Stream)`、`createImage`/`editImage`。JSON body 在每次 fetch 前序列化，自动重试使用原始请求输入；不在应用内固化上游请求体容量上限。
 - **思考摘要 part 边界**（`shared/util/reasoningSummary.ts`）：Responses 的 reasoning summary 与 raw reasoning text 都可能由多个结构化 part 组成，流事件分别用 `item_id + summary_index`、`item_id + content_index` 标识独立 part，part 文本本身不保证含换行。`runs/engine.ts` 与前端 `sse/eventReducer.ts` 共用累积规则——同 part 的 token 连续拼接、切换 part 时补 Markdown 段落边界；两条通道独立累积，summary 一旦出现便覆盖 raw，只有 summary 缺失时才展示 raw。`provider/normalize.ts` 的终态解析同样优先读取 `reasoning.summary[]`，否则回落到 `reasoning.content[].reasoning_text`，`run.done.processSteps` 再原子校准前端。`ProcessTrack` 的 `normalizeReasoningMarkdown` 仍兼容旧库中已被空串拼成 `**A****B**` 或 `<!-- -->**Next**` 的历史摘要，**不能用 CSS block 强行拆粗体**，否则会破坏普通行内 Markdown。
 - **提供商私有上下文管理**（`reasoning-replay.ts` + `reasoning-replay-capture.ts` + `prepare.ts`）：历史 SQL 列名仍是 `reasoning_replay_context`/`replay_reasoning`，TS 属性已改为语义准确的 `providerReplayContext`/`replayProviderContext`。Responses 在有效 effort 下请求并保存终态 reasoning items（单轮 256KB 上限）；Anthropic 保存完整 assistant content blocks，覆盖 thinking/signature、`redacted_thinking`、server tool/result 密文和 citation index。两种 V1 信封都记录 Provider id、Base URL、upstream model id，下一轮三元组全等才原样注入。任何 DTO、分享、浏览器事件、usage/error 日志均不携带这些 opaque 数据。
 - **chat/completions（`provider/chat.ts` + `runs/chat-engine.ts`）**：`buildChatMessages` 把分支路径转 `messages[]`（system=instructions，用户图片走 `image_url`，文件走 `type:file + file_data/filename`；纯文件消息不补空文本）；输出预算映射为 `max_completion_tokens`，旧高级参数中的 `max_tokens` 也会迁移且不与新字段并存。`parseChatStream` 显式区分数据块与 `[DONE]`，畸形 JSON、HTTP 200 error frame、无终止信号的提前 EOF 都以失败终结；`stop`/`length` 分别映射 completed/incomplete，`refusal`/`content_filter`/未支持的工具调用不会落成空成功消息。
@@ -422,7 +425,9 @@
 
 ## 11. 测试与验证（`scripts/` + vitest）
 
-- 单测（`npm run test`，当前 **187 个文件 / 1432 个用例**）：上下文专项覆盖整组保留、重复引用去重、手选分支隔离、发送前文件读取次数、跨聊天引用拦截、一次性选择的成功消费与失败恢复；除原有注册、权限、分支、导出、Responses/chat、附件清理与前端流式覆盖外，公告专项覆盖精确受众可见性、确认越权拦截、受众原子替换、强提示不可绕过、历史曝光迁移与共享面板渲染；分享卡片专项覆盖公开快照摘要优先级与截断、动态值 HTML 转义、Open Graph / Twitter Card / canonical / 现有应用图标、反向代理公开地址还原、撤销链接不再产出预览数据及动态 HTML 的 `no-cache`；Anthropic 专项覆盖 URL 拼接、原生鉴权头、分页模型目录/capabilities、模型代际 profile、必填输出上限、manual thinking 预算约束、可见 body 与“删模板不补回”、reasoning 开关保留管理员 thinking 模板、manual/adaptive thinking、sampling 限制、大请求交由上游判断、图片/PDF/文本映射、SSE index 聚合、signature/redacted/encrypted/citation opaque 保留、流内错误状态映射、`refusal` 作废部分输出、客户端工具失败、截断工具 replay 门控、网关缺失 `message_stop` 的完整性判定、web search 业务错误及其人类可读导出、citation 安全协议、usage、`pause_turn` 续跑与来源门控 replay 隔离。
+- 单测（`npm run test`，最近验证 **206 个文件 / 1578 个用例**）：上下文专项覆盖整组保留、重复引用去重、手选分支隔离、发送前文件读取次数、跨聊天引用拦截、一次性选择的成功消费与失败恢复；除原有注册、权限、分支、导出、Responses/chat、附件清理与前端流式覆盖外，公告专项覆盖精确受众可见性、确认越权拦截、受众原子替换、强提示不可绕过、历史曝光迁移与共享面板渲染；分享卡片专项覆盖公开快照摘要优先级与截断、动态值 HTML 转义、Open Graph / Twitter Card / canonical / 现有应用图标、反向代理公开地址还原、撤销链接不再产出预览数据及动态 HTML 的 `no-cache`；Anthropic 专项覆盖 URL 拼接、原生鉴权头、分页模型目录/capabilities、模型代际 profile、必填输出上限、manual thinking 预算约束、可见 body 与“删模板不补回”、reasoning 开关保留管理员 thinking 模板、manual/adaptive thinking、sampling 限制、大请求交由上游判断、图片/PDF/文本映射、SSE index 聚合、signature/redacted/encrypted/citation opaque 保留、流内错误状态映射、`refusal` 作废部分输出、客户端工具失败、截断工具 replay 门控、网关缺失 `message_stop` 的完整性判定、web search 业务错误及其人类可读导出、citation 安全协议、usage、`pause_turn` 续跑与来源门控 replay 隔离。
+  **自动重试专项**：`server/runs/retry.test.ts` 通过真实临时 SQLite 与合成上游验证首字前/后错误、流内过载、断流、超时、停止、重试预算、内容替换、用量累计与删除聊天后的审计；`server/provider/retry.test.ts` 验证统一分类与长计时；`RetryAuditDetails.test.tsx` 验证后台阶段、恢复与停止原因文案。
+
   **请求事件指标专项**：`server/provider/response-timing.test.ts` 锁定失败后兼容重试、连续请求与无 HTTP Response 的上游响应口径，`server/provider/client.anthropic.test.ts` 验证 OpenAI / Anthropic POST 的真实网络边界；`server/db/request-metric-snapshots-migration.test.ts`、`server/runs/finalize.test.ts` 与 `server/services/stats.test.ts` 锁定升级回填、结算快照、删除会话后的指标保留，以及旧行关联 run/event 的兼容现算；`server/services/run-timing.test.ts` 锁定总延时、首个正文 delta 延时及首字后输出速度；`web/src/pages/admin/requestEventDisplay.test.ts` 锁定两行本地时间、分钟文案、生成速度与缓存率格式。
   **模型管理专项**：`server/services/models.test.ts` 覆盖副本的全配置/指定用户名单复制与独立修改，以及同协议切换、跨协议迁移和失败无副作用；`server/routes/model-icons.test.ts` 覆盖实际 duplicate/PATCH 管理接口；`web/src/pages/admin/ModelsPage.test.tsx` 锁定复制入口与编辑时的完整供应商选择。
   **后台回复提醒专项**：`web/src/store/conversationActivity.test.ts` 覆盖当前/后台会话与 run 身份门控、可提醒终态、Unicode 摘要、图片回退、终态去重、通知超时但未读保留、打开即清除及自动标题同步；`ConversationActivityIndicator.test.tsx` 与 `ConversationCompletionToaster.test.tsx` 锁定转圈/重点色圆点语义、polite live region、右上角卡片与移动端抽屉遮挡规避；`conversationEvents.test.ts` 验证标题事件会更新仍在显示的完成通知。
@@ -489,7 +494,7 @@
 | 上游请求参数（Responses）                                              | `server/provider/params.ts`                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | Anthropic 请求/模型 profile/流聚合/引擎                                | `shared/util/anthropic.ts`、`server/provider/anthropic.ts`、`server/provider/anthropic-stream.ts`、`server/runs/anthropic-engine.ts`                                                                                                                                                                                                                                                                                                           |
 | 供应商额外请求头 / 模型请求预览 | `shared/schemas/provider-headers.ts`、`shared/schemas/request-preview.ts`、`server/provider/request-headers.ts`、`server/provider/request-preview.ts`、`web/src/pages/admin/ProviderHeadersEditor.tsx`、`RequestPreview.tsx`、`requestPreviewCurl.ts` |
-| 自动重试 / 进度恢复 | `shared/schemas/retry.ts`、`server/provider/retry.ts`、`server/runs/retry.ts`、`web/src/chat/RetryStatus.tsx`、`web/src/pages/admin/RetrySettings.tsx` |
+| 自动重试 / 进度恢复 | `shared/schemas/retry.ts`、`server/provider/retry.ts`、`server/runs/execute-run.ts`、`web/src/chat/RetryStatus.tsx`、`web/src/pages/admin/RetrySettings.tsx` |
 | 用户提示 / 上下文建议 | `shared/schemas/user-notices.ts`、`web/src/chat/ModelUsageNotice.tsx`、`UsageNoticeMessage.tsx`、`ContextSuggestionPopover.tsx`、`useContextSuggestion.ts`、`contextSuggestion.ts`、`QuotaNotice.tsx`；后台 `ModelUsageNoticeEditor.tsx`、`ContextSuggestionSettings.tsx`、`QuotaNoticeSettings.tsx` |
 | 渐进图片舞台 / 等待小游戏 | `web/src/chat/ProgressiveImageStage.tsx`、`ProgressiveImageMedia.tsx`、`loadProgressiveImage.ts`、`ImageGenerationDots.tsx`、`imageGenerationField.ts`、`ImageWaitingGame.tsx`、`snakeGame.ts` |
 | 提供商私有上下文净化/提存/重放                                         | `server/runs/event-sanitize.ts`、`server/runs/reasoning-replay-capture.ts`、`server/provider/reasoning-replay.ts`、`server/runs/prepare.ts`                                                                                                                                                                                                                                                                                                    |

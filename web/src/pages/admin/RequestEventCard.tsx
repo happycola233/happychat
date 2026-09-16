@@ -4,6 +4,7 @@ import { formatInt, formatUsd } from '../../lib/format'
 import { CopyButton } from '../../components/ui/CopyButton'
 import { RequestKindBadge } from './RequestKindBadge'
 import { RequestOutcomeBadge } from './RequestOutcomeBadge'
+import { RetryAuditDetails } from './RetryAuditDetails'
 import { RequestGeneratedImagesBadge } from './RequestGeneratedImagesBadge'
 import {
   formatCacheRate,
@@ -30,6 +31,7 @@ export function RequestEventCard({ row }: { row: UsageLogDTO }) {
           kind={row.kind}
           result={row.result}
           terminalReason={row.terminalReason}
+          retrySummary={row.retrySummary}
         />
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-neutral-500">
@@ -82,6 +84,9 @@ export function RequestEventCard({ row }: { row: UsageLogDTO }) {
             </div>
           ))}
         </dl>
+        <div className="mt-3">
+          <RetryAuditDetails summary={row.retrySummary} />
+        </div>
         <div className="mt-2 flex justify-end">
           <CopyButton value={row.id} label="复制事件 ID" />
         </div>

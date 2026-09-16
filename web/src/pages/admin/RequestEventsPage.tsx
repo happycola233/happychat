@@ -275,7 +275,7 @@ export default function RequestEventsPage() {
                     <th className={`${th} w-[170px]`}>Tokens</th>
                     <th className={`${th} w-[120px]`}>缓存</th>
                     <th className={`${th} w-[76px]`}>成本</th>
-                    <th className={`${th} w-[84px]`}>结果</th>
+                    <th className={`${th} w-[114px]`}>结果</th>
                   </tr>
                 </thead>
                 <tbody className={tableBody}>
@@ -370,6 +370,7 @@ export default function RequestEventsPage() {
                             kind={row.kind}
                             result={row.result}
                             terminalReason={row.terminalReason}
+                            retrySummary={row.retrySummary}
                           />
                           <div>
                             <RequestGeneratedImagesBadge row={row} />

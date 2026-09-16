@@ -2,6 +2,15 @@ import { describe, expect, it } from 'vitest'
 import { DEFAULT_RETRY_POLICY, retryDelayMs, retryPolicySchema } from './retry'
 
 describe('重试策略', () => {
+  it('旧配置自动补齐流式重试设置', () => {
+    const legacy = { ...DEFAULT_RETRY_POLICY } as Partial<typeof DEFAULT_RETRY_POLICY>
+    delete legacy.retryAfterOutput
+    delete legacy.streamIdleTimeoutSeconds
+    expect(retryPolicySchema.parse(legacy)).toMatchObject({
+      retryAfterOutput: true,
+      streamIdleTimeoutSeconds: 300,
+    })
+  })
   it('默认关闭，间隔递增并在上限停住', () => {
     expect(DEFAULT_RETRY_POLICY.enabled).toBe(false)
     expect([1, 2, 3, 4, 5, 6].map((n) => retryDelayMs(DEFAULT_RETRY_POLICY, n, 0))).toEqual([

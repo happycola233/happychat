@@ -587,6 +587,7 @@ export async function listUsageEvents(filter: StatsFilter): Promise<Paginated<Us
         reasoningEffort,
         durationMs,
         upstreamResponseLatencyMs: log.upstreamResponseLatencyMs,
+        retrySummary: log.retrySummary,
         firstTokenLatencyMs,
         generationTokensPerSecond: computeGenerationTokensPerSecond(
           log.outputTokens,
@@ -628,6 +629,8 @@ export async function listErrorEvents(filter: StatsFilter): Promise<Paginated<Er
     .offset((page - 1) * pageSize)
 
   const items: ErrorLogDTO[] = rows.map(({ log, username }) => ({
+    retrySummary:
+      (log.detail?.retry as import('@shared/types/retry').RunRetrySummary | undefined) ?? null,
     id: log.id,
     scope: log.scope,
     errorType: log.errorType,

@@ -206,11 +206,20 @@ export class AnthropicStreamAccumulator {
 
   finish(): AnthropicContentBlock[] {
     const hasOpenBlock = [...this.blocks.values()].some((state) => !state.stopped)
-    if (hasOpenBlock) throw new Error('Anthropic 流在 content_block_stop 前结束')
+    if (hasOpenBlock)
+      throw new UpstreamError({
+        message: 'Anthropic 流在 content_block_stop 前结束',
+        status: 200,
+        type: 'incomplete_stream',
+      })
     // 部分兼容网关会在完整 message_delta 后直接关闭 SSE，不发送规范中的 message_stop。
     // 只有 stop_reason 与全部 block 终止标记同时齐全时才接受，避免把真实截断误判为成功。
     if (!this.sawMessageStop && !this.stopReason) {
-      throw new Error('Anthropic 流在 message_stop 前结束')
+      throw new UpstreamError({
+        message: 'Anthropic 流在 message_stop 前结束',
+        status: 200,
+        type: 'incomplete_stream',
+      })
     }
     return [...this.blocks.entries()]
       .sort(([left], [right]) => left - right)

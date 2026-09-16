@@ -1,23 +1,97 @@
 import type { RetryPolicy } from '@shared/schemas/retry'
 import { retryDelayMs } from '@shared/schemas/retry'
-import type { RunRetryData } from '@shared/types/events'
-import { networkError, toUpstreamError, UpstreamError } from './errors'
+import type { RetryFailureStage, RetryStopReason } from '@shared/types/retry'
+import type { UpstreamError } from './errors'
+export { retryAfterMs } from './errors'
 
-export interface UpstreamRetryOptions {
-  policy: RetryPolicy
-  onProgress: (progress: RunRetryData) => void
+const PERMANENT_ERRORS = new Set([
+  'insufficient_quota',
+  'billing_error',
+  'billing_hard_limit_reached',
+  'quota_exceeded',
+  'organization_spend_limit_exceeded',
+  'project_spend_limit_exceeded',
+  'organization_usage_limit_exceeded',
+  'authentication_error',
+  'permission_error',
+  'invalid_api_key',
+  'invalid_request_error',
+  'context_length_exceeded',
+  'request_too_large',
+  'not_found_error',
+  'model_not_found',
+  'refusal',
+  'content_filter',
+  'content_policy_violation',
+  'tool_calls',
+  'tool_use',
+  'pause_turn_limit',
+  'invalid_stream',
+  'invalid_response',
+  'unsupported_finish_reason',
+])
+
+const TRANSIENT_ERROR_STATUS: Record<string, number> = {
+  server_error: 500,
+  internal_server_error: 500,
+  api_error: 500,
+  server_is_overloaded: 503,
+  server_overloaded: 503,
+  overloaded_error: 529,
+  rate_limit_exceeded: 429,
+  rate_limit_error: 429,
+  too_many_requests: 429,
+  service_unavailable: 503,
+  service_unavailable_error: 503,
+  temporarily_unavailable: 503,
+  slow_down: 429,
+  request_timeout: 408,
+  timeout_error: 504,
+  conflict_error: 409,
 }
 
-export function retryAfterMs(value: string | null, now = Date.now()): number {
-  if (!value) return 0
-  const seconds = Number(value)
-  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000)
-  const date = Date.parse(value)
-  return Number.isFinite(date) ? Math.max(0, date - now) : 0
+/** SSE 错误用结构化 code/type 匹配同类临时错误；绝不把推断值当作真实 HTTP 状态入账。 */
+export function retryDecision(
+  policy: RetryPolicy,
+  failure: Pick<UpstreamError, 'status' | 'type' | 'code'>,
+  attempt: number,
+  deadline: number,
+  stage: RetryFailureStage,
+  retryAfter = 0,
+): { delayMs: number; stopReason: RetryStopReason | null } {
+  const delayMs = Math.max(retryAfter, retryDelayMs(policy, attempt))
+  let stopReason: RetryStopReason | null = null
+  const codes = [failure.code, failure.type].filter((code): code is string => Boolean(code))
+  const network =
+    failure.status === 0 ||
+    codes.some((code) =>
+      [
+        'network_error',
+        'incomplete_stream',
+        'first_output_timeout',
+        'stream_idle_timeout',
+      ].includes(code),
+    )
+  const status =
+    failure.status >= 400
+      ? failure.status
+      : codes.map((code) => TRANSIENT_ERROR_STATUS[code]).find(Boolean)
+  const retryable =
+    !codes.some((code) => PERMANENT_ERRORS.has(code)) &&
+    (network
+      ? policy.retryNetworkErrors
+      : status !== undefined && policy.retryStatusCodes.includes(status))
+  if (!policy.enabled) stopReason = 'disabled'
+  else if (!retryable) stopReason = 'not_retryable'
+  else if (stage === 'after_output' && !policy.retryAfterOutput)
+    stopReason = 'output_retry_disabled'
+  else if (attempt > policy.maxRetries) stopReason = 'attempts_exhausted'
+  else if (Date.now() + delayMs >= deadline) stopReason = 'budget_exhausted'
+  return { delayMs, stopReason }
 }
 
 /** Node.js 超过 32 位有符号整数的延时会变成 1ms；分段计时以保留完整等待时长。 */
-function scheduleLongTimeout(callback: () => void, delayMs: number): () => void {
+export function scheduleLongTimeout(callback: () => void, delayMs: number): () => void {
   const maxTimerDelayMs = 2_147_483_647
   const deadline = Date.now() + delayMs
   let timer = setTimeout(checkDeadline, Math.min(delayMs, maxTimerDelayMs))
@@ -29,7 +103,7 @@ function scheduleLongTimeout(callback: () => void, delayMs: number): () => void 
   return () => clearTimeout(timer)
 }
 
-function waitForRetry(delay: number, signal?: AbortSignal): Promise<void> {
+export function waitForRetry(delay: number, signal?: AbortSignal): Promise<void> {
   signal?.throwIfAborted()
   return new Promise((resolve, reject) => {
     const cancelTimeout = scheduleLongTimeout(() => {
@@ -42,108 +116,4 @@ function waitForRetry(delay: number, signal?: AbortSignal): Promise<void> {
     }
     signal?.addEventListener('abort', abort, { once: true })
   })
-}
-
-/**
- * 仅重试尚未把响应交给引擎的 HTTP 请求。流式输出开始后不重放，
- * 避免重复正文、工具调用及已计费的图片；客户端断线不影响服务端计时。
- */
-export async function fetchWithRetry(
-  request: (signal?: AbortSignal) => Promise<Response>,
-  signal?: AbortSignal,
-  options?: UpstreamRetryOptions,
-): Promise<Response> {
-  if (!options?.policy.enabled) return request(signal)
-  const { policy, onProgress } = options
-  const deadline = Date.now() + policy.maxElapsedSeconds * 1000
-  let attempt = 1
-  for (;;) {
-    signal?.throwIfAborted()
-    if (attempt > 1)
-      onProgress({
-        phase: 'attempting',
-        attempt,
-        maxAttempts: policy.maxRetries + 1,
-        nextRetryAt: null,
-        reason: '正在重新连接',
-      })
-    const timeoutController = new AbortController()
-    const cancelTimeout = scheduleLongTimeout(
-      () => timeoutController.abort(),
-      Math.min(policy.attemptTimeoutSeconds * 1000, Math.max(0, deadline - Date.now())),
-    )
-    const attemptSignal = signal
-      ? AbortSignal.any([signal, timeoutController.signal])
-      : timeoutController.signal
-    let failure: UpstreamError
-    let retryAfter = 0
-    try {
-      const response = await request(attemptSignal)
-      if (response.ok) {
-        if (attempt > 1)
-          onProgress({
-            phase: 'connected',
-            attempt,
-            maxAttempts: policy.maxRetries + 1,
-            nextRetryAt: null,
-            reason: '已连接，正在生成',
-          })
-        return response
-      }
-      if (!policy.retryStatusCodes.includes(response.status)) return response
-      retryAfter = retryAfterMs(response.headers.get('retry-after'))
-      failure = await toUpstreamError(response)
-    } catch (error) {
-      signal?.throwIfAborted()
-      failure = timeoutController.signal.aborted
-        ? new UpstreamError({
-            message: '等待上游响应超时，请稍后重试。',
-            status: 0,
-            type: 'timeout_error',
-          })
-        : error instanceof UpstreamError
-          ? error
-          : networkError(error)
-    } finally {
-      cancelTimeout()
-    }
-    // 金额耗尽与鉴权等永久失败即使被网关误用 429/5xx 表达，也不会反复扣请求。
-    const permanent = [failure.code, failure.type].some(
-      (code) =>
-        code &&
-        [
-          'insufficient_quota',
-          'billing_error',
-          'billing_hard_limit_reached',
-          'authentication_error',
-          'permission_error',
-          'invalid_api_key',
-          'invalid_request_error',
-        ].includes(code),
-    )
-    const retryable =
-      failure.status === 0
-        ? policy.retryNetworkErrors
-        : policy.retryStatusCodes.includes(failure.status)
-    const delay = Math.max(retryAfter, retryDelayMs(policy, attempt))
-    if (permanent || !retryable || attempt > policy.maxRetries || Date.now() + delay >= deadline) {
-      throw failure
-    }
-    onProgress({
-      phase: 'waiting',
-      attempt: attempt + 1,
-      maxAttempts: policy.maxRetries + 1,
-      nextRetryAt: Date.now() + delay,
-      reason:
-        failure.status === 429
-          ? '服务当前繁忙'
-          : failure.status === 0
-            ? '暂时无法连接服务'
-            : '服务暂时不可用',
-    })
-    await waitForRetry(delay, signal)
-    // 事件循环阻塞或机器休眠后，计时器可能迟到；预算耗尽时不再发送新请求。
-    if (Date.now() >= deadline) throw failure
-    attempt += 1
-  }
 }

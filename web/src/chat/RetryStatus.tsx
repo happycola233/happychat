@@ -22,7 +22,11 @@ export function RetryStatus({ retry }: { retry: RunRetryData }) {
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
           <span className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
-            {waiting ? retry.reason : '正在重新连接'}
+            {waiting
+              ? retry.reason
+              : retry.stage === 'after_output'
+                ? '正在重新生成'
+                : '正在重新尝试'}
           </span>
           <span className="text-xs text-amber-700 tabular-nums dark:text-amber-400">
             重试 {retry.attempt - 1} / {retry.maxAttempts - 1}
@@ -33,7 +37,8 @@ export function RetryStatus({ retry }: { retry: RunRetryData }) {
             ? seconds > 0
               ? `${seconds} 秒后继续尝试。`
               : '即将继续尝试。'
-            : '已重新发送请求，正在等待响应。'}
+            : '已重新发送请求，正在等待首次输出。'}
+          {retry.stage === 'after_output' && '已有内容暂时保留，新回答开始后会替换。'}
           可以先离开此页面，稍后回到对话查看结果。
         </p>
       </div>

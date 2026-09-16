@@ -26,19 +26,16 @@ function cleanBase64(value: string): string {
   return value.replace(/\s/g, '')
 }
 
-function imageFormatFromBuffer(buf: Buffer, outputFormat?: string | null): { mime: string; ext: string } {
+function imageFormatFromBuffer(
+  buf: Buffer,
+  outputFormat?: string | null,
+): { mime: string; ext: string } {
   const normalized = outputFormat?.trim().toLowerCase()
   if (normalized === 'jpeg' || normalized === 'jpg') return { mime: 'image/jpeg', ext: 'jpg' }
   if (normalized === 'webp') return { mime: 'image/webp', ext: 'webp' }
   if (normalized === 'png') return { mime: 'image/png', ext: 'png' }
 
-  if (
-    buf.length >= 8 &&
-    buf[0] === 0x89 &&
-    buf[1] === 0x50 &&
-    buf[2] === 0x4e &&
-    buf[3] === 0x47
-  ) {
+  if (buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
     return { mime: 'image/png', ext: 'png' }
   }
   if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
@@ -88,7 +85,7 @@ export function storeGeneratedImageAttachment(args: StoreGeneratedImageArgs): St
   }
 }
 
-/** 删除生成过程中的临时预览附件。最终图不会走这里。 */
+/** 删除临时预览或被整次重新生成取代的图片；当前保留的最终图不走这里。 */
 export function removeGeneratedImageAttachments(attachmentIds: string[]): void {
   const uniqueIds = [...new Set(attachmentIds)].filter(Boolean)
   if (!uniqueIds.length) return

@@ -1,0 +1,1 @@
+ALTER TABLE `usage_logs` ADD `retry_summary` text;

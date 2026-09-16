@@ -18,6 +18,8 @@ export const retryPolicySchema = z
     attemptTimeoutSeconds: waitSecondsSchema,
     maxElapsedSeconds: waitSecondsSchema,
     retryNetworkErrors: z.boolean(),
+    retryAfterOutput: z.boolean().default(true),
+    streamIdleTimeoutSeconds: z.number().int().min(0).default(300),
     retryStatusCodes: z
       .array(
         z
@@ -35,7 +37,7 @@ export const retryPolicySchema = z
     path: ['maxDelaySeconds'],
   })
   .refine((policy) => policy.maxElapsedSeconds >= policy.attemptTimeoutSeconds, {
-    message: '总等待上限不能小于单次连接等待上限',
+    message: '总等待上限不能小于首次输出等待上限',
     path: ['maxElapsedSeconds'],
   })
 
@@ -51,6 +53,8 @@ export const DEFAULT_RETRY_POLICY: RetryPolicy = {
   attemptTimeoutSeconds: 120,
   maxElapsedSeconds: 900,
   retryNetworkErrors: true,
+  retryAfterOutput: true,
+  streamIdleTimeoutSeconds: 300,
   retryStatusCodes: [...RETRYABLE_HTTP_STATUSES],
 }
 

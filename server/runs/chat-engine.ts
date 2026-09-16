@@ -1,46 +1,27 @@
-import { eq } from 'drizzle-orm'
-import type { MessageUsage, ModelParams, ProcessStep } from '@shared/types/domain'
+import type { MessageUsage, ProcessStep } from '@shared/types/domain'
 import { RUN_EVENT_TYPE } from '@shared/types/events'
-import { isReasoningEnabled } from '@shared/util/reasoning'
-import { db } from '../db/client'
-import { runEvents, runs } from '../db/schema'
 import { mapChatUsage } from '../provider/chat'
 import { classifyChatTerminal } from '../provider/chat-terminal'
 import { providerClientFromRow } from '../provider/client'
 import { UpstreamError } from '../provider/errors'
-import { UpstreamResponseLatencyTracker } from '../provider/response-timing'
-import { runEmitter } from './emitter'
-import { finalizeRun } from './finalize'
+import type { FinalizeArgs } from './finalize'
 import type { EngineContext } from './types'
-import { runRetryOptions } from './retry'
+import { executeRun, type RunAttemptRuntime } from './execute-run'
 
 /**
  * chat/completions 引擎：消费 chat 流，把 delta 翻译成与 Responses 一致的合成事件
  * （response.output_text.delta / response.reasoning_summary_text.delta），前端 reducer 无需改动。
  */
 export async function runChatEngine(ctx: EngineContext): Promise<void> {
-  let seq = 0
-  const persistEmit = (type: string, data: Record<string, unknown>): number => {
-    const sequenceNumber = seq++
-    db.insert(runEvents).values({ runId: ctx.run.id, sequenceNumber, type, data }).run()
-    db.update(runs).set({ lastSequenceNumber: sequenceNumber }).where(eq(runs.id, ctx.run.id)).run()
-    runEmitter.emit({ runId: ctx.run.id, sequenceNumber, type, data })
-    return sequenceNumber
-  }
+  await executeRun(ctx, runChatAttempt)
+}
 
-  const startedAt = new Date()
-  const upstreamResponseTiming = new UpstreamResponseLatencyTracker()
-  persistEmit(RUN_EVENT_TYPE.created, {
-    runId: ctx.run.id,
-    conversationId: ctx.conversation.id,
-    assistantMessageId: ctx.assistantMessage.id,
-    startedAt: startedAt.getTime(),
-    reasoningEnabled: isReasoningEnabled(ctx.model, ctx.run.requestParams as ModelParams | null),
-  })
-  db.update(runs).set({ state: 'running', startedAt }).where(eq(runs.id, ctx.run.id)).run()
-  // 让前端开始上游计时
+async function runChatAttempt(
+  ctx: EngineContext,
+  runtime: RunAttemptRuntime,
+): Promise<FinalizeArgs> {
+  const { startedAt, persistEmit, upstreamResponseTiming, recordError } = runtime
   persistEmit('response.created', {})
-
   let text = ''
   let reasoning = ''
   let usage: MessageUsage = {
@@ -65,15 +46,11 @@ export async function runChatEngine(ctx: EngineContext): Promise<void> {
   let answerStarted = false
 
   try {
-    const client = providerClientFromRow(
-      ctx.provider,
-      upstreamResponseTiming,
-      await runRetryOptions(persistEmit),
-    )
+    const client = providerClientFromRow(ctx.provider, upstreamResponseTiming)
     for await (const event of client.createChatStream(ctx.body, ctx.abortController.signal)) {
       if (event.type === 'done') {
         receivedDone = true
-        continue
+        break
       }
 
       const chunk = event.chunk
@@ -150,6 +127,7 @@ export async function runChatEngine(ctx: EngineContext): Promise<void> {
       discardPartialOutput = false
     } else {
       const ue = e instanceof UpstreamError ? e : null
+      recordError(ue)
       state = 'failed'
       errorMessage = ue?.message ?? (e instanceof Error ? e.message : '生成失败')
       errorType = ue?.type ?? null
@@ -158,12 +136,22 @@ export async function runChatEngine(ctx: EngineContext): Promise<void> {
     }
   }
 
+  if (refusalObserved || (toolCallObserved && (state === 'failed' || state === 'canceled'))) {
+    state = 'failed'
+    errorType = refusalObserved ? 'refusal' : 'tool_calls'
+    errorCode = null
+    errorMessage = refusalObserved
+      ? '模型拒绝了此请求，请调整内容后重试。'
+      : '模型请求了本站不支持的客户端工具，生成已停止。'
+    discardPartialOutput = refusalObserved
+  }
+
   if (discardPartialOutput) {
     text = ''
     reasoning = ''
   }
 
-  await finalizeRun({
+  return {
     run: ctx.run,
     assistantMessage: ctx.assistantMessage,
     conversation: ctx.conversation,
@@ -189,5 +177,5 @@ export async function runChatEngine(ctx: EngineContext): Promise<void> {
     startedAt,
     upstreamResponseLatencyMs: upstreamResponseTiming.latencyMs,
     persistEmit,
-  })
+  }
 }

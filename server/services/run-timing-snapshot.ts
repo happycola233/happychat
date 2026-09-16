@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, inArray } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray } from 'drizzle-orm'
 import { RUN_EVENT_TYPE } from '@shared/types/events'
 import { db } from '../db/client'
 import { runEvents } from '../db/schema'
@@ -72,7 +72,13 @@ export async function getReasoningDurationSnapshot(
   runId: string,
   finishedAt: Date,
 ): Promise<number | null> {
-  const start = await firstTimingEvent(runId, REASONING_START_EVENT_TYPES)
+  const [reset] = await db
+    .select({ sequenceNumber: runEvents.sequenceNumber })
+    .from(runEvents)
+    .where(and(eq(runEvents.runId, runId), eq(runEvents.type, RUN_EVENT_TYPE.outputReset)))
+    .orderBy(desc(runEvents.sequenceNumber))
+    .limit(1)
+  const start = await firstTimingEvent(runId, REASONING_START_EVENT_TYPES, reset?.sequenceNumber)
   if (!start) return null
   const answerLifecycle = await timingEvents(
     runId,

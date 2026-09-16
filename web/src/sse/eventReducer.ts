@@ -526,6 +526,8 @@ function upsertImageGeneration(
 /** 将一个 SSE WireEvent 折叠进流式消息状态。 */
 export function reduceEvent(s: LiveMessage, ev: WireEvent): LiveMessage {
   switch (ev.type) {
+    case RUN_EVENT_TYPE.outputReset:
+      return { ...initialLive(num(ev.data.startedAt), s.reasoningEnabled), retry: s.retry }
     case RUN_EVENT_TYPE.retry:
       return {
         ...s,

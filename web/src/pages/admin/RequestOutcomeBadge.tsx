@@ -4,6 +4,8 @@ import { Info } from 'lucide-react'
 import type { UsageLogDTO } from '@shared/types/api'
 import { Badge } from '../../components/ui/Badge'
 import { requestOutcomePresentation } from './requestOutcome'
+import { RetryAuditDetails } from './RetryAuditDetails'
+import { retrySummaryLabel } from './retryAudit'
 
 interface AnchorPosition {
   left: number
@@ -13,7 +15,10 @@ interface AnchorPosition {
   maxHeight: number
 }
 
-type RequestOutcomeBadgeProps = Pick<UsageLogDTO, 'kind' | 'result' | 'terminalReason'>
+type RequestOutcomeBadgeProps = Pick<
+  UsageLogDTO,
+  'kind' | 'result' | 'terminalReason' | 'retrySummary'
+>
 
 /** 状态说明仅在鼠标悬停或键盘聚焦时显示，并通过 portal 逃逸表格滚动裁剪。 */
 export function RequestOutcomeBadge(props: RequestOutcomeBadgeProps) {
@@ -102,6 +107,11 @@ export function RequestOutcomeBadge(props: RequestOutcomeBadgeProps) {
           {presentation.label}
           <Info aria-hidden="true" className="ml-1 h-3 w-3 opacity-65" />
         </Badge>
+        {props.retrySummary && (
+          <span className="mt-1 block text-[10px] whitespace-nowrap text-neutral-500 dark:text-neutral-400">
+            {retrySummaryLabel(props.retrySummary)}
+          </span>
+        )}
       </button>
 
       {open &&
@@ -166,6 +176,9 @@ export function RequestOutcomeBadge(props: RequestOutcomeBadgeProps) {
                 </div>
               )}
             </dl>
+            <div className="mt-3">
+              <RetryAuditDetails summary={props.retrySummary} />
+            </div>
           </div>,
           document.body,
         )}

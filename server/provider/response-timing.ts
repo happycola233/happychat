@@ -2,6 +2,7 @@ export interface UpstreamResponseTimingSample {
   requestStartedAtMs: number
   responseHeadersAtMs: number
   ok: boolean
+  status?: number
 }
 
 /** 上游 POST 的网络边界观察器；不用于模型目录等后台管理请求。 */

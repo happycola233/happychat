@@ -7,6 +7,7 @@ import type {
   UrlCitation,
 } from '@shared/types/domain'
 import { RUN_EVENT_TYPE } from '@shared/types/events'
+import type { RunRetrySummary } from '@shared/types/retry'
 import { costUsd as estimateCostUsd } from '@shared/util/cost'
 import { isReasoningEnabled, requestedReasoningEffort } from '@shared/util/reasoning'
 import { db } from '../db/client'
@@ -25,6 +26,7 @@ import { errorTypeForAudit, terminalReasonForUsage } from './usage-audit'
 type FinalState = 'completed' | 'incomplete' | 'failed' | 'canceled'
 
 export interface FinalizeArgs {
+  retrySummary?: RunRetrySummary | null
   run: RunRow
   assistantMessage: MsgRow
   conversation: ConvRow
@@ -35,6 +37,7 @@ export interface FinalizeArgs {
   processSteps: ProcessStep[]
   annotations: UrlCitation[]
   usage: MessageUsage
+  imageTokens?: number
   incompleteReason: string | null
   errorMessage: string | null
   errorType?: string | null
@@ -80,7 +83,7 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
       cacheWriteTokens: a.usage.cacheWriteTokens,
       cachedTokens: a.usage.cachedTokens,
       outputTokens: a.usage.outputTokens,
-      imageTokens: 0,
+      imageTokens: a.imageTokens ?? 0,
     },
     a.model.pricing,
   )
@@ -164,10 +167,12 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
         reasoningTokens: a.usage.reasoningTokens,
         totalTokens: a.usage.totalTokens,
         reasoningEffort,
+        imageTokens: a.imageTokens ?? 0,
         generatedImageCount,
         durationMs: generationDurationMs,
         upstreamResponseLatencyMs: a.upstreamResponseLatencyMs,
         firstTokenLatencyMs,
+        retrySummary: a.retrySummary ?? null,
         quotaAt: a.run.createdAt,
         outcome: a.state,
         terminalReason,
@@ -176,16 +181,18 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
       })
       .run()
 
-    if (a.state === 'failed' && a.errorMessage) {
+    const lastFailure = a.retrySummary?.failures.at(-1)
+    if ((a.state === 'failed' && a.errorMessage) || lastFailure) {
       tx.insert(errorLogs)
         .values({
           runId: a.run.id,
           userId: a.run.userId,
           scope: 'upstream',
-          errorType: persistedErrorType,
-          code: a.errorCode ?? null,
-          httpStatus: a.httpStatus ?? null,
-          message: a.errorMessage,
+          errorType: lastFailure?.errorType ?? persistedErrorType,
+          code: lastFailure?.errorCode ?? a.errorCode ?? null,
+          httpStatus: lastFailure ? lastFailure.httpStatus : (a.httpStatus ?? null),
+          message: lastFailure?.message ?? a.errorMessage!,
+          detail: a.retrySummary ? { retry: a.retrySummary } : null,
         })
         .run()
     }
@@ -216,6 +223,6 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
       incompleteReason: a.incompleteReason,
     })
     // 成功生成后异步总结标题（仅当会话尚无标题），不阻塞终结。
-    void maybeGenerateTitle(a.conversation.id, a.run.id)
+    if (a.model.kind !== 'image') void maybeGenerateTitle(a.conversation.id, a.run.id)
   }
 }

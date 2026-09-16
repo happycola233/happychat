@@ -188,6 +188,7 @@ export async function* parseChatStream(
     await reader.cancel(error).catch(() => undefined)
     throw error
   } finally {
+    await reader.cancel().catch(() => undefined)
     reader.releaseLock()
   }
 }
