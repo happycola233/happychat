@@ -6,6 +6,7 @@ import type {
   OverviewDTO,
   Paginated,
   UsageLogDTO,
+  UsageBreakdownDTO,
   UserStatDTO,
 } from '@shared/types/api'
 import type { ModelPricing, UsageLogKind, UsageResult } from '@shared/types/domain'
@@ -129,9 +130,8 @@ const TOKEN_SUMS = {
 
 // ============================ 概览 ============================
 
-export async function getOverview(filter: StatsFilter): Promise<OverviewDTO> {
+async function usageSummary(filter: StatsFilter) {
   const conds = usageConds(filter)
-
   const [agg] = await db
     .select({
       requests: sql<number>`count(*)`,
@@ -139,6 +139,9 @@ export async function getOverview(filter: StatsFilter): Promise<OverviewDTO> {
       input: sql<number>`coalesce(sum(${usageLogs.inputTokens}),0)`,
       cached: sql<number>`coalesce(sum(${usageLogs.cachedTokens}),0)`,
       tokens: sql<number>`coalesce(sum(${usageLogs.totalTokens}),0)`,
+      activeUsers: sql<number>`count(distinct ${usageLogs.userId})`,
+      avgDurationMs: sql<number | null>`avg(${usageLogs.durationMs})`,
+      avgFirstTokenLatencyMs: sql<number | null>`avg(${usageLogs.firstTokenLatencyMs})`,
     })
     .from(usageLogs)
     .where(whereOf(conds))
@@ -148,14 +151,32 @@ export async function getOverview(filter: StatsFilter): Promise<OverviewDTO> {
     .from(usageLogs)
     .where(whereOf(conds))
     .groupBy(usageLogs.pricingSnapshot)
-  const cost = sumCost(byPricing)
+  return { ...agg!, costUsd: sumCost(byPricing) }
+}
+
+export async function getOverview(filter: StatsFilter): Promise<OverviewDTO> {
+  const now = Date.now()
+  const boundedFilter = { ...filter, to: filter.to ?? now }
+  const conds = usageConds(boundedFilter)
+  const agg = await usageSummary(boundedFilter)
+  // 两段窗口首尾相接但不重叠，避免边界请求被重复纳入同期对比。
+  const previous =
+    filter.from == null
+      ? null
+      : await usageSummary({
+          ...filter,
+          from: filter.from - (boundedFilter.to - filter.from + 1),
+          to: filter.from - 1,
+        })
 
   // RPM/TPM：最近 60 分钟（仅叠加 provider/model/user 过滤，不受时间范围影响）
   const rateConds = usageConds({
     providerId: filter.providerId,
     modelId: filter.modelId,
     userId: filter.userId,
-    from: Date.now() - HOUR_MS,
+    kind: filter.kind,
+    from: now - HOUR_MS,
+    to: now,
   })
   const [rate] = await db
     .select({
@@ -181,7 +202,31 @@ export async function getOverview(filter: StatsFilter): Promise<OverviewDTO> {
     .orderBy(asc(bucketExpr))
 
   const requests = agg?.requests ?? 0
+  const outcomeRows = await db
+    .select({
+      outcome: usageLogs.outcome,
+      terminalReason: usageLogs.terminalReason,
+      count: sql<number>`count(*)`,
+    })
+    .from(usageLogs)
+    .where(whereOf(conds))
+    .groupBy(usageLogs.outcome, usageLogs.terminalReason)
+  const outcomeCounts = new Map<UsageResult, number>()
+  for (const row of outcomeRows) {
+    const result = resolveUsageResult(row.outcome, row.terminalReason)
+    outcomeCounts.set(result, (outcomeCounts.get(result) ?? 0) + row.count)
+  }
   return {
+    bucket,
+    previous: previous
+      ? {
+          requests: previous.requests,
+          tokens: previous.tokens,
+          costUsd: previous.costUsd,
+          activeUsers: previous.activeUsers,
+        }
+      : null,
+    outcomes: [...outcomeCounts].map(([result, count]) => ({ result, count })),
     totals: {
       requests,
       successRate: requests ? (agg?.successes ?? 0) / requests : 1,
@@ -189,7 +234,11 @@ export async function getOverview(filter: StatsFilter): Promise<OverviewDTO> {
       cacheRate: agg?.input ? (agg.cached ?? 0) / agg.input : 0,
       rpm: (rate?.requests ?? 0) / 60,
       tpm: (rate?.tokens ?? 0) / 60,
-      costUsd: cost,
+      costUsd: agg.costUsd,
+      activeUsers: agg.activeUsers,
+      failedRequests: requests - agg.successes,
+      avgDurationMs: agg.avgDurationMs,
+      avgFirstTokenLatencyMs: agg.avgFirstTokenLatencyMs,
       users: await countRows(users),
       conversations: await countRows(conversations),
       messages: await countRows(messages),
@@ -219,6 +268,7 @@ export async function getAnalytics(filter: StatsFilter): Promise<AnalyticsDTO> {
       ts: bucketExpr,
       pricingSnapshot: usageLogs.pricingSnapshot,
       requests: sql<number>`count(*)`,
+      totalTokens: sql<number>`coalesce(sum(${usageLogs.totalTokens}),0)`,
       inputTokens: TOKEN_SUMS.inputTokens,
       cacheWriteTokens: TOKEN_SUMS.cacheWriteTokens,
       cachedTokens: TOKEN_SUMS.cachedTokens,
@@ -236,6 +286,7 @@ export async function getAnalytics(filter: StatsFilter): Promise<AnalyticsDTO> {
     const point = byTs.get(r.ts) ?? {
       ts: r.ts,
       requests: 0,
+      totalTokens: 0,
       inputTokens: 0,
       cacheWriteTokens: 0,
       cachedTokens: 0,
@@ -244,6 +295,7 @@ export async function getAnalytics(filter: StatsFilter): Promise<AnalyticsDTO> {
       costUsd: 0,
     }
     point.requests += r.requests
+    point.totalTokens += r.totalTokens
     point.inputTokens += r.inputTokens
     point.cacheWriteTokens += r.cacheWriteTokens
     point.cachedTokens += r.cachedTokens
@@ -254,7 +306,73 @@ export async function getAnalytics(filter: StatsFilter): Promise<AnalyticsDTO> {
   }
 
   const series = [...byTs.values()].sort((a, b) => a.ts - b.ts)
-  return { bucket, series }
+  const breakdown = await usageBreakdown(filter)
+  return { bucket, series, ...breakdown }
+}
+
+/** 按价格快照结算后再合并对象，改价或删除模型不会改变历史排行。 */
+async function usageBreakdown(filter: StatsFilter) {
+  const rows = await db
+    .select({
+      modelId: usageLogs.modelId,
+      modelLabel: usageLogs.modelLabel,
+      modelDisplayName: usageLogs.modelDisplayName,
+      providerId: usageLogs.providerId,
+      providerLabel: usageLogs.providerLabel,
+      pricingSnapshot: usageLogs.pricingSnapshot,
+      requests: sql<number>`count(*)`,
+      totalTokens: sql<number>`coalesce(sum(${usageLogs.totalTokens}),0)`,
+      failedRequests: sql<number>`coalesce(sum(case when ${usageLogs.success} then 0 else 1 end),0)`,
+      ...TOKEN_SUMS,
+    })
+    .from(usageLogs)
+    .where(whereOf(usageConds(filter)))
+    .groupBy(
+      usageLogs.modelId,
+      usageLogs.modelLabel,
+      usageLogs.modelDisplayName,
+      usageLogs.providerId,
+      usageLogs.providerLabel,
+      usageLogs.pricingSnapshot,
+    )
+  const modelRows = new Map<string, UsageBreakdownDTO>()
+  const providerRows = new Map<string, UsageBreakdownDTO>()
+  for (const row of rows) {
+    const cost = costUsd(row, row.pricingSnapshot)
+    const identities = [
+      {
+        map: modelRows,
+        id: row.modelId,
+        key:
+          row.modelId ??
+          JSON.stringify([row.providerId, row.providerLabel, row.modelLabel, row.modelDisplayName]),
+        label: row.modelDisplayName ?? row.modelLabel ?? '已删除模型',
+      },
+      {
+        map: providerRows,
+        id: row.providerId,
+        key: row.providerId ?? JSON.stringify([row.providerLabel]),
+        label: row.providerLabel ?? '已删除供应商',
+      },
+    ]
+    for (const { map, id, key, label } of identities) {
+      const item = map.get(key) ?? {
+        key,
+        id,
+        label,
+        requests: 0,
+        totalTokens: 0,
+        costUsd: 0,
+        failedRequests: 0,
+      }
+      item.requests += row.requests
+      item.totalTokens += row.totalTokens
+      item.costUsd += cost
+      item.failedRequests += row.failedRequests
+      map.set(key, item)
+    }
+  }
+  return { models: [...modelRows.values()], providers: [...providerRows.values()] }
 }
 
 // ============================ 分用户统计 ============================

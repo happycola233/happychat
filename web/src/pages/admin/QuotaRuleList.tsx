@@ -285,7 +285,7 @@ export function QuotaRuleList({
         )}
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-neutral-200 dark:border-neutral-700">
+      <div className="overflow-hidden rounded-lg bg-neutral-50 dark:bg-neutral-800/40">
         {drafts.length === 0 ? (
           <div className="flex items-start gap-2.5 px-3.5 py-5 text-sm text-neutral-500 dark:text-neutral-400">
             {emptyUnlimited && (

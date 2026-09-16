@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import type { AdminModelDTO, ProviderDTO } from '@shared/types/api'
 import { ModelEditor } from './ModelEditor'
@@ -91,7 +92,9 @@ describe('ModelsPage model actions', () => {
 
     const html = renderToStaticMarkup(
       <QueryClientProvider client={client}>
-        <ModelsPage />
+        <MemoryRouter>
+          <ModelsPage />
+        </MemoryRouter>
       </QueryClientProvider>,
     )
 

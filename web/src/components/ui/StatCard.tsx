@@ -10,15 +10,17 @@ interface Props {
 
 export function StatCard({ label, value, hint, icon }: Props) {
   return (
-    <div className={`${cardSurface} p-5`}>
+    <div className={`${cardSurface} min-w-0 p-4`}>
       <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-neutral-400 dark:text-neutral-500">{label}</span>
+        <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">{label}</span>
         {icon && <span className="text-neutral-400">{icon}</span>}
       </div>
       <div className="mt-2 text-2xl font-semibold tracking-tight tabular-nums text-neutral-900 dark:text-neutral-100">
         {value}
       </div>
-      {hint != null && <div className="mt-1 text-xs text-neutral-400">{hint}</div>}
+      {hint != null && (
+        <div className="mt-1 text-xs leading-5 text-neutral-500 dark:text-neutral-400">{hint}</div>
+      )}
     </div>
   )
 }

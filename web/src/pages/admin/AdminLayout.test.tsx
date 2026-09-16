@@ -31,7 +31,7 @@ describe('AdminLayout', () => {
 
     expect(html).toContain('data-testid="admin-sidebar"')
     expect(html).toContain('data-collapsed="false"')
-    expect(html).toContain('w-60')
+    expect(html).toContain('w-54')
     expect(html).toContain('aria-label="收起侧边栏"')
     expect(html).toContain('aria-expanded="true"')
     expect(html).toContain('洞察')

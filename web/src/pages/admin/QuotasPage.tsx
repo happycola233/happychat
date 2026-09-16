@@ -1,8 +1,10 @@
+import { LoadError } from '../../components/ui/LoadError'
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { clsx } from 'clsx'
-import { ListChecks, PauseCircle, Plus } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { ChevronDown, ListChecks, PauseCircle, Plus, SlidersHorizontal } from 'lucide-react'
+import { Link, useSearchParams } from 'react-router-dom'
+import { pickTightestQuotaBucket, groupQuotaBucketsByRule } from '@shared/util/quota'
 import type { AdminQuotaPolicyDTO, AdminUserQuotaDTO } from '@shared/types/api'
 import type { AppConfigUpdateInput } from '@shared/schemas/app-config'
 import {
@@ -24,6 +26,10 @@ import { Spinner } from '../../components/ui/Spinner'
 import { Toggle } from '../../components/ui/Toggle'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { cardSurface } from '../../components/ui/Card'
+import { SearchField } from '../../components/ui/SearchField'
+import { SegmentedControl } from '../../components/ui/SegmentedControl'
+import { EmptyState } from '../../components/ui/EmptyState'
+import { IconButton } from '../../components/ui/IconButton'
 import { askConfirm } from '../../store/confirm'
 import { toast } from '../../store/toast'
 import { formatRelative } from '../../lib/format'
@@ -39,6 +45,7 @@ import { QUOTA_TIMEZONE_OPTIONS, quotaTimezoneLabel } from './userQuotaDisplay'
 import {
   USER_QUOTA_STATUS_META,
   classifyUserQuotaStatus,
+  countableQuotaBuckets,
   userMatchesQuotaOverviewFilter,
   userQuotaStatusBadge,
   type QuotaOverviewRangeKey,
@@ -55,7 +62,13 @@ type View = 'policies' | 'users'
  */
 export default function QuotasPage() {
   const queryClient = useQueryClient()
-  const [view, setView] = useState<View>('policies')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [view, setView] = useState<View>(
+    searchParams.get('userId') || searchParams.get('view') === 'users' ? 'users' : 'policies',
+  )
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [expandedUsers, setExpandedUsers] = useState<Set<string>>(new Set())
+  const [userSort, setUserSort] = useState('attention')
   const [editingPolicy, setEditingPolicy] = useState<AdminQuotaPolicyDTO | null | undefined>(
     undefined,
   )
@@ -68,12 +81,26 @@ export default function QuotasPage() {
   const [usageRange, setUsageRange] = useState<QuotaOverviewRangeKey>('7d')
   const [highlightUserId, setHighlightUserId] = useState<string | null>(null)
 
-  const { data: config } = useQuery({ queryKey: ['admin', 'app-config'], queryFn: getAppConfig })
-  const { data: policies, isLoading: loadingPolicies } = useQuery({
+  const {
+    data: config,
+    isError: configError,
+    refetch: refetchConfig,
+  } = useQuery({ queryKey: ['admin', 'app-config'], queryFn: getAppConfig })
+  const {
+    data: policies,
+    isLoading: loadingPolicies,
+    isError: policiesError,
+    refetch: refetchPolicies,
+  } = useQuery({
     queryKey: ['admin', 'quota', 'policies'],
     queryFn: listQuotaPolicies,
   })
-  const { data: users, isLoading: loadingUsers } = useQuery({
+  const {
+    data: users,
+    isLoading: loadingUsers,
+    isError: usersError,
+    refetch: refetchUsers,
+  } = useQuery({
     queryKey: ['admin', 'quota', 'users'],
     queryFn: listUserQuotas,
     enabled: view === 'users',
@@ -190,16 +217,42 @@ export default function QuotasPage() {
   const timezoneLabel = quotaTimezoneLabel(quotaTimezone)
   const filteredUsers = useMemo(() => {
     const keyword = search.trim().toLowerCase()
-    return (users ?? []).filter((row) => {
-      if (!userMatchesQuotaOverviewFilter(row, overviewFilter, warnThreshold)) return false
-      if (!keyword) return true
-      return (
-        row.username.toLowerCase().includes(keyword) ||
-        (row.displayName ?? '').toLowerCase().includes(keyword) ||
-        (row.policyName ?? '').toLowerCase().includes(keyword)
-      )
-    })
-  }, [users, search, overviewFilter, warnThreshold])
+    return (users ?? [])
+      .filter((row) => {
+        if (!userMatchesQuotaOverviewFilter(row, overviewFilter, warnThreshold)) return false
+        if (!keyword) return true
+        return (
+          row.username.toLowerCase().includes(keyword) ||
+          (row.displayName ?? '').toLowerCase().includes(keyword) ||
+          (row.policyName ?? '').toLowerCase().includes(keyword)
+        )
+      })
+      .sort((left, right) => {
+        if (userSort === 'name') return left.username.localeCompare(right.username, 'zh-CN')
+        if (userSort === 'recent') return (right.lastUsageAt ?? 0) - (left.lastUsageAt ?? 0)
+        const priority = { exhausted: 0, warning: 1, paused: 2, ok: 3, unlimited: 4 }
+        return (
+          priority[classifyUserQuotaStatus(left, warnThreshold)] -
+            priority[classifyUserQuotaStatus(right, warnThreshold)] ||
+          left.username.localeCompare(right.username, 'zh-CN')
+        )
+      })
+  }, [users, search, overviewFilter, warnThreshold, userSort])
+
+  useEffect(() => {
+    const row = users?.find((user) => user.userId === searchParams.get('userId'))
+    if (!row) return
+    setDialogUser(row)
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current)
+        next.delete('userId')
+        next.set('view', 'users')
+        return next
+      },
+      { replace: true },
+    )
+  }, [users, searchParams, setSearchParams])
 
   useEffect(() => {
     if (!highlightUserId) return
@@ -224,6 +277,7 @@ export default function QuotasPage() {
     }
     setOverviewFilter(null)
     setHighlightUserId(userId)
+    setExpandedUsers((current) => new Set([...current, userId]))
   }
 
   const allSelected =
@@ -240,15 +294,13 @@ export default function QuotasPage() {
     )
 
   return (
-    <div className="space-y-5">
-      <PageHeader
-        title="用户限额"
-        description="用「策略模板 + 用户覆写」控制每个人的用量上限；关闭总开关后配置与计数保留，用户端不可见。"
-      />
+    <div className="mx-auto w-full max-w-6xl space-y-5">
+      <PageHeader title="用户限额" description="设置额度策略，快速找到需要调整额度的用户。" />
 
+      {configError && <LoadError hasData={Boolean(config)} onRetry={() => void refetchConfig()} />}
       {/* 总开关 + 周期口径：关闭时全站不做任何判定 */}
-      <div className={clsx(cardSurface, 'p-4 sm:p-5')}>
-        <div className="flex items-start justify-between gap-4">
+      <div className={clsx(cardSurface, 'p-4')}>
+        <div className="flex items-center justify-between gap-4">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <div className="text-sm font-medium text-neutral-800 dark:text-neutral-100">
@@ -265,23 +317,35 @@ export default function QuotasPage() {
                 {config?.quotaEnabled ? '已启用' : '未启用'}
               </span>
             </div>
-            <p className="mt-1 text-xs leading-5 text-neutral-400 dark:text-neutral-500">
-              关闭后不做拦截，用户端也看不到额度；策略配置与用量计数会完整保留。
-            </p>
+            {!config?.quotaEnabled && (
+              <p className="mt-1 text-xs leading-5 text-neutral-400 dark:text-neutral-500">
+                当前不限制用量，已有策略与用量仍保留。
+              </p>
+            )}
           </div>
-          <Toggle
-            checked={config?.quotaEnabled ?? false}
-            disabled={!config || toggleQuota.isPending}
-            ariaLabel="启用用户限额"
-            onChange={(value) => toggleQuota.mutate(value)}
-          />
+          <div className="flex shrink-0 items-center gap-2">
+            <IconButton
+              label="周期设置"
+              onClick={() => setSettingsOpen((open) => !open)}
+              aria-expanded={settingsOpen}
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+            </IconButton>
+            <Toggle
+              checked={config?.quotaEnabled ?? false}
+              disabled={!config || toggleQuota.isPending}
+              ariaLabel="启用用户限额"
+              onChange={(value) => toggleQuota.mutate(value)}
+            />
+          </div>
         </div>
 
-        {config?.quotaEnabled && (
+        {config?.quotaEnabled && settingsOpen && (
           <div className="mt-4 border-t border-neutral-100 pt-4 dark:border-neutral-800">
             <div className="grid gap-3 sm:grid-cols-3">
               <Select
                 label="周期边界时区"
+                disabled={saveConfig.isPending}
                 className="w-full"
                 value={config.quotaTimezone}
                 onChange={(event) => saveConfig.mutate({ quotaTimezone: event.target.value })}
@@ -289,6 +353,7 @@ export default function QuotasPage() {
               />
               <Select
                 label="每周起始日"
+                disabled={saveConfig.isPending}
                 className="w-full"
                 value={config.quotaWeekStart}
                 onChange={(event) =>
@@ -303,6 +368,7 @@ export default function QuotasPage() {
               />
               <Select
                 label="用户预警阈值"
+                disabled={saveConfig.isPending}
                 className="w-full"
                 value={String(config.quotaWarnThreshold)}
                 onChange={(event) =>
@@ -325,29 +391,18 @@ export default function QuotasPage() {
 
       {/* 视图与当前主操作共用一行，避免短标签撑满整条背景、操作按钮另起一行。 */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="inline-flex w-fit items-center gap-1 rounded-xl border border-neutral-200 bg-neutral-100/80 p-1 dark:border-neutral-700 dark:bg-neutral-800/80">
-          {(
-            [
-              ['policies', '策略'],
-              ['users', '用户'],
-            ] as const
-          ).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              aria-pressed={view === value}
-              onClick={() => setView(value)}
-              className={clsx(
-                'min-w-16 rounded-lg px-3 py-1.5 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/40',
-                view === value
-                  ? 'bg-white text-neutral-900 shadow-xs dark:bg-neutral-700 dark:text-neutral-100'
-                  : 'text-neutral-500 hover:bg-white/60 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-700/60 dark:hover:text-neutral-200',
-              )}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <SegmentedControl
+          label="限额视图"
+          value={view}
+          onChange={(next) => {
+            setView(next)
+            setSearchParams({ view: next }, { replace: true })
+          }}
+          options={[
+            { value: 'policies', label: '策略', count: policies?.length ?? 0 },
+            { value: 'users', label: '用户', count: users?.length },
+          ]}
+        />
 
         {view === 'policies' ? (
           <Button className="w-full sm:w-auto" onClick={() => setEditingPolicy(null)}>
@@ -355,11 +410,11 @@ export default function QuotasPage() {
           </Button>
         ) : (
           <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto">
-            <input
+            <SearchField
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={setSearch}
               placeholder="搜索用户或策略"
-              className="h-10 min-w-0 flex-1 rounded-xl border border-neutral-300 bg-white px-3 text-sm text-neutral-800 outline-none transition focus:border-sky-500 sm:w-72 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+              className="min-w-0 flex-1 sm:w-60"
             />
             <Button
               variant={batchMode ? 'primary' : 'secondary'}
@@ -378,7 +433,10 @@ export default function QuotasPage() {
 
       {view === 'policies' ? (
         <div className="space-y-3">
-          {loadingPolicies ? (
+          {policiesError && (
+            <LoadError hasData={Boolean(policies)} onRetry={() => void refetchPolicies()} />
+          )}
+          {policiesError && !policies ? null : loadingPolicies ? (
             <div className="py-16 text-center">
               <Spinner className="h-6 w-6 text-neutral-400" />
             </div>
@@ -417,7 +475,8 @@ export default function QuotasPage() {
         </div>
       ) : (
         <div className="space-y-3">
-          {loadingUsers ? (
+          {usersError && <LoadError hasData={Boolean(users)} onRetry={() => void refetchUsers()} />}
+          {usersError && !users ? null : loadingUsers ? (
             <div className="py-16 text-center">
               <Spinner className="h-6 w-6 text-neutral-400" />
             </div>
@@ -435,146 +494,241 @@ export default function QuotasPage() {
                 onSelectUser={revealUser}
               />
 
-              <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-xl bg-neutral-50 px-3 py-2 text-[11px] leading-5 text-neutral-500 dark:bg-neutral-800/50 dark:text-neutral-400">
-                <span>
-                  按策略展示顺序列出全部规则；「各自独立」的目标收在同一条下。豁免、未开始、失效和被接管的规则都会显示。
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs text-neutral-500">
+                  显示 {filteredUsers.length} 位用户 · {timezoneLabel}
                 </span>
-                <span className="shrink-0">周期时间按 {timezoneLabel} 显示</span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Select
+                    aria-label="用户排列方式"
+                    value={userSort}
+                    onChange={(event) => setUserSort(event.target.value)}
+                    options={[
+                      { value: 'attention', label: '需关注优先' },
+                      { value: 'recent', label: '最近使用优先' },
+                      { value: 'name', label: '按用户名' },
+                    ]}
+                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() =>
+                      setExpandedUsers(
+                        expandedUsers.size
+                          ? new Set()
+                          : new Set(filteredUsers.map((user) => user.userId)),
+                      )
+                    }
+                  >
+                    {expandedUsers.size ? '收起全部额度' : '展开全部额度'}
+                  </Button>
+                  {(search || overviewFilter) && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setSearch('')
+                        setOverviewFilter(null)
+                      }}
+                    >
+                      清除筛选
+                    </Button>
+                  )}
+                </div>
               </div>
 
               <div className="space-y-3">
-              {filteredUsers.map((row) => {
-                const status = classifyUserQuotaStatus(row, warnThreshold)
-                const badge = userQuotaStatusBadge(status)
-                const selected = selectedUserIds.includes(row.userId)
-                return (
-                  <div
-                    key={row.userId}
-                    id={`quota-user-${row.userId}`}
-                    role={batchMode ? 'checkbox' : undefined}
-                    aria-checked={batchMode ? selected : undefined}
-                    tabIndex={batchMode ? 0 : undefined}
-                    onClick={batchMode ? () => toggleUser(row.userId) : undefined}
-                    onKeyDown={
-                      batchMode
-                        ? (event) => {
-                            // 整行可聚焦就必须能用键盘操作：空格/回车与点击同义。
-                            if (event.key !== ' ' && event.key !== 'Enter') return
-                            event.preventDefault()
-                            toggleUser(row.userId)
-                          }
-                        : undefined
-                    }
-                    className={clsx(
-                      cardSurface,
-                      'scroll-mt-4 px-4 py-3 transition',
-                      batchMode && 'cursor-pointer',
-                      selected &&
-                        'border-sky-200 bg-sky-50/60 ring-1 ring-sky-200/70 dark:border-sky-800 dark:bg-sky-500/5 dark:ring-sky-800/70',
-                      highlightUserId === row.userId &&
-                        'border-sky-300 ring-2 ring-sky-300/80 dark:border-sky-700 dark:ring-sky-700/80',
-                    )}
-                  >
-                    <div className="flex flex-wrap items-center gap-3">
-                      {batchMode && (
-                        // 复选框自身已经会切换一次；阻止冒泡，避免整行再切换一次导致「点了没反应」。
-                        <span onClick={(event) => event.stopPropagation()}>
-                          <Checkbox
-                            checked={selected}
-                            onChange={() => toggleUser(row.userId)}
-                            ariaLabel={`选择 ${row.username}`}
-                          />
-                        </span>
+                {filteredUsers.map((row) => {
+                  const status = classifyUserQuotaStatus(row, warnThreshold)
+                  const badge = userQuotaStatusBadge(status)
+                  const selected = selectedUserIds.includes(row.userId)
+                  const expanded = expandedUsers.has(row.userId)
+                  const tightest = pickTightestQuotaBucket(countableQuotaBuckets(row.rules))
+                  const percent =
+                    tightest?.percent == null ? null : Math.round(tightest.percent * 100)
+                  const ruleCount = groupQuotaBucketsByRule(row.rules).length
+                  return (
+                    <div
+                      key={row.userId}
+                      id={`quota-user-${row.userId}`}
+                      role={batchMode ? 'checkbox' : undefined}
+                      aria-checked={batchMode ? selected : undefined}
+                      tabIndex={batchMode ? 0 : undefined}
+                      onClick={batchMode ? () => toggleUser(row.userId) : undefined}
+                      onKeyDown={
+                        batchMode
+                          ? (event) => {
+                              // 整行可聚焦就必须能用键盘操作：空格/回车与点击同义。
+                              if (event.key !== ' ' && event.key !== 'Enter') return
+                              event.preventDefault()
+                              toggleUser(row.userId)
+                            }
+                          : undefined
+                      }
+                      className={clsx(
+                        cardSurface,
+                        'scroll-mt-4 px-4 py-3 transition',
+                        batchMode && 'cursor-pointer',
+                        selected &&
+                          'border-sky-200 bg-sky-50/60 ring-1 ring-sky-200/70 dark:border-sky-800 dark:bg-sky-500/5 dark:ring-sky-800/70',
+                        highlightUserId === row.userId &&
+                          'border-sky-300 ring-2 ring-sky-300/80 dark:border-sky-700 dark:ring-sky-700/80',
                       )}
-                      <AdminUserAvatar
-                        username={row.username}
-                        displayName={row.displayName}
-                        avatarUrl={row.avatarUrl}
-                        className="h-9 w-9 text-xs"
-                        fallbackClassName={USER_QUOTA_STATUS_META[status].glyphClass}
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
-                            {row.username}
+                    >
+                      <div className="flex flex-wrap items-center gap-3">
+                        {batchMode && (
+                          // 复选框自身已经会切换一次；阻止冒泡，避免整行再切换一次导致「点了没反应」。
+                          <span onClick={(event) => event.stopPropagation()}>
+                            <Checkbox
+                              checked={selected}
+                              onChange={() => toggleUser(row.userId)}
+                              ariaLabel={`选择 ${row.username}`}
+                            />
                           </span>
-                          {row.displayName && (
-                            <span className="truncate text-xs text-neutral-400">
-                              {row.displayName}
+                        )}
+                        <AdminUserAvatar
+                          username={row.username}
+                          displayName={row.displayName}
+                          avatarUrl={row.avatarUrl}
+                          className="h-9 w-9 text-xs"
+                          fallbackClassName={USER_QUOTA_STATUS_META[status].glyphClass}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
+                              {row.username}
                             </span>
-                          )}
-                          <span
-                            className={clsx(
-                              'shrink-0 rounded px-1.5 py-px text-[10px] font-medium',
-                              badge.className,
+                            {row.displayName && (
+                              <span className="truncate text-xs text-neutral-400">
+                                {row.displayName}
+                              </span>
                             )}
-                          >
-                            {badge.label}
-                          </span>
+                            <span
+                              className={clsx(
+                                'shrink-0 rounded px-1.5 py-px text-[10px] font-medium',
+                                badge.className,
+                              )}
+                            >
+                              {badge.label}
+                            </span>
+                          </div>
+                          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-neutral-400 dark:text-neutral-500">
+                            <span>
+                              {row.policyName ?? '无策略'}
+                              {row.usingDefaultPolicy && '（默认）'}
+                            </span>
+                            {row.overrideCount > 0 && <span>已覆写 {row.overrideCount} 项</span>}
+                            <span>最近使用 {formatRelative(row.lastUsageAt)}</span>
+                          </div>
                         </div>
-                        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-neutral-400 dark:text-neutral-500">
-                          <span>
-                            {row.policyName ?? '无策略'}
-                            {row.usingDefaultPolicy && '（默认）'}
-                          </span>
-                          {row.overrideCount > 0 && <span>已覆写 {row.overrideCount} 项</span>}
-                          <span>最近使用 {formatRelative(row.lastUsageAt)}</span>
-                        </div>
+
+                        {!batchMode && (
+                          <div className="flex w-full shrink-0 items-center justify-end gap-1 sm:w-auto">
+                            <button
+                              type="button"
+                              onClick={() => togglePause.mutate(row)}
+                              disabled={
+                                togglePause.isPending &&
+                                togglePause.variables?.userId === row.userId
+                              }
+                              title={row.enforcementPaused ? '恢复限额' : '暂停限额'}
+                              aria-label={row.enforcementPaused ? '恢复限额' : '暂停限额'}
+                              className={clsx(
+                                'flex h-8 w-8 items-center justify-center rounded-lg transition',
+                                row.enforcementPaused
+                                  ? 'text-sky-500 hover:bg-sky-50 dark:hover:bg-sky-500/10'
+                                  : 'text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-300',
+                              )}
+                            >
+                              <PauseCircle className="h-4 w-4" />
+                            </button>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => setDialogUser(row)}
+                            >
+                              配置
+                            </Button>
+                            <Link
+                              to={`/admin/users/${row.userId}`}
+                              className="inline-flex min-h-8 items-center rounded-lg px-2 text-xs text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
+                            >
+                              明细
+                            </Link>
+                            <IconButton
+                              label={expanded ? '收起额度' : '展开额度'}
+                              aria-expanded={expanded}
+                              aria-controls={`quota-rules-${row.userId}`}
+                              onClick={() =>
+                                setExpandedUsers((current) => {
+                                  const next = new Set(current)
+                                  if (next.has(row.userId)) next.delete(row.userId)
+                                  else next.add(row.userId)
+                                  return next
+                                })
+                              }
+                            >
+                              <ChevronDown
+                                className={clsx(
+                                  'h-4 w-4 transition-transform',
+                                  expanded && 'rotate-180',
+                                )}
+                              />
+                            </IconButton>
+                          </div>
+                        )}
                       </div>
 
-                      {!batchMode && (
-                        <div className="flex shrink-0 items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => togglePause.mutate(row)}
-                            title={row.enforcementPaused ? '恢复限额' : '暂停限额'}
-                            aria-label={row.enforcementPaused ? '恢复限额' : '暂停限额'}
-                            className={clsx(
-                              'rounded-lg p-1.5 transition',
-                              row.enforcementPaused
-                                ? 'text-sky-500 hover:bg-sky-50 dark:hover:bg-sky-500/10'
-                                : 'text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-300',
-                            )}
-                          >
-                            <PauseCircle className="h-4 w-4" />
-                          </button>
-                          <Button
-                            variant="secondary"
-                            className="px-2.5 py-1.5 text-xs"
-                            onClick={() => setDialogUser(row)}
-                          >
-                            配置
-                          </Button>
-                          <Link
-                            to={`/admin/users/${row.userId}`}
-                            className="rounded-lg px-2 py-1.5 text-xs text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
-                          >
-                            明细
-                          </Link>
-                        </div>
-                      )}
+                      <div className="mt-2 flex items-center gap-3 text-xs text-neutral-500">
+                        <span className="shrink-0">{ruleCount} 条额度规则</span>
+                        {percent != null && (
+                          <>
+                            <div className="h-1 flex-1 overflow-hidden rounded-full bg-neutral-200/70 dark:bg-neutral-800">
+                              <div
+                                className={clsx(
+                                  'h-full rounded-full',
+                                  USER_QUOTA_STATUS_META[status].barClass,
+                                )}
+                                style={{ width: `${Math.min(100, Math.max(0, percent))}%` }}
+                              />
+                            </div>
+                            <span className="shrink-0 tabular-nums">最高占用 {percent}%</span>
+                          </>
+                        )}
+                      </div>
+                      <div id={`quota-rules-${row.userId}`} hidden={!expanded}>
+                        <UserQuotaBuckets
+                          rules={row.rules}
+                          warnThreshold={warnThreshold}
+                          timezone={quotaTimezone}
+                        />
+                      </div>
                     </div>
-
-                    <UserQuotaBuckets
-                      rules={row.rules}
-                      warnThreshold={warnThreshold}
-                      timezone={quotaTimezone}
-                    />
-                  </div>
-                )
-              })}
-              {filteredUsers.length === 0 && (
-                <div className="rounded-2xl border border-dashed border-neutral-300 py-12 text-center text-sm text-neutral-400 dark:border-neutral-700">
-                  没有匹配的用户
-                </div>
-              )}
+                  )
+                })}
+                {filteredUsers.length === 0 && (
+                  <EmptyState
+                    title="没有匹配的用户"
+                    action={
+                      <Button
+                        variant="secondary"
+                        onClick={() => {
+                          setSearch('')
+                          setOverviewFilter(null)
+                        }}
+                      >
+                        清除筛选
+                      </Button>
+                    }
+                  />
+                )}
               </div>
             </>
           )}
 
           {/* 批量操作条：与模型页同一套语言（不透明胶囊 + 单行） */}
           {batchMode && (
-            <div className="sticky bottom-4 z-10 mx-auto flex w-fit max-w-full flex-wrap items-center gap-2 rounded-2xl border border-neutral-200 bg-white px-3 py-2 shadow-lg dark:border-neutral-700 dark:bg-neutral-900">
+            <div className="sticky bottom-4 z-10 mx-auto flex w-fit max-w-full flex-wrap items-center gap-2 rounded-xl bg-neutral-100 px-3 py-2 dark:bg-neutral-800">
               <Checkbox
                 checked={allSelected}
                 indeterminate={selectedUserIds.length > 0 && !allSelected}

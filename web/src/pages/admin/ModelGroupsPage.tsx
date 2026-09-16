@@ -1,4 +1,6 @@
+import { LoadError } from '../../components/ui/LoadError'
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   DndContext,
@@ -19,7 +21,7 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { clsx } from 'clsx'
-import { GripVertical, Layers3, Plus, SlidersHorizontal, Trash2 } from 'lucide-react'
+import { Folder, GripVertical, Layers3, Plus, SlidersHorizontal, Trash2 } from 'lucide-react'
 import type { AdminModelGroupDTO } from '@shared/types/api'
 import * as adminApi from '../../api/admin'
 import { ModelGroupGlyph } from '../../components/ModelIcon'
@@ -32,15 +34,18 @@ import { Spinner } from '../../components/ui/Spinner'
 import { askConfirm } from '../../store/confirm'
 import { toast } from '../../store/toast'
 import { ModelGroupEditor } from './ModelGroupEditor'
+import { GroupModelsDialog } from './GroupModelsDialog'
 
 function GroupRow({
   group,
   onEdit,
   onDelete,
+  onAddModels,
 }: {
   group: AdminModelGroupDTO
   onEdit: () => void
   onDelete: () => void
+  onAddModels: () => void
 }) {
   const {
     attributes,
@@ -57,7 +62,7 @@ function GroupRow({
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={clsx(
-        'flex items-center gap-2 px-3 py-2.5',
+        'flex flex-wrap items-center gap-x-2 gap-y-2 px-3 py-3 sm:flex-nowrap',
         isDragging && 'relative z-10 bg-white shadow-lg dark:bg-neutral-800',
       )}
     >
@@ -71,16 +76,40 @@ function GroupRow({
       >
         <GripVertical className="h-4 w-4" />
       </button>
-      <ModelGroupGlyph group={group} size="md" className="mr-1" />
+      <button
+        type="button"
+        onClick={onEdit}
+        aria-label={`设置「${group.name}」的图标`}
+        title={group.icon?.type === 'none' ? '当前无图标 · 点击设置' : '设置分组图标'}
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
+      >
+        {/* 无图标是用户端的展示设置；管理列表保留明确的图标编辑入口。 */}
+        {group.icon?.type === 'none' ? (
+          <Folder className="h-5 w-5" />
+        ) : (
+          <ModelGroupGlyph group={group} size="md" />
+        )}
+      </button>
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-medium text-neutral-800 dark:text-neutral-100">
+        <button
+          type="button"
+          onClick={onEdit}
+          className="block max-w-full truncate text-left text-sm font-medium leading-5 text-neutral-800 hover:text-sky-600 dark:text-neutral-100 dark:hover:text-sky-400"
+        >
           {group.name}
-        </div>
-        <div className="text-xs text-neutral-400 dark:text-neutral-500">
+        </button>
+        <Link
+          to={`/admin/models?groupId=${encodeURIComponent(group.id)}`}
+          className="block truncate text-xs leading-4 text-neutral-500 hover:text-sky-600 dark:text-neutral-400 dark:hover:text-sky-400"
+        >
           {group.modelCount > 0 ? `${group.modelCount} 个模型` : '暂无模型'}
-        </div>
+        </Link>
       </div>
-      <div className="flex shrink-0 items-center gap-1">
+      <div className="flex w-full shrink-0 items-center justify-end gap-1 sm:w-auto">
+        <Button size="sm" variant="secondary" onClick={onAddModels}>
+          <Plus className="h-3.5 w-3.5" />
+          添加模型
+        </Button>
         <IconButton label="编辑分组" onClick={onEdit}>
           <SlidersHorizontal className="h-4 w-4" />
         </IconButton>
@@ -98,12 +127,18 @@ function GroupRow({
  */
 export default function ModelGroupsPage() {
   const qc = useQueryClient()
-  const { data: groups, isPending } = useQuery({
+  const {
+    data: groups,
+    isPending,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ['admin', 'model-groups'],
     queryFn: adminApi.listAdminModelGroups,
   })
   const [editorOpen, setEditorOpen] = useState(false)
   const [editorGroup, setEditorGroup] = useState<AdminModelGroupDTO | null>(null)
+  const [addingGroup, setAddingGroup] = useState<AdminModelGroupDTO | null>(null)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -168,10 +203,10 @@ export default function ModelGroupsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-5">
+    <div className="mx-auto w-full max-w-5xl space-y-5">
       <PageHeader
         title="模型分组"
-        description="分组决定用户端模型选择器里的分区结构与顺序；把模型加入分组请到「模型」页使用批量管理。"
+        description="整理模型分类，拖动调整用户端的显示顺序。"
         actions={
           <Button onClick={openCreate}>
             <Plus className="mr-1 h-4 w-4" />
@@ -180,8 +215,9 @@ export default function ModelGroupsPage() {
         }
       />
 
+      {isError && <LoadError hasData={Boolean(groups)} onRetry={() => void refetch()} />}
       <div className={cardSurface}>
-        {isPending ? (
+        {isError && !groups ? null : isPending ? (
           <div className="flex justify-center py-10">
             <Spinner />
           </div>
@@ -202,16 +238,14 @@ export default function ModelGroupsPage() {
             modifiers={[restrictToVerticalAxis, restrictToParentElement]}
             onDragEnd={onDragEnd}
           >
-            <SortableContext
-              items={groups.map((g) => g.id)}
-              strategy={verticalListSortingStrategy}
-            >
+            <SortableContext items={groups.map((g) => g.id)} strategy={verticalListSortingStrategy}>
               <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
                 {groups.map((group) => (
                   <GroupRow
                     key={group.id}
                     group={group}
                     onEdit={() => openEdit(group)}
+                    onAddModels={() => setAddingGroup(group)}
                     onDelete={() => {
                       void askConfirm({
                         title: '删除分组？',
@@ -233,8 +267,9 @@ export default function ModelGroupsPage() {
         )}
       </div>
 
-      {editorOpen && (
-        <ModelGroupEditor group={editorGroup} onClose={() => setEditorOpen(false)} />
+      {editorOpen && <ModelGroupEditor group={editorGroup} onClose={() => setEditorOpen(false)} />}
+      {addingGroup && (
+        <GroupModelsDialog group={addingGroup} onClose={() => setAddingGroup(null)} />
       )}
     </div>
   )

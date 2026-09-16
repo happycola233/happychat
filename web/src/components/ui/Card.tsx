@@ -1,9 +1,8 @@
 import { clsx } from 'clsx'
 import type { ReactNode } from 'react'
 
-/** 管理页统一卡片表面：仅用底色与 hairline 描边分层，避免阴影带来的浮雕感。 */
-export const cardSurface =
-  'rounded-2xl border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900'
+/** 用浅底色区分区域，不叠加描边和投影。嵌套内容优先直接排版。 */
+export const cardSurface = 'rounded-xl bg-neutral-50 dark:bg-neutral-900/60'
 
 /**
  * 分区卡片：可选标题/说明 + 内容。管理页所有「设置块」共用，
@@ -24,16 +23,16 @@ export function Card({
   padded?: boolean
 }) {
   return (
-    <section className={clsx(cardSurface, padded && 'p-5', className)}>
+    <section className={clsx(cardSurface, padded && 'p-4', className)}>
       {(title || description) && (
-        <header className={clsx('mb-4', !padded && 'px-5 pt-5')}>
+        <header className={clsx('mb-3', !padded && 'px-4 pt-4')}>
           {title && (
             <h2 className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">
               {title}
             </h2>
           )}
           {description && (
-            <p className="mt-1 text-xs leading-5 text-neutral-400 dark:text-neutral-500">
+            <p className="mt-1 text-xs leading-5 text-neutral-500 dark:text-neutral-400">
               {description}
             </p>
           )}

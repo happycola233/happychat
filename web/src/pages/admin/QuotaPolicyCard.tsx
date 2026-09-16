@@ -66,16 +66,24 @@ export function QuotaPolicyCard({
     <div
       className={clsx(
         cardSurface,
-        'cursor-pointer overflow-hidden transition hover:border-neutral-300 dark:hover:border-neutral-600',
-        policy.isDefault && 'ring-1 ring-sky-200/80 dark:ring-sky-800/70',
+        'cursor-pointer overflow-hidden transition hover:bg-neutral-100 dark:hover:bg-neutral-800/70',
       )}
       onClick={onEdit}
     >
-      <div className="flex items-start justify-between gap-3 px-4 py-3.5">
+      <div className="flex flex-wrap items-start justify-between gap-2 px-4 py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <h3 className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
-              {policy.name}
+            <h3 className="min-w-0 truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onEdit()
+                }}
+                className="min-h-8 text-left hover:text-sky-600 dark:hover:text-sky-400"
+              >
+                {policy.name}
+              </button>
             </h3>
             {policy.isDefault && (
               <span className="shrink-0 rounded-md bg-sky-50 px-1.5 py-px text-[10px] font-medium text-sky-600 dark:bg-sky-500/10 dark:text-sky-300">

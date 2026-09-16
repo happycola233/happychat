@@ -525,6 +525,12 @@ describe('historical cost snapshots', () => {
     expect(events.items[0]?.costUsd).toBeCloseTo(60, 6)
     expect(events.items[1]?.costUsd).toBeCloseTo(6, 6)
     expect(userStats[0]?.topModels).toEqual([{ model: modelLabel, calls: 2 }])
+    expect(analytics.models).toEqual([
+      expect.objectContaining({ id: null, label: 'Snapshot Cost Model', requests: 2, costUsd: 66 }),
+    ])
+    expect(analytics.providers).toEqual([
+      expect.objectContaining({ id: provider.id, requests: 2, costUsd: 66 }),
+    ])
 
     const persistedLogs = await dbClient.db
       .select({
@@ -547,5 +553,85 @@ describe('historical cost snapshots', () => {
         pricingSnapshot: updatedPricing,
       },
     ])
+  })
+})
+
+describe('admin dashboard summaries', () => {
+  it('compares adjacent windows without counting the boundary twice and ignores missing timings', async () => {
+    const start = Date.UTC(2027, 2, 1)
+    const user = await insertUser()
+    await insertUsageLog(start - HOUR_MS, { userId: user.id, totalTokens: 50 })
+    await insertUsageLog(start - 1, { userId: user.id, totalTokens: 75 })
+    await insertUsageLog(start, {
+      userId: user.id,
+      totalTokens: 200,
+      durationMs: 4000,
+      firstTokenLatencyMs: 800,
+    })
+    await insertUsageLog(start + 1, { userId: user.id, totalTokens: 300, durationMs: 6000 })
+    const result = await stats.getOverview({
+      userId: user.id,
+      from: start,
+      to: start + HOUR_MS - 1,
+    })
+    expect(result.previous).toEqual({ requests: 2, tokens: 125, costUsd: 0, activeUsers: 1 })
+    expect(result.totals).toEqual(
+      expect.objectContaining({
+        requests: 2,
+        tokens: 500,
+        activeUsers: 1,
+        avgDurationMs: 5000,
+        avgFirstTokenLatencyMs: 800,
+      }),
+    )
+    expect((await stats.getOverview({ userId: user.id })).previous).toBeNull()
+  })
+
+  it('keeps outcome categories exclusive and applies request-kind filters to all breakdowns', async () => {
+    const user = await insertUser()
+    const start = Date.UTC(2027, 3, 1)
+    const base = {
+      userId: user.id,
+      modelLabel: 'dashboard-test',
+      providerLabel: 'Example',
+      inputTokens: 100,
+      outputTokens: 50,
+      totalTokens: 150,
+      pricingSnapshot: { input: 2, output: 8 },
+    }
+    await insertUsageLog(start, { ...base, kind: 'title', outcome: 'completed', success: true })
+    await insertUsageLog(start + 1, {
+      ...base,
+      outcome: 'failed',
+      terminalReason: 'refusal',
+      success: false,
+    })
+    await insertUsageLog(start + 2, {
+      ...base,
+      outcome: 'failed',
+      terminalReason: 'content_filter',
+      success: false,
+    })
+    await insertUsageLog(start + 3, { ...base, outcome: 'canceled', success: true })
+    const filter = { userId: user.id, from: start, to: start + 10, kind: 'chat' as const }
+    const overview = await stats.getOverview(filter)
+    expect(overview.totals).toEqual(expect.objectContaining({ requests: 3, failedRequests: 2 }))
+    expect(overview.outcomes).toEqual(
+      expect.arrayContaining([
+        { result: 'refused', count: 1 },
+        { result: 'filtered', count: 1 },
+        { result: 'canceled', count: 1 },
+      ]),
+    )
+    expect(overview.outcomes.reduce((sum, row) => sum + row.count, 0)).toBe(3)
+    const analytics = await stats.getAnalytics(filter)
+    expect(analytics.series[0]).toEqual(expect.objectContaining({ requests: 3, totalTokens: 450 }))
+    for (const rows of [analytics.models, analytics.providers]) {
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toEqual(
+        expect.objectContaining({ requests: 3, totalTokens: 450, failedRequests: 2 }),
+      )
+      expect(rows[0]!.costUsd).toBeCloseTo(overview.totals.costUsd)
+    }
   })
 })

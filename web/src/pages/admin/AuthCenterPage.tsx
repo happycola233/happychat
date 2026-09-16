@@ -1,5 +1,6 @@
+import { LoadError } from '../../components/ui/LoadError'
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { clsx } from 'clsx'
 import { Check, KeyRound, Plus, ShieldAlert } from 'lucide-react'
@@ -12,16 +13,19 @@ import { Modal } from '../../components/ui/Modal'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { Spinner } from '../../components/ui/Spinner'
 import { TextField } from '../../components/ui/TextField'
+import { SearchField } from '../../components/ui/SearchField'
+import { SegmentedControl } from '../../components/ui/SegmentedControl'
 import { Toggle } from '../../components/ui/Toggle'
 import {
-  tableBody,
-  tableEl,
-  tableHead,
-  tableRowHover,
+  responsiveTableBody as tableBody,
+  responsiveTable as tableEl,
+  responsiveTableHead as tableHead,
+  responsiveTableRow as tableRowHover,
   tableScroll,
   tableShell,
-  td,
+  responsiveTd as td,
   th,
+  mobileCellLabel,
 } from '../../components/ui/tableStyles'
 import { formatDateTime } from '../../lib/format'
 import { copyToClipboard } from '../../lib/clipboard'
@@ -39,7 +43,7 @@ const TABS: { key: Tab; label: string }[] = [
 
 const fmtDate = (ts: number | null) => (ts ? new Date(ts).toLocaleDateString('zh-CN') : '—')
 const textActionClass =
-  'rounded px-1 py-0.5 text-xs font-medium underline underline-offset-4 decoration-neutral-300 transition hover:decoration-current focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900/15 dark:decoration-neutral-600 dark:focus-visible:ring-white/20'
+  'inline-flex min-h-8 items-center justify-center rounded-lg px-2 text-xs font-medium transition hover:bg-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/30 dark:hover:bg-neutral-800'
 
 function LoadingBlock() {
   return (
@@ -50,36 +54,20 @@ function LoadingBlock() {
 }
 
 export default function AuthCenterPage() {
-  const [tab, setTab] = useState<Tab>('users')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const currentTab = searchParams.get('tab')
+  const tab: Tab = currentTab === 'invites' || currentTab === 'sessions' ? currentTab : 'users'
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <PageHeader title="账号中心" description="管理用户、邀请码与登录会话。" />
 
-      {/* 子入口用页头下方的下划线标签页：比缩在右上角的分段控件更显眼，也符合「设置子页」的语义。 */}
-      <div
-        role="tablist"
-        aria-label="账号中心子页"
-        className="flex gap-1 border-b border-neutral-200 dark:border-neutral-800"
-      >
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            role="tab"
-            aria-selected={tab === t.key}
-            onClick={() => setTab(t.key)}
-            className={clsx(
-              '-mb-px border-b-2 px-3.5 py-2 text-sm transition',
-              tab === t.key
-                ? 'border-sky-500 font-medium text-sky-600 dark:border-sky-400 dark:text-sky-300'
-                : 'border-transparent text-neutral-500 hover:border-neutral-300 hover:text-neutral-800 dark:text-neutral-400 dark:hover:border-neutral-600 dark:hover:text-neutral-200',
-            )}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <SegmentedControl
+        label="账号中心子页"
+        value={tab}
+        onChange={(next) => setSearchParams({ tab: next }, { replace: true })}
+        options={TABS.map((item) => ({ value: item.key, label: item.label }))}
+      />
 
       {tab === 'users' && <UsersTab />}
       {tab === 'invites' && <InvitesTab />}
@@ -92,12 +80,19 @@ export default function AuthCenterPage() {
 
 function UsersTab() {
   const qc = useQueryClient()
+  const [search, setSearch] = useState('')
+  const [filter, setFilter] = useState('all')
   const { data: me } = useMe()
   const [passwordReset, setPasswordReset] = useState<{
     username: string
     temporaryPassword: string
   } | null>(null)
-  const { data: users, isLoading } = useQuery({
+  const {
+    data: users,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ['admin', 'users'],
     queryFn: adminApi.listUsers,
   })
@@ -133,12 +128,60 @@ function UsersTab() {
     onError: (e) => toast.error(e instanceof Error ? e.message : '重置失败'),
   })
 
+  const keyword = search.trim().toLowerCase()
+  const filtered = (users ?? []).filter(
+    (user) =>
+      `${user.username} ${user.displayName ?? ''}`.toLowerCase().includes(keyword) &&
+      (filter === 'all' ||
+        (filter === 'admin'
+          ? user.role === 'admin'
+          : filter === 'disabled'
+            ? user.disabled
+            : !user.disabled)),
+  )
+
   if (isLoading) return <LoadingBlock />
+  if (isError) return <LoadError onRetry={() => void refetch()} />
 
   return (
     <>
+      <div className="flex flex-wrap items-center gap-3">
+        <SearchField
+          value={search}
+          onChange={setSearch}
+          placeholder="搜索用户名或昵称"
+          className="min-w-48 flex-1"
+        />
+        <SegmentedControl
+          label="用户筛选"
+          value={filter}
+          onChange={setFilter}
+          options={[
+            { value: 'all', label: '全部', count: users?.length ?? 0 },
+            { value: 'enabled', label: '已启用' },
+            { value: 'admin', label: '管理员' },
+            { value: 'disabled', label: '已停用' },
+          ]}
+        />
+      </div>
+      {filtered.length === 0 && (
+        <EmptyState
+          title="没有匹配的用户"
+          action={
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setSearch('')
+                setFilter('all')
+              }}
+            >
+              清除筛选
+            </Button>
+          }
+        />
+      )}
       <div className={tableScroll}>
-        <div className={`${tableShell} min-w-[820px]`}>
+        <div className={tableShell}>
           <table className={tableEl}>
             <thead className={tableHead}>
               <tr>
@@ -152,12 +195,20 @@ function UsersTab() {
               </tr>
             </thead>
             <tbody className={tableBody}>
-              {users?.map((u: AdminUserDTO) => {
+              {filtered.map((u: AdminUserDTO) => {
                 const isSelf = u.id === me?.id
                 return (
                   <tr key={u.id} className={tableRowHover}>
-                    <td className={clsx(td, 'text-neutral-800 dark:text-neutral-100')}>
-                      {u.username}
+                    <td className={clsx(td, 'col-span-2 text-neutral-800 dark:text-neutral-100')}>
+                      <Link
+                        to={`/admin/users/${u.id}`}
+                        className="font-medium hover:text-sky-600 dark:hover:text-sky-400"
+                      >
+                        {u.username}
+                      </Link>
+                      {u.displayName && (
+                        <span className="ml-2 text-xs text-neutral-500">{u.displayName}</span>
+                      )}
                       {isSelf && <span className="ml-1 text-xs text-neutral-400">（你）</span>}
                       {u.mustChangePassword && (
                         <span className="ml-2 inline-flex rounded-md bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
@@ -166,33 +217,52 @@ function UsersTab() {
                       )}
                     </td>
                     <td className={td}>
+                      <span className={mobileCellLabel}>管理员权限</span>
                       <Toggle
+                        ariaLabel={`管理员权限 ${u.username}`}
                         checked={u.role === 'admin'}
-                        disabled={isSelf}
+                        disabled={isSelf || update.isPending}
                         onChange={(v) =>
                           update.mutate({ id: u.id, input: { role: v ? 'admin' : 'user' } })
                         }
                       />
                     </td>
                     <td className={td}>
+                      <span className={mobileCellLabel}>启用账号</span>
                       <Toggle
+                        ariaLabel={`启用账号 ${u.username}`}
                         checked={!u.disabled}
-                        disabled={isSelf}
+                        disabled={isSelf || update.isPending}
                         onChange={(v) => update.mutate({ id: u.id, input: { disabled: !v } })}
                       />
                     </td>
                     <td className={td}>
+                      <span className={mobileCellLabel}>允许分享</span>
                       <Toggle
+                        ariaLabel={`允许分享 ${u.username}`}
                         checked={u.canShare !== false}
+                        disabled={update.isPending}
                         onChange={(v) =>
                           update.mutate({ id: u.id, input: { canShare: v ? null : false } })
                         }
                       />
                     </td>
-                    <td className={clsx(td, 'text-neutral-500')}>{u.conversationCount}</td>
-                    <td className={clsx(td, 'text-xs text-neutral-500')}>{fmtDate(u.createdAt)}</td>
-                    <td className={clsx(td, 'text-right')}>
-                      <div className="flex items-center justify-end gap-3">
+                    <td className={clsx(td, 'text-neutral-500')}>
+                      <span className={mobileCellLabel}>会话数</span>
+                      {u.conversationCount}
+                    </td>
+                    <td className={clsx(td, 'text-xs text-neutral-500')}>
+                      <span className={mobileCellLabel}>注册时间</span>
+                      {fmtDate(u.createdAt)}
+                    </td>
+                    <td className={clsx(td, 'col-span-2 text-right')}>
+                      <div className="flex flex-wrap items-center justify-end gap-1">
+                        <Link
+                          to={`/admin/quotas?userId=${encodeURIComponent(u.id)}`}
+                          className={`${textActionClass} text-neutral-600 dark:text-neutral-300`}
+                        >
+                          额度
+                        </Link>
                         <button
                           type="button"
                           disabled={isSelf || resetPassword.isPending}
@@ -227,7 +297,7 @@ function UsersTab() {
                         </Link>
                         <button
                           type="button"
-                          disabled={isSelf}
+                          disabled={isSelf || update.isPending}
                           onClick={() => {
                             if (isSelf) return
                             void askConfirm({
@@ -240,7 +310,7 @@ function UsersTab() {
                             })
                           }}
                           className={clsx(
-                            'text-neutral-400 transition',
+                            'inline-flex h-8 w-8 items-center justify-center rounded-lg text-neutral-400 transition',
                             isSelf
                               ? 'cursor-not-allowed opacity-35'
                               : 'hover:text-red-500 focus-visible:text-red-500',
@@ -344,12 +414,28 @@ function TemporaryPasswordModal({
 
 function InvitesTab() {
   const qc = useQueryClient()
-  const { data: invites, isLoading } = useQuery({
+  const {
+    data: invites,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ['admin', 'invites'],
     queryFn: adminApi.listInvites,
   })
   const [creating, setCreating] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+  const [filter, setFilter] = useState('all')
+  const isAvailable = (invite: InviteCodeDTO) =>
+    !invite.disabled &&
+    invite.usedCount < invite.maxUses &&
+    (invite.expiresAt == null || invite.expiresAt > Date.now())
+  const filtered = (invites ?? []).filter(
+    (invite) =>
+      `${invite.code} ${invite.note ?? ''}`.toLowerCase().includes(search.trim().toLowerCase()) &&
+      (filter === 'all' || isAvailable(invite) === (filter === 'active')),
+  )
   const invalidate = () => qc.invalidateQueries({ queryKey: ['admin', 'invites'] })
 
   const toggle = useMutation({ mutationFn: adminApi.toggleInvite, onSuccess: invalidate })
@@ -391,13 +477,36 @@ function InvitesTab() {
         </Button>
       </div>
 
-      {isLoading ? (
+      <div className="flex flex-wrap items-center gap-3">
+        <SearchField
+          value={search}
+          onChange={setSearch}
+          placeholder="搜索邀请码或备注"
+          className="min-w-48 flex-1"
+        />
+        <SegmentedControl
+          label="邀请码筛选"
+          value={filter}
+          onChange={setFilter}
+          options={[
+            { value: 'all', label: '全部', count: invites?.length ?? 0 },
+            { value: 'active', label: '可使用' },
+            { value: 'unavailable', label: '不可使用' },
+          ]}
+        />
+      </div>
+      {!isLoading && Boolean(invites?.length) && !filtered.length && (
+        <EmptyState title="没有匹配的邀请码" />
+      )}
+      {isError ? (
+        <LoadError onRetry={() => void refetch()} />
+      ) : isLoading ? (
         <LoadingBlock />
       ) : !invites?.length ? (
         <EmptyState title="还没有邀请码" />
       ) : (
         <div className={tableScroll}>
-          <div className={`${tableShell} min-w-[560px]`}>
+          <div className={tableShell}>
             <table className={tableEl}>
               <thead className={tableHead}>
                 <tr>
@@ -409,9 +518,9 @@ function InvitesTab() {
                 </tr>
               </thead>
               <tbody className={tableBody}>
-                {invites.map((iv: InviteCodeDTO) => (
+                {filtered.map((iv: InviteCodeDTO) => (
                   <tr key={iv.id} className={tableRowHover}>
-                    <td className={td}>
+                    <td className={`${td} col-span-2`}>
                       <button
                         onClick={() => copy(iv.code)}
                         className="flex items-center gap-1.5 font-mono text-neutral-800 dark:text-neutral-100"
@@ -427,27 +536,38 @@ function InvitesTab() {
                       {iv.note && <div className="text-xs text-neutral-400">{iv.note}</div>}
                     </td>
                     <td className={clsx(td, 'text-neutral-500')}>
+                      <span className={mobileCellLabel}>使用次数</span>
                       {iv.usedCount}/{iv.maxUses}
                     </td>
                     <td className={clsx(td, 'text-xs text-neutral-500')}>
+                      <span className={mobileCellLabel}>过期时间</span>
                       {iv.expiresAt ? formatDateTime(iv.expiresAt) : '永久'}
                     </td>
                     <td className={td}>
+                      <span className={mobileCellLabel}>状态</span>
                       <button
+                        disabled={toggle.isPending}
+                        title={iv.disabled ? '启用邀请码' : '停用邀请码'}
                         onClick={() => toggle.mutate(iv.id)}
                         className={
-                          iv.disabled
-                            ? 'rounded-md bg-neutral-100 px-2 py-0.5 text-xs text-neutral-500 dark:bg-neutral-800'
-                            : 'rounded-md bg-emerald-50 px-2 py-0.5 text-xs text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400'
+                          !isAvailable(iv)
+                            ? 'min-h-8 rounded-md bg-neutral-100 px-2 text-xs text-neutral-500 dark:bg-neutral-800'
+                            : 'min-h-8 rounded-md bg-emerald-50 px-2 text-xs text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400'
                         }
                       >
-                        {iv.disabled ? '已停用' : '启用中'}
+                        {iv.disabled
+                          ? '已停用'
+                          : iv.expiresAt != null && iv.expiresAt <= Date.now()
+                            ? '已过期'
+                            : iv.usedCount >= iv.maxUses
+                              ? '已用完'
+                              : '可使用'}
                       </button>
                     </td>
                     <td className={clsx(td, 'text-right')}>
                       <button
                         onClick={() => remove.mutate(iv.id)}
-                        className="text-neutral-400 hover:text-red-500"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-neutral-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/30"
                         aria-label="删除"
                       >
                         <DeleteIcon className="h-3.5 w-3.5" />
@@ -565,7 +685,13 @@ function SessionIpCell({ session }: { session: AdminSessionDTO }) {
 
 function SessionsTab() {
   const qc = useQueryClient()
-  const { data: sessions, isLoading } = useQuery({
+  const [search, setSearch] = useState('')
+  const {
+    data: sessions,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ['admin', 'sessions'],
     queryFn: () => adminApi.getSessions(),
   })
@@ -580,55 +706,91 @@ function SessionsTab() {
     onError: (e) => toast.error(e instanceof Error ? e.message : '操作失败'),
   })
 
+  const filtered = (sessions ?? []).filter((session) =>
+    `${session.username} ${session.userAgent ?? ''} ${session.loginIp ?? ''} ${session.lastSeenIp ?? ''}`
+      .toLowerCase()
+      .includes(search.trim().toLowerCase()),
+  )
+
   if (isLoading) return <LoadingBlock />
+  if (isError) return <LoadError onRetry={() => void refetch()} />
 
   if (!sessions?.length) return <EmptyState title="暂无活动会话" />
 
   return (
-    <div className={tableScroll}>
-      <div className={`${tableShell} min-w-[960px]`}>
-        <table className={tableEl}>
-          <thead className={tableHead}>
-            <tr>
-              <th className={th}>用户</th>
-              <th className={th}>设备</th>
-              <th className={th}>IP</th>
-              <th className={th}>登录时间</th>
-              <th className={th}>过期</th>
-              <th className={th} />
-            </tr>
-          </thead>
-          <tbody className={tableBody}>
-            {sessions.map((s: AdminSessionDTO) => (
-              <tr key={s.id} className={tableRowHover}>
-                <td className={clsx(td, 'text-neutral-800 dark:text-neutral-100')}>{s.username}</td>
-                <td className={clsx(td, 'max-w-[20rem] truncate text-xs text-neutral-500')}>
-                  {s.userAgent ?? '—'}
-                </td>
-                <td className={clsx(td, 'min-w-[15rem] max-w-[22rem]')}>
-                  <SessionIpCell session={s} />
-                </td>
-                <td className={clsx(td, 'text-xs text-neutral-500')}>
-                  {formatDateTime(s.createdAt)}
-                </td>
-                <td className={clsx(td, 'text-xs text-neutral-500')}>
-                  {formatDateTime(s.expiresAt)}
-                </td>
-                <td className={clsx(td, 'text-right')}>
-                  <button
-                    onClick={() => revoke.mutate(s.id)}
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <SearchField
+          value={search}
+          onChange={setSearch}
+          placeholder="搜索用户、设备或 IP"
+          className="min-w-48 flex-1"
+        />
+        <span className="text-xs text-neutral-500">{filtered.length} 个登录会话</span>
+      </div>
+      {!filtered.length && <EmptyState title="没有匹配的登录会话" />}
+      <div className={tableScroll}>
+        <div className={tableShell}>
+          <table className={tableEl}>
+            <thead className={tableHead}>
+              <tr>
+                <th className={th}>用户</th>
+                <th className={th}>设备</th>
+                <th className={th}>IP</th>
+                <th className={th}>登录时间</th>
+                <th className={th}>过期</th>
+                <th className={th} />
+              </tr>
+            </thead>
+            <tbody className={tableBody}>
+              {filtered.map((s: AdminSessionDTO) => (
+                <tr key={s.id} className={tableRowHover}>
+                  <td className={clsx(td, 'col-span-2 text-neutral-800 dark:text-neutral-100')}>
+                    <Link
+                      to={`/admin/users/${s.userId}`}
+                      className="font-medium hover:text-sky-600"
+                    >
+                      {s.username}
+                    </Link>
+                  </td>
+                  <td
                     className={clsx(
-                      textActionClass,
-                      'text-neutral-600 hover:text-red-500 dark:text-neutral-300 dark:hover:text-red-400',
+                      td,
+                      'col-span-2 truncate text-xs text-neutral-500 lg:max-w-[20rem]',
                     )}
                   >
-                    踢下线
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                    <span className={mobileCellLabel}>设备</span>
+                    {s.userAgent ?? '—'}
+                  </td>
+                  <td className={clsx(td, 'col-span-2 lg:min-w-[15rem] lg:max-w-[22rem]')}>
+                    <span className={mobileCellLabel}>IP</span>
+                    <SessionIpCell session={s} />
+                  </td>
+                  <td className={clsx(td, 'text-xs text-neutral-500')}>
+                    <span className={mobileCellLabel}>登录时间</span>
+                    {formatDateTime(s.createdAt)}
+                  </td>
+                  <td className={clsx(td, 'text-xs text-neutral-500')}>
+                    <span className={mobileCellLabel}>过期时间</span>
+                    {formatDateTime(s.expiresAt)}
+                  </td>
+                  <td className={clsx(td, 'col-span-2 text-right')}>
+                    <button
+                      disabled={revoke.isPending}
+                      onClick={() => revoke.mutate(s.id)}
+                      className={clsx(
+                        textActionClass,
+                        'text-neutral-600 hover:text-red-500 dark:text-neutral-300 dark:hover:text-red-400',
+                      )}
+                    >
+                      踢下线
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   )

@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
+import { fieldLabelClass } from '../../components/ui/controlStyles'
 
-const standardLabelClass =
-  'mb-1.5 block text-sm font-medium text-neutral-700 dark:text-neutral-300'
+const standardLabelClass = fieldLabelClass
 
 /**
  * 标准字段。简单控件可隐式嵌套；包含多个交互元素的复合控件必须传 htmlFor，

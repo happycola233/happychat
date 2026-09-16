@@ -1,4 +1,4 @@
-import { Suspense, useCallback, useState } from 'react'
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { clsx } from 'clsx'
 import {
@@ -10,17 +10,25 @@ import {
   LayoutDashboard,
   Layers3,
   Megaphone,
+  Menu,
+  Monitor,
+  Moon,
+  Sun,
   Server,
   Settings,
+  Search,
   TrendingUp,
   Users,
 } from 'lucide-react'
-import { Link, NavLink, Outlet } from 'react-router-dom'
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { Spinner } from '../../components/ui/Spinner'
+import { Modal } from '../../components/ui/Modal'
 import { ShareIcon, SidebarToggleIcon } from '../../chat/icons'
 import { useAdminSidebarStore } from '../../store/adminSidebar'
+import { useSettings } from '../../store/settings'
+import { AdminQuickSwitch } from './AdminQuickSwitch'
 
-/** 侧边导航按职责分组（参考现代面板惯例），移动端横滑标签时展平。 */
+/** 桌面与手机共用同一份分组，所有入口在窄屏也能直接找到。 */
 const navGroups = [
   {
     label: '洞察',
@@ -48,7 +56,7 @@ const navGroups = [
   {
     label: '接入',
     items: [
-      { to: 'providers', label: '提供商', icon: Server },
+      { to: 'providers', label: '供应商', icon: Server },
       { to: 'models', label: '模型', icon: Boxes },
       { to: 'model-groups', label: '模型分组', icon: Layers3 },
     ],
@@ -78,6 +86,57 @@ interface RailTip {
   left: number
 }
 
+function ThemeToggle() {
+  const theme = useSettings((state) => state.theme)
+  const setTheme = useSettings((state) => state.setTheme)
+  const [open, setOpen] = useState(false)
+  const options = [
+    { value: 'system', label: '跟随系统', icon: Monitor },
+    { value: 'light', label: '浅色', icon: Sun },
+    { value: 'dark', label: '深色', icon: Moon },
+  ] as const
+  const current = options.find((option) => option.value === theme)!
+  return (
+    <>
+      <button
+        type="button"
+        className={iconActionClass}
+        aria-label={`外观：${current.label}`}
+        title={`外观：${current.label}`}
+        onClick={() => setOpen(true)}
+      >
+        <current.icon className="h-4 w-4" />
+      </button>
+      {open && (
+        <Modal open title="外观" onClose={() => setOpen(false)}>
+          <div role="group" aria-label="外观主题" className="grid grid-cols-3 gap-2">
+            {options.map(({ value, label, icon: Icon }) => (
+              <button
+                type="button"
+                key={value}
+                aria-pressed={theme === value}
+                onClick={() => {
+                  setTheme(value)
+                  setOpen(false)
+                }}
+                className={clsx(
+                  'flex flex-col items-center gap-2 rounded-lg px-2 py-4 text-xs transition',
+                  theme === value
+                    ? 'bg-sky-50 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300'
+                    : 'bg-neutral-50 text-neutral-600 hover:bg-neutral-100 dark:bg-neutral-800/60 dark:text-neutral-300 dark:hover:bg-neutral-800',
+                )}
+              >
+                <Icon className="h-5 w-5" />
+                {label}
+              </button>
+            ))}
+          </div>
+        </Modal>
+      )}
+    </>
+  )
+}
+
 function BackToChatLink({
   onShowTip,
   onHideTip,
@@ -101,13 +160,7 @@ function BackToChatLink({
   )
 }
 
-function CollapseToggle({
-  collapsed,
-  onToggle,
-}: {
-  collapsed: boolean
-  onToggle: () => void
-}) {
+function CollapseToggle({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
   return (
     <button
       type="button"
@@ -141,9 +194,11 @@ function RailTooltip({ tip }: { tip: RailTip | null }) {
 function DesktopSidebar({
   collapsed,
   onToggle,
+  onSearch,
 }: {
   collapsed: boolean
   onToggle: () => void
+  onSearch: () => void
 }) {
   const [tip, setTip] = useState<RailTip | null>(null)
 
@@ -164,9 +219,9 @@ function DesktopSidebar({
       data-testid="admin-sidebar"
       data-collapsed={collapsed ? 'true' : 'false'}
       className={clsx(
-        'hidden shrink-0 flex-col border-r border-neutral-200 bg-white md:flex dark:border-neutral-800 dark:bg-neutral-900',
+        'hidden shrink-0 flex-col bg-neutral-50 md:flex dark:bg-neutral-900/60',
         'transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
-        collapsed ? 'w-16 overflow-visible' : 'w-60 overflow-hidden',
+        collapsed ? 'w-16 overflow-visible' : 'w-54 overflow-hidden',
       )}
     >
       {collapsed ? (
@@ -175,6 +230,15 @@ function DesktopSidebar({
           <div className="mt-1">
             <BackToChatLink onShowTip={showTip} onHideTip={hideTip} />
           </div>
+          <button
+            type="button"
+            onClick={onSearch}
+            className={iconActionClass}
+            aria-label="快速前往（Ctrl K）"
+            title="快速前往（Ctrl K）"
+          >
+            <Search className="h-4 w-4" />
+          </button>
           <nav
             id="admin-sidebar-nav"
             className="hc-scrollbar mt-3 flex min-h-0 w-full flex-1 flex-col items-center gap-0.5 overflow-y-auto"
@@ -183,10 +247,7 @@ function DesktopSidebar({
             {navGroups.map((group, index) => (
               <div key={group.label} className="flex flex-col items-center gap-0.5">
                 {index > 0 && (
-                  <div
-                    aria-hidden
-                    className="my-2 h-px w-6 bg-neutral-200 dark:bg-neutral-700"
-                  />
+                  <div aria-hidden className="my-2 h-px w-6 bg-neutral-200 dark:bg-neutral-700" />
                 )}
                 {group.items.map((it) => (
                   <NavLink
@@ -207,7 +268,7 @@ function DesktopSidebar({
           </nav>
         </div>
       ) : (
-        <div className="hc-sidebar-panel-in flex h-full min-w-60 flex-col p-4">
+        <div className="hc-sidebar-panel-in flex min-h-0 min-w-54 flex-1 flex-col p-3">
           <div className="mb-4 flex items-center gap-1">
             <BackToChatLink onShowTip={showTip} onHideTip={hideTip} />
             <h2 className="min-w-0 flex-1 truncate px-1 text-base font-semibold text-neutral-900 dark:text-neutral-100">
@@ -215,7 +276,20 @@ function DesktopSidebar({
             </h2>
             <CollapseToggle collapsed={false} onToggle={handleToggle} />
           </div>
-          <nav id="admin-sidebar-nav" className="hc-scrollbar min-h-0 flex-1 space-y-5 overflow-y-auto">
+          <button
+            type="button"
+            onClick={onSearch}
+            className="mb-4 flex min-h-9 items-center gap-2 rounded-lg bg-neutral-100 px-3 text-xs text-neutral-500 transition hover:bg-neutral-200/70 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700"
+          >
+            <Search className="h-3.5 w-3.5" />
+            <span className="flex-1 text-left">快速前往</span>
+            <kbd className="text-[10px]">Ctrl K</kbd>
+          </button>
+          <nav
+            aria-label="后台导航"
+            id="admin-sidebar-nav"
+            className="hc-scrollbar min-h-0 flex-1 space-y-4 overflow-y-auto"
+          >
             {navGroups.map((group) => (
               <div key={group.label}>
                 <div className="mb-1.5 px-3 text-[11px] font-semibold tracking-wider text-neutral-400 uppercase dark:text-neutral-500">
@@ -238,6 +312,19 @@ function DesktopSidebar({
           </nav>
         </div>
       )}
+      <div
+        className={clsx(
+          'flex shrink-0 items-center py-2',
+          collapsed ? 'justify-center' : 'justify-between px-5',
+        )}
+      >
+        {!collapsed && (
+          <span className="text-[11px] font-medium tracking-wide text-neutral-400 dark:text-neutral-500">
+            HappyChat
+          </span>
+        )}
+        <ThemeToggle />
+      </div>
       <RailTooltip tip={tip} />
     </aside>
   )
@@ -246,46 +333,124 @@ function DesktopSidebar({
 export default function AdminLayout() {
   const collapsed = useAdminSidebarStore((s) => s.collapsed)
   const toggleCollapsed = useAdminSidebarStore((s) => s.toggleCollapsed)
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const [quickSwitchOpen, setQuickSwitchOpen] = useState(false)
+  const location = useLocation()
+  const mainRef = useRef<HTMLElement>(null)
+  const currentPage =
+    navGroups
+      .flatMap((group) => group.items)
+      .find((item) => location.pathname.startsWith(`/admin/${item.to}`))?.label ?? '用户详情'
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'k') return
+      if (document.querySelector('[aria-modal="true"]')) return
+      event.preventDefault()
+      setQuickSwitchOpen(true)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  useEffect(() => {
+    mainRef.current?.scrollTo({ top: 0 })
+  }, [location.pathname])
 
   return (
     // h-dvh + overflow-hidden：侧栏/顶部导航固定，只有右侧内容区（main）滚动。
-    <div className="flex h-dvh flex-col overflow-hidden bg-neutral-50 md:flex-row dark:bg-neutral-950">
-      {/* 移动端顶部导航（布局高度已固定，无需 sticky） */}
-      <div className="z-20 shrink-0 border-b border-neutral-200 bg-white md:hidden dark:border-neutral-800 dark:bg-neutral-900">
-        <div className="flex h-12 items-center gap-1 border-b border-neutral-200 px-3 dark:border-neutral-800">
+    <div className="hc-admin flex h-dvh flex-col overflow-hidden bg-white text-neutral-900 md:flex-row dark:bg-neutral-950 dark:text-neutral-100">
+      <a
+        href="#admin-main"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-3 focus:z-50 focus:rounded-lg focus:bg-sky-100 focus:px-4 focus:py-2 focus:text-sky-900"
+      >
+        跳转到主要内容
+      </a>
+      <div className="z-20 shrink-0 bg-neutral-50 md:hidden dark:bg-neutral-900">
+        <div className="flex h-12 items-center gap-1 px-3">
           <BackToChatLink />
           <span className="min-w-0 flex-1 truncate px-1 text-sm font-semibold text-neutral-700 dark:text-neutral-200">
-            管理后台
+            <span className="font-normal text-neutral-500">管理后台</span>
+            <span aria-hidden className="mx-2 text-neutral-300 dark:text-neutral-600">
+              /
+            </span>
+            {currentPage}
           </span>
+          <button
+            type="button"
+            className={iconActionClass}
+            aria-label="快速前往"
+            onClick={() => setQuickSwitchOpen(true)}
+          >
+            <Search className="h-4 w-4" />
+          </button>
+          <ThemeToggle />
+          <button
+            type="button"
+            className={iconActionClass}
+            aria-label="打开后台导航"
+            aria-haspopup="dialog"
+            aria-expanded={mobileNavOpen}
+            onClick={() => setMobileNavOpen(true)}
+          >
+            <Menu className="h-5 w-5" />
+          </button>
         </div>
-        <nav className="hc-scrollbar-hidden flex gap-1 overflow-x-auto px-3 py-2">
-          {navGroups.flatMap((group) =>
-            group.items.map((it) => (
-              <NavLink
-                key={it.to}
-                to={it.to}
-                className={({ isActive }) => itemClass(isActive, false)}
-              >
-                <it.icon className="h-4 w-4" />
-                {it.label}
-              </NavLink>
-            )),
-          )}
-        </nav>
       </div>
-
-      <DesktopSidebar collapsed={collapsed} onToggle={toggleCollapsed} />
-
-      <main className="hc-scrollbar min-w-0 flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
-        <Suspense
-          fallback={
-            <div className="py-16 text-center">
-              <Spinner className="h-6 w-6 text-neutral-400" />
+      <Modal open={mobileNavOpen} onClose={() => setMobileNavOpen(false)} title="后台导航">
+        <nav aria-label="手机后台导航" className="space-y-4">
+          {navGroups.map((group) => (
+            <div key={group.label}>
+              <p className="mb-1 px-3 text-xs text-neutral-500">{group.label}</p>
+              <div className="grid grid-cols-2 gap-1">
+                {group.items.map((item) => (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    onClick={() => setMobileNavOpen(false)}
+                    className={({ isActive }) => itemClass(isActive, false)}
+                  >
+                    <item.icon className="h-4 w-4 shrink-0" />
+                    {item.label}
+                  </NavLink>
+                ))}
+              </div>
             </div>
-          }
-        >
-          <Outlet />
-        </Suspense>
+          ))}
+        </nav>
+      </Modal>
+
+      <DesktopSidebar
+        collapsed={collapsed}
+        onToggle={toggleCollapsed}
+        onSearch={() => setQuickSwitchOpen(true)}
+      />
+      {quickSwitchOpen && (
+        <AdminQuickSwitch
+          pages={navGroups.flatMap((group) =>
+            group.items.map((item) => ({ to: item.to, label: item.label, group: group.label })),
+          )}
+          onClose={() => setQuickSwitchOpen(false)}
+        />
+      )}
+
+      <main
+        ref={mainRef}
+        id="admin-main"
+        tabIndex={-1}
+        className="hc-scrollbar min-h-0 min-w-0 flex-1 overflow-y-auto p-4 outline-none sm:p-5 lg:px-7 lg:py-6"
+      >
+        <div className="mx-auto w-full max-w-[1600px]">
+          <Suspense
+            fallback={
+              <div className="py-16 text-center">
+                <Spinner className="h-6 w-6 text-neutral-400" />
+              </div>
+            }
+          >
+            <Outlet />
+          </Suspense>
+        </div>
       </main>
     </div>
   )

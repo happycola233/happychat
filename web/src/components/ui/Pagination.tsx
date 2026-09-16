@@ -26,10 +26,10 @@ function pageWindow(current: number, total: number): (number | 'gap')[] {
 }
 
 const btnBase =
-  'inline-flex h-8 min-w-8 items-center justify-center rounded-lg border px-2 text-sm tabular-nums transition disabled:cursor-not-allowed disabled:opacity-40'
+  'inline-flex h-8 min-w-8 items-center justify-center rounded-lg px-2 text-sm tabular-nums transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50 disabled:cursor-not-allowed disabled:opacity-40'
 const btnIdle =
-  'border-neutral-300 text-neutral-700 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800'
-const btnActive = 'border-sky-500 bg-sky-500 text-white'
+  'bg-neutral-100 text-neutral-700 hover:bg-neutral-200/70 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:bg-neutral-800'
+const btnActive = 'bg-sky-600 text-white'
 
 export function Pagination({
   page,
@@ -55,6 +55,7 @@ export function Pagination({
           <label className="flex items-center gap-1.5">
             <span className="hidden sm:inline">每页</span>
             <Select
+              size="sm"
               aria-label="每页条数"
               className="min-w-[6.5rem]"
               value={String(pageSize)}

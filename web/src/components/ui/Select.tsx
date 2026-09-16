@@ -50,7 +50,7 @@ export function Select({
   id,
   name,
   'aria-label': ariaLabel,
-  size = 'sm',
+  size = 'md',
 }: Props) {
   const listboxId = useId()
   const rootRef = useRef<HTMLDivElement>(null)
@@ -241,14 +241,16 @@ export function Select({
       }}
       onKeyDown={onTriggerKeyDown}
       className={clsx(
-        'inline-flex w-full items-center justify-between gap-2 border text-left outline-none transition select-none',
-        'border-neutral-300 bg-white text-neutral-800',
+        'flex w-full items-center justify-between gap-2 border text-left outline-none transition select-none',
+        'border-neutral-200 bg-white text-neutral-800',
         'hover:border-neutral-400',
         'focus-visible:border-sky-500 focus-visible:ring-2 focus-visible:ring-sky-500/15',
         'disabled:cursor-not-allowed disabled:opacity-50',
-        'dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:hover:border-neutral-500',
+        'dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:hover:border-neutral-500',
         'dark:focus-visible:border-sky-400 dark:focus-visible:ring-sky-400/20',
-        size === 'md' ? 'min-h-10 rounded-xl px-3.5 text-sm' : 'min-h-8 rounded-lg px-2.5 text-xs',
+        size === 'md'
+          ? 'min-h-9 rounded-lg px-3 text-[13px] leading-4'
+          : 'min-h-8 rounded-lg px-2.5 text-xs',
         open && 'border-sky-500 ring-2 ring-sky-500/15 dark:border-sky-400 dark:ring-sky-400/20',
       )}
     >
@@ -305,7 +307,7 @@ export function Select({
               onClick={() => commit(option.value)}
               className={clsx(
                 'flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 transition',
-                size === 'md' ? 'min-h-9 text-sm' : 'min-h-7 text-xs',
+                size === 'md' ? 'min-h-9 text-[13px]' : 'min-h-8 text-xs',
                 highlighted && !active && 'bg-neutral-100 dark:bg-white/10',
                 active && 'bg-sky-50 text-sky-800 dark:bg-sky-500/15 dark:text-sky-100',
               )}
@@ -325,7 +327,11 @@ export function Select({
   const control = (
     <div
       ref={rootRef}
-      className={clsx('inline-grid', hasExplicitWidth ? 'max-w-full' : 'max-w-56', className)}
+      className={clsx(
+        'inline-grid min-w-0 grid-cols-[minmax(0,1fr)] align-top',
+        hasExplicitWidth ? 'max-w-full' : 'max-w-56',
+        className,
+      )}
     >
       {name && <input type="hidden" name={name} value={value} />}
       {/* 按最长选项撑开，避免选中短文案后触发器收缩导致筛选条跳动。 */}
@@ -334,8 +340,8 @@ export function Select({
           key={`sizer-${option.value}-${index}`}
           aria-hidden
           className={clsx(
-            'invisible col-start-1 row-start-1 whitespace-nowrap',
-            size === 'md' ? 'px-3.5 pr-10 text-sm' : 'px-2.5 pr-8 text-xs',
+            'invisible col-start-1 row-start-1 min-w-0 overflow-hidden whitespace-nowrap',
+            size === 'md' ? 'pl-3 pr-9 text-[13px]' : 'px-2.5 pr-8 text-xs',
           )}
         >
           {option.label}
@@ -349,7 +355,7 @@ export function Select({
   if (!label) return control
 
   return (
-    <label className="block">
+    <label className="block min-w-0">
       <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">
         {label}
       </span>

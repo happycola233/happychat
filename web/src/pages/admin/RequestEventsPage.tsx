@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { Link, useSearchParams } from 'react-router-dom'
+import { SlidersHorizontal } from 'lucide-react'
 import type { UsageResult } from '@shared/types/domain'
 import { getUsageEvents, listAdminModels, listProviders, listUsers } from '../../api/admin'
 import { DateRangePicker } from '../../components/ui/DateRangePicker'
@@ -9,10 +11,15 @@ import { type RangeKey } from '../../lib/dateRange'
 import { Pagination } from '../../components/ui/Pagination'
 import { Select, type SelectOption } from '../../components/ui/Select'
 import { Spinner } from '../../components/ui/Spinner'
+import { Button } from '../../components/ui/Button'
+import { LoadError } from '../../components/ui/LoadError'
+import { RefreshButton } from './DashboardPrimitives'
+import { RequestEventCard } from './RequestEventCard'
 import { buildUsageEventsQuery, usageEventsQueryKey } from './eventFilters'
 import { RequestKindBadge } from './RequestKindBadge'
 import { RequestOutcomeBadge } from './RequestOutcomeBadge'
 import { REQUEST_RESULT_LABELS } from './requestOutcome'
+import { readDashboardFilters } from './dashboardData'
 import {
   tableBody,
   tableEl,
@@ -59,12 +66,28 @@ const secondaryValue =
   'whitespace-nowrap text-[10px] leading-[14px] text-neutral-400 tabular-nums dark:text-neutral-500'
 
 export default function RequestEventsPage() {
-  const [rangeKey, setRangeKey] = useState<RangeKey>('7d')
-  const [providerId, setProviderId] = useState('')
-  const [modelId, setModelId] = useState('')
-  const [userId, setUserId] = useState('')
-  const [resultSel, setResultSel] = useState<UsageResult | ''>('')
-  const [kindSel, setKindSel] = useState('')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const { rangeKey, providerId, modelId, userId, resultSel, kindSel } =
+    readDashboardFilters(searchParams)
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const updateFilter = (key: string, value: string) =>
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current)
+        if (value) next.set(key, value)
+        else next.delete(key)
+        if (key === 'providerId') next.delete('modelId')
+        return next
+      },
+      { replace: true },
+    )
+  const setRangeKey = (value: RangeKey) => updateFilter('range', value)
+  const setProviderId = (value: string) => updateFilter('providerId', value)
+  const setModelId = (value: string) => updateFilter('modelId', value)
+  const setUserId = (value: string) => updateFilter('userId', value)
+  const setResultSel = (value: UsageResult | '') => updateFilter('result', value)
+  const setKindSel = (value: string) => updateFilter('kind', value)
+  const filterCount = [providerId, modelId, userId, resultSel, kindSel].filter(Boolean).length
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(50)
 
@@ -91,9 +114,11 @@ export default function RequestEventsPage() {
   const modelOptions = useMemo<SelectOption[]>(
     () => [
       { value: '', label: '全部模型' },
-      ...(models ?? []).map((m) => ({ value: m.id, label: m.displayName })),
+      ...(models ?? [])
+        .filter((model) => !providerId || model.providerId === providerId)
+        .map((m) => ({ value: m.id, label: m.displayName })),
     ],
-    [models],
+    [models, providerId],
   )
   const userOptions = useMemo<SelectOption[]>(
     () => [
@@ -114,16 +139,17 @@ export default function RequestEventsPage() {
     pageSize,
   }
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: usageEventsQueryKey(filters),
     queryFn: () => getUsageEvents(buildUsageEventsQuery(filters)),
   })
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <PageHeader
         title="请求事件"
         description="查看每次已结算上游调用的结果、总耗时、上游首响应、生成速度、Token、缓存与成本。"
+        actions={<RefreshButton busy={isFetching} onClick={() => void refetch()} />}
       />
 
       <div className="flex flex-wrap items-end gap-3">
@@ -134,58 +160,88 @@ export default function RequestEventsPage() {
             setPage(1)
           }}
         />
-        <Select
-          label="供应商"
-          options={providerOptions}
-          value={providerId}
-          onChange={(e) => {
-            setProviderId(e.target.value)
-            setPage(1)
-          }}
-        />
-        <Select
-          label="模型"
-          options={modelOptions}
-          value={modelId}
-          onChange={(e) => {
-            setModelId(e.target.value)
-            setPage(1)
-          }}
-        />
-        <Select
-          label="用户"
-          options={userOptions}
-          value={userId}
-          onChange={(e) => {
-            setUserId(e.target.value)
-            setPage(1)
-          }}
-        />
-        <Select
-          label="结果"
-          options={RESULT_OPTIONS}
-          value={resultSel}
-          onChange={(e) => {
-            setResultSel(e.target.value as UsageResult | '')
-            setPage(1)
-          }}
-        />
-        <Select
-          label="请求类型"
-          options={KIND_OPTIONS}
-          value={kindSel}
-          onChange={(e) => {
-            setKindSel(e.target.value)
-            setPage(1)
-          }}
-        />
+        <Button
+          variant={filterCount ? 'secondary' : 'ghost'}
+          aria-expanded={filtersOpen}
+          onClick={() => setFiltersOpen((open) => !open)}
+          className="md:hidden"
+        >
+          <SlidersHorizontal className="h-4 w-4" />
+          筛选{filterCount ? ` · ${filterCount}` : ''}
+        </Button>
+        <div
+          className={`${filtersOpen ? 'grid' : 'hidden'} w-full grid-cols-2 gap-3 md:flex md:w-auto md:flex-wrap md:items-end`}
+        >
+          <Select
+            label="供应商"
+            className="w-full md:w-44"
+            options={providerOptions}
+            value={providerId}
+            onChange={(e) => {
+              setProviderId(e.target.value)
+              setPage(1)
+            }}
+          />
+          <Select
+            label="模型"
+            className="w-full md:w-48"
+            options={modelOptions}
+            value={modelId}
+            onChange={(e) => {
+              setModelId(e.target.value)
+              setPage(1)
+            }}
+          />
+          <Select
+            label="用户"
+            className="w-full md:w-36"
+            options={userOptions}
+            value={userId}
+            onChange={(e) => {
+              setUserId(e.target.value)
+              setPage(1)
+            }}
+          />
+          <Select
+            label="结果"
+            className="w-full md:w-28"
+            options={RESULT_OPTIONS}
+            value={resultSel}
+            onChange={(e) => {
+              setResultSel(e.target.value as UsageResult | '')
+              setPage(1)
+            }}
+          />
+          <Select
+            label="请求类型"
+            className="w-full md:w-28"
+            options={KIND_OPTIONS}
+            value={kindSel}
+            onChange={(e) => {
+              setKindSel(e.target.value)
+              setPage(1)
+            }}
+          />
+        </div>
+        {filterCount > 0 && (
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setSearchParams({ range: rangeKey }, { replace: true })
+              setPage(1)
+            }}
+          >
+            清除筛选
+          </Button>
+        )}
       </div>
+      {isError && <LoadError hasData={Boolean(data)} onRetry={() => void refetch()} />}
 
       {isLoading ? (
         <div className="py-16 text-center">
           <Spinner className="h-6 w-6 text-neutral-400" />
         </div>
-      ) : !data?.items.length ? (
+      ) : isError && !data ? null : !data?.items.length ? (
         <EmptyState title="暂无请求事件" />
       ) : (
         <div className="space-y-4">
@@ -199,7 +255,12 @@ export default function RequestEventsPage() {
               setPage(1)
             }}
           />
-          <div className={tableScroll}>
+          <div className="grid gap-3 md:grid-cols-2 xl:hidden">
+            {data.items.map((row) => (
+              <RequestEventCard key={row.id} row={row} />
+            ))}
+          </div>
+          <div className={`${tableScroll} hidden xl:block`}>
             <div className={`${tableShell} min-w-[1160px]`}>
               <table className={tableEl}>
                 <thead className={tableHead}>
@@ -230,7 +291,16 @@ export default function RequestEventsPage() {
                             className="max-w-[100px] truncate whitespace-nowrap text-xs font-normal leading-4 text-neutral-800 dark:text-neutral-100"
                             title={row.username ?? undefined}
                           >
-                            {row.username ?? EMPTY_VALUE}
+                            {row.userId ? (
+                              <Link
+                                to={`/admin/users/${row.userId}`}
+                                className="hover:text-sky-600 dark:hover:text-sky-400"
+                              >
+                                {row.username ?? EMPTY_VALUE}
+                              </Link>
+                            ) : (
+                              (row.username ?? EMPTY_VALUE)
+                            )}
                           </div>
                         </td>
                         <td className={requestCell}>

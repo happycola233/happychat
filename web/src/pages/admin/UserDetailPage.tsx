@@ -32,6 +32,7 @@ import { UserQuotaBuckets } from './UserQuotaBuckets'
 import { quotaTimezoneLabel } from './userQuotaDisplay'
 import { RequestKindBadge } from './RequestKindBadge'
 import { RequestOutcomeBadge } from './RequestOutcomeBadge'
+import { RequestEventCard } from './RequestEventCard'
 
 /**
  * 限额状态卡：生效规则（含覆写来源）与按模型的消费构成。
@@ -161,10 +162,10 @@ export default function UserDetailPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <BackLink />
 
-      <div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
         {statsQuery.isLoading ? (
           <div className="flex items-center gap-2 text-neutral-400">
             <Spinner className="h-5 w-5" />
@@ -180,6 +181,21 @@ export default function UserDetailPage() {
         ) : (
           <h1 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">用户详情</h1>
         )}
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            to={`/admin/quotas?userId=${encodeURIComponent(id)}`}
+            className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-sky-50 px-3 text-[13px] font-medium text-sky-700 dark:bg-sky-500/10 dark:text-sky-300"
+          >
+            <Gauge className="h-4 w-4" />
+            配置额度
+          </Link>
+          <Link
+            to={`/admin/request-events?userId=${encodeURIComponent(id)}`}
+            className="inline-flex min-h-9 items-center rounded-lg bg-neutral-100 px-3 text-[13px] text-neutral-700 dark:bg-neutral-800 dark:text-neutral-200"
+          >
+            筛选请求记录
+          </Link>
+        </div>
       </div>
 
       {stat && (
@@ -240,7 +256,12 @@ export default function UserDetailPage() {
                 setPage(1)
               }}
             />
-            <div className={tableScroll}>
+            <div className="grid gap-3 md:grid-cols-2 xl:hidden">
+              {usageQuery.data.items.map((row) => (
+                <RequestEventCard key={row.id} row={row} />
+              ))}
+            </div>
+            <div className={`${tableScroll} hidden xl:block`}>
               <div className={`${tableShell} min-w-[980px]`}>
                 <table className={tableEl}>
                   <thead className={tableHead}>

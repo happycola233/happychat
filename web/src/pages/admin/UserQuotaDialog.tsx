@@ -1,3 +1,4 @@
+import { inputClass } from '../../components/ui/controlStyles'
 import { useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { clsx } from 'clsx'
@@ -477,7 +478,7 @@ export function UserQuotaDialog({
             ) : (
               <div
                 role="list"
-                className="divide-y divide-neutral-100 overflow-hidden rounded-xl border border-neutral-200 dark:divide-neutral-800 dark:border-neutral-700"
+                className="divide-y divide-neutral-100 overflow-hidden rounded-lg bg-neutral-50 dark:divide-neutral-800 dark:bg-neutral-800/40"
               >
                 {templateRules.map((rule) => {
                   const draft = overrideFor(rule)
@@ -516,7 +517,7 @@ export function UserQuotaDialog({
                               className={clsx(
                                 'rounded-md px-2 py-1 text-[11px] font-medium transition',
                                 draft.mode === mode
-                                  ? 'bg-white text-neutral-800 shadow-sm dark:bg-neutral-700 dark:text-neutral-100'
+                                  ? 'bg-sky-100/80 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300'
                                   : 'text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200',
                               )}
                             >
@@ -542,7 +543,7 @@ export function UserQuotaDialog({
                               onChange={(event) => patch({ limitInput: event.target.value })}
                               inputMode="decimal"
                               placeholder={rule.metric === 'cost' ? '新的金额上限' : '新的次数上限'}
-                              className="w-full rounded-lg border border-neutral-300 bg-white px-2.5 py-1.5 text-sm tabular-nums text-neutral-800 outline-none transition focus:border-sky-500 disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+                              className={`${inputClass} tabular-nums`}
                             />
                           </div>
                           {!draft.limitUnlimited && (
@@ -636,7 +637,7 @@ export function UserQuotaDialog({
                 该用户将为无限额度。
               </p>
             ) : (
-              <div className="rounded-xl border border-neutral-200 px-3 py-1 dark:border-neutral-700">
+              <div className="rounded-lg bg-neutral-50 px-3 py-1 dark:bg-neutral-800/40">
                 <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
                   {groupQuotaBucketsByRule(preview.rules).map((group) => {
                     const resetFor = (rule: QuotaBucketUsageDTO) =>
@@ -771,7 +772,7 @@ export function UserQuotaDialog({
                 }
                 inputMode="decimal"
                 placeholder={grantRule?.metric === 'requests' ? '增加次数' : '增加金额（$）'}
-                className="w-full rounded-lg border border-neutral-300 bg-white px-2.5 py-1.5 text-sm tabular-nums text-neutral-800 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+                className={`${inputClass} tabular-nums`}
               />
               <Button
                 variant="secondary"

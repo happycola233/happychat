@@ -261,7 +261,7 @@ export function ModelBatchToolbar({
   return (
     <div data-testid="model-batch-toolbar" className="sticky bottom-4 z-20 flex justify-center">
       {/* 不透明底色 + 阴影：悬浮在列表之上时不能透出下方行，否则文字互相干扰。 */}
-      <div className="flex w-full max-w-2xl flex-wrap items-center gap-2 rounded-full border border-neutral-200 bg-white py-1.5 pl-3.5 pr-1.5 shadow-xl shadow-black/10 dark:border-neutral-700 dark:bg-neutral-900 dark:shadow-black/50">
+      <div className="flex w-full max-w-2xl flex-wrap items-center gap-2 rounded-xl bg-neutral-100 p-2 dark:bg-neutral-800">
         <label
           className="flex shrink-0 cursor-pointer items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400"
           title={allSelected ? '取消全选' : '全选'}

@@ -29,6 +29,9 @@ import { Modal } from '../../components/ui/Modal'
 import { Select } from '../../components/ui/Select'
 import { Toggle } from '../../components/ui/Toggle'
 import { toast } from '../../store/toast'
+import { askConfirm } from '../../store/confirm'
+import { inputClass } from '../../components/ui/controlStyles'
+import { SegmentedControl } from '../../components/ui/SegmentedControl'
 import { ReasoningEffortEditor } from './ReasoningEffortEditor'
 import {
   createManualModelReasoningEffortDrafts,
@@ -44,13 +47,14 @@ import {
   modelKindForProviderProtocol,
 } from './modelProtocolMigration'
 import { TagsInput } from './TagsInput'
+import { ModelEditorNavigation } from './ModelEditorNavigation'
 
-const fieldClass =
-  'w-full rounded-xl border border-neutral-300 bg-white px-3.5 py-2.5 text-sm outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100'
+const fieldClass = inputClass
 
 /** 紧凑输入：参数/定价这类短数值多列排布用，避免一屏全是大输入框。 */
-const compactFieldClass =
-  'w-full rounded-lg border border-neutral-300 bg-white px-2.5 py-1.5 text-sm tabular-nums outline-none transition placeholder:text-neutral-400 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100'
+const compactFieldClass = `${inputClass} tabular-nums`
+
+export type ModelEditorSection = 'general' | 'capabilities' | 'prompt' | 'pricing' | 'advanced'
 
 const MODEL_INPUT_EXAMPLES: Record<ModelKind, { modelId: string; displayName: string }> = {
   responses: { modelId: 'gpt-5.6-sol', displayName: 'GPT-5.6 Sol' },
@@ -97,13 +101,15 @@ function FormSection({
   title,
   hint,
   children,
+  hidden = false,
 }: {
   title: string
   hint?: string
   children: ReactNode
+  hidden?: boolean
 }) {
   return (
-    <section className="space-y-3 py-5 first:pt-0 last:pb-0">
+    <section hidden={hidden} className="space-y-3 pb-5 last:pb-0">
       <div>
         <h4 className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">{title}</h4>
         {hint && <p className="mt-0.5 text-xs leading-5 text-neutral-400">{hint}</p>}
@@ -133,7 +139,7 @@ function ToggleRow({
         <div className="text-sm font-medium text-neutral-700 dark:text-neutral-300">{label}</div>
         {description && <p className="mt-1 text-xs leading-5 text-neutral-400">{description}</p>}
       </div>
-      <Toggle checked={checked} onChange={onChange} disabled={disabled} />
+      <Toggle ariaLabel={label} checked={checked} onChange={onChange} disabled={disabled} />
     </div>
   )
 }
@@ -142,12 +148,24 @@ function ToggleRow({
 export function ModelEditor({
   model,
   onClose,
+  initialSection = 'general',
+  models = [],
+  modelSearch = '',
+  onModelSearch,
+  onSelectModel,
 }: {
   model: AdminModelDTO | null
   onClose: () => void
+  initialSection?: ModelEditorSection
+  models?: AdminModelDTO[]
+  modelSearch?: string
+  onModelSearch?: (search: string) => void
+  onSelectModel?: (model: AdminModelDTO, section: ModelEditorSection) => void
 }) {
   const qc = useQueryClient()
   const isCreate = model === null
+  const [section, setSection] = useState<ModelEditorSection>(initialSection)
+  const [switchTarget, setSwitchTarget] = useState<AdminModelDTO | null>(null)
 
   const { data: providers } = useQuery({
     queryKey: ['admin', 'providers'],
@@ -194,6 +212,39 @@ export function ModelEditor({
   const [pricing, setPricing] = useState<ModelPricing>(model?.pricing ?? {})
   const initialHardParamsText = model?.hardParams ? JSON.stringify(model.hardParams, null, 2) : ''
   const [hardParamsText, setHardParamsText] = useState(initialHardParamsText)
+  const draftSnapshot = JSON.stringify({
+    providerId,
+    modelId,
+    displayName,
+    description,
+    tags,
+    icon,
+    groupId,
+    kind,
+    caps,
+    systemPrompt,
+    reasoningEffortDrafts,
+    defaultEffortDraftId,
+    defaultWebSearch,
+    defaultXSearch,
+    replayProviderContext,
+    params,
+    pricing,
+    hardParamsText,
+  })
+  const initialSnapshot = useRef(draftSnapshot)
+  const dirty = draftSnapshot !== initialSnapshot.current
+  const requestClose = async () => {
+    if (
+      !dirty ||
+      (await askConfirm({
+        title: '放弃未保存的修改？',
+        description: '本次修改尚未保存。',
+        confirmLabel: '放弃修改',
+      }))
+    )
+      onClose()
+  }
   const promptRef = useRef<HTMLTextAreaElement>(null)
   // 只自动迁移仍与系统预设完全一致的 JSON；管理员一旦编辑，就视为自主管理请求体。
   const managedAnthropicHardParamsPresetRef = useRef<string | null>(
@@ -315,7 +366,7 @@ export function ModelEditor({
   }
 
   const save = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (nextModel: AdminModelDTO | undefined) => {
       const reasoningEffortError = validateReasoningEffortDrafts(reasoningEffortDrafts)
       if (reasoningEffortError) throw new Error(reasoningEffortError)
       const defaultEffort = defaultEffortDraftId
@@ -390,8 +441,9 @@ export function ModelEditor({
           ...shared,
         })
       }
+      return nextModel
     },
-    onSuccess: () => {
+    onSuccess: (nextModel) => {
       toast.success(isCreate ? '已添加模型' : '已保存')
       qc.invalidateQueries({ queryKey: ['admin', 'models'] })
       if (isCreate || groupId !== (model?.groupId ?? '')) {
@@ -401,7 +453,9 @@ export function ModelEditor({
         qc.invalidateQueries({ queryKey: ['admin', 'providers'] })
       }
       qc.invalidateQueries({ queryKey: ['models'] })
-      onClose()
+      initialSnapshot.current = draftSnapshot
+      if (nextModel) onSelectModel?.(nextModel, section)
+      else if (isCreate || !onSelectModel) onClose()
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : '保存失败'),
   })
@@ -441,468 +495,606 @@ export function ModelEditor({
     reasoningEffortDrafts.some(
       (draft) => draft.draftId === defaultEffortDraftId && Boolean(draft.value.trim()),
     )
-  const canSave =
-    Boolean(providerId) &&
-    modelId.trim() !== '' &&
-    displayName.trim() !== '' &&
-    !effortValidationError &&
-    hasValidDefault
+  const missingIdentity = !providerId || !modelId.trim() || !displayName.trim()
+  const canSave = !missingIdentity && !effortValidationError && hasValidDefault
+  const validationMessage = missingIdentity
+    ? '请在基本信息中填写供应商、模型 ID 和显示名称。'
+    : effortValidationError || (!hasValidDefault ? '请在能力参数中重新选择默认思考等级。' : null)
+  const switchModel = (next: AdminModelDTO) => {
+    if (next.id === model?.id || save.isPending) return
+    if (dirty) setSwitchTarget(next)
+    else onSelectModel?.(next, section)
+  }
 
   return (
-    <Modal
-      open
-      onClose={onClose}
-      title={isCreate ? '添加模型' : `配置模型 · ${model.modelId}`}
-      size="form"
-      footer={
-        <>
-          <Button variant="secondary" onClick={onClose}>
-            取消
-          </Button>
-          <Button onClick={() => save.mutate()} loading={save.isPending} disabled={!canSave}>
-            {isCreate ? '添加' : '保存'}
-          </Button>
-        </>
-      }
-    >
-      <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
-        {/* ============ 基本信息 ============ */}
-        <FormSection title="基本信息">
-          <Field label="所属供应商">
-            <Select
-              size="md"
-              className="w-full"
-              value={providerId}
-              onChange={(e) => changeProvider(e.target.value)}
+    <>
+      <Modal
+        open
+        animate={!onSelectModel}
+        onClose={() => void requestClose()}
+        dismissible={!save.isPending}
+        title={isCreate ? '添加模型' : `配置模型 · ${model.modelId}`}
+        size={model && onSelectModel ? 'workspace' : 'reading'}
+        height="workspace"
+        sidebar={
+          model && onSelectModel && onModelSearch ? (
+            <ModelEditorNavigation
+              models={models}
+              currentId={model.id}
+              search={modelSearch}
+              onSearch={onModelSearch}
+              onSelect={switchModel}
+              disabled={save.isPending}
+            />
+          ) : undefined
+        }
+        navigation={
+          <div className="space-y-2">
+            {model && onSelectModel && (
+              <div className="md:hidden">
+                <Select
+                  aria-label="切换配置模型"
+                  className="w-full"
+                  value={model.id}
+                  disabled={save.isPending}
+                  options={models.map((item) => ({
+                    value: item.id,
+                    label: `${item.displayName} · ${item.providerName}`,
+                  }))}
+                  onChange={(event) => {
+                    const next = models.find((item) => item.id === event.target.value)
+                    if (next) switchModel(next)
+                  }}
+                />
+              </div>
+            )}
+            <SegmentedControl
+              label="模型配置分区"
+              value={section}
+              onChange={setSection}
               options={[
-                { value: '', label: '请选择供应商' },
-                ...(
-                  providers ?? (model ? [{ id: model.providerId, name: model.providerName }] : [])
-                ).map((p) => ({ value: p.id, label: p.name })),
+                { value: 'general', label: '基本信息' },
+                { value: 'capabilities', label: '能力参数' },
+                { value: 'prompt', label: '提示词' },
+                { value: 'pricing', label: '定价' },
+                { value: 'advanced', label: '高级' },
               ]}
             />
-          </Field>
-
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label="模型 ID">
-              <input
-                className={fieldClass}
-                value={modelId}
-                onChange={(e) => setModelId(e.target.value)}
-                onBlur={() => {
-                  if (kind !== 'anthropic') return
-                  const targetModelId = modelId.trim() || MODEL_INPUT_EXAMPLES.anthropic.modelId
-                  if (targetModelId === lastAppliedAnthropicModelIdRef.current) return
-                  applyAnthropicPreset(targetModelId, false)
-                }}
-                placeholder={modelInputExample?.modelId ?? '请先选择供应商'}
-              />
-            </Field>
-            <Field label="外显名称">
-              <input
-                className={fieldClass}
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                placeholder={modelInputExample?.displayName ?? '请先选择供应商'}
-              />
-            </Field>
           </div>
-
-          {selectedProviderProtocol === 'openai' && (
-            <Field label="类型">
+        }
+        footer={
+          <>
+            <span className="mr-auto hidden self-center text-xs text-neutral-400 sm:block">
+              {dirty ? '有未保存的修改' : 'Ctrl / ⌘ + Enter 保存'}
+            </span>
+            <Button
+              variant="secondary"
+              disabled={save.isPending}
+              onClick={() => void requestClose()}
+            >
+              {dirty ? '取消' : '关闭'}
+            </Button>
+            <Button
+              onClick={() => save.mutate(undefined)}
+              loading={save.isPending}
+              disabled={!canSave || (!dirty && !isCreate)}
+            >
+              {isCreate ? '添加' : '保存'}
+            </Button>
+          </>
+        }
+      >
+        <fieldset
+          className="min-w-0"
+          disabled={save.isPending}
+          onKeyDown={(event) => {
+            if (
+              (event.ctrlKey || event.metaKey) &&
+              event.key === 'Enter' &&
+              canSave &&
+              !save.isPending
+            ) {
+              event.preventDefault()
+              save.mutate(undefined)
+            }
+          }}
+        >
+          {validationMessage && (
+            <button
+              type="button"
+              onClick={() => setSection(missingIdentity ? 'general' : 'capabilities')}
+              className="mb-4 w-full rounded-lg bg-amber-50 p-3 text-left text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300"
+            >
+              {validationMessage}
+            </button>
+          )}
+          {/* ============ 基本信息 ============ */}
+          <FormSection title="基本信息" hidden={section !== 'general'}>
+            <Field label="所属供应商">
               <Select
                 size="md"
                 className="w-full"
-                value={kind}
-                onChange={(e) => changeKind(e.target.value as ModelKind)}
+                value={providerId}
+                onChange={(e) => changeProvider(e.target.value)}
                 options={[
-                  { value: 'responses', label: '对话模型（Responses API）' },
-                  { value: 'chat', label: '对话模型（chat/completions）' },
-                  { value: 'image', label: '生图模型（/images/generations）' },
+                  { value: '', label: '请选择供应商' },
+                  ...(
+                    providers ?? (model ? [{ id: model.providerId, name: model.providerName }] : [])
+                  ).map((p) => ({ value: p.id, label: p.name })),
                 ]}
               />
             </Field>
-          )}
 
-          {selectedProviderProtocol === 'anthropic' && (
-            <div className="rounded-xl border border-neutral-200 bg-neutral-50 px-3.5 py-3 dark:border-neutral-700 dark:bg-neutral-800/60">
-              <p className="text-sm font-medium text-neutral-700 dark:text-neutral-200">
-                Anthropic Messages API
-              </p>
-              <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-                模型类型由供应商协议自动确定，请求发送至{' '}
-                <code className="font-mono">/v1/messages</code>。
-              </p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Field label="模型 ID">
+                <input
+                  className={fieldClass}
+                  value={modelId}
+                  onChange={(e) => setModelId(e.target.value)}
+                  onBlur={() => {
+                    if (kind !== 'anthropic') return
+                    const targetModelId = modelId.trim() || MODEL_INPUT_EXAMPLES.anthropic.modelId
+                    if (targetModelId === lastAppliedAnthropicModelIdRef.current) return
+                    applyAnthropicPreset(targetModelId, false)
+                  }}
+                  placeholder={modelInputExample?.modelId ?? '请先选择供应商'}
+                />
+              </Field>
+              <Field label="外显名称">
+                <input
+                  className={fieldClass}
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  placeholder={modelInputExample?.displayName ?? '请先选择供应商'}
+                />
+              </Field>
             </div>
-          )}
 
-          <Field label="模型描述（可选）">
-            <textarea
-              className={`${fieldClass} min-h-[72px] resize-y leading-6`}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              maxLength={500}
-              placeholder="用户在模型选择器中点击 ⓘ 可查看，例如：适合复杂推理与长文写作"
-            />
-          </Field>
-
-          <TagsInput tags={tags} onChange={setTags} />
-
-          <IconPicker
-            value={icon}
-            onChange={setIcon}
-            emptyState={{
-              preview: hasModelIdentity ? (
-                <ModelIconMark
-                  icon={null}
-                  modelId={modelId}
-                  displayName={displayName}
+            {selectedProviderProtocol === 'openai' && (
+              <Field label="类型">
+                <Select
                   size="md"
-                  className={DEFAULT_MODEL_ICON_TONE_CLASS}
+                  className="w-full"
+                  value={kind}
+                  onChange={(e) => changeKind(e.target.value as ModelKind)}
+                  options={[
+                    { value: 'responses', label: '对话模型（Responses API）' },
+                    { value: 'chat', label: '对话模型（chat/completions）' },
+                    { value: 'image', label: '生图模型（/images/generations）' },
+                  ]}
                 />
-              ) : undefined,
-              title: !hasModelIdentity
-                ? '尚未生成图标预览'
-                : autoIconSlug
-                  ? '自动识别品牌图标'
-                  : '名称首字母',
-              description: !hasModelIdentity
-                ? '填写模型 ID 或外显名称后自动识别，也可以直接手动选择'
-                : autoIconSlug
-                  ? `未显式设置 · ${autoIconSlug}`
-                  : '未识别到品牌，当前使用模型名称首字母',
-            }}
-            initialOption={{
-              preview: hasModelIdentity ? (
-                <ModelIconMark
-                  icon={{ type: 'initial' }}
-                  modelId={modelId}
-                  displayName={displayName}
-                  size="md"
-                />
-              ) : null,
-              available: hasModelIdentity,
-              showDefaultShortcut: Boolean(autoIconSlug),
-            }}
-          />
+              </Field>
+            )}
 
-          <Field label="所属分组（可选）">
-            <Select
-              size="md"
-              className="w-full"
-              value={groupId}
-              onChange={(e) => setGroupId(e.target.value)}
-              options={[
-                { value: '', label: '未分组' },
-                ...(modelGroups ?? []).map((group) => ({ value: group.id, label: group.name })),
-              ]}
-            />
-          </Field>
-        </FormSection>
+            {selectedProviderProtocol === 'anthropic' && (
+              <div className="rounded-xl border border-neutral-200 bg-neutral-50 px-3.5 py-3 dark:border-neutral-700 dark:bg-neutral-800/60">
+                <p className="text-sm font-medium text-neutral-700 dark:text-neutral-200">
+                  Anthropic Messages API
+                </p>
+                <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+                  模型类型由供应商协议自动确定，请求发送至{' '}
+                  <code className="font-mono">/v1/messages</code>。
+                </p>
+              </div>
+            )}
 
-        {/* ============ 能力 ============ */}
-        <FormSection title="能力">
-          {/* 两列开关：四项能力收进两行，缩短长表单。 */}
-          <div className="grid grid-cols-1 gap-x-8 gap-y-2.5 sm:grid-cols-2">
-            {EDITABLE_CAP_KEYS.filter(
-              (key) =>
-                !(kind === 'chat' && (key === 'web_search' || key === 'x_search')) &&
-                !(kind === 'anthropic' && key === 'x_search'),
-            ).map((key) => (
-              <label key={key} className="flex items-center justify-between gap-3 text-sm">
-                <span className="text-neutral-600 dark:text-neutral-300">{CAP_LABELS[key]}</span>
-                <Toggle
-                  checked={caps[key]}
-                  onChange={() => toggleCap(key)}
-                  disabled={
-                    kind === 'anthropic' &&
-                    key === 'reasoning' &&
-                    caps.reasoning &&
-                    !activeAnthropicProfile?.canDisableThinking
-                  }
-                />
-              </label>
-            ))}
-          </div>
-
-          {caps.reasoning && (
-            <ReasoningEffortEditor
-              drafts={reasoningEffortDrafts}
-              defaultDraftId={defaultEffortDraftId}
-              onDraftsChange={setReasoningEffortDrafts}
-              onDefaultDraftIdChange={setDefaultEffortDraftId}
-            />
-          )}
-
-          {(kind === 'anthropic' || (kind === 'responses' && caps.reasoning)) && (
-            <div className="border-t border-neutral-100 pt-3 dark:border-neutral-800">
-              <ToggleRow
-                label="回传提供商私有上下文"
-                description={
-                  kind === 'anthropic' ? (
-                    <>
-                      开启后，服务端会私密保存并原样回传完整 assistant blocks（含 thinking
-                      签名、redacted_thinking、搜索密文与引用索引）；这些字段不会发送到浏览器或分享快照。联网搜索也依赖这些上下文，而不只是在思考开启时使用。
-                      <br />
-                      开启该选项有助于保持多轮思考与搜索连续并提高缓存命中；关闭后普通对话仍可继续，但后续可能丢失旧搜索上下文、重复搜索。
-                    </>
-                  ) : (
-                    '开启后，思考模型的加密推理上下文（encrypted_content）将随对话历史回传上游，可提升多轮推理连贯性与缓存命中，但会增大请求体与输入 token。'
-                  )
-                }
-                checked={replayProviderContext}
-                onChange={setReplayProviderContext}
+            <Field label="模型描述（可选）">
+              <textarea
+                className={`${fieldClass} min-h-[72px] resize-y leading-6`}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                maxLength={500}
+                placeholder="用户在模型选择器中点击 ⓘ 可查看，例如：适合复杂推理与长文写作"
               />
-            </div>
-          )}
+            </Field>
 
-          {kind !== 'chat' && caps.web_search && (
-            <ToggleRow
-              label="默认开启联网搜索"
-              checked={defaultWebSearch}
-              onChange={setDefaultWebSearch}
+            <TagsInput tags={tags} onChange={setTags} />
+
+            <IconPicker
+              value={icon}
+              onChange={setIcon}
+              emptyState={{
+                preview: hasModelIdentity ? (
+                  <ModelIconMark
+                    icon={null}
+                    modelId={modelId}
+                    displayName={displayName}
+                    size="md"
+                    className={DEFAULT_MODEL_ICON_TONE_CLASS}
+                  />
+                ) : undefined,
+                title: !hasModelIdentity
+                  ? '尚未生成图标预览'
+                  : autoIconSlug
+                    ? '自动识别品牌图标'
+                    : '名称首字母',
+                description: !hasModelIdentity
+                  ? '填写模型 ID 或外显名称后自动识别，也可以直接手动选择'
+                  : autoIconSlug
+                    ? `未显式设置 · ${autoIconSlug}`
+                    : '未识别到品牌，当前使用模型名称首字母',
+              }}
+              initialOption={{
+                preview: hasModelIdentity ? (
+                  <ModelIconMark
+                    icon={{ type: 'initial' }}
+                    modelId={modelId}
+                    displayName={displayName}
+                    size="md"
+                  />
+                ) : null,
+                available: hasModelIdentity,
+                showDefaultShortcut: Boolean(autoIconSlug),
+              }}
             />
-          )}
 
-          {kind !== 'chat' && kind !== 'anthropic' && caps.x_search && (
-            <ToggleRow
-              label="默认开启 X 搜索"
-              description="xAI Grok 专有的 X（原 Twitter）站内检索工具，与联网搜索相互独立、可同时开启。"
-              checked={defaultXSearch}
-              onChange={setDefaultXSearch}
-            />
-          )}
-        </FormSection>
+            <Field label="所属分组（可选）">
+              <Select
+                size="md"
+                className="w-full"
+                value={groupId}
+                onChange={(e) => setGroupId(e.target.value)}
+                options={[
+                  { value: '', label: '未分组' },
+                  ...(modelGroups ?? []).map((group) => ({ value: group.id, label: group.name })),
+                ]}
+              />
+            </Field>
+          </FormSection>
 
-        {/* ============ 默认系统提示词 ============ */}
-        <FormSection
-          title="默认系统提示词"
-          hint="可选，作为该模型的默认 system 指令；支持下方变量。"
-        >
-          <textarea
-            ref={promptRef}
-            className={`${fieldClass} min-h-[168px] resize-y leading-6`}
-            value={systemPrompt}
-            onChange={(e) => setSystemPrompt(e.target.value)}
-            placeholder="例如：你是 {{model_name}}，当前用户是 {{current_user}}，今天是 {{current_date}}……"
-          />
-          <div className="rounded-xl bg-neutral-50 p-3 dark:bg-neutral-800/50">
-            <div className="mb-2 text-xs text-neutral-500">
-              可用变量（点击插入到光标处，请求时按当前用户、模型或时间自动替换）：
-            </div>
-            <div className="grid grid-cols-1 gap-y-0.5">
-              {PROMPT_VARIABLES.map((v) => (
-                <button
-                  key={v.name}
-                  type="button"
-                  onClick={() => insertVariable(v.name)}
-                  className="grid grid-cols-[9rem_1fr] items-baseline gap-x-3 rounded-md px-1.5 py-1 text-left transition hover:bg-neutral-100 dark:hover:bg-neutral-800"
-                >
-                  <code className="justify-self-start rounded bg-neutral-200/70 px-1 font-mono text-[11px] text-neutral-700 dark:bg-neutral-700/60 dark:text-neutral-200">
-                    {`{{${v.name}}}`}
-                  </code>
-                  <span
-                    className={`text-xs leading-5 ${v.cacheVolatile ? 'text-amber-600 dark:text-amber-400' : 'text-neutral-500 dark:text-neutral-400'}`}
-                  >
-                    {v.description}
-                    {v.cacheVolatile ? '；动态值会降低缓存命中率' : ''}
-                  </span>
-                </button>
+          {/* ============ 能力 ============ */}
+          <FormSection title="能力" hidden={section !== 'capabilities'}>
+            {/* 两列开关：四项能力收进两行，缩短长表单。 */}
+            <div className="grid grid-cols-1 gap-x-8 gap-y-2.5 sm:grid-cols-2">
+              {EDITABLE_CAP_KEYS.filter(
+                (key) =>
+                  !(kind === 'chat' && (key === 'web_search' || key === 'x_search')) &&
+                  !(kind === 'anthropic' && key === 'x_search'),
+              ).map((key) => (
+                <label key={key} className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-neutral-600 dark:text-neutral-300">{CAP_LABELS[key]}</span>
+                  <Toggle
+                    checked={caps[key]}
+                    onChange={() => toggleCap(key)}
+                    disabled={
+                      kind === 'anthropic' &&
+                      key === 'reasoning' &&
+                      caps.reasoning &&
+                      !activeAnthropicProfile?.canDisableThinking
+                    }
+                  />
+                </label>
               ))}
             </div>
-          </div>
-        </FormSection>
 
-        {/* ============ 文本模型默认参数 ============ */}
-        {(kind === 'responses' || kind === 'anthropic') && (
-          <FormSection
-            title="默认参数"
-            hint={
-              kind === 'anthropic'
-                ? 'max_output_tokens 为必填项，发送时映射为 max_tokens；预设 16000，取自 Anthropic thinking 指南的宽裕示例值。'
-                : '用户未覆盖时使用；留空表示交给上游默认。'
-            }
-          >
-            <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 sm:grid-cols-4">
-              <SmallField label="temperature">
-                <input
-                  className={compactFieldClass}
-                  type="number"
-                  step="0.1"
-                  value={params.temperature ?? ''}
-                  onChange={(e) =>
-                    setParams((p) => ({ ...p, temperature: numOrUndef(e.target.value) }))
+            {caps.reasoning && (
+              <ReasoningEffortEditor
+                drafts={reasoningEffortDrafts}
+                defaultDraftId={defaultEffortDraftId}
+                onDraftsChange={setReasoningEffortDrafts}
+                onDefaultDraftIdChange={setDefaultEffortDraftId}
+              />
+            )}
+
+            {(kind === 'anthropic' || (kind === 'responses' && caps.reasoning)) && (
+              <div className="border-t border-neutral-100 pt-3 dark:border-neutral-800">
+                <ToggleRow
+                  label="回传提供商私有上下文"
+                  description={
+                    kind === 'anthropic' ? (
+                      <>
+                        开启后，服务端会私密保存并原样回传完整 assistant blocks（含 thinking
+                        签名、redacted_thinking、搜索密文与引用索引）；这些字段不会发送到浏览器或分享快照。联网搜索也依赖这些上下文，而不只是在思考开启时使用。
+                        <br />
+                        开启该选项有助于保持多轮思考与搜索连续并提高缓存命中；关闭后普通对话仍可继续，但后续可能丢失旧搜索上下文、重复搜索。
+                      </>
+                    ) : (
+                      '开启后，思考模型的加密推理上下文（encrypted_content）将随对话历史回传上游，可提升多轮推理连贯性与缓存命中，但会增大请求体与输入 token。'
+                    )
                   }
-                  placeholder="默认"
+                  checked={replayProviderContext}
+                  onChange={setReplayProviderContext}
                 />
-              </SmallField>
-              <SmallField label="top_p">
-                <input
-                  className={compactFieldClass}
-                  type="number"
-                  step="0.05"
-                  value={params.top_p ?? ''}
-                  onChange={(e) => setParams((p) => ({ ...p, top_p: numOrUndef(e.target.value) }))}
-                  placeholder="默认"
-                />
-              </SmallField>
-              {kind === 'responses' && (
-                <SmallField label="verbosity">
-                  <Select
-                    className="w-full"
-                    value={params.verbosity ?? ''}
-                    onChange={(e) =>
-                      setParams((p) => ({
-                        ...p,
-                        verbosity: (e.target.value || undefined) as ModelParams['verbosity'],
-                      }))
-                    }
-                    options={[
-                      { value: '', label: '默认' },
-                      { value: 'low', label: 'low' },
-                      { value: 'medium', label: 'medium' },
-                      { value: 'high', label: 'high' },
-                    ]}
-                  />
-                </SmallField>
-              )}
-              <SmallField
-                label={
-                  kind === 'anthropic' ? (
-                    <span className="whitespace-nowrap">
-                      max_output_tokens{' '}
-                      <span className="text-rose-500 dark:text-rose-400" aria-hidden="true">
-                        *
-                      </span>
-                      <span className="sr-only">（必填）</span>
+              </div>
+            )}
+
+            {kind !== 'chat' && caps.web_search && (
+              <ToggleRow
+                label="默认开启联网搜索"
+                checked={defaultWebSearch}
+                onChange={setDefaultWebSearch}
+              />
+            )}
+
+            {kind !== 'chat' && kind !== 'anthropic' && caps.x_search && (
+              <ToggleRow
+                label="默认开启 X 搜索"
+                description="xAI Grok 专有的 X（原 Twitter）站内检索工具，与联网搜索相互独立、可同时开启。"
+                checked={defaultXSearch}
+                onChange={setDefaultXSearch}
+              />
+            )}
+          </FormSection>
+
+          {/* ============ 默认系统提示词 ============ */}
+          <FormSection
+            title="默认系统提示词"
+            hidden={section !== 'prompt'}
+            hint="可选，作为该模型的默认 system 指令；支持下方变量。"
+          >
+            <textarea
+              ref={promptRef}
+              className={`${fieldClass} min-h-[168px] resize-y leading-6`}
+              value={systemPrompt}
+              onChange={(e) => setSystemPrompt(e.target.value)}
+              placeholder="例如：你是 {{model_name}}，当前用户是 {{current_user}}，今天是 {{current_date}}……"
+            />
+            <div className="rounded-xl bg-neutral-50 p-3 dark:bg-neutral-800/50">
+              <div className="mb-2 text-xs text-neutral-500">
+                可用变量（点击插入到光标处，请求时按当前用户、模型或时间自动替换）：
+              </div>
+              <div className="grid grid-cols-1 gap-y-0.5">
+                {PROMPT_VARIABLES.map((v) => (
+                  <button
+                    key={v.name}
+                    type="button"
+                    onClick={() => insertVariable(v.name)}
+                    className="grid grid-cols-[9rem_1fr] items-baseline gap-x-3 rounded-md px-1.5 py-1 text-left transition hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                  >
+                    <code className="justify-self-start rounded bg-neutral-200/70 px-1 font-mono text-[11px] text-neutral-700 dark:bg-neutral-700/60 dark:text-neutral-200">
+                      {`{{${v.name}}}`}
+                    </code>
+                    <span
+                      className={`text-xs leading-5 ${v.cacheVolatile ? 'text-amber-600 dark:text-amber-400' : 'text-neutral-500 dark:text-neutral-400'}`}
+                    >
+                      {v.description}
+                      {v.cacheVolatile ? '；动态值会降低缓存命中率' : ''}
                     </span>
-                  ) : (
-                    'max_output_tokens'
-                  )
-                }
-              >
-                <input
-                  className={compactFieldClass}
-                  type="number"
-                  min={1}
-                  step={1}
-                  required={kind === 'anthropic'}
-                  value={params.max_output_tokens ?? ''}
-                  onChange={(e) => {
-                    autoFilledAnthropicMaxOutputTokensRef.current = false
-                    setParams((p) => ({ ...p, max_output_tokens: numOrUndef(e.target.value) }))
-                  }}
-                  placeholder={kind === 'anthropic' ? '16000' : '默认'}
-                />
-              </SmallField>
+                  </button>
+                ))}
+              </div>
             </div>
           </FormSection>
-        )}
 
-        {/* ============ 定价 ============ */}
-        <FormSection
-          title="定价"
-          hint="USD / 每 100 万 tokens，用于成本估算；修改后只影响新请求，不会重算历史成本。缓存写入、读取均是总输入的子项，其价格留空时回退到普通输入价；其他价格留空不计。"
-        >
-          <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 sm:grid-cols-3">
-            {(
-              [
-                ['input', '普通输入 input'],
-                ['output', '输出 output'],
-                ['cachedInput', '缓存读取/输入 cache read/input'],
-                ['cacheWriteInput', '缓存写入 cache write'],
-                ['image', '图片 image'],
-              ] as const
-            ).map(([key, label]) => (
-              <SmallField key={key} label={label}>
-                <input
-                  className={compactFieldClass}
-                  type="number"
-                  step="any"
-                  min="0"
-                  value={pricing[key] ?? ''}
-                  onChange={(e) => setPricing((p) => ({ ...p, [key]: numOrUndef(e.target.value) }))}
-                  placeholder="未设置"
-                />
-              </SmallField>
-            ))}
-          </div>
-        </FormSection>
-
-        {/* ============ 高级 ============ */}
-        <FormSection title="高级">
-          <Field label="请求体硬参数（JSON）">
-            <textarea
-              className={`${fieldClass} min-h-[168px] resize-y font-mono text-xs`}
-              value={hardParamsText}
-              onChange={(e) => {
-                managedAnthropicHardParamsPresetRef.current = null
-                setHardParamsText(e.target.value)
-              }}
-              placeholder={
+          {/* ============ 文本模型默认参数 ============ */}
+          {(kind === 'responses' || kind === 'anthropic') && (
+            <FormSection
+              title="默认参数"
+              hidden={section !== 'capabilities'}
+              hint={
                 kind === 'anthropic'
-                  ? '例如 {"thinking":{"type":"adaptive"}}'
-                  : '例如 {"reasoning":{"summary":"auto"}}'
+                  ? 'max_output_tokens 为必填项，发送时映射为 max_tokens；预设 16000，取自 Anthropic thinking 指南的宽裕示例值。'
+                  : '用户未覆盖时使用；留空表示交给上游默认。'
               }
-              spellCheck={false}
-            />
-          </Field>
-          <p className="text-xs leading-5 text-neutral-400">
-            会按「硬参数 &gt; 用户参数 &gt; 模型默认」深度合并进上游请求体，完全可控（如
-            summary、store、include 等）。留空表示无。
-          </p>
-          {kind === 'anthropic' && (
-            <div className="space-y-1 text-xs leading-5 text-neutral-400">
-              <p>
-                必填的 <code className="font-mono">max_tokens</code> 由上方{' '}
-                <code className="font-mono">max_output_tokens</code>{' '}
-                生成；只有需要管理员硬覆盖时才在这里显式填写{' '}
-                <code className="font-mono">max_tokens</code>。
-              </p>
-              <p>
-                顶层 <code className="font-mono">cache_control: ephemeral</code>{' '}
-                启用官方自动提示缓存，默认有效期 5
-                分钟；首次写入产生缓存写入费用，命中后可降低延迟与输入成本。
-              </p>
-              <p>
-                <code className="font-mono">thinking.type</code> 的默认模板会按模型 ID
-                自动选择：支持时优先使用 <code className="font-mono">adaptive</code>
-                ，仅支持手动扩展思考的型号使用{' '}
-                <code className="font-mono">enabled + budget_tokens</code>。
-              </p>
-              <p>
-                <code className="font-mono">thinking.display: summarized</code> 是公开 API
-                最详细的可见推理摘要，摘要生成本身不额外计费，并且只在思考开启时下发。
-              </p>
+            >
+              <div className="grid grid-cols-2 items-end gap-x-3 gap-y-2.5 lg:grid-cols-4">
+                <SmallField label="temperature">
+                  <input
+                    className={compactFieldClass}
+                    type="number"
+                    step="0.1"
+                    value={params.temperature ?? ''}
+                    onChange={(e) =>
+                      setParams((p) => ({ ...p, temperature: numOrUndef(e.target.value) }))
+                    }
+                    placeholder="默认"
+                  />
+                </SmallField>
+                <SmallField label="top_p">
+                  <input
+                    className={compactFieldClass}
+                    type="number"
+                    step="0.05"
+                    value={params.top_p ?? ''}
+                    onChange={(e) =>
+                      setParams((p) => ({ ...p, top_p: numOrUndef(e.target.value) }))
+                    }
+                    placeholder="默认"
+                  />
+                </SmallField>
+                {kind === 'responses' && (
+                  <SmallField label="verbosity">
+                    <Select
+                      className="w-full"
+                      value={params.verbosity ?? ''}
+                      onChange={(e) =>
+                        setParams((p) => ({
+                          ...p,
+                          verbosity: (e.target.value || undefined) as ModelParams['verbosity'],
+                        }))
+                      }
+                      options={[
+                        { value: '', label: '默认' },
+                        { value: 'low', label: 'low' },
+                        { value: 'medium', label: 'medium' },
+                        { value: 'high', label: 'high' },
+                      ]}
+                    />
+                  </SmallField>
+                )}
+                <SmallField
+                  label={
+                    kind === 'anthropic' ? (
+                      <span className="whitespace-nowrap">
+                        max_output_tokens{' '}
+                        <span className="text-rose-500 dark:text-rose-400" aria-hidden="true">
+                          *
+                        </span>
+                        <span className="sr-only">（必填）</span>
+                      </span>
+                    ) : (
+                      'max_output_tokens'
+                    )
+                  }
+                >
+                  <input
+                    className={compactFieldClass}
+                    type="number"
+                    min={1}
+                    step={1}
+                    required={kind === 'anthropic'}
+                    value={params.max_output_tokens ?? ''}
+                    onChange={(e) => {
+                      autoFilledAnthropicMaxOutputTokensRef.current = false
+                      setParams((p) => ({ ...p, max_output_tokens: numOrUndef(e.target.value) }))
+                    }}
+                    placeholder={kind === 'anthropic' ? '16000' : '默认'}
+                  />
+                </SmallField>
+              </div>
+            </FormSection>
+          )}
+
+          {/* ============ 定价 ============ */}
+          <FormSection
+            title="定价"
+            hidden={section !== 'pricing'}
+            hint="USD / 每 100 万 tokens，用于成本估算；修改后只影响新请求，不会重算历史成本。缓存写入、读取均是总输入的子项，其价格留空时回退到普通输入价；其他价格留空不计。"
+          >
+            <div className="grid grid-cols-2 items-end gap-x-3 gap-y-2.5 lg:grid-cols-3">
+              {(
+                [
+                  ['input', '普通输入 input'],
+                  ['output', '输出 output'],
+                  ['cachedInput', '缓存读取/输入 cache read/input'],
+                  ['cacheWriteInput', '缓存写入 cache write'],
+                  ['image', '图片 image'],
+                ] as const
+              ).map(([key, label]) => (
+                <SmallField key={key} label={label}>
+                  <input
+                    className={compactFieldClass}
+                    type="number"
+                    step="any"
+                    min="0"
+                    value={pricing[key] ?? ''}
+                    onChange={(e) =>
+                      setPricing((p) => ({ ...p, [key]: numOrUndef(e.target.value) }))
+                    }
+                    placeholder="未设置"
+                  />
+                </SmallField>
+              ))}
             </div>
+          </FormSection>
+
+          {/* ============ 高级 ============ */}
+          <FormSection title="高级" hidden={section !== 'advanced'}>
+            <Field label="请求体硬参数（JSON）">
+              <textarea
+                className={`${fieldClass} min-h-[168px] resize-y font-mono text-xs`}
+                value={hardParamsText}
+                onChange={(e) => {
+                  managedAnthropicHardParamsPresetRef.current = null
+                  setHardParamsText(e.target.value)
+                }}
+                placeholder={
+                  kind === 'anthropic'
+                    ? '例如 {"thinking":{"type":"adaptive"}}'
+                    : '例如 {"reasoning":{"summary":"auto"}}'
+                }
+                spellCheck={false}
+              />
+            </Field>
+            <p className="text-xs leading-5 text-neutral-400">
+              会按「硬参数 &gt; 用户参数 &gt; 模型默认」深度合并进上游请求体，完全可控（如
+              summary、store、include 等）。留空表示无。
+            </p>
+            {kind === 'anthropic' && (
+              <div className="space-y-1 text-xs leading-5 text-neutral-400">
+                <p>
+                  必填的 <code className="font-mono">max_tokens</code> 由上方{' '}
+                  <code className="font-mono">max_output_tokens</code>{' '}
+                  生成；只有需要管理员硬覆盖时才在这里显式填写{' '}
+                  <code className="font-mono">max_tokens</code>。
+                </p>
+                <p>
+                  顶层 <code className="font-mono">cache_control: ephemeral</code>{' '}
+                  启用官方自动提示缓存，默认有效期 5
+                  分钟；首次写入产生缓存写入费用，命中后可降低延迟与输入成本。
+                </p>
+                <p>
+                  <code className="font-mono">thinking.type</code> 的默认模板会按模型 ID
+                  自动选择：支持时优先使用 <code className="font-mono">adaptive</code>
+                  ，仅支持手动扩展思考的型号使用{' '}
+                  <code className="font-mono">enabled + budget_tokens</code>。
+                </p>
+                <p>
+                  <code className="font-mono">thinking.display: summarized</code> 是公开 API
+                  最详细的可见推理摘要，摘要生成本身不额外计费，并且只在思考开启时下发。
+                </p>
+              </div>
+            )}
+            {kind === 'anthropic' ? (
+              <p className="text-xs leading-5 text-neutral-400">
+                <code className="font-mono">tools</code> 中的原生联网模板必须显式包含官方带版本的
+                type（默认 <code className="font-mono">web_search_20250305</code>）与{' '}
+                <code className="font-mono">name: web_search</code>
+                。联网开关只决定是否保留这条模板；
+                删除模板后，即使打开联网也不会暗中补回。日期后缀是官方固定的工具协议版本，不是失效日期；默认不设置{' '}
+                <code className="font-mono">max_uses</code>
+                ，不人为限制单次搜索次数。其他自定义工具原样保留。
+              </p>
+            ) : kind === 'chat' ? (
+              <p className="text-xs leading-5 text-neutral-400">
+                Chat Completions 不提供站内的联网搜索或 X
+                搜索开关；其他上游支持的硬参数仍会原样合并。
+              </p>
+            ) : (
+              <p className="text-xs leading-5 text-neutral-400">
+                <code className="font-mono">tools</code> 里的{' '}
+                <code className="font-mono">web_search</code> /{' '}
+                <code className="font-mono">x_search</code>{' '}
+                只作为参数模板：开关开启时与生成的工具合并（如{' '}
+                <code className="break-all font-mono">
+                  {'{"tools":[{"type":"web_search","enable_image_search":false}]}'}
+                </code>
+                ），关闭时整条丢弃，不会反过来把工具塞进请求。其他工具仍可在这里直接追加。
+              </p>
+            )}
+          </FormSection>
+        </fieldset>
+      </Modal>
+      {switchTarget && (
+        <Modal
+          open
+          title="切换前保存修改？"
+          onClose={() => setSwitchTarget(null)}
+          dismissible={!save.isPending}
+          footer={
+            <div className="flex w-full flex-wrap justify-end gap-2">
+              <Button
+                variant="ghost"
+                disabled={save.isPending}
+                onClick={() => setSwitchTarget(null)}
+              >
+                继续编辑
+              </Button>
+              <Button
+                variant="secondary"
+                disabled={save.isPending}
+                onClick={() => onSelectModel?.(switchTarget, section)}
+              >
+                放弃并切换
+              </Button>
+              <Button
+                disabled={!canSave}
+                loading={save.isPending}
+                onClick={() => save.mutate(switchTarget)}
+              >
+                保存并切换
+              </Button>
+            </div>
+          }
+        >
+          <p className="text-sm text-neutral-600 dark:text-neutral-300">
+            「{displayName}」有未保存的修改。下一模型为「{switchTarget.displayName}」。
+          </p>
+          {validationMessage && (
+            <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">{validationMessage}</p>
           )}
-          {kind === 'anthropic' ? (
-            <p className="text-xs leading-5 text-neutral-400">
-              <code className="font-mono">tools</code> 中的原生联网模板必须显式包含官方带版本的
-              type（默认 <code className="font-mono">web_search_20250305</code>）与{' '}
-              <code className="font-mono">name: web_search</code>。联网开关只决定是否保留这条模板；
-              删除模板后，即使打开联网也不会暗中补回。日期后缀是官方固定的工具协议版本，不是失效日期；默认不设置{' '}
-              <code className="font-mono">max_uses</code>
-              ，不人为限制单次搜索次数。其他自定义工具原样保留。
-            </p>
-          ) : kind === 'chat' ? (
-            <p className="text-xs leading-5 text-neutral-400">
-              Chat Completions 不提供站内的联网搜索或 X 搜索开关；其他上游支持的硬参数仍会原样合并。
-            </p>
-          ) : (
-            <p className="text-xs leading-5 text-neutral-400">
-              <code className="font-mono">tools</code> 里的{' '}
-              <code className="font-mono">web_search</code> /{' '}
-              <code className="font-mono">x_search</code>{' '}
-              只作为参数模板：开关开启时与生成的工具合并（如{' '}
-              <code className="break-all font-mono">
-                {'{"tools":[{"type":"web_search","enable_image_search":false}]}'}
-              </code>
-              ），关闭时整条丢弃，不会反过来把工具塞进请求。其他工具仍可在这里直接追加。
-            </p>
-          )}
-        </FormSection>
-      </div>
-    </Modal>
+        </Modal>
+      )}
+    </>
   )
 }

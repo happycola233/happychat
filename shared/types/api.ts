@@ -446,6 +446,10 @@ export interface Paginated<T> {
 
 /** 概览页：核心指标 + 请求健康时间线。 */
 export interface OverviewDTO {
+  bucket: 'hour' | 'day'
+  /** 紧邻所选区间的等长上一时段；全部时间不比较。 */
+  previous: { requests: number; tokens: number; costUsd: number; activeUsers: number } | null
+  outcomes: { result: UsageResult; count: number }[]
   totals: {
     requests: number
     /** legacy success=true 占比；截断与取消不算上游失败。 */
@@ -459,6 +463,10 @@ export interface OverviewDTO {
     conversations: number
     messages: number
     errors: number
+    activeUsers: number
+    failedRequests: number
+    avgDurationMs: number | null
+    avgFirstTokenLatencyMs: number | null
   }
   /** 按时间桶的请求量与错误量，用于健康时间线。 */
   healthTimeline: { ts: number; requests: number; errors: number }[]
@@ -468,6 +476,7 @@ export interface OverviewDTO {
 export interface AnalyticsSeriesPoint {
   ts: number
   requests: number
+  totalTokens: number
   inputTokens: number
   cacheWriteTokens: number
   cachedTokens: number
@@ -479,6 +488,19 @@ export interface AnalyticsSeriesPoint {
 export interface AnalyticsDTO {
   bucket: 'hour' | 'day'
   series: AnalyticsSeriesPoint[]
+  models: UsageBreakdownDTO[]
+  providers: UsageBreakdownDTO[]
+}
+
+/** 用量排行保留已删除对象的快照；仅 id 非空时可以继续按对象筛选。 */
+export interface UsageBreakdownDTO {
+  key: string
+  id: string | null
+  label: string
+  requests: number
+  totalTokens: number
+  costUsd: number
+  failedRequests: number
 }
 
 /** 分用户统计（分析页用户表 / 用户详情头部）。 */

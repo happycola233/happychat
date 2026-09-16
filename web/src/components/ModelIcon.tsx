@@ -118,7 +118,12 @@ export function ModelIconMark({
       return (
         <span
           aria-hidden
-          className={clsx('shrink-0', ICON_SIZE_CLASS[size], 'hc-icon-mask', className)}
+          className={clsx(
+            'inline-block shrink-0 align-middle',
+            ICON_SIZE_CLASS[size],
+            'hc-icon-mask',
+            className,
+          )}
           style={
             {
               '--hc-icon-url': `url("${lobeIconUrl(resolved.slug, catalog?.version)}")`,
@@ -166,7 +171,7 @@ export function ModelIconMark({
     <span
       aria-hidden
       className={clsx(
-        'relative shrink-0',
+        'relative inline-block shrink-0 align-middle',
         DEFAULT_MODEL_ICON_TONE_CLASS,
         ICON_SIZE_CLASS[size],
         className,

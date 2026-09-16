@@ -25,7 +25,7 @@ describe('Select', () => {
     expect(html).toContain('aria-expanded="false"')
     expect(html).toContain('rounded-lg')
     expect(html).toContain('max-w-56')
-    expect(html).toContain('dark:bg-neutral-800')
+    expect(html).toContain('dark:bg-neutral-900')
   })
 
   it('表单尺寸与无障碍名称走触发器，不回退浏览器默认箭头', () => {
@@ -45,7 +45,8 @@ describe('Select', () => {
     expect(html).toContain('aria-label="每页条数"')
     expect(html).toContain('50 条')
     expect(html).toContain('w-full')
-    expect(html).toContain('rounded-xl')
+    expect(html).toContain('rounded-lg')
+    expect(html).toContain('min-h-9')
     expect(html).not.toContain('<select')
   })
 })

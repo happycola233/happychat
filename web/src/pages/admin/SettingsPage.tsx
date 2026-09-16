@@ -1,4 +1,6 @@
+import { LoadError } from '../../components/ui/LoadError'
 import { useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { RotateCcw } from 'lucide-react'
 import { DEFAULT_TITLE_PROMPT } from '@shared/constants'
@@ -11,6 +13,8 @@ import { PageHeader } from '../../components/ui/PageHeader'
 import { Select } from '../../components/ui/Select'
 import { Spinner } from '../../components/ui/Spinner'
 import { Toggle } from '../../components/ui/Toggle'
+import { SegmentedControl } from '../../components/ui/SegmentedControl'
+import { inputClass } from '../../components/ui/controlStyles'
 import { APP_VERSION } from '../../lib/buildInfo'
 import { toast } from '../../store/toast'
 
@@ -43,18 +47,30 @@ const toTitleDraft = (config: AppConfigDTO): TitleDraft => ({
 export default function SettingsPage() {
   const qc = useQueryClient()
   const { data: stats } = useQuery({ queryKey: ['admin', 'stats'], queryFn: getStats })
-  const { data: config } = useQuery({
+  const {
+    data: config,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ['admin', 'app-config'],
     queryFn: getAppConfig,
   })
   const { data: models } = useQuery({ queryKey: ['admin', 'models'], queryFn: listAdminModels })
 
   const [titleDraft, setTitleDraft] = useState<TitleDraft | null>(null)
+  const [section, setSection] = useState('general')
   // 在渲染期（而非 effect 里）同步服务端配置：effect 要等一帧才生效，会先把旧草稿刷到屏幕上造成闪烁。
   const syncedConfigRef = useRef<AppConfigDTO | null>(null)
   if (config && syncedConfigRef.current !== config) {
+    const previousConfig = syncedConfigRef.current
     syncedConfigRef.current = config
-    setTitleDraft(toTitleDraft(config))
+    // 保存其他开关会刷新整份配置；已有标题草稿不能因此被覆盖。
+    if (
+      !titleDraft ||
+      (previousConfig &&
+        JSON.stringify(titleDraft) === JSON.stringify(toTitleDraft(previousConfig)))
+    )
+      setTitleDraft(toTitleDraft(config))
   }
 
   const invalidateConfig = () => qc.invalidateQueries({ queryKey: ['admin', 'app-config'] })
@@ -86,8 +102,7 @@ export default function SettingsPage() {
   })
 
   const updateCostCurrency = useMutation({
-    mutationFn: (costCurrency: AppConfigDTO['costCurrency']) =>
-      updateAppConfig({ costCurrency }),
+    mutationFn: (costCurrency: AppConfigDTO['costCurrency']) => updateAppConfig({ costCurrency }),
     onSuccess: () => {
       invalidateConfig()
       void qc.invalidateQueries({ queryKey: ['conversation'] })
@@ -106,185 +121,253 @@ export default function SettingsPage() {
         titlePrompt: prompt && prompt !== DEFAULT_TITLE_PROMPT ? prompt : null,
       })
     },
-    onSuccess: () => {
+    onSuccess: (savedConfig) => {
       toast.success('已保存')
-      invalidateConfig()
+      setTitleDraft(toTitleDraft(savedConfig))
+      qc.setQueryData(['admin', 'app-config'], savedConfig)
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : '保存失败'),
   })
 
   const textModels = (models ?? []).filter((m) => m.kind !== 'image')
   const promptIsDefault = titleDraft?.prompt.trim() === DEFAULT_TITLE_PROMPT
+  const titleDirty = Boolean(
+    config && titleDraft && JSON.stringify(titleDraft) !== JSON.stringify(toTitleDraft(config)),
+  )
   const patchTitleDraft = (patch: Partial<TitleDraft>) =>
     setTitleDraft((prev) => (prev ? { ...prev, ...patch } : prev))
 
   return (
-    <div className="mx-auto max-w-2xl space-y-5">
+    <div
+      className="mx-auto w-full max-w-4xl space-y-5"
+      onKeyDown={(event) => {
+        if (
+          (event.ctrlKey || event.metaKey) &&
+          event.key === 'Enter' &&
+          titleDraft &&
+          titleDirty &&
+          !saveTitle.isPending
+        ) {
+          event.preventDefault()
+          saveTitle.mutate(titleDraft)
+        }
+      }}
+    >
       <PageHeader title="系统设置" description="全局功能开关、成本展示与标题总结配置。" />
+      <SegmentedControl
+        label="系统设置分区"
+        value={section}
+        onChange={setSection}
+        options={[
+          { value: 'general', label: '常用设置' },
+          { value: 'title', label: '标题总结' },
+          { value: 'about', label: '站点信息' },
+        ]}
+      />
 
       {/* 配置到位后才渲染开关与表单：先画默认值会让刷新时所有开关闪一下「已开启」。 */}
-      {!config || !titleDraft ? (
+      {isError && <LoadError hasData={Boolean(config)} onRetry={() => void refetch()} />}
+      {isError && !config ? null : !config || !titleDraft ? (
         <div className="py-16 text-center">
           <Spinner className="h-6 w-6 text-neutral-400" />
         </div>
       ) : (
         <>
-          <Card title="注册">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="text-sm text-neutral-800 dark:text-neutral-100">注册需要邀请码</div>
-                <div className="mt-0.5 text-xs leading-5 text-neutral-400 dark:text-neutral-500">
-                  首位管理员始终无需邀请码。关闭后，任何访客都能直接创建账号。
-                </div>
-                {!config.registrationRequiresInviteCode && (
-                  <div className="mt-1 text-xs leading-5 text-amber-600 dark:text-amber-400">
-                    当前为开放注册；公开部署时可能遭遇批量注册或资源滥用，请谨慎使用。
-                  </div>
-                )}
-              </div>
-              <Toggle
-                checked={config.registrationRequiresInviteCode}
-                disabled={toggleRegistrationRequirement.isPending}
-                ariaLabel="注册需要邀请码"
-                onChange={(v) => toggleRegistrationRequirement.mutate(v)}
-              />
-            </div>
-          </Card>
-
-          <Card title="分享">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <div className="text-sm text-neutral-800 dark:text-neutral-100">
-                  允许用户分享聊天
-                </div>
-                <div className="mt-0.5 text-xs text-neutral-400">
-                  全局开关，切换立即生效；可在账号中心对个别用户单独覆盖。
-                </div>
-              </div>
-              <Toggle
-                checked={config.sharingEnabled}
-                disabled={toggleSharing.isPending}
-                onChange={(v) => toggleSharing.mutate(v)}
-              />
-            </div>
-          </Card>
-
-          <Card title="消息用量">
-            <div className="space-y-4">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <div className="text-sm text-neutral-800 dark:text-neutral-100">
-                    展示单次请求成本
-                  </div>
-                  <div className="mt-0.5 text-xs leading-5 text-neutral-400 dark:text-neutral-500">
-                    在助手消息的用量明细末尾显示预估成本；成本为 0 时不显示。
-                  </div>
-                </div>
-                <Toggle
-                  checked={config.showCost}
-                  disabled={toggleCostVisibility.isPending}
-                  ariaLabel="展示单次请求成本"
-                  onChange={(value) => toggleCostVisibility.mutate(value)}
-                />
-              </div>
-
-              <div className="flex flex-col gap-3 border-t border-neutral-100 pt-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4 dark:border-neutral-800">
-                <div>
-                  <div className="text-sm text-neutral-800 dark:text-neutral-100">展示币种</div>
-                  <div className="mt-0.5 text-xs leading-5 text-neutral-400 dark:text-neutral-500">
-                    CNY 按实时 USD/CNY 汇率换算，仅影响聊天消息用量行；原始成本与其他统计仍为 USD。
-                  </div>
-                </div>
-                <Select
-                  aria-label="成本展示币种"
-                  className="w-full sm:w-40"
-                  value={config.costCurrency}
-                  disabled={updateCostCurrency.isPending}
-                  options={[
-                    { value: 'USD', label: '美元（USD）' },
-                    { value: 'CNY', label: '人民币（CNY）' },
-                  ]}
-                  onChange={(event) =>
-                    updateCostCurrency.mutate(event.target.value as AppConfigDTO['costCurrency'])
-                  }
-                />
-              </div>
-            </div>
-          </Card>
-
-          <Card title="标题总结" description="首条回复完成后用模型自动生成简短的会话标题。">
-            <div className="space-y-4">
-              <div className="flex items-center justify-between gap-4">
-                <div className="text-sm text-neutral-800 dark:text-neutral-100">
-                  自动总结对话标题
-                </div>
-                <Toggle
-                  checked={titleDraft.enabled}
-                  onChange={(v) => patchTitleDraft({ enabled: v })}
-                />
-              </div>
-
-              {titleDraft.enabled && (
-                <>
-                  <label className="block">
-                    <span className="mb-1.5 block text-xs text-neutral-500">标题模型</span>
-                    <Select
-                      className="w-full"
-                      value={titleDraft.modelId}
-                      onChange={(e) => patchTitleDraft({ modelId: e.target.value })}
-                      options={[
-                        { value: '', label: '自动（首个可用文本模型）' },
-                        ...textModels.map((m) => ({ value: m.id, label: m.displayName })),
-                      ]}
-                    />
-                  </label>
-
+          <div hidden={section !== 'general'}>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Card title="注册">
+                <div className="flex items-start justify-between gap-4">
                   <div>
-                    <div className="mb-1.5 flex items-center justify-between gap-2">
-                      <span className="text-xs text-neutral-500">
-                        标题提示词（变量：{'{content}'} 对话内容、{'{locale}'} 浏览器语言）
-                      </span>
-                      {!promptIsDefault && (
-                        <button
-                          type="button"
-                          onClick={() => patchTitleDraft({ prompt: DEFAULT_TITLE_PROMPT })}
-                          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
-                        >
-                          <RotateCcw className="h-3 w-3" /> 恢复默认
-                        </button>
-                      )}
+                    <div className="text-sm text-neutral-800 dark:text-neutral-100">
+                      注册需要邀请码
                     </div>
-                    <textarea
-                      className="min-h-[180px] w-full resize-y rounded-xl border border-neutral-300 bg-white px-3.5 py-2.5 font-mono text-xs leading-5 text-neutral-800 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:focus:border-sky-400"
-                      value={titleDraft.prompt}
-                      onChange={(e) => patchTitleDraft({ prompt: e.target.value })}
-                    />
-                    <span className="mt-1 block text-xs text-neutral-400">
-                      {promptIsDefault
-                        ? '当前为内置默认提示词，可直接在其基础上修改。'
-                        : '已自定义；点右上角「恢复默认」可还原内置文案。'}
-                    </span>
+                    <div className="mt-0.5 text-xs leading-5 text-neutral-400 dark:text-neutral-500">
+                      首位管理员始终无需邀请码。关闭后，任何访客都能直接创建账号。
+                    </div>
+                    <Link
+                      to="/admin/auth-center?tab=invites"
+                      className="mt-2 inline-flex min-h-8 items-center text-xs text-sky-600 dark:text-sky-400"
+                    >
+                      管理邀请码 →
+                    </Link>
+                    {!config.registrationRequiresInviteCode && (
+                      <div className="mt-1 text-xs leading-5 text-amber-600 dark:text-amber-400">
+                        当前为开放注册；公开部署时可能遭遇批量注册或资源滥用，请谨慎使用。
+                      </div>
+                    )}
                   </div>
-                </>
-              )}
+                  <Toggle
+                    checked={config.registrationRequiresInviteCode}
+                    disabled={toggleRegistrationRequirement.isPending}
+                    ariaLabel="注册需要邀请码"
+                    onChange={(v) => toggleRegistrationRequirement.mutate(v)}
+                  />
+                </div>
+              </Card>
 
-              <div className="flex justify-end">
-                <Button loading={saveTitle.isPending} onClick={() => saveTitle.mutate(titleDraft)}>
-                  保存
-                </Button>
-              </div>
+              <Card title="分享">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <div className="text-sm text-neutral-800 dark:text-neutral-100">
+                      允许用户分享聊天
+                    </div>
+                    <div className="mt-0.5 text-xs text-neutral-400">
+                      全局开关，切换立即生效；可在账号中心对个别用户单独覆盖。
+                    </div>
+                    <Link
+                      to="/admin/shares"
+                      className="mt-2 inline-flex min-h-8 items-center text-xs text-sky-600 dark:text-sky-400"
+                    >
+                      查看分享链接 →
+                    </Link>
+                  </div>
+                  <Toggle
+                    ariaLabel="允许用户分享聊天"
+                    checked={config.sharingEnabled}
+                    disabled={toggleSharing.isPending}
+                    onChange={(v) => toggleSharing.mutate(v)}
+                  />
+                </div>
+              </Card>
+
+              <Card title="消息用量" className="sm:col-span-2">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <div className="text-sm text-neutral-800 dark:text-neutral-100">
+                        展示单次请求成本
+                      </div>
+                      <div className="mt-0.5 text-xs leading-5 text-neutral-400 dark:text-neutral-500">
+                        在助手消息的用量明细末尾显示预估成本；成本为 0 时不显示。
+                      </div>
+                    </div>
+                    <Toggle
+                      checked={config.showCost}
+                      disabled={toggleCostVisibility.isPending}
+                      ariaLabel="展示单次请求成本"
+                      onChange={(value) => toggleCostVisibility.mutate(value)}
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-3 border-t border-neutral-100 pt-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4 dark:border-neutral-800">
+                    <div>
+                      <div className="text-sm text-neutral-800 dark:text-neutral-100">展示币种</div>
+                      <div className="mt-0.5 text-xs leading-5 text-neutral-400 dark:text-neutral-500">
+                        CNY 按实时 USD/CNY 汇率换算，仅影响聊天消息用量行；原始成本与其他统计仍为
+                        USD。
+                      </div>
+                    </div>
+                    <Select
+                      aria-label="成本展示币种"
+                      className="w-full sm:w-40"
+                      value={config.costCurrency}
+                      disabled={updateCostCurrency.isPending}
+                      options={[
+                        { value: 'USD', label: '美元（USD）' },
+                        { value: 'CNY', label: '人民币（CNY）' },
+                      ]}
+                      onChange={(event) =>
+                        updateCostCurrency.mutate(
+                          event.target.value as AppConfigDTO['costCurrency'],
+                        )
+                      }
+                    />
+                  </div>
+                </div>
+              </Card>
             </div>
-          </Card>
+          </div>
+          <div hidden={section !== 'title'}>
+            <Card title="标题总结" description="首条回复完成后用模型自动生成简短的会话标题。">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="text-sm text-neutral-800 dark:text-neutral-100">
+                    自动总结对话标题
+                  </div>
+                  <Toggle
+                    ariaLabel="自动总结对话标题"
+                    checked={titleDraft.enabled}
+                    onChange={(v) => patchTitleDraft({ enabled: v })}
+                  />
+                </div>
+
+                {titleDraft.enabled && (
+                  <>
+                    <label className="block">
+                      <span className="mb-1.5 block text-xs text-neutral-500">标题模型</span>
+                      <Select
+                        className="w-full"
+                        value={titleDraft.modelId}
+                        onChange={(e) => patchTitleDraft({ modelId: e.target.value })}
+                        options={[
+                          { value: '', label: '自动（首个可用文本模型）' },
+                          ...textModels.map((m) => ({ value: m.id, label: m.displayName })),
+                        ]}
+                      />
+                    </label>
+
+                    <div>
+                      <div className="mb-1.5 flex items-center justify-between gap-2">
+                        <span className="text-xs text-neutral-500">
+                          标题提示词（变量：{'{content}'} 对话内容、{'{locale}'} 浏览器语言）
+                        </span>
+                        {!promptIsDefault && (
+                          <button
+                            type="button"
+                            onClick={() => patchTitleDraft({ prompt: DEFAULT_TITLE_PROMPT })}
+                            className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
+                          >
+                            <RotateCcw className="h-3 w-3" /> 恢复默认
+                          </button>
+                        )}
+                      </div>
+                      <textarea
+                        aria-label="标题提示词"
+                        className={`${inputClass} min-h-[220px] resize-y font-mono leading-6`}
+                        value={titleDraft.prompt}
+                        onChange={(e) => patchTitleDraft({ prompt: e.target.value })}
+                      />
+                      <span className="mt-1 block text-xs text-neutral-400">
+                        {promptIsDefault
+                          ? '当前为内置默认提示词，可直接在其基础上修改。'
+                          : '已自定义；点右上角「恢复默认」可还原内置文案。'}
+                      </span>
+                    </div>
+                  </>
+                )}
+
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <span role="status" className="mr-auto text-xs text-neutral-500">
+                    {titleDirty ? '有未保存的修改' : '已保存'}
+                  </span>
+                  {titleDirty && (
+                    <Button variant="ghost" onClick={() => setTitleDraft(toTitleDraft(config))}>
+                      撤销修改
+                    </Button>
+                  )}
+                  <Button
+                    disabled={!titleDirty}
+                    loading={saveTitle.isPending}
+                    onClick={() => saveTitle.mutate(titleDraft)}
+                  >
+                    保存标题设置
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          </div>
         </>
       )}
 
-      <Card title="关于">
-        <div className="-my-1">
-          <InfoRow label="版本" value={`v${APP_VERSION}`} />
-          <InfoRow label="用户数" value={String(stats?.totals.users ?? '—')} />
-          <InfoRow label="会话数" value={String(stats?.totals.conversations ?? '—')} />
-        </div>
-      </Card>
+      <div hidden={section !== 'about'}>
+        <Card title="关于">
+          <div className="-my-1">
+            <InfoRow label="版本" value={`v${APP_VERSION}`} />
+            <InfoRow label="用户数" value={String(stats?.totals.users ?? '—')} />
+            <InfoRow label="会话数" value={String(stats?.totals.conversations ?? '—')} />
+          </div>
+        </Card>
+      </div>
     </div>
   )
 }

@@ -1,5 +1,7 @@
+import { LoadError } from '../../components/ui/LoadError'
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
+import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ListPlus, Plus, PlugZap, RefreshCw, Search, Server } from 'lucide-react'
 import { clsx } from 'clsx'
@@ -17,19 +19,37 @@ import { Select } from '../../components/ui/Select'
 import { TextField } from '../../components/ui/TextField'
 import { Toggle } from '../../components/ui/Toggle'
 import { Spinner } from '../../components/ui/Spinner'
+import { SearchField } from '../../components/ui/SearchField'
+import { SegmentedControl } from '../../components/ui/SegmentedControl'
 import { askConfirm } from '../../store/confirm'
 import { toast } from '../../store/toast'
 import { DeleteIcon } from '../../chat/icons'
 
 export default function ProvidersPage() {
   const qc = useQueryClient()
-  const { data: providers, isLoading } = useQuery({
+  const {
+    data: providers,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ['admin', 'providers'],
     queryFn: adminApi.listProviders,
   })
   const [editing, setEditing] = useState<ProviderDTO | null>(null)
   const [creating, setCreating] = useState(false)
   const [picking, setPicking] = useState<ProviderDTO | null>(null)
+  const [search, setSearch] = useState('')
+  const [status, setStatus] = useState('all')
+  const [connectionResults, setConnectionResults] = useState<
+    Record<string, { ok: boolean; message: string }>
+  >({})
+  const keyword = search.trim().toLowerCase()
+  const filtered = (providers ?? []).filter(
+    (provider) =>
+      `${provider.name} ${provider.baseUrl}`.toLowerCase().includes(keyword) &&
+      (status === 'all' || provider.enabled === (status === 'enabled')),
+  )
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['admin', 'providers'] })
 
@@ -41,8 +61,16 @@ export default function ProvidersPage() {
 
   const test = useMutation({
     mutationFn: adminApi.testProvider,
-    onSuccess: (r) => toast.success(`连接成功，发现 ${r.modelCount} 个模型`),
-    onError: (e) => toast.error(e instanceof Error ? e.message : '连接失败'),
+    onSuccess: (r, id) =>
+      setConnectionResults((previous) => ({
+        ...previous,
+        [id]: { ok: true, message: `连接成功 · ${r.modelCount} 个上游模型` },
+      })),
+    onError: (e, id) =>
+      setConnectionResults((previous) => ({
+        ...previous,
+        [id]: { ok: false, message: e instanceof Error ? e.message : '连接失败' },
+      })),
   })
 
   const sync = useMutation({
@@ -65,48 +93,90 @@ export default function ProvidersPage() {
   })
 
   return (
-    <div className="mx-auto max-w-3xl space-y-5">
+    <div className="mx-auto w-full max-w-6xl space-y-5">
       <PageHeader
-        title="提供商"
+        title="供应商"
         description="配置 OpenAI 兼容或 Anthropic Messages 原生上游；可同步全部模型，或从目录中挑选添加。"
         actions={
           <Button onClick={() => setCreating(true)}>
-            <Plus className="h-4 w-4" /> 添加提供商
+            <Plus className="h-4 w-4" /> 添加供应商
           </Button>
         }
       />
 
-      {isLoading ? (
+      <div className="flex flex-wrap items-center gap-3">
+        <SearchField
+          value={search}
+          onChange={setSearch}
+          placeholder="搜索供应商或地址"
+          className="min-w-48 flex-1"
+        />
+        <SegmentedControl
+          label="供应商状态"
+          value={status}
+          onChange={setStatus}
+          options={[
+            { value: 'all', label: '全部', count: providers?.length ?? 0 },
+            { value: 'enabled', label: '已启用' },
+            { value: 'disabled', label: '已停用' },
+          ]}
+        />
+      </div>
+
+      {isError && <LoadError hasData={Boolean(providers)} onRetry={() => void refetch()} />}
+      {isError && !providers ? null : isLoading ? (
         <div className="py-16 text-center">
           <Spinner className="h-6 w-6 text-neutral-400" />
         </div>
       ) : !providers?.length ? (
         <EmptyState
           icon={Server}
-          title="还没有提供商"
+          title="还没有供应商"
           action={
             <Button
               variant="secondary"
               className="!px-3 !py-1.5 text-xs"
               onClick={() => setCreating(true)}
             >
-              <Plus className="h-3.5 w-3.5" /> 添加提供商
+              <Plus className="h-3.5 w-3.5" /> 添加供应商
+            </Button>
+          }
+        />
+      ) : !filtered.length ? (
+        <EmptyState
+          title="没有匹配的供应商"
+          action={
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setSearch('')
+                setStatus('all')
+              }}
+            >
+              清除筛选
             </Button>
           }
         />
       ) : (
-        <div className="space-y-3">
-          {providers.map((p) => (
+        <div className="grid gap-3 xl:grid-cols-2">
+          {filtered.map((p) => (
             <div key={p.id} className={cardSurface}>
               <div className="p-4 pb-3">
                 <div className="flex items-start justify-between gap-4">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className="truncate font-medium text-neutral-900 dark:text-neutral-100">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditing(p)}
+                      className="min-h-8 max-w-full truncate text-sm font-semibold text-neutral-900 hover:text-sky-600 dark:text-neutral-100 dark:hover:text-sky-400"
+                    >
                       {p.name}
-                    </span>
-                    <span className="shrink-0 rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-500 dark:bg-neutral-800">
+                    </button>
+                    <Link
+                      to={`/admin/models?providerId=${encodeURIComponent(p.id)}`}
+                      className="inline-flex min-h-7 shrink-0 items-center rounded-md bg-neutral-100 px-2 text-xs text-neutral-500 hover:text-sky-600 dark:bg-neutral-800 dark:hover:text-sky-300"
+                    >
                       {p.modelCount} 个模型
-                    </span>
+                    </Link>
                     <span
                       className={clsx(
                         'shrink-0 rounded-full px-2 py-0.5 text-xs',
@@ -123,7 +193,12 @@ export default function ProvidersPage() {
                       </span>
                     )}
                   </div>
-                  <Toggle checked={p.enabled} onChange={() => toggleEnabled.mutate(p)} />
+                  <Toggle
+                    checked={p.enabled}
+                    disabled={toggleEnabled.isPending && toggleEnabled.variables?.id === p.id}
+                    ariaLabel={`${p.enabled ? '停用' : '启用'}供应商 ${p.name}`}
+                    onChange={() => toggleEnabled.mutate(p)}
+                  />
                 </div>
                 {/* 元信息用等宽标签列，扫读时一眼对齐。 */}
                 <dl className="mt-2.5 space-y-1 text-xs">
@@ -143,8 +218,21 @@ export default function ProvidersPage() {
                     </div>
                   ))}
                 </dl>
+                {connectionResults[p.id] && (
+                  <p
+                    role="status"
+                    className={clsx(
+                      'mt-2 break-words text-xs',
+                      connectionResults[p.id]!.ok
+                        ? 'text-emerald-600 dark:text-emerald-400'
+                        : 'text-red-600 dark:text-red-400',
+                    )}
+                  >
+                    {connectionResults[p.id]!.message}
+                  </p>
+                )}
               </div>
-              <div className="flex flex-wrap items-center gap-2 border-t border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
+              <div className="flex flex-wrap items-center gap-1 px-3 pb-3">
                 <Button
                   variant="secondary"
                   className="!px-3 !py-1.5 text-xs"
@@ -182,8 +270,8 @@ export default function ProvidersPage() {
                   className="ml-auto !px-3 !py-1.5 text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30"
                   onClick={() => {
                     void askConfirm({
-                      title: '删除提供商？',
-                      description: `提供商「${p.name}」及其下全部模型配置将被永久删除，且无法恢复。`,
+                      title: '删除供应商？',
+                      description: `供应商「${p.name}」及其下全部模型配置将被永久删除，且无法恢复。`,
                       confirmLabel: '删除',
                       tone: 'danger',
                     }).then((ok) => {
@@ -431,7 +519,7 @@ function ProviderModal({
     <Modal
       open
       onClose={onClose}
-      title={isEdit ? '编辑提供商' : '添加提供商'}
+      title={isEdit ? '编辑供应商' : '添加供应商'}
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>

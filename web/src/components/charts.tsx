@@ -11,7 +11,7 @@ import {
   YAxis,
 } from 'recharts'
 import { useIsDark } from '../lib/useIsDark'
-import { formatBucketTick, formatCompact, formatDateTime } from '../lib/format'
+import { formatBucketTick, formatCompact } from '../lib/format'
 
 export interface SeriesDef {
   key: string
@@ -35,17 +35,25 @@ function ChartTooltip({
   payload,
   label,
   valueFormat,
+  timeZone,
 }: {
   active?: boolean
   payload?: TooltipDatum[]
   label?: number | string
   valueFormat: ValueFormat
+  timeZone?: string
 }) {
   if (!active || !payload?.length) return null
   return (
-    <div className="rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs shadow-lg dark:border-neutral-700 dark:bg-neutral-900">
+    <div
+      role="status"
+      aria-live="polite"
+      className="rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs dark:border-neutral-700 dark:bg-neutral-900"
+    >
       <div className="mb-1 font-medium text-neutral-700 dark:text-neutral-200">
-        {typeof label === 'number' ? formatDateTime(label) : ''}
+        {typeof label === 'number'
+          ? new Date(label).toLocaleString('zh-CN', { timeZone, hour12: false })
+          : ''}
       </div>
       {payload.map((p) => (
         <div key={String(p.dataKey ?? p.name)} className="flex items-center gap-2">
@@ -60,32 +68,39 @@ function ChartTooltip({
   )
 }
 
-interface TrendChartProps {
-  data: Record<string, number>[]
+interface TrendChartProps<T extends { ts: number }> {
+  data: T[]
   series: SeriesDef[]
   bucket: Bucket
   height?: number
   valueFormat?: ValueFormat
+  timeZone?: string
 }
 
 /** 多序列折线趋势图（token 趋势、成本趋势等）。 */
-export function TrendChart({
+export function TrendChart<T extends { ts: number }>({
   data,
   series,
   bucket,
   height = 260,
   valueFormat = formatCompact,
-}: TrendChartProps) {
+  timeZone,
+}: TrendChartProps<T>) {
   const dark = useIsDark()
   const grid = dark ? '#262626' : '#e5e7eb'
   const axis = dark ? '#9ca3af' : '#6b7280'
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <LineChart data={data} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+      <LineChart
+        accessibilityLayer
+        title={`${series.map((item) => item.name).join('、')}趋势`}
+        data={data}
+        margin={{ top: 8, right: 12, left: 0, bottom: 0 }}
+      >
         <CartesianGrid strokeDasharray="3 3" stroke={grid} vertical={false} />
         <XAxis
           dataKey="ts"
-          tickFormatter={(v: number) => formatBucketTick(v, bucket)}
+          tickFormatter={(v: number) => formatBucketTick(v, bucket, timeZone)}
           stroke={axis}
           fontSize={11}
           tickLine={false}
@@ -100,8 +115,17 @@ export function TrendChart({
           axisLine={false}
           width={44}
         />
-        <Tooltip content={<ChartTooltip valueFormat={valueFormat} />} />
-        <Legend wrapperStyle={{ fontSize: 12 }} iconType="plainline" />
+        <Tooltip
+          cursor={{ stroke: dark ? '#525252' : '#d4d4d4', strokeDasharray: '3 3' }}
+          content={<ChartTooltip valueFormat={valueFormat} timeZone={timeZone} />}
+        />
+        <Legend
+          wrapperStyle={{ fontSize: 12 }}
+          iconType="plainline"
+          formatter={(label) => (
+            <span className="text-neutral-600 dark:text-neutral-300">{label}</span>
+          )}
+        />
         {series.map((s) => (
           <Line
             key={s.key}
@@ -110,7 +134,8 @@ export function TrendChart({
             name={s.name}
             stroke={s.color}
             strokeWidth={2}
-            dot={false}
+            dot={data.length === 1 ? { r: 3 } : false}
+            isAnimationActive={false}
             activeDot={{ r: 3 }}
           />
         ))}
@@ -130,10 +155,12 @@ export function HealthTimeline({
   data,
   bucket,
   height = 220,
+  timeZone,
 }: {
   data: HealthPoint[]
   bucket: Bucket
   height?: number
+  timeZone?: string
 }) {
   const dark = useIsDark()
   const grid = dark ? '#262626' : '#e5e7eb'
@@ -145,11 +172,17 @@ export function HealthTimeline({
   }))
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <BarChart data={rows} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+      <BarChart
+        accessibilityLayer
+        title="请求量与失败请求趋势"
+        data={rows}
+        maxBarSize={40}
+        margin={{ top: 8, right: 12, left: 0, bottom: 0 }}
+      >
         <CartesianGrid strokeDasharray="3 3" stroke={grid} vertical={false} />
         <XAxis
           dataKey="ts"
-          tickFormatter={(v: number) => formatBucketTick(v, bucket)}
+          tickFormatter={(v: number) => formatBucketTick(v, bucket, timeZone)}
           stroke={axis}
           fontSize={11}
           tickLine={false}
@@ -164,9 +197,25 @@ export function HealthTimeline({
           axisLine={false}
           width={36}
         />
-        <Tooltip content={<ChartTooltip valueFormat={(n) => String(n)} />} />
-        <Bar dataKey="nonFailure" name="非失败" stackId="a" fill="#10b981" radius={[0, 0, 0, 0]} />
-        <Bar dataKey="errors" name="失败" stackId="a" fill="#ef4444" radius={[3, 3, 0, 0]} />
+        <Tooltip
+          cursor={false}
+          content={<ChartTooltip valueFormat={(n) => String(n)} timeZone={timeZone} />}
+        />
+        <Bar
+          dataKey="nonFailure"
+          name="非失败"
+          stackId="a"
+          fill="#10b981"
+          isAnimationActive={false}
+        />
+        <Bar
+          dataKey="errors"
+          name="失败"
+          stackId="a"
+          fill="#f43f5e"
+          radius={[3, 3, 0, 0]}
+          isAnimationActive={false}
+        />
       </BarChart>
     </ResponsiveContainer>
   )

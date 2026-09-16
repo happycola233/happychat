@@ -1,4 +1,7 @@
-import { useMemo, useState } from 'react'
+import { ModelListHeader, ModelListRow } from './ModelListRow'
+import { LoadError } from '../../components/ui/LoadError'
+import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   DndContext,
@@ -14,249 +17,30 @@ import {
   SortableContext,
   arrayMove,
   sortableKeyboardCoordinates,
-  useSortable,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
 import { clsx } from 'clsx'
-import {
-  Boxes,
-  Copy,
-  Layers3,
-  GripVertical,
-  ListChecks,
-  Plus,
-  Search,
-  SlidersHorizontal,
-  UsersRound,
-} from 'lucide-react'
+import { Boxes, Layers3, ListChecks, Plus, Search } from 'lucide-react'
 import type { AdminModelDTO, AdminModelGroupDTO } from '@shared/types/api'
-import type { ModelCapabilities } from '@shared/types/domain'
 import * as adminApi from '../../api/admin'
-import {
-  DEFAULT_MODEL_ICON_TONE_CLASS,
-  ModelGroupGlyph,
-  ModelIconMark,
-} from '../../components/ModelIcon'
-import { ModelTagList } from '../../components/ModelTags'
+import { ModelGroupGlyph } from '../../components/ModelIcon'
 import { Button } from '../../components/ui/Button'
 import { cardSurface } from '../../components/ui/Card'
 import { EmptyState } from '../../components/ui/EmptyState'
-import { IconButton } from '../../components/ui/IconButton'
-import { Checkbox } from '../../components/ui/Checkbox'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { Select, type SelectOption } from '../../components/ui/Select'
+import { SearchField } from '../../components/ui/SearchField'
+import { SegmentedControl } from '../../components/ui/SegmentedControl'
 import { Spinner } from '../../components/ui/Spinner'
-import { Toggle } from '../../components/ui/Toggle'
 import { askConfirm } from '../../store/confirm'
 import { toast } from '../../store/toast'
-import { DeleteIcon } from '../../chat/icons'
 import { ModelAccessDialog } from './ModelAccessDialog'
-import { ModelEditor } from './ModelEditor'
+import { ModelEditor, type ModelEditorSection } from './ModelEditor'
 import { AssignGroupDialog, BatchIconDialog, ModelBatchToolbar } from './ModelBatchTools'
 
-const CAP_BADGE: Partial<Record<keyof ModelCapabilities, string>> = {
-  vision: '视觉',
-  file_input: '文件',
-  web_search: '联网',
-  x_search: 'X 搜索',
-  reasoning: '思考',
-}
-
-/**
- * 列表行的共享横向度量：模型行、分组标题、空分组占位共用同一套内边距、列间距与图标列宽度，
- * 保证「分组名 / 模型名 / 提示文案」三者的左基线严格对齐。
- */
 const ROW_INSET_X = 'px-2 sm:px-3'
 const ROW_GAP_X = 'gap-2 sm:gap-3'
-/** 与模型行 ModelIconMark size="md" 等宽的图标列，无图标时用同尺寸占位。 */
 const ROW_ICON_COLUMN = 'h-5 w-5 shrink-0'
-
-function kindLabel(m: AdminModelDTO): string {
-  if (m.kind === 'image') return '图片模型'
-  if (m.kind === 'anthropic') return '对话模型（Anthropic）'
-  return m.kind === 'chat' ? '对话模型（chat）' : '对话模型'
-}
-
-/** 单行模型：拖拽手柄 + 信息 + 能力 + 启用开关 + 对齐的操作按钮。 */
-function ModelRow({
-  model,
-  sortable,
-  batchMode,
-  selected,
-  onToggleSelected,
-  onEdit,
-  onDuplicate,
-  duplicatePending,
-  onAccess,
-  onToggle,
-  togglePending,
-  onDelete,
-}: {
-  model: AdminModelDTO
-  /** 筛选或分组视图生效时禁用拖拽（无法对子集可靠排序）。 */
-  sortable: boolean
-  batchMode: boolean
-  selected: boolean
-  onToggleSelected: () => void
-  onEdit: () => void
-  onDuplicate: () => void
-  duplicatePending: boolean
-  onAccess: () => void
-  onToggle: () => void
-  togglePending: boolean
-  onDelete: () => void
-}) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    setActivatorNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: model.id, disabled: !sortable })
-
-  const caps = (Object.keys(CAP_BADGE) as (keyof ModelCapabilities)[]).filter(
-    (k) => model.capabilities[k],
-  )
-  const accessLabel =
-    model.accessMode === 'all'
-      ? '全部用户'
-      : model.allowedUserCount > 0
-        ? `指定 ${model.allowedUserCount} 人`
-        : '未选择用户'
-
-  return (
-    <div
-      ref={setNodeRef}
-      style={{ transform: CSS.Transform.toString(transform), transition }}
-      onClick={batchMode ? onToggleSelected : undefined}
-      className={clsx(
-        'flex items-center py-2.5',
-        ROW_INSET_X,
-        ROW_GAP_X,
-        batchMode
-          ? clsx(
-              'cursor-pointer',
-              selected ? 'bg-sky-50 dark:bg-sky-950/30' : 'bg-white dark:bg-neutral-900',
-            )
-          : 'bg-white dark:bg-neutral-900',
-        isDragging &&
-          'relative z-10 rounded-xl shadow-lg ring-1 ring-neutral-200 dark:shadow-black/40 dark:ring-neutral-700',
-      )}
-    >
-      {batchMode ? (
-        <span
-          className="flex h-8 w-6 shrink-0 items-center justify-center"
-          onClick={(event) => event.stopPropagation()}
-        >
-          <Checkbox
-            checked={selected}
-            onChange={onToggleSelected}
-            ariaLabel={`选择 ${model.displayName}`}
-          />
-        </span>
-      ) : (
-        sortable && (
-          <button
-            ref={setActivatorNodeRef}
-            type="button"
-            aria-label={`拖动排序 ${model.displayName}`}
-            className="flex h-8 w-6 shrink-0 cursor-grab touch-none items-center justify-center rounded-md text-neutral-300 transition hover:bg-neutral-100 hover:text-neutral-500 active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 dark:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-400"
-            {...attributes}
-            {...listeners}
-          >
-            <GripVertical className="h-4 w-4" />
-          </button>
-        )
-      )}
-
-      <ModelIconMark
-        icon={model.icon}
-        modelId={model.modelId}
-        displayName={model.displayName}
-        size="md"
-        className={DEFAULT_MODEL_ICON_TONE_CLASS}
-      />
-
-      <div className="min-w-0 flex-1">
-        <div className="flex min-w-0 items-center gap-1.5">
-          <span className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
-            {model.displayName}
-          </span>
-          <ModelTagList tags={model.tags} />
-        </div>
-        {/* 可用范围与模型元信息同属“这个模型对谁可见”的描述，收进同一行，避免独占一行显得突兀。 */}
-        <div className="mt-0.5 flex min-w-0 items-center gap-1.5">
-          <span
-            className="min-w-0 truncate text-xs text-neutral-400"
-            title={model.description ?? undefined}
-          >
-            {model.modelId} · {model.providerName} · {kindLabel(model)}
-          </span>
-          {!batchMode && (
-            <button
-              type="button"
-              onClick={onAccess}
-              aria-label={`配置 ${model.displayName} 的可用用户，当前${accessLabel}`}
-              title="配置可用用户"
-              className={clsx(
-                'inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-px text-[11px] leading-4 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/30',
-                model.accessMode === 'all'
-                  ? 'bg-neutral-100 text-neutral-500 hover:bg-neutral-200/70 hover:text-neutral-700 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700'
-                  : model.allowedUserCount > 0
-                    ? 'bg-sky-50 text-sky-700 hover:bg-sky-100 dark:bg-sky-950/40 dark:text-sky-300 dark:hover:bg-sky-950/65'
-                    : 'bg-amber-50 text-amber-700 hover:bg-amber-100 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-950/50',
-              )}
-            >
-              <UsersRound className="h-3 w-3 shrink-0" />
-              {accessLabel}
-            </button>
-          )}
-        </div>
-      </div>
-
-      {!batchMode && (
-        <>
-          <div className="hidden flex-wrap justify-end gap-1 md:flex">
-            {caps.map((k) => (
-              <span
-                key={k}
-                className="rounded-md bg-neutral-100 px-1.5 py-0.5 text-xs text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400"
-              >
-                {CAP_BADGE[k]}
-              </span>
-            ))}
-          </div>
-
-          <Toggle
-            checked={model.enabled}
-            onChange={onToggle}
-            disabled={togglePending}
-            ariaLabel={`${model.enabled ? '全局停用' : '全局启用'} ${model.displayName}`}
-          />
-
-          <div className="flex shrink-0 items-center gap-1">
-            <IconButton
-              label={`复制模型 ${model.displayName}`}
-              onClick={onDuplicate}
-              disabled={duplicatePending}
-            >
-              <Copy className="h-4 w-4" />
-            </IconButton>
-            <IconButton label={`配置 ${model.displayName}`} onClick={onEdit}>
-              <SlidersHorizontal className="h-4 w-4" />
-            </IconButton>
-            <IconButton label={`删除 ${model.displayName}`} tone="danger" onClick={onDelete}>
-              <DeleteIcon className="h-4 w-4" />
-            </IconButton>
-          </div>
-        </>
-      )}
-    </div>
-  )
-}
 
 /** 分组视图下的分区标题（分组视图不支持拖拽，标题纯展示）。 */
 function GroupHeading({ group, count }: { group: AdminModelGroupDTO | null; count: number }) {
@@ -283,7 +67,13 @@ function GroupHeading({ group, count }: { group: AdminModelGroupDTO | null; coun
 
 export default function ModelsPage() {
   const qc = useQueryClient()
-  const { data: models, isLoading } = useQuery({
+  const [searchParams, setSearchParams] = useSearchParams()
+  const {
+    data: models,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ['admin', 'models'],
     queryFn: adminApi.listAdminModels,
   })
@@ -291,11 +81,19 @@ export default function ModelsPage() {
     queryKey: ['admin', 'model-groups'],
     queryFn: adminApi.listAdminModelGroups,
   })
+  const { data: providers } = useQuery({
+    queryKey: ['admin', 'providers'],
+    queryFn: adminApi.listProviders,
+  })
   const [editorOpen, setEditorOpen] = useState(false)
+  const [editorSearch, setEditorSearch] = useState('')
   const [editorModel, setEditorModel] = useState<AdminModelDTO | null>(null)
+  const [editorSection, setEditorSection] = useState<ModelEditorSection>('general')
   const [accessModel, setAccessModel] = useState<AdminModelDTO | null>(null)
   const [search, setSearch] = useState('')
-  const [providerFilter, setProviderFilter] = useState('')
+  const [providerFilter, setProviderFilter] = useState(searchParams.get('providerId') ?? '')
+  const [groupFilter, setGroupFilter] = useState(searchParams.get('groupId') ?? '')
+  const [statusFilter, setStatusFilter] = useState('all')
   const [groupView, setGroupView] = useState(false)
   const [batchMode, setBatchMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -310,13 +108,31 @@ export default function ModelsPage() {
   const openCreate = () => {
     setAccessModel(null)
     setEditorModel(null)
+    setEditorSection('general')
     setEditorOpen(true)
   }
-  const openEdit = (m: AdminModelDTO) => {
+  const openEdit = (m: AdminModelDTO, section: ModelEditorSection = 'general') => {
     setAccessModel(null)
     setEditorModel(m)
+    setEditorSection(section)
     setEditorOpen(true)
   }
+  useEffect(() => {
+    const id = searchParams.get('edit')
+    const target = models?.find((model) => model.id === id)
+    if (!target) return
+    setEditorModel(target)
+    setEditorSection('general')
+    setEditorOpen(true)
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current)
+        next.delete('edit')
+        return next
+      },
+      { replace: true },
+    )
+  }, [models, searchParams, setSearchParams])
   const openAccess = (m: AdminModelDTO) => {
     setEditorOpen(false)
     setAccessModel(m)
@@ -368,6 +184,7 @@ export default function ModelsPage() {
       qc.invalidateQueries({ queryKey: ['admin', 'providers'] })
       qc.invalidateQueries({ queryKey: ['admin', 'model-groups'] })
       qc.invalidateQueries({ queryKey: ['models'] })
+      openEdit(copiedModel)
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : '复制失败'),
   })
@@ -385,12 +202,13 @@ export default function ModelsPage() {
 
   const providerOptions = useMemo<SelectOption[]>(() => {
     const seen = new Map<string, string>()
+    for (const provider of providers ?? []) seen.set(provider.id, provider.name)
     for (const m of models ?? []) seen.set(m.providerId, m.providerName)
     return [
       { value: '', label: '全部供应商' },
       ...[...seen].map(([value, label]) => ({ value, label })),
     ]
-  }, [models])
+  }, [models, providers])
 
   const keyword = search.trim().toLowerCase()
   const filtered = useMemo(
@@ -398,13 +216,22 @@ export default function ModelsPage() {
       (models ?? []).filter(
         (m) =>
           (!providerFilter || m.providerId === providerFilter) &&
+          (!groupFilter ||
+            (groupFilter === 'ungrouped' ? !m.groupId : m.groupId === groupFilter)) &&
+          (statusFilter === 'all' || m.enabled === (statusFilter === 'enabled')) &&
           (!keyword ||
             m.displayName.toLowerCase().includes(keyword) ||
             m.modelId.toLowerCase().includes(keyword)),
       ),
-    [models, providerFilter, keyword],
+    [models, providerFilter, groupFilter, statusFilter, keyword],
   )
-  const filterActive = Boolean(keyword || providerFilter)
+  const filterActive = Boolean(keyword || providerFilter || groupFilter || statusFilter !== 'all')
+  const resetFilters = () => {
+    setSearch('')
+    setProviderFilter('')
+    setGroupFilter('')
+    setStatusFilter('all')
+  }
   // 分组视图按组重排了行的位置，全局拖拽排序在这种呈现下无法可靠映射，与筛选态同样禁用。
   const sortable = !filterActive && !groupView && !batchMode
 
@@ -459,14 +286,14 @@ export default function ModelsPage() {
   }
 
   const renderRow = (m: AdminModelDTO) => (
-    <ModelRow
+    <ModelListRow
       key={m.id}
       model={m}
       sortable={sortable}
       batchMode={batchMode}
       selected={selectedIds.has(m.id)}
       onToggleSelected={() => toggleSelected(m.id)}
-      onEdit={() => openEdit(m)}
+      onEdit={(section) => openEdit(m, section)}
       onDuplicate={() => duplicate.mutate(m.id)}
       duplicatePending={duplicate.isPending && duplicate.variables === m.id}
       onAccess={() => openAccess(m)}
@@ -491,10 +318,10 @@ export default function ModelsPage() {
   )
 
   return (
-    <div className="mx-auto max-w-4xl space-y-5">
+    <div className="mx-auto w-full space-y-4">
       <PageHeader
         title="模型"
-        description="列表开关控制模型全局上下架；可用范围控制启用后哪些账号可以使用。"
+        description="比较模型能力、价格与权限，点击名称或价格即可编辑。"
         actions={
           <Button onClick={openCreate}>
             <Plus className="h-4 w-4" /> 添加模型
@@ -508,20 +335,27 @@ export default function ModelsPage() {
       */}
       <div className="space-y-2">
         <div className="flex flex-wrap items-center gap-2">
-          <div className="relative min-w-[200px] flex-1">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="搜索名称或模型 ID"
-              className="h-9 w-full rounded-lg border border-neutral-300 bg-white pl-9 pr-3 text-sm outline-none transition placeholder:text-neutral-400 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:focus:border-sky-400"
-            />
-          </div>
+          <SearchField
+            value={search}
+            onChange={setSearch}
+            placeholder="搜索名称或模型 ID"
+            className="min-w-48 flex-1"
+          />
           <Select
-            className="h-9"
+            aria-label="筛选供应商"
             options={providerOptions}
             value={providerFilter}
             onChange={(e) => setProviderFilter(e.target.value)}
+          />
+          <Select
+            aria-label="筛选分组"
+            value={groupFilter}
+            onChange={(event) => setGroupFilter(event.target.value)}
+            options={[
+              { value: '', label: '全部分组' },
+              { value: 'ungrouped', label: '未分组' },
+              ...(groups ?? []).map((group) => ({ value: group.id, label: group.name })),
+            ]}
           />
           <Button
             variant={groupView ? 'primary' : 'secondary'}
@@ -540,14 +374,38 @@ export default function ModelsPage() {
             <ListChecks className="h-3.5 w-3.5" /> 批量管理
           </Button>
         </div>
-        {!sortable && !batchMode && (
-          <p className="text-xs text-neutral-400">
-            {groupView ? '分组视图下不可拖拽排序' : '筛选中不可拖拽排序'}
-          </p>
-        )}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <SegmentedControl
+            label="模型状态"
+            value={statusFilter}
+            onChange={setStatusFilter}
+            options={[
+              { value: 'all', label: '全部', count: models?.length ?? 0 },
+              {
+                value: 'enabled',
+                label: '已启用',
+                count: models?.filter((model) => model.enabled).length ?? 0,
+              },
+              {
+                value: 'disabled',
+                label: '已停用',
+                count: models?.filter((model) => !model.enabled).length ?? 0,
+              },
+            ]}
+          />
+          <div className="flex items-center gap-2 text-xs text-neutral-400">
+            <span>显示 {filtered.length} 个模型</span>
+            {filterActive && (
+              <Button size="sm" variant="ghost" onClick={resetFilters}>
+                清除筛选
+              </Button>
+            )}
+          </div>
+        </div>
       </div>
 
-      {isLoading ? (
+      {isError && <LoadError hasData={Boolean(models)} onRetry={() => void refetch()} />}
+      {isError && !models ? null : isLoading ? (
         <div className="py-16 text-center">
           <Spinner className="h-6 w-6 text-neutral-400" />
         </div>
@@ -562,12 +420,21 @@ export default function ModelsPage() {
           }
         />
       ) : !filtered.length ? (
-        <EmptyState icon={Search} title="没有匹配筛选条件的模型" />
+        <EmptyState
+          icon={Search}
+          title="没有匹配筛选条件的模型"
+          action={
+            <Button variant="secondary" onClick={resetFilters}>
+              清除筛选
+            </Button>
+          }
+        />
       ) : groupView ? (
         <div className={listClass}>
           {sections.map((section) => (
             <div key={section.group?.id ?? '__ungrouped__'}>
               <GroupHeading group={section.group} count={section.models.length} />
+              {section.models.length > 0 && <ModelListHeader />}
               {section.models.length === 0 ? (
                 <div
                   className={clsx(
@@ -597,7 +464,10 @@ export default function ModelsPage() {
           onDragEnd={onDragEnd}
         >
           <SortableContext items={filtered.map((m) => m.id)} strategy={verticalListSortingStrategy}>
-            <div className={listClass}>{filtered.map(renderRow)}</div>
+            <div className={listClass}>
+              <ModelListHeader />
+              {filtered.map(renderRow)}
+            </div>
           </SortableContext>
         </DndContext>
       )}
@@ -614,7 +484,21 @@ export default function ModelsPage() {
         />
       )}
 
-      {editorOpen && <ModelEditor model={editorModel} onClose={() => setEditorOpen(false)} />}
+      {editorOpen && (
+        <ModelEditor
+          key={editorModel?.id ?? 'new'}
+          model={editorModel}
+          models={models ?? []}
+          modelSearch={editorSearch}
+          onModelSearch={setEditorSearch}
+          onSelectModel={(next, section) => {
+            setEditorModel(next)
+            setEditorSection(section)
+          }}
+          initialSection={editorSection}
+          onClose={() => setEditorOpen(false)}
+        />
+      )}
       {accessModel && (
         <ModelAccessDialog model={accessModel} onClose={() => setAccessModel(null)} />
       )}

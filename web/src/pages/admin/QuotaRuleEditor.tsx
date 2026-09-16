@@ -1,3 +1,4 @@
+import { fieldLabelClass, inputClass } from '../../components/ui/controlStyles'
 import { clsx } from 'clsx'
 import { Minus, Plus } from 'lucide-react'
 import type { AdminModelDTO, AdminModelGroupDTO } from '@shared/types/api'
@@ -14,8 +15,7 @@ import {
   type QuotaWindowChoice,
 } from './quotaRuleDrafts'
 
-const FIELD_LABEL_CLASS =
-  'mb-1 block text-[11px] font-medium text-neutral-500 dark:text-neutral-400'
+const FIELD_LABEL_CLASS = fieldLabelClass
 const SEGMENT_CLASS =
   'flex items-center gap-0.5 rounded-lg bg-neutral-100 p-0.5 dark:bg-neutral-800'
 
@@ -34,9 +34,9 @@ function SegmentButton({
       aria-pressed={active}
       onClick={onClick}
       className={clsx(
-        'flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition',
+        'flex min-h-8 flex-1 items-center justify-center rounded-md px-2 text-xs font-medium transition',
         active
-          ? 'bg-white text-neutral-800 shadow-sm dark:bg-neutral-700 dark:text-neutral-100'
+          ? 'bg-sky-100/80 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300'
           : 'text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200',
       )}
     >
@@ -98,13 +98,13 @@ function PriorityStepper({ value, onChange }: { value: string; onChange: (next: 
   }
 
   return (
-    <div className="inline-flex items-center overflow-hidden rounded-lg border border-neutral-300 dark:border-neutral-700">
+    <div className="inline-flex h-9 items-center overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-700">
       <button
         type="button"
         aria-label="降低优先级"
         disabled={current <= 0}
         onClick={() => bump(-1)}
-        className="flex h-8 w-8 items-center justify-center text-neutral-400 transition hover:bg-neutral-50 hover:text-neutral-600 disabled:opacity-30 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
+        className="flex h-full w-8 items-center justify-center text-neutral-400 transition hover:bg-neutral-50 hover:text-neutral-600 disabled:opacity-30 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
       >
         <Minus className="h-3.5 w-3.5" />
       </button>
@@ -113,14 +113,14 @@ function PriorityStepper({ value, onChange }: { value: string; onChange: (next: 
         onChange={(event) => onChange(event.target.value)}
         inputMode="numeric"
         aria-label="规则优先级"
-        className="h-8 w-11 border-x border-neutral-300 bg-white text-center text-sm tabular-nums text-neutral-800 outline-none focus:bg-sky-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:focus:bg-sky-950/40"
+        className="h-full w-11 border-x border-neutral-200 bg-white text-center text-[13px] tabular-nums text-neutral-800 outline-none focus:bg-sky-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:focus:bg-sky-950/40"
       />
       <button
         type="button"
         aria-label="提高优先级"
         disabled={current >= QUOTA_MAX_RULE_PRIORITY}
         onClick={() => bump(1)}
-        className="flex h-8 w-8 items-center justify-center text-neutral-400 transition hover:bg-neutral-50 hover:text-neutral-600 disabled:opacity-30 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
+        className="flex h-full w-8 items-center justify-center text-neutral-400 transition hover:bg-neutral-50 hover:text-neutral-600 disabled:opacity-30 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
       >
         <Plus className="h-3.5 w-3.5" />
       </button>
@@ -295,7 +295,7 @@ export function QuotaRuleEditor({
                 inputMode="decimal"
                 placeholder={draft.metric === 'cost' ? '10' : '300'}
                 className={clsx(
-                  'w-full rounded-lg border border-neutral-300 bg-white py-2 pr-10 text-sm tabular-nums text-neutral-800 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:focus:border-sky-400',
+                  `${inputClass} pr-10 tabular-nums`,
                   draft.metric === 'cost' ? 'pl-7' : 'pl-3',
                 )}
               />
@@ -341,7 +341,7 @@ export function QuotaRuleEditor({
                       aria-label={
                         draft.windowChoice === 'rolling' ? '滚动窗口小时数' : '固定周期小时数'
                       }
-                      className="w-20 rounded-lg border border-neutral-300 bg-white px-2.5 py-1.5 text-sm tabular-nums text-neutral-800 outline-none transition focus:border-sky-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:focus:border-sky-400"
+                      className={`${inputClass} !w-20 tabular-nums`}
                     />
                     <span className="text-xs text-neutral-400">小时</span>
                     <div className="ml-auto flex gap-1">

@@ -1,6 +1,7 @@
+import { LoadError } from '../../components/ui/LoadError'
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Pin, Plus, RotateCcw, Users } from 'lucide-react'
+import { Eye, Pin, Plus, RotateCcw, Users } from 'lucide-react'
 import type { AdminAnnouncementDTO } from '@shared/types/api'
 import {
   deleteAnnouncement,
@@ -14,7 +15,20 @@ import { EmptyState } from '../../components/ui/EmptyState'
 import { Modal } from '../../components/ui/Modal'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { Spinner } from '../../components/ui/Spinner'
-import { tableScroll, tableShell } from '../../components/ui/tableStyles'
+import { SearchField } from '../../components/ui/SearchField'
+import { SegmentedControl } from '../../components/ui/SegmentedControl'
+import { Markdown } from '../../chat/Markdown'
+import {
+  responsiveTableBody as tableBody,
+  responsiveTable as tableEl,
+  responsiveTableHead as tableHead,
+  responsiveTableRow as tableRowHover,
+  mobileCellLabel,
+  tableScroll,
+  tableShell,
+  responsiveTd as td,
+  th,
+} from '../../components/ui/tableStyles'
 import {
   CHANNEL_LABEL,
   formatAnnouncementAudience,
@@ -76,13 +90,27 @@ function formatDateTime(ms: number): string {
 
 export default function AnnouncementsPage() {
   const qc = useQueryClient()
-  const { data: list, isLoading } = useQuery({
+  const {
+    data: list,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ['admin', 'announcements'],
     queryFn: listAdminAnnouncements,
   })
   const [editorOpen, setEditorOpen] = useState(false)
   const [editing, setEditing] = useState<AdminAnnouncementDTO | null>(null)
   const [readersOf, setReadersOf] = useState<AdminAnnouncementDTO | null>(null)
+  const [preview, setPreview] = useState<AdminAnnouncementDTO | null>(null)
+  const [search, setSearch] = useState('')
+  const [phaseFilter, setPhaseFilter] = useState('all')
+  const keyword = search.trim().toLowerCase()
+  const filtered = (list ?? []).filter(
+    (announcement) =>
+      (phaseFilter === 'all' || announcement.phase === phaseFilter) &&
+      `${announcement.title} ${announcement.createdByName ?? ''}`.toLowerCase().includes(keyword),
+  )
 
   const openCreate = () => {
     setEditing(null)
@@ -112,7 +140,7 @@ export default function AnnouncementsPage() {
   })
 
   return (
-    <div className="mx-auto max-w-5xl space-y-5">
+    <div className="space-y-5">
       <PageHeader
         title="公告"
         description="发布站内公告：Markdown 正文、级别配色、触达渠道（铃铛 / 横幅 / 强弹窗）、定时发布与过期。"
@@ -123,7 +151,26 @@ export default function AnnouncementsPage() {
         }
       />
 
-      {isLoading ? (
+      <div className="flex flex-wrap items-center gap-3">
+        <SearchField
+          value={search}
+          onChange={setSearch}
+          placeholder="搜索公告标题或发布者"
+          className="min-w-48 flex-1"
+        />
+        <SegmentedControl
+          label="公告状态"
+          value={phaseFilter}
+          onChange={setPhaseFilter}
+          options={[
+            { value: 'all', label: '全部', count: list?.length ?? 0 },
+            ...Object.entries(PHASE_META).map(([value, meta]) => ({ value, label: meta.label })),
+          ]}
+        />
+      </div>
+
+      {isError && <LoadError hasData={Boolean(list)} onRetry={() => void refetch()} />}
+      {isError && !list ? null : isLoading ? (
         <div className="py-16 text-center">
           <Spinner className="h-6 w-6 text-neutral-400" />
         </div>
@@ -136,27 +183,52 @@ export default function AnnouncementsPage() {
             </Button>
           }
         />
+      ) : !filtered.length ? (
+        <EmptyState
+          title="没有匹配的公告"
+          action={
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setSearch('')
+                setPhaseFilter('all')
+              }}
+            >
+              清除筛选
+            </Button>
+          }
+        />
       ) : (
         <div className={tableScroll}>
-          <div className={`${tableShell} min-w-[820px]`}>
-            <table className="w-full text-sm">
-              <thead className="border-b border-neutral-200 text-left text-xs text-neutral-400 dark:border-neutral-800 dark:text-neutral-500">
+          <div className={tableShell}>
+            <table className={tableEl}>
+              <thead className={tableHead}>
                 <tr>
-                  <th className="px-4 py-3 font-medium">公告</th>
-                  <th className="px-4 py-3 font-medium">渠道</th>
-                  <th className="px-4 py-3 font-medium">受众</th>
-                  <th className="px-4 py-3 font-medium">状态</th>
-                  <th className="px-4 py-3 font-medium">已读</th>
-                  <th className="px-4 py-3" />
+                  <th scope="col" className={th}>
+                    公告
+                  </th>
+                  <th scope="col" className={th}>
+                    渠道
+                  </th>
+                  <th scope="col" className={th}>
+                    受众
+                  </th>
+                  <th scope="col" className={th}>
+                    状态
+                  </th>
+                  <th scope="col" className={th}>
+                    已读
+                  </th>
+                  <th scope="col" className={th} aria-label="操作" />
                 </tr>
               </thead>
-              <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
-                {list.map((a) => {
+              <tbody className={tableBody}>
+                {filtered.map((a) => {
                   const level = LEVEL_META[a.level]
                   const phase = PHASE_META[a.phase]
                   return (
-                    <tr key={a.id} className="bg-white align-middle dark:bg-neutral-900">
-                      <td className="px-4 py-3">
+                    <tr key={a.id} className={tableRowHover}>
+                      <td className={`${td} col-span-2`}>
                         <div className="flex items-center gap-1.5">
                           {a.pinned && (
                             <Pin
@@ -165,22 +237,33 @@ export default function AnnouncementsPage() {
                             />
                           )}
                           <Badge tone={level.tone}>{level.label}</Badge>
-                          <span className="font-medium text-neutral-900 dark:text-neutral-100">
+                          <button
+                            type="button"
+                            onClick={() => openEdit(a)}
+                            className="min-w-0 truncate text-left font-medium text-neutral-900 hover:text-sky-600 dark:text-neutral-100 dark:hover:text-sky-400"
+                          >
                             {a.title}
-                          </span>
+                          </button>
                         </div>
                         <div className="mt-1 text-xs text-neutral-400">
                           {a.createdByName ? `${a.createdByName} · ` : ''}
                           创建于 {formatDateTime(a.createdAt)}
                         </div>
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-neutral-600 dark:text-neutral-300">
+                      <td
+                        className={`${td} whitespace-nowrap text-neutral-600 dark:text-neutral-300`}
+                      >
+                        <span className={mobileCellLabel}>渠道</span>
                         {CHANNEL_LABEL[a.channel]}
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-neutral-600 dark:text-neutral-300">
+                      <td
+                        className={`${td} whitespace-nowrap text-neutral-600 dark:text-neutral-300`}
+                      >
+                        <span className={mobileCellLabel}>受众</span>
                         {formatAnnouncementAudience(a.audience, a.audienceCount)}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className={td}>
+                        <span className={mobileCellLabel}>状态</span>
                         <Badge tone={phase.tone}>{phase.label}</Badge>
                         {(a.publishAt != null || a.expiresAt != null) && (
                           <div className="mt-1 space-y-0.5 text-xs text-neutral-400">
@@ -189,7 +272,8 @@ export default function AnnouncementsPage() {
                           </div>
                         )}
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
+                      <td className={`${td} whitespace-nowrap`}>
+                        <span className={mobileCellLabel}>已读</span>
                         <button
                           type="button"
                           onClick={() => setReadersOf(a)}
@@ -201,9 +285,13 @@ export default function AnnouncementsPage() {
                           <span className="text-neutral-400">/{a.audienceCount}</span>
                         </button>
                       </td>
-                      <td className="px-4 py-3">
+                      <td className={`${td} col-span-2`}>
                         {/* flex 行让图标按钮与文字按钮垂直居中对齐（inline 元素会按基线错位） */}
                         <div className="flex items-center justify-end gap-1">
+                          <Button size="sm" variant="ghost" onClick={() => setPreview(a)}>
+                            <Eye className="h-3.5 w-3.5" />
+                            预览
+                          </Button>
                           <Button
                             variant="ghost"
                             className="!px-2.5 !py-1 text-xs"
@@ -217,6 +305,7 @@ export default function AnnouncementsPage() {
                               })
                             }}
                             title="重置已读（重新推送）"
+                            aria-label="重置已读（重新推送）"
                           >
                             <RotateCcw className="h-3.5 w-3.5" />
                           </Button>
@@ -230,6 +319,7 @@ export default function AnnouncementsPage() {
                           <Button
                             variant="ghost"
                             className="!px-2.5 !py-1 text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30"
+                            aria-label={`删除公告 ${a.title}`}
                             onClick={() => {
                               void askConfirm({
                                 title: '删除公告？',
@@ -258,6 +348,26 @@ export default function AnnouncementsPage() {
         <AnnouncementEditor announcement={editing} onClose={() => setEditorOpen(false)} />
       )}
       {readersOf && <ReadersModal announcement={readersOf} onClose={() => setReadersOf(null)} />}
+      {preview && (
+        <Modal
+          open
+          title={preview.title}
+          size="reading"
+          onClose={() => setPreview(null)}
+          footer={
+            <Button
+              onClick={() => {
+                openEdit(preview)
+                setPreview(null)
+              }}
+            >
+              编辑公告
+            </Button>
+          }
+        >
+          <Markdown text={preview.body} />
+        </Modal>
+      )}
     </div>
   )
 }

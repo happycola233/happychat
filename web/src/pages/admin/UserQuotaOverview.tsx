@@ -3,6 +3,7 @@ import { X } from 'lucide-react'
 import type { AdminUserQuotaDTO, UserStatDTO } from '@shared/types/api'
 import { formatQuotaCostUsd } from '@shared/util/quota'
 import { cardSurface } from '../../components/ui/Card'
+import { SegmentedControl } from '../../components/ui/SegmentedControl'
 import { Spinner } from '../../components/ui/Spinner'
 import { formatInt } from '../../lib/format'
 import { AdminUserAvatar } from './AdminUserAvatar'
@@ -59,13 +60,13 @@ function Kpi({
   tone?: 'rose' | 'amber' | 'ok'
 }) {
   return (
-    <div className="px-5 py-4">
+    <div className="px-4 py-2 sm:py-3" title={hint}>
       <div className="text-[11px] font-medium tracking-wide text-neutral-400 dark:text-neutral-500">
         {label}
       </div>
       <div
         className={clsx(
-          'mt-1.5 text-2xl font-semibold tracking-tight tabular-nums',
+          'mt-1 text-xl font-semibold tracking-tight tabular-nums',
           tone === 'rose'
             ? 'text-rose-600 dark:text-rose-300'
             : tone === 'amber'
@@ -75,7 +76,9 @@ function Kpi({
       >
         {value}
       </div>
-      <div className="mt-1 text-[11px] leading-5 text-neutral-400 dark:text-neutral-500">{hint}</div>
+      <div className="mt-1 hidden text-[11px] leading-5 text-neutral-400 sm:block dark:text-neutral-500">
+        {hint}
+      </div>
     </div>
   )
 }
@@ -118,8 +121,7 @@ function UsageRow({
           </div>
           <div className="mt-0.5 flex items-center justify-between gap-3 text-[11px] text-neutral-400 dark:text-neutral-500">
             <span className="truncate">
-              {formatInt(row.requests)} 次
-              {row.user.disabled ? ' · 已停用' : ''}
+              {formatInt(row.requests)} 次{row.user.disabled ? ' · 已停用' : ''}
             </span>
             <span className={clsx('shrink-0 rounded px-1.5 py-px font-medium', meta.badgeClass)}>
               {meta.label}
@@ -249,7 +251,7 @@ export function UserQuotaOverview({
 
   return (
     <section className={cardSurface}>
-      <div className="flex flex-col gap-3 px-5 pt-5 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex flex-col gap-3 px-4 pt-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-50">总览</h2>
@@ -264,35 +266,19 @@ export function UserQuotaOverview({
               </button>
             )}
           </div>
-          <p className="mt-1 text-xs leading-5 text-neutral-400 dark:text-neutral-500">
-            额度健康来自当前周期快照；用量排行是可比时间窗内的对话消耗，无限额度用户也会出现。
+          <p className="mt-1 hidden text-xs leading-5 text-neutral-400 sm:block dark:text-neutral-500">
+            查看当前额度状态，点选状态或策略即可筛选用户。
           </p>
         </div>
-        <div
-          className="inline-flex w-fit shrink-0 rounded-lg bg-neutral-100 p-0.5 dark:bg-neutral-800"
-          role="group"
-          aria-label="用量统计时间窗"
-        >
-          {QUOTA_OVERVIEW_RANGES.map((range) => (
-            <button
-              key={range.key}
-              type="button"
-              aria-pressed={rangeKey === range.key}
-              onClick={() => onRangeKeyChange(range.key)}
-              className={clsx(
-                'rounded-md px-2.5 py-1 text-[12px] font-medium transition',
-                rangeKey === range.key
-                  ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-600 dark:text-white'
-                  : 'text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200',
-              )}
-            >
-              {range.label}
-            </button>
-          ))}
-        </div>
+        <SegmentedControl
+          label="用量统计时间窗"
+          value={rangeKey}
+          onChange={onRangeKeyChange}
+          options={QUOTA_OVERVIEW_RANGES.map((range) => ({ value: range.key, label: range.label }))}
+        />
       </div>
 
-      <div className="mt-4 grid grid-cols-2 divide-y divide-neutral-100 border-y border-neutral-100 sm:grid-cols-4 sm:divide-x sm:divide-y-0 dark:divide-neutral-800 dark:border-neutral-800">
+      <div className="mt-3 grid grid-cols-2 gap-y-1 sm:grid-cols-4">
         <Kpi
           label="受限额用户"
           value={`${formatInt(summary.limited)} / ${formatInt(summary.total)}`}
@@ -329,7 +315,7 @@ export function UserQuotaOverview({
         />
       </div>
 
-      <div className="px-5 py-4">
+      <div className="px-4 py-3">
         <div className="flex h-2.5 gap-0.5" aria-hidden>
           {summary.total === 0 ? (
             <div className="flex-1 rounded-full bg-neutral-100 dark:bg-neutral-800" />
@@ -364,9 +350,7 @@ export function UserQuotaOverview({
                 type="button"
                 disabled={disabled}
                 aria-pressed={active}
-                onClick={() =>
-                  onFilterChange(toggleFilter(filter, { type: 'status', status }))
-                }
+                onClick={() => onFilterChange(toggleFilter(filter, { type: 'status', status }))}
                 className={clsx(
                   'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/40',
                   disabled
@@ -379,7 +363,9 @@ export function UserQuotaOverview({
                 <span
                   className={clsx(
                     'h-1.5 w-1.5 rounded-full',
-                    disabled ? 'bg-neutral-300 dark:bg-neutral-600' : USER_QUOTA_STATUS_META[status].barClass,
+                    disabled
+                      ? 'bg-neutral-300 dark:bg-neutral-600'
+                      : USER_QUOTA_STATUS_META[status].barClass,
                   )}
                 />
                 {USER_QUOTA_STATUS_META[status].label}
@@ -390,56 +376,65 @@ export function UserQuotaOverview({
         </div>
       </div>
 
-      <div className="grid border-t border-neutral-100 lg:grid-cols-2 dark:border-neutral-800">
-        <div className="border-b border-neutral-100 px-4 py-4 lg:border-r lg:border-b-0 dark:border-neutral-800">
-          <div className="mb-2 flex items-center justify-between gap-2 px-2">
-            <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-50">
-              用量最多
-            </h3>
-            <span className="text-[11px] text-neutral-400 dark:text-neutral-500">近 {rangeLabel}</span>
-          </div>
-          {statsLoading && !stats ? (
-            <div className="flex h-36 items-center justify-center">
-              <Spinner className="h-5 w-5 text-neutral-400" />
+      <details className="group px-4 pb-3">
+        <summary className="min-h-8 cursor-pointer py-2 text-xs font-medium text-neutral-600 dark:text-neutral-300">
+          用量与额度排行
+        </summary>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="py-2">
+            <div className="mb-2 flex items-center justify-between gap-2 px-2">
+              <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-50">
+                用量最多
+              </h3>
+              <span className="text-[11px] text-neutral-400 dark:text-neutral-500">
+                近 {rangeLabel}
+              </span>
             </div>
-          ) : usageRows.length === 0 ? (
-            <EmptyRank>这个时间窗还没有对话用量</EmptyRank>
-          ) : (
-            <ol className="space-y-0.5">
-              {usageRows.map((row, index) => (
-                <UsageRow
-                  key={row.user.userId}
-                  rank={index + 1}
-                  row={row}
-                  onSelect={onSelectUser}
-                />
-              ))}
-            </ol>
-          )}
-        </div>
-        <div className="px-4 py-4">
-          <div className="mb-2 flex items-center justify-between gap-2 px-2">
-            <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-50">
-              最接近上限
-            </h3>
-            <span className="text-[11px] text-neutral-400 dark:text-neutral-500">当前额度周期</span>
+            {statsLoading && !stats ? (
+              <div className="flex h-36 items-center justify-center">
+                <Spinner className="h-5 w-5 text-neutral-400" />
+              </div>
+            ) : usageRows.length === 0 ? (
+              <EmptyRank>这个时间窗还没有对话用量</EmptyRank>
+            ) : (
+              <ol className="space-y-0.5">
+                {usageRows.map((row, index) => (
+                  <UsageRow
+                    key={row.user.userId}
+                    rank={index + 1}
+                    row={row}
+                    onSelect={onSelectUser}
+                  />
+                ))}
+              </ol>
+            )}
           </div>
-          {pressureRows.length === 0 ? (
-            <EmptyRank>还没有人开始消耗额度</EmptyRank>
-          ) : (
-            <ol className="space-y-0.5">
-              {pressureRows.map((row, index) => (
-                <PressureRow
-                  key={row.user.userId}
-                  rank={index + 1}
-                  row={row}
-                  onSelect={onSelectUser}
-                />
-              ))}
-            </ol>
-          )}
+          <div className="py-2">
+            <div className="mb-2 flex items-center justify-between gap-2 px-2">
+              <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-50">
+                最接近上限
+              </h3>
+              <span className="text-[11px] text-neutral-400 dark:text-neutral-500">
+                当前额度周期
+              </span>
+            </div>
+            {pressureRows.length === 0 ? (
+              <EmptyRank>还没有人开始消耗额度</EmptyRank>
+            ) : (
+              <ol className="space-y-0.5">
+                {pressureRows.map((row, index) => (
+                  <PressureRow
+                    key={row.user.userId}
+                    rank={index + 1}
+                    row={row}
+                    onSelect={onSelectUser}
+                  />
+                ))}
+              </ol>
+            )}
+          </div>
         </div>
-      </div>
+      </details>
 
       {summary.policies.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 border-t border-neutral-100 px-5 py-3 dark:border-neutral-800">

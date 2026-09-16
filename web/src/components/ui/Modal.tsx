@@ -11,6 +11,12 @@ interface Props {
   title: ReactNode
   children: ReactNode
   footer?: ReactNode
+  /** 页签等导航固定在标题下方，长表单滚动时仍可切换。 */
+  navigation?: ReactNode
+  /** 工作台的模型等实体目录，桌面固定左栏。窄屏切换入口由 navigation 提供。 */
+  sidebar?: ReactNode
+  /** 连续切换实体的工作台不重复播放入场动画。 */
+  animate?: boolean
   size?: 'default' | 'form' | 'reading' | 'workspace' | 'wide'
   /** 复杂双栏面板可自行安排内部滚动，其余弹窗保持统一正文边距。 */
   bodyClassName?: string
@@ -57,6 +63,9 @@ export function Modal({
   dividers = 'all',
   dismissible = true,
   bodyClassName,
+  navigation,
+  sidebar,
+  animate = true,
 }: Props) {
   const titleId = useId()
   const dialogRef = useRef<HTMLDivElement>(null)
@@ -136,7 +145,8 @@ export function Modal({
         aria-labelledby={titleId}
         tabIndex={-1}
         className={clsx(
-          'hc-pop-in relative z-10 flex w-full flex-col overflow-hidden rounded-2xl bg-white shadow-xl dark:bg-neutral-900',
+          'relative z-10 flex w-full flex-col overflow-hidden rounded-2xl bg-white shadow-xl dark:bg-neutral-900',
+          animate && 'hc-pop-in',
           SIZE_CLASS[size],
           HEIGHT_CLASS[height],
         )}
@@ -160,26 +170,36 @@ export function Modal({
             </button>
           )}
         </div>
-        <div
-          className={clsx(
-            'min-h-0 flex-1',
-            bodyClassName ?? 'hc-scrollbar overflow-y-auto px-5 py-4 sm:px-6',
+        <div className="flex min-h-0 flex-1">
+          {sidebar && (
+            <aside className="hidden w-56 shrink-0 flex-col bg-neutral-50 md:flex dark:bg-neutral-950/50">
+              {sidebar}
+            </aside>
           )}
-        >
-          {children}
-        </div>
-        {footer && (
-          <div
-            className={clsx(
-              'flex shrink-0 justify-end gap-2 px-4 sm:px-5',
-              dividers === 'all'
-                ? 'border-t border-neutral-200 py-2.5 dark:border-neutral-800'
-                : 'pt-1 pb-3',
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            {navigation && <div className="shrink-0 px-4 py-2.5 sm:px-5">{navigation}</div>}
+            <div
+              className={clsx(
+                'min-h-0 flex-1',
+                bodyClassName ?? 'hc-scrollbar overflow-y-auto px-5 py-4 sm:px-6',
+              )}
+            >
+              {children}
+            </div>
+            {footer && (
+              <div
+                className={clsx(
+                  'flex shrink-0 justify-end gap-2 px-4 sm:px-5',
+                  dividers === 'all'
+                    ? 'border-t border-neutral-200 py-2.5 dark:border-neutral-800'
+                    : 'pt-1 pb-3',
+                )}
+              >
+                {footer}
+              </div>
             )}
-          >
-            {footer}
           </div>
-        )}
+        </div>
       </div>
     </div>,
     document.body,
