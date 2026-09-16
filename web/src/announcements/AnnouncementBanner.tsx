@@ -1,4 +1,4 @@
-import { X } from 'lucide-react'
+import { ArrowUpRight, X } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useActiveAnnouncements, useMarkAnnouncementRead } from '../hooks/useAnnouncements'
 import { LEVEL_META } from '../lib/announcementMeta'
@@ -17,7 +17,7 @@ export function AnnouncementBanner() {
   if (banners.length === 0) return null
 
   return (
-    <div className="shrink-0 space-y-2 px-2 pt-2 sm:px-4">
+    <div className="shrink-0 space-y-2 px-3 pt-3 sm:px-5">
       {banners.map((a) => {
         const meta = LEVEL_META[a.level]
         const Icon = meta.icon
@@ -25,27 +25,30 @@ export function AnnouncementBanner() {
           <div
             key={a.id}
             className={clsx(
-              'hc-anim-in flex items-center gap-2.5 rounded-xl border px-3 py-2 text-sm',
+              'hc-anim-in mx-auto flex max-w-5xl items-center gap-1 rounded-xl pr-2 text-sm',
               meta.bannerClass,
             )}
           >
-            <Icon className={clsx('h-4 w-4 shrink-0', meta.accentClass)} />
-            <span className="min-w-0 flex-1 truncate font-medium">{a.title}</span>
             <button
               type="button"
               onClick={() => {
                 markRead.mutate(a.id)
                 openDetail(a.id)
               }}
-              className="shrink-0 rounded-md px-1.5 py-0.5 text-xs font-medium underline-offset-2 transition hover:underline"
+              className="flex min-h-12 min-w-0 flex-1 items-center gap-3 rounded-xl px-4 py-3 text-left transition hover:bg-black/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-current dark:hover:bg-white/5"
             >
-              查看详情
+              <Icon className={clsx('h-4 w-4 shrink-0', meta.accentClass)} aria-hidden="true" />
+              <span className="min-w-0 flex-1 line-clamp-2 text-[13px] leading-5 font-medium">
+                {a.title}
+              </span>
+              <span className="hidden shrink-0 text-xs sm:inline">查看详情</span>
+              <ArrowUpRight className="h-4 w-4 shrink-0" aria-hidden="true" />
             </button>
             <button
               type="button"
               onClick={() => markRead.mutate(a.id)}
-              aria-label="关闭"
-              className="shrink-0 rounded-md p-1 opacity-70 transition hover:bg-black/5 hover:opacity-100 dark:hover:bg-white/10"
+              aria-label={`关闭公告 ${a.title}`}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg opacity-70 transition hover:bg-black/5 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current dark:hover:bg-white/10"
             >
               <X className="h-4 w-4" />
             </button>

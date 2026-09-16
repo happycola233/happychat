@@ -1,13 +1,12 @@
 import { useEffect, useState } from 'react'
-import { clsx } from 'clsx'
-import { Pin } from 'lucide-react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import type { UserAnnouncementDTO } from '@shared/types/api'
-import { Modal } from '../components/ui/Modal'
 import { Button } from '../components/ui/Button'
-import { Markdown } from '../chat/Markdown'
+import { IconButton } from '../components/ui/IconButton'
 import { useActiveAnnouncements, useMarkAnnouncementRead } from '../hooks/useAnnouncements'
-import { formatAnnouncementTime, LEVEL_META } from '../lib/announcementMeta'
 import { useAnnouncementView } from '../store/announcementView'
+import { toast } from '../store/toast'
+import { AnnouncementReader } from './AnnouncementReader'
 
 const EMPTY_ANNOUNCEMENTS: UserAnnouncementDTO[] = []
 
@@ -22,6 +21,7 @@ export function AnnouncementDialog() {
   const { data } = useActiveAnnouncements()
   const viewingId = useAnnouncementView((s) => s.viewingId)
   const closeView = useAnnouncementView((s) => s.close)
+  const openView = useAnnouncementView((s) => s.open)
   const markRead = useMarkAnnouncementRead()
   const [activeAutoId, setActiveAutoId] = useState<string | null>(null)
 
@@ -48,13 +48,36 @@ export function AnnouncementDialog() {
   const current = manual ?? auto
 
   if (!current) return null
+  const currentIndex = items.findIndex((item) => item.id === current.id)
+  const navigate = (index: number) => {
+    const item = items[index]!
+    if (!item.read && item.channel !== 'modal') markRead.mutate(item.id)
+    openView(item.id)
+  }
   return (
     <AnnouncementDialogView
+      key={current.id}
       current={current}
       requiresAcknowledgement={current.channel === 'modal' && !current.read}
       acknowledging={markRead.isPending}
-      onAcknowledge={() => markRead.mutate(current.id)}
+      onAcknowledge={() =>
+        markRead.mutate(current.id, {
+          onSuccess: closeView,
+          onError: () => toast.error('确认失败，请重试'),
+        })
+      }
       onClose={closeView}
+      navigation={
+        manual
+          ? {
+              index: currentIndex,
+              total: items.length,
+              onPrevious: () => navigate(currentIndex - 1),
+              onNext: () => navigate(currentIndex + 1),
+            }
+          : undefined
+      }
+      pendingCount={items.filter((item) => item.channel === 'modal' && !item.read).length}
     />
   )
 }
@@ -66,56 +89,63 @@ export function AnnouncementDialogView({
   acknowledging,
   onAcknowledge,
   onClose,
+  navigation,
+  pendingCount = 1,
 }: {
   current: UserAnnouncementDTO
   requiresAcknowledgement: boolean
   acknowledging: boolean
   onAcknowledge: () => void
   onClose: () => void
+  navigation?: { index: number; total: number; onPrevious: () => void; onNext: () => void }
+  pendingCount?: number
 }) {
-  const meta = LEVEL_META[current.level]
-  const LevelIcon = meta.icon
-
   return (
-    <Modal
-      open
+    <AnnouncementReader
+      announcement={current}
       onClose={onClose}
       dismissible={!requiresAcknowledgement}
-      // 公告正文常含表格/长文，用 reading 宽档 + 固定高度撑出大方的阅读窗口。
-      size="reading"
-      height="fixed"
-      // 只保留标题下的分隔线，底部按钮悬浮不画横线，减少一层线条。
-      dividers="header"
-      // 富标题：标题 + 「级别 · 时间 · 置顶」元信息行（全部 phrasing 元素，见 Modal 注释）。
-      // 级别用小图标 + 彩色文字点到为止，不用彩底圆片——弹窗头部承受不了那个视觉重量。
-      title={
-        <span className="block min-w-0 py-1">
-          <span className="block text-lg leading-snug font-semibold text-neutral-900 dark:text-neutral-100">
-            {current.title}
-          </span>
-          <span className="mt-1 flex items-center gap-1.5 text-xs font-normal text-neutral-400 dark:text-neutral-500">
-            <span className={clsx('flex items-center gap-1 font-medium', meta.accentClass)}>
-              <LevelIcon className="h-3.5 w-3.5" />
-              {meta.label}
-            </span>
-            <span aria-hidden="true">·</span>
-            <span>{formatAnnouncementTime(current.createdAt)}</span>
-            {current.pinned && (
-              <Pin className="h-3 w-3 rotate-45 text-neutral-300 dark:text-neutral-600" />
-            )}
-          </span>
-        </span>
-      }
-      // 已确认或非 modal 的手动详情可正常关闭；未确认强提示只保留明确确认按钮。
       footer={
-        requiresAcknowledgement ? (
-          <Button variant="primary" loading={acknowledging} onClick={onAcknowledge}>
-            我知道了
+        <div className="flex w-full items-center justify-between gap-3">
+          <div className="min-w-0 text-xs text-neutral-500 dark:text-neutral-400">
+            {requiresAcknowledgement ? (
+              <span>{pendingCount > 1 ? `${pendingCount} 条公告待确认` : '阅读后请确认'}</span>
+            ) : navigation && navigation.total > 1 ? (
+              <div className="flex items-center gap-2">
+                <IconButton
+                  label="上一条公告"
+                  className="!h-10 !w-10"
+                  disabled={navigation.index === 0}
+                  onClick={navigation.onPrevious}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </IconButton>
+                <span className="tabular-nums">
+                  {navigation.index + 1} / {navigation.total}
+                </span>
+                <IconButton
+                  label="下一条公告"
+                  className="!h-10 !w-10"
+                  disabled={navigation.index === navigation.total - 1}
+                  onClick={navigation.onNext}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </IconButton>
+              </div>
+            ) : (
+              <span>站内公告</span>
+            )}
+          </div>
+          <Button
+            variant={requiresAcknowledgement ? 'primary' : 'secondary'}
+            className="!min-h-10 min-w-24 !px-5"
+            loading={acknowledging && requiresAcknowledgement}
+            onClick={requiresAcknowledgement ? onAcknowledge : onClose}
+          >
+            {requiresAcknowledgement ? '我知道了' : '关闭'}
           </Button>
-        ) : undefined
+        </div>
       }
-    >
-      <Markdown text={current.body} />
-    </Modal>
+    />
   )
 }

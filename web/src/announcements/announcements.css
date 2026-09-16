@@ -1,0 +1,62 @@
+/* 公告是独立文章，不继承聊天字号与紧凑段距；同样的正文可在编辑器中直接预览。 */
+.hc-announcement-body.hc-md {
+  font-size: 15px;
+  line-height: 1.7;
+  color: #404040;
+  overflow-wrap: anywhere;
+}
+.dark .hc-announcement-body.hc-md {
+  color: #d4d4d4;
+}
+.hc-announcement-body.hc-md :is(p, ul, ol) {
+  margin-block: 0.65em;
+}
+.hc-announcement-body.hc-md li {
+  margin-block: 0.2em;
+}
+.hc-announcement-body.hc-md li > :is(ul, ol) {
+  margin-block: 0.3em;
+}
+.hc-announcement-body.hc-md :is(h1, h2, h3, h4, h5, h6) {
+  margin-block: 1.35em 0.5em;
+  line-height: 1.5;
+  color: #171717;
+  letter-spacing: -0.015em;
+}
+.dark .hc-announcement-body.hc-md :is(h1, h2, h3, h4, h5, h6) {
+  color: #fafafa;
+}
+.hc-announcement-body.hc-md h1 {
+  font-size: 1.5em;
+}
+.hc-announcement-body.hc-md h2 {
+  font-size: 1.3em;
+}
+.hc-announcement-body.hc-md h3 {
+  font-size: 1.15em;
+}
+.hc-announcement-body.hc-md img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 1.1em auto;
+  border-radius: 10px;
+}
+.hc-announcement-body.hc-md a {
+  text-underline-offset: 4px;
+  text-decoration-thickness: 1px;
+}
+.hc-announcement-body.hc-md hr {
+  margin-block: 1.5em;
+}
+.hc-announcement-body.hc-md > :first-child {
+  margin-top: 0;
+}
+.hc-announcement-body.hc-md > :last-child {
+  margin-bottom: 0;
+}
+@media (min-width: 640px) {
+  .hc-announcement-body.hc-md {
+    font-size: 16px;
+  }
+}

@@ -17,6 +17,8 @@ interface Props {
   sidebar?: ReactNode
   /** 连续切换实体的工作台不重复播放入场动画。 */
   animate?: boolean
+  /** 阅读型内容使用舒展的文章画布，手机全屏；表单保留原有布局。 */
+  presentation?: 'default' | 'reading'
   size?: 'default' | 'form' | 'reading' | 'workspace' | 'wide'
   /** 复杂双栏面板可自行安排内部滚动，其余弹窗保持统一正文边距。 */
   bodyClassName?: string
@@ -66,7 +68,9 @@ export function Modal({
   navigation,
   sidebar,
   animate = true,
+  presentation = 'default',
 }: Props) {
+  const reading = presentation === 'reading'
   const titleId = useId()
   const dialogRef = useRef<HTMLDivElement>(null)
   const onCloseRef = useRef(onClose)
@@ -131,9 +135,17 @@ export function Modal({
   // 确保从侧边栏、顶栏或设置页打开时都覆盖完整视口。
   // 移动端外边距收窄换取面板宽度，内边距反而加大——小屏拥挤感主要来自文字贴边。
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
+    <div
+      className={clsx(
+        'fixed inset-0 z-50 flex items-center justify-center',
+        reading ? 'sm:p-6' : 'p-3 sm:p-4',
+      )}
+    >
       <div
-        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+        className={clsx(
+          'absolute inset-0',
+          reading ? 'bg-neutral-950/25 dark:bg-black/60' : 'bg-black/40 backdrop-blur-sm',
+        )}
         onClick={dismissible ? onClose : undefined}
         aria-hidden="true"
       />
@@ -145,13 +157,21 @@ export function Modal({
         aria-labelledby={titleId}
         tabIndex={-1}
         className={clsx(
-          'relative z-10 flex w-full flex-col overflow-hidden rounded-2xl bg-white shadow-xl dark:bg-neutral-900',
+          'relative z-10 flex w-full flex-col overflow-hidden bg-white outline-none dark:bg-neutral-900',
+          reading
+            ? 'h-[100dvh] max-w-[60rem] sm:h-auto sm:max-h-[min(90dvh,55rem)] sm:min-h-[min(28rem,80dvh)] sm:rounded-2xl'
+            : ['rounded-2xl shadow-xl', SIZE_CLASS[size], HEIGHT_CLASS[height]],
           animate && 'hc-pop-in',
-          SIZE_CLASS[size],
-          HEIGHT_CLASS[height],
         )}
       >
-        <div className="flex min-h-11 shrink-0 items-center justify-between gap-3 border-b border-neutral-200 px-4 py-2.5 sm:px-5 dark:border-neutral-800">
+        <div
+          className={clsx(
+            'flex min-h-11 shrink-0 items-center justify-between gap-3',
+            reading
+              ? 'px-5 pt-[max(0.75rem,env(safe-area-inset-top))] pb-2 sm:px-8 sm:pt-5'
+              : 'border-b border-neutral-200 px-4 py-2.5 sm:px-5 dark:border-neutral-800',
+          )}
+        >
           {/* 富标题按 flex 居中，避免内层 inline-flex 的基线留白把整组图文抬高。 */}
           <h3
             id={titleId}
@@ -163,7 +183,10 @@ export function Modal({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg p-1 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800"
+              className={clsx(
+                'shrink-0 rounded-lg text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 dark:hover:bg-neutral-800',
+                reading ? 'flex h-10 w-10 items-center justify-center' : 'p-1',
+              )}
               aria-label="关闭"
             >
               <X className="h-4 w-4" />
@@ -189,10 +212,15 @@ export function Modal({
             {footer && (
               <div
                 className={clsx(
-                  'flex shrink-0 justify-end gap-2 px-4 sm:px-5',
-                  dividers === 'all'
-                    ? 'border-t border-neutral-200 py-2.5 dark:border-neutral-800'
-                    : 'pt-1 pb-3',
+                  'flex shrink-0 justify-end gap-2',
+                  reading
+                    ? 'px-5 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-8 sm:pb-5'
+                    : [
+                        'px-4 sm:px-5',
+                        dividers === 'all'
+                          ? 'border-t border-neutral-200 py-2.5 dark:border-neutral-800'
+                          : 'pt-1 pb-3',
+                      ],
                 )}
               >
                 {footer}

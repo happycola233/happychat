@@ -17,7 +17,7 @@ import { PageHeader } from '../../components/ui/PageHeader'
 import { Spinner } from '../../components/ui/Spinner'
 import { SearchField } from '../../components/ui/SearchField'
 import { SegmentedControl } from '../../components/ui/SegmentedControl'
-import { Markdown } from '../../chat/Markdown'
+import { AnnouncementReader } from '../../announcements/AnnouncementReader'
 import {
   responsiveTableBody as tableBody,
   responsiveTable as tableEl,
@@ -349,10 +349,9 @@ export default function AnnouncementsPage() {
       )}
       {readersOf && <ReadersModal announcement={readersOf} onClose={() => setReadersOf(null)} />}
       {preview && (
-        <Modal
-          open
-          title={preview.title}
-          size="reading"
+        <AnnouncementReader
+          preview
+          announcement={preview}
           onClose={() => setPreview(null)}
           footer={
             <Button
@@ -364,9 +363,7 @@ export default function AnnouncementsPage() {
               编辑公告
             </Button>
           }
-        >
-          <Markdown text={preview.body} />
-        </Modal>
+        />
       )}
     </div>
   )

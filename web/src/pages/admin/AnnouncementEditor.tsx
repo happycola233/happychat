@@ -13,7 +13,8 @@ import {
   updateAnnouncement,
 } from '../../api/announcements'
 import { ApiRequestError } from '../../api/client'
-import { Markdown } from '../../chat/Markdown'
+import { AnnouncementArticle } from '../../announcements/AnnouncementArticle'
+import { AnnouncementReader } from '../../announcements/AnnouncementReader'
 import { Button } from '../../components/ui/Button'
 import { Modal } from '../../components/ui/Modal'
 import { Select } from '../../components/ui/Select'
@@ -56,7 +57,7 @@ const STATUS_OPTIONS: { value: AnnouncementStatus; label: string }[] = [
 ]
 
 const textareaClass =
-  'h-full min-h-[260px] w-full resize-y rounded-xl border border-neutral-300 bg-white px-3.5 py-2.5 font-mono text-[13px] leading-6 text-neutral-800 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100'
+  'h-96 min-h-[260px] w-full resize-y rounded-xl border border-neutral-300 bg-white px-3.5 py-2.5 font-mono text-[13px] leading-6 text-neutral-800 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100'
 
 export function AnnouncementEditor({ announcement, onClose }: Props) {
   const qc = useQueryClient()
@@ -64,6 +65,7 @@ export function AnnouncementEditor({ announcement, onClose }: Props) {
 
   const [title, setTitle] = useState(announcement?.title ?? '')
   const [body, setBody] = useState(announcement?.body ?? '')
+  const [previewOpen, setPreviewOpen] = useState(false)
   const [level, setLevel] = useState<AnnouncementLevel>(announcement?.level ?? 'info')
   const [channel, setChannel] = useState<AnnouncementChannel>(announcement?.channel ?? 'silent')
   // selected 公告的完整名单按需加载；未打开面板就保存时不触碰既有受众。
@@ -154,15 +156,29 @@ export function AnnouncementEditor({ announcement, onClose }: Props) {
       ? (audienceScope?.userIds.length ?? announcement?.audienceCount ?? 0)
       : (announcement?.audienceCount ?? 0)
 
+  const previewContent = {
+    title: title.trim() || '未命名公告',
+    body,
+    level,
+    pinned,
+    publishAt: scheduled ? localInputToMs(publishAt) : null,
+    createdAt: announcement?.createdAt ?? Date.now(),
+  }
+
   return (
     <>
       <Modal
         open
         onClose={onClose}
-        size="wide"
+        size="workspace"
+        height="workspace"
         title={editing ? '编辑公告' : '新建公告'}
         footer={
           <>
+            <Button variant="ghost" className="mr-auto" onClick={() => setPreviewOpen(true)}>
+              <Eye className="h-4 w-4" />
+              预览
+            </Button>
             <Button variant="secondary" onClick={onClose}>
               取消
             </Button>
@@ -236,8 +252,8 @@ export function AnnouncementEditor({ announcement, onClose }: Props) {
           </div>
 
           {/* 正文 + 实时预览 */}
-          <div className="grid gap-3 md:grid-cols-2">
-            <label className="block">
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="flex min-h-0 flex-col">
               <span className="mb-1.5 block text-xs font-medium text-neutral-500 dark:text-neutral-400">
                 正文（Markdown）
               </span>
@@ -248,13 +264,13 @@ export function AnnouncementEditor({ announcement, onClose }: Props) {
                 placeholder={'支持 Markdown：**加粗**、[链接](https://…)、列表、`代码` 等'}
               />
             </label>
-            <div className="block">
+            <div className="flex min-h-0 flex-col">
               <span className="mb-1.5 flex items-center gap-1 text-xs font-medium text-neutral-500 dark:text-neutral-400">
                 <Eye className="h-3.5 w-3.5" /> 实时预览
               </span>
-              <div className="hc-scrollbar h-full min-h-[260px] overflow-y-auto rounded-xl border border-neutral-200 bg-white px-4 py-3 dark:border-neutral-800 dark:bg-neutral-900">
+              <div className="hc-scrollbar h-96 overflow-y-auto rounded-xl bg-neutral-50 px-5 py-6 dark:bg-neutral-950/50">
                 {body.trim() ? (
-                  <Markdown text={body} />
+                  <AnnouncementArticle announcement={previewContent} />
                 ) : (
                   <p className="text-sm text-neutral-400">预览将在此显示…</p>
                 )}
@@ -312,6 +328,18 @@ export function AnnouncementEditor({ announcement, onClose }: Props) {
           </div>
         </div>
       </Modal>
+      {previewOpen && (
+        <AnnouncementReader
+          preview
+          announcement={previewContent}
+          onClose={() => setPreviewOpen(false)}
+          footer={
+            <Button variant="secondary" onClick={() => setPreviewOpen(false)}>
+              返回编辑
+            </Button>
+          }
+        />
+      )}
       {audienceOpen && (
         <AnnouncementAudienceDialog
           announcementId={announcement?.id ?? null}
