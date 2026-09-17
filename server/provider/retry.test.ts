@@ -4,6 +4,32 @@ import { retryAfterMs, retryDecision, scheduleLongTimeout, waitForRetry } from '
 
 afterEach(() => vi.useRealTimers())
 describe('统一重试策略与长计时', () => {
+  it('524 使用独立开关，仍遵守永久错误、次数和时间预算', () => {
+    const policy = { ...DEFAULT_RETRY_POLICY, enabled: true }
+    const failure = { status: 524, type: 'server_error', code: 'internal_server_error' }
+    const deadline = Date.now() + 900000
+    expect(retryDecision(policy, failure, 1, deadline, 'connecting').stopReason).toBeNull()
+    expect(
+      retryDecision(
+        { ...policy, retryStatusCodes: policy.retryStatusCodes.filter((status) => status !== 524) },
+        failure,
+        1,
+        deadline,
+        'connecting',
+      ).stopReason,
+    ).toBe('not_retryable')
+    expect(
+      retryDecision(policy, { ...failure, code: 'insufficient_quota' }, 1, deadline, 'connecting')
+        .stopReason,
+    ).toBe('not_retryable')
+    expect(
+      retryDecision(policy, failure, policy.maxRetries + 1, deadline, 'connecting').stopReason,
+    ).toBe('attempts_exhausted')
+    expect(retryDecision(policy, failure, 1, Date.now(), 'connecting').stopReason).toBe(
+      'budget_exhausted',
+    )
+  })
+
   it('只按已知临时错误判断，永久错误优先于网关的 5xx', () => {
     const policy = { ...DEFAULT_RETRY_POLICY, enabled: true }
     const deadline = Date.now() + 900000

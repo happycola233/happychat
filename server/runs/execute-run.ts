@@ -27,7 +27,7 @@ export interface RunAttemptRuntime {
   startedAt: Date
   persistEmit: (type: string, data: Record<string, unknown>, observedAt?: Date) => number
   upstreamResponseTiming: UpstreamResponseTimingObserver & { readonly latencyMs: number | null }
-  recordError: (error: UpstreamError | null) => void
+  recordError: (error: UpstreamError | null, sensitiveValues?: readonly string[]) => void
 }
 
 /** 连接通知和空占位不算输出；思考、检索进展和图片同正文一样属于已经展示的内容。 */
@@ -117,6 +117,7 @@ export async function executeRun(
     let committed = attempt === 1
     let requestStarted = false
     let retryAfter = 0
+    let rawErrorMessage: string | undefined
     const pending: PendingEvent[] = []
     const attachments = new Set<string>()
     const previousStage = failures.at(-1)?.stage
@@ -201,8 +202,11 @@ export async function executeRun(
         {
           startedAt,
           persistEmit,
-          recordError: (error) => {
+          recordError: (error, sensitiveValues = []) => {
+            // 协议引擎可能消费了未下发的私有字段，诊断原文也必须使用同一脱敏集合。
+            sensitiveValues.forEach((value) => sensitiveContent.add(value))
             retryAfter = error?.retryAfterMs ?? 0
+            rawErrorMessage = error?.rawMessage
           },
           upstreamResponseTiming: {
             onRequestStart(at) {
@@ -283,6 +287,14 @@ export async function executeRun(
       message: redactProviderOpaqueContent(result.errorMessage ?? '生成失败', [
         ...sensitiveContent,
       ]),
+      ...(rawErrorMessage
+        ? {
+            rawMessage: redactProviderOpaqueContent(rawErrorMessage, [...sensitiveContent]).slice(
+              0,
+              8192,
+            ),
+          }
+        : {}),
       nextRetryAt: stopReason ? null : Date.now() + delayMs,
       stopReason,
     }

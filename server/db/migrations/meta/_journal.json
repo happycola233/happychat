@@ -330,6 +330,13 @@
       "when": 1789623502066,
       "tag": "0046_announcement_images_and_input_usage",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "6",
+      "when": 1789638264336,
+      "tag": "0047_retry_cloudflare_timeout",
+      "breakpoints": true
     }
   ]
 }

@@ -834,7 +834,7 @@ async function runResponseAttempt(
       state = 'canceled'
     } else {
       const ue = e instanceof UpstreamError ? e : null
-      recordError(ue)
+      recordError(ue, [...sensitiveProviderContent])
       state = 'failed'
       errorMessage = redactProviderOpaqueContent(
         ue?.message ?? (e instanceof Error ? e.message : '生成失败'),

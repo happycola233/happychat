@@ -190,6 +190,60 @@ async function drain(run: Promise<void>, ms = 3000) {
 }
 
 describe('整次生成自动重试与审计', () => {
+  it.each(['html', 'json'] as const)(
+    '524 的 %s 错误页重试后恢复，原文仅进入脱敏诊断',
+    async (format) => {
+      const ctx = fixture()
+      const rawHtml =
+        '<!DOCTYPE html><html><title>524: A timeout occurred</title>' +
+        '<body>"signature":"test-private-signature"' +
+        'x'.repeat(9000) +
+        '</body></html>'
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            format === 'html'
+              ? rawHtml
+              : JSON.stringify({
+                  error: { type: 'server_error', code: 'internal_server_error', message: rawHtml },
+                }),
+            { status: 524, headers: { 'Retry-After': '2' } },
+          ),
+        )
+        .mockImplementation(success)
+      vi.stubGlobal('fetch', fetch)
+      const task = engines.responses(ctx)
+      await vi.advanceTimersByTimeAsync(1999)
+      expect(fetch).toHaveBeenCalledTimes(1)
+      await drain(task, 1)
+
+      const saved = snapshot(ctx)
+      expect(fetch).toHaveBeenCalledTimes(2)
+      expect(saved.run.state).toBe('completed')
+      expect(saved.live.text).toBe('新回答')
+      expect(saved.logs).toHaveLength(1)
+      expect(saved.logs[0]?.retrySummary).toMatchObject({ attempts: 2, outcome: 'completed' })
+      const failure = saved.logs[0]?.retrySummary?.failures[0]
+      expect(failure).toMatchObject({
+        attempt: 1,
+        stage: 'connecting',
+        httpStatus: 524,
+        message: '上游服务响应超时（HTTP 524），请稍后重试。',
+        stopReason: null,
+      })
+      expect(failure?.rawMessage).toHaveLength(8192)
+      expect(failure?.rawMessage).toContain('"signature":null')
+      expect(failure?.rawMessage).not.toContain('test-private-signature')
+      expect(saved.errors).toHaveLength(1)
+      expect(saved.errors[0]?.message).toBe(failure?.message)
+      expect(saved.errors[0]?.detail).toMatchObject({
+        retry: { failures: [{ rawMessage: failure?.rawMessage }] },
+      })
+      expect(JSON.stringify(saved.events)).not.toContain('<!DOCTYPE html>')
+    },
+  )
+
   it.each([
     ['responses', 'eof'],
     ['responses', 'timeout'],

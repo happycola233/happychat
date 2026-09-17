@@ -225,14 +225,16 @@
 | `maxElapsedSeconds` | 900 | 从首次请求开始的重试时间预算，不能小于首次输出等待上限；耗尽后不再发起重试，正常输出可继续完成 |
 | `retryNetworkErrors` | `true` | 连接失败、缺少终态的 EOF、读取断流、首次输出与输出停滞超时 |
 | `retryAfterOutput` | `true` | 输出中断后从原始输入重新生成；等待时保留旧内容，新内容到达后整体替换；关闭后仅未输出时重试 |
-| `retryStatusCodes` | 408、409、429、500、502、503、504、529 | HTTP 临时错误及已知 SSE code/type 的对应类别；永久错误优先排除 |
+| `retryStatusCodes` | 408、409、429、500、502、503、504、524、529 | HTTP 临时错误及已知 SSE code/type 的对应类别；永久错误优先排除 |
+
+- **Cloudflare 超时**：HTTP 524 纳入同一重试预算，可在后台独立勾选。迁移 `0047_retry_cloudflare_timeout` 仅为已选择 504 的旧配置一次性追加 524，保留总开关和其余参数；之后手动取消 524 不会被读取或再次启动覆盖。`provider/errors.ts` 对直接返回的 HTML 与 JSON 错误消息内的 HTML 统一生成简短提示；`RetryAttemptFailure.rawMessage` 保存经 opaque 脱敏、最多 8192 字符的诊断原文，错误日志「原始数据」可查看，不作为聊天提示或重试摘要文案。
 
 - **统一编排**：四种引擎都通过 `runs/execute-run.ts executeRun()` 执行；引擎只负责单次协议累积并返回结果，由编排器统一管理 run.created、事件序号、取消、超时、重试与最终结算。`provider/client.ts` 每次只发一次请求，避免 HTTP 与流重试嵌套放大次数。Responses 首事件前的参数兼容降级仍有独立的一次性限制；Anthropic pause_turn 续跑属于同次生成，失败后的重试从原始输入开始。
 - **阶段判定**：`connecting` 为成功 HTTP 响应前（包括非 2xx），`before_output` 为已建立响应但尚无实际输出，`after_output` 为已有正文、思考摘要、检索进展或图片。单纯 response.created/in_progress、ping 和空 delta 不算输出。Responses 的 error/response.failed、Chat 的 HTTP 200 error frame、Anthropic 的流内 error 和 Images 的 HTTP 200 JSON error 都能按结构化 code/type 判定；未知错误不靠英文文案猜测重试。`server_is_overloaded` 对应 503，`overloaded_error` 对应 529；推断类别只用于策略，不伪造 HTTP 审计值。
 - **预算与停止**：`provider/retry.ts retryDecision()` 是唯一判定入口；等待取 max(指数退避含随机延迟, Retry-After)，支持秒数和 HTTP 日期。上游等待可超过单次间隔但不能越过总预算。首次输出/停滞/退避均使用分段计时，超过 Node 32 位延时上限不会变成 1ms。用户停止同时中断在途请求与等待。鉴权、余额/支出上限、参数、拒绝、内容过滤、未知协议错误不自动重试；max_output_tokens 保留截断结果。成功/失败终态到达后主动取消流 reader，避免网关保持连接导致挂起。
 - **内容与恢复**：每次尝试使用全新的正文、过程轨、引用、图片和私有上下文累积器。重试期间保留上一轮内容；新一轮真实输出到达时先持久化 `run.output_reset`，前后端同步清空旧状态，再接受新内容。被替换图片清理磁盘与附件行，旧事件引用标记已删除。后续尝试始终未输出就失败或取消时，仍保留此前内容。`run.retry` 的 waiting/attempting/connected 共用事件序号，connected 在实际输出恢复后发出。刷新、切换聊天、关闭浏览器不取消服务端；服务重启仍标记中断，不自动续跑。
 - **计费与审计**：全程只建一个 run、一个助手消息和一个 usage_log，不额外消耗请求次数；累加各次尝试已经上报的用量，缺失用量不估算。上游可能重复计费，设置页明确提示。迁移 `0045_run_retry_audit` 新增 `usage_logs.retry_summary` JSON，固化总尝试数、最终结果与每次失败的阶段/时间/code/type/真实 HTTP 状态/等待和停止原因；会话删除后仍保留。一条 error_log 汇总整个生成的失败经过，成功恢复也保留并标明恢复结果，不把已恢复请求计为最终失败。请求事件、用户详情和移动卡片共用 `RetryAuditDetails`；上游 HTTP 200 的流内失败明确展示。首字指标仍保留第一次可见正文时间与全程总耗时，思考耗时按最后一次输出重置后的过程计算。
-- **文档依据**：[OpenAI 错误与重试](https://developers.openai.com/api/docs/guides/error-codes)、[OpenAI 流式响应](https://developers.openai.com/api/docs/guides/streaming-responses)、[Anthropic HTTP 200 后的流内错误](https://platform.claude.com/docs/en/api/errors)。
+- **文档依据**：[OpenAI 错误与重试](https://developers.openai.com/api/docs/guides/error-codes)、[OpenAI 流式响应](https://developers.openai.com/api/docs/guides/streaming-responses)、[Anthropic HTTP 200 后的流内错误](https://platform.claude.com/docs/en/api/errors)、[Cloudflare 524 超时](https://developers.cloudflare.com/support/troubleshooting/http-status-codes/cloudflare-5xx-errors/error-524/)。
 
 ---
 
@@ -427,7 +429,7 @@
 
 ## 11. 测试与验证（`scripts/` + vitest）
 
-- 单测（`npm run test`，最近验证 **210 个文件 / 1589 个用例**）：上下文专项覆盖整组保留、重复引用去重、手选分支隔离、发送前文件读取次数、跨聊天引用拦截、一次性选择的成功消费与失败恢复；除原有注册、权限、分支、导出、Responses/chat、附件清理与前端流式覆盖外，公告专项覆盖精确受众可见性、确认越权拦截、受众原子替换、强提示不可绕过、历史曝光迁移与共享面板渲染；分享卡片专项覆盖公开快照摘要优先级与截断、动态值 HTML 转义、Open Graph / Twitter Card / canonical / 现有应用图标、反向代理公开地址还原、撤销链接不再产出预览数据及动态 HTML 的 `no-cache`；Anthropic 专项覆盖 URL 拼接、原生鉴权头、分页模型目录/capabilities、模型代际 profile、必填输出上限、manual thinking 预算约束、可见 body 与“删模板不补回”、reasoning 开关保留管理员 thinking 模板、manual/adaptive thinking、sampling 限制、大请求交由上游判断、图片/PDF/文本映射、SSE index 聚合、signature/redacted/encrypted/citation opaque 保留、流内错误状态映射、`refusal` 作废部分输出、客户端工具失败、截断工具 replay 门控、网关缺失 `message_stop` 的完整性判定、web search 业务错误及其人类可读导出、citation 安全协议、usage、`pause_turn` 续跑与来源门控 replay 隔离。
+- 单测（`npm run test`，最近验证 **212 个文件 / 1598 个用例**）：上下文专项覆盖整组保留、重复引用去重、手选分支隔离、发送前文件读取次数、跨聊天引用拦截、一次性选择的成功消费与失败恢复；除原有注册、权限、分支、导出、Responses/chat、附件清理与前端流式覆盖外，公告专项覆盖精确受众可见性、确认越权拦截、受众原子替换、强提示不可绕过、历史曝光迁移与共享面板渲染；分享卡片专项覆盖公开快照摘要优先级与截断、动态值 HTML 转义、Open Graph / Twitter Card / canonical / 现有应用图标、反向代理公开地址还原、撤销链接不再产出预览数据及动态 HTML 的 `no-cache`；Anthropic 专项覆盖 URL 拼接、原生鉴权头、分页模型目录/capabilities、模型代际 profile、必填输出上限、manual thinking 预算约束、可见 body 与“删模板不补回”、reasoning 开关保留管理员 thinking 模板、manual/adaptive thinking、sampling 限制、大请求交由上游判断、图片/PDF/文本映射、SSE index 聚合、signature/redacted/encrypted/citation opaque 保留、流内错误状态映射、`refusal` 作废部分输出、客户端工具失败、截断工具 replay 门控、网关缺失 `message_stop` 的完整性判定、web search 业务错误及其人类可读导出、citation 安全协议、usage、`pause_turn` 续跑与来源门控 replay 隔离。
   **公告图片与上下文提醒专项**：覆盖图片真实解码 / MIME 伪装 / EXIF 方向、管理员上传权限、草稿和精确受众读取、排期与撤回、失效图片的原子保存、共享引用与孤立清理、Markdown 源码定位与裁剪净化，以及上下文提醒的严格阈值与重试累计隔离。计数口径参考 [OpenAI 图片输入文档](https://developers.openai.com/api/docs/guides/images-vision) 与 [文件输入文档](https://developers.openai.com/api/docs/guides/file-inputs)。
 
   **自动重试专项**：`server/runs/retry.test.ts` 通过真实临时 SQLite 与合成上游验证首字前/后错误、流内过载、断流、超时、停止、重试预算、内容替换、用量累计与删除聊天后的审计；`server/provider/retry.test.ts` 验证统一分类与长计时；`RetryAuditDetails.test.tsx` 验证后台阶段、恢复与停止原因文案。

@@ -252,7 +252,7 @@ async function runAnthropicAttempt(
       state = 'canceled'
     } else {
       const upstreamError = error instanceof UpstreamError ? error : null
-      recordError(upstreamError)
+      recordError(upstreamError, [...sensitiveProviderContent])
       state = 'failed'
       errorMessage = redactProviderOpaqueContent(
         upstreamError?.message ?? (error instanceof Error ? error.message : '生成失败'),

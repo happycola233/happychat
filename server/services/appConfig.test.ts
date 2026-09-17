@@ -1,5 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { appConfigUpdateSchema } from '@shared/schemas/app-config'
@@ -10,7 +9,8 @@ let dbClient: typeof import('../db/client')
 let appConfigService: typeof import('./appConfig')
 
 beforeAll(async () => {
-  temporaryDirectory = mkdtempSync(join(tmpdir(), 'happychat-app-config-'))
+  mkdirSync('.tmp', { recursive: true })
+  temporaryDirectory = mkdtempSync(join(process.cwd(), '.tmp', 'happychat-app-config-'))
   process.env.NODE_ENV = 'test'
   process.env.DATA_DIR = temporaryDirectory
   process.env.DATABASE_URL = join(temporaryDirectory, 'happychat-test.db')
@@ -33,6 +33,26 @@ afterAll(() => {
 })
 
 describe('全局应用配置', () => {
+  it('524 可单独保存和关闭，重新启动迁移后不覆盖管理员选择', async () => {
+    expect((await appConfigService.getAppConfig()).upstreamRetry.retryStatusCodes).toContain(524)
+    await appConfigService.updateAppConfig(
+      appConfigUpdateSchema.parse({
+        upstreamRetry: { ...DEFAULT_RETRY_POLICY, enabled: true, retryStatusCodes: [504, 524] },
+      }),
+    )
+    expect((await appConfigService.getAppConfig()).upstreamRetry.retryStatusCodes).toEqual([
+      504, 524,
+    ])
+    await appConfigService.updateAppConfig(
+      appConfigUpdateSchema.parse({
+        upstreamRetry: { ...DEFAULT_RETRY_POLICY, enabled: true, retryStatusCodes: [504] },
+      }),
+    )
+    const migration = await import('../db/migrate')
+    migration.runMigrations()
+    expect((await appConfigService.getAppConfig()).upstreamRetry.retryStatusCodes).toEqual([504])
+  })
+
   it('较大的重试等待设置可以通过接口校验并完整保存', async () => {
     const upstreamRetry = {
       ...DEFAULT_RETRY_POLICY,

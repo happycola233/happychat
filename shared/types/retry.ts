@@ -17,6 +17,8 @@ export interface RetryAttemptFailure {
   errorCode: string | null
   httpStatus: number | null
   message: string
+  /** 脱敏并限长的上游原文，仅供诊断，不作为用户错误提示。 */
+  rawMessage?: string
   nextRetryAt: number | null
   stopReason: RetryStopReason | null
 }
