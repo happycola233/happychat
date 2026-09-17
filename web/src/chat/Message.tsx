@@ -209,9 +209,11 @@ export function Message({
   const processStatus: ProcessTrackStatus =
     liveStopped || persistedStopped
       ? 'stopped'
-      : streaming && !text && live?.upstreamStartedAt
-        ? 'working'
-        : 'completed'
+      : live?.retry
+        ? 'paused'
+        : streaming && !live?.answerStarted && !text && live?.upstreamStartedAt
+          ? 'working'
+          : 'completed'
   const reasoningEnabled = live?.reasoningEnabled ?? message.reasoningDurationMs !== null
   const reasoningDurationMs = live ? live.reasoningDurationMs : message.reasoningDurationMs
   const showProcessTrack =

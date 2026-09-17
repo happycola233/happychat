@@ -29,6 +29,54 @@ afterEach(() => {
 })
 
 describe('reduceEvent', () => {
+  it('replays retry timing using observed timestamps and replaces the earlier attempt', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(100_000)
+    const timed = (
+      type: string,
+      createdAt: number,
+      data: Record<string, unknown> = {},
+    ): WireEvent => ({ ...event(type, data), createdAt })
+    const waiting = reduceEvents(initialLive(null, true), [
+      timed('response.created', 1000),
+      timed('response.reasoning_summary_text.delta', 1500, { delta: '旧思考' }),
+      timed('run.retry', 3000, { phase: 'waiting' }),
+      timed('run.retry', 8000, { phase: 'attempting' }),
+    ])
+    expect(waiting.reasoningDurationMs).toBe(2000)
+    const resumed = reduceEvents(waiting, [
+      timed('run.output_reset', 12000, { startedAt: 8000 }),
+      timed('response.created', 10000),
+      timed('run.retry', 12000, { phase: 'connected' }),
+      timed('response.reasoning_text.delta', 12000, { delta: '新思考' }),
+    ])
+    expect(reasoningText(resumed)).toBe('新思考')
+    expect(resumed.upstreamStartedAt).toBe(10000)
+    expect(resumed.reasoningDurationMs).toBeNull()
+    expect(resumed.retry).toBeUndefined()
+    const answered = reduceEvent(resumed, timed('answer.started', 14000))
+    expect(answered.reasoningDurationMs).toBe(4000)
+    expect(reduceEvent(answered, timed('run.done', 18000)).reasoningDurationMs).toBe(4000)
+  })
+
+  it('preserves the first reasoning delta time when batching and accepts terminal timing corrections', () => {
+    const state = reduceEvents(initialLive(null, true), [
+      { ...event('response.reasoning_text.delta', { delta: '第一' }), createdAt: 1000 },
+      { ...event('response.reasoning_text.delta', { delta: '段' }), createdAt: 3000 },
+      { ...event('answer.started'), createdAt: 4000 },
+    ])
+    expect(state.upstreamStartedAt).toBe(1000)
+    expect(state.reasoningDurationMs).toBe(3000)
+    for (const type of ['run.done', 'run.error', 'run.canceled', 'run.interrupted']) {
+      expect(
+        reduceEvent(state, event(type, { reasoningDurationMs: 2500 })).reasoningDurationMs,
+      ).toBe(2500)
+      expect(
+        reduceEvent(state, event(type, { reasoningDurationMs: null })).reasoningDurationMs,
+      ).toBeNull()
+    }
+  })
+
   it('restores retry progress from replay and clears it on recovery or termination', () => {
     const waiting = event('run.retry', {
       phase: 'waiting',

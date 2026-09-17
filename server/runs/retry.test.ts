@@ -1,10 +1,20 @@
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { eq } from 'drizzle-orm'
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from 'vitest'
 import { DEFAULT_RETRY_POLICY, type RetryPolicy } from '@shared/schemas/retry'
 import type { ModelKind } from '@shared/types/domain'
-import { initialLive, reduceEvents } from '../../web/src/sse/eventReducer'
+import { initialLive, reduceEvent, reduceEvents } from '../../web/src/sse/eventReducer'
 
 let directory: string
 let client: typeof import('../db/client')
@@ -64,7 +74,7 @@ async function setPolicy(patch: Partial<RetryPolicy> = {}) {
     },
   })
 }
-function fixture(kind: ModelKind = 'responses') {
+function fixture(kind: ModelKind = 'responses', reasoning = false) {
   const user = client.db
     .insert(schema.users)
     .values({ username: `retry-user-${counter++}`, passwordHash: 'hash' })
@@ -87,12 +97,14 @@ function fixture(kind: ModelKind = 'responses') {
       modelId: 'test-model',
       displayName: 'Retry model',
       kind,
+      allowedEfforts: reasoning ? ['high'] : [],
+      defaultEffort: reasoning ? 'high' : null,
       capabilities: {
         vision: false,
         file_input: false,
         web_search: false,
         x_search: false,
-        reasoning: false,
+        reasoning,
         image_generation: kind === 'image',
       },
     })
@@ -161,7 +173,12 @@ function snapshot(ctx: ReturnType<typeof fixture>) {
     events,
     live: reduceEvents(
       initialLive(),
-      events.map((event) => ({ type: event.type, seq: event.sequenceNumber, data: event.data })),
+      events.map((event) => ({
+        type: event.type,
+        seq: event.sequenceNumber,
+        data: event.data,
+        createdAt: event.createdAt.getTime(),
+      })),
     ),
   }
 }
@@ -184,12 +201,212 @@ const done = {
 }
 const success = () => sse(delta('新回答'), done)
 
+function controlledSse(...initialEvents: unknown[]) {
+  let controller: ReadableStreamDefaultController<Uint8Array>
+  const response = new Response(
+    new ReadableStream<Uint8Array>({
+      start(value) {
+        controller = value
+      },
+    }),
+    { headers: { 'Content-Type': 'text/event-stream' } },
+  )
+  const push = (...events: unknown[]) =>
+    controller.enqueue(new TextEncoder().encode(sseText(events)))
+  push(...initialEvents)
+  return { response, push, close: () => controller.close() }
+}
+
+function reasoningProtocol(kind: 'responses' | 'chat' | 'anthropic') {
+  if (kind === 'chat')
+    return {
+      opening: [],
+      reasoning: (text: string) => ({ choices: [{ delta: { reasoning_content: text } }] }),
+      answer: (text: string) => [{ choices: [{ delta: { content: text } }] }],
+      failure: { error: { type: 'server_error', message: 'Temporary failure' } },
+      completion: [{ choices: [{ delta: {}, finish_reason: 'stop' }] }],
+    }
+  if (kind === 'anthropic')
+    return {
+      opening: [
+        {
+          type: 'message_start',
+          message: { id: 'thinking-test', usage: { input_tokens: 3, output_tokens: 0 } },
+        },
+        {
+          type: 'content_block_start',
+          index: 0,
+          content_block: { type: 'thinking', thinking: '' },
+        },
+      ],
+      reasoning: (text: string) => ({
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'thinking_delta', thinking: text },
+      }),
+      answer: (text: string) => [
+        { type: 'content_block_stop', index: 0 },
+        { type: 'content_block_start', index: 1, content_block: { type: 'text', text: '' } },
+        { type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text } },
+      ],
+      failure: { type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } },
+      completion: [
+        { type: 'content_block_stop', index: 1 },
+        { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 2 } },
+        { type: 'message_stop' },
+      ],
+    }
+  return {
+    opening: [{ type: 'response.created' }],
+    reasoning: (text: string) => ({ type: 'response.reasoning_summary_text.delta', delta: text }),
+    answer: (text: string) => [delta(text)],
+    failure: overloaded,
+    completion: [done],
+  }
+}
+
 async function drain(run: Promise<void>, ms = 3000) {
   await vi.advanceTimersByTimeAsync(ms)
   await run
 }
 
 describe('整次生成自动重试与审计', () => {
+  it.each(['responses', 'chat', 'anthropic'] as const)(
+    '%s 重试期间实时展示思考，实时、回放、消息读取只计当前尝试',
+    async (kind) => {
+      const ctx = fixture(kind, true)
+      let live = initialLive()
+      const { runEmitter } = await import('./emitter')
+      onTestFinished(
+        runEmitter.subscribe(ctx.run.id, (event) => {
+          live = reduceEvent(live, {
+            type: event.type,
+            seq: event.sequenceNumber,
+            data: event.data,
+            createdAt: event.createdAt.getTime(),
+          })
+        }),
+      )
+      const protocol = reasoningProtocol(kind)
+      const first = controlledSse(...protocol.opening, protocol.reasoning('旧思考'))
+      const second = controlledSse(...protocol.opening)
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValueOnce(first.response).mockResolvedValueOnce(second.response),
+      )
+      const task = engines[kind](ctx)
+      await vi.advanceTimersByTimeAsync(2000)
+      first.push(protocol.failure)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(snapshot(ctx).live).toMatchObject({
+        reasoningDurationMs: 2000,
+        retry: { phase: 'waiting' },
+      })
+
+      await vi.advanceTimersByTimeAsync(3000)
+      expect(snapshot(ctx).live.processSteps).toContainEqual(
+        expect.objectContaining({ text: '旧思考' }),
+      )
+      expect(snapshot(ctx).live.reasoningDurationMs).toBe(2000)
+      second.push(protocol.reasoning('新思考'))
+      await vi.advanceTimersByTimeAsync(0)
+      const streaming = snapshot(ctx)
+      expect(streaming.run.state).toBe('running')
+      expect(streaming.live).toMatchObject({
+        text: '',
+        reasoningDurationMs: null,
+        answerStarted: false,
+      })
+      expect(streaming.live.retry).toBeUndefined()
+      expect(streaming.live.processSteps).toContainEqual(
+        expect.objectContaining({ text: '新思考' }),
+      )
+      expect(streaming.live.upstreamStartedAt).toBe(Date.now() - 2000)
+      expect(live).toEqual(streaming.live)
+
+      await vi.advanceTimersByTimeAsync(1000)
+      second.push(protocol.reasoning('继续'))
+      await vi.advanceTimersByTimeAsync(0)
+      expect(snapshot(ctx).live.processSteps).toContainEqual(
+        expect.objectContaining({ text: '新思考继续' }),
+      )
+      await vi.advanceTimersByTimeAsync(500)
+      second.push(...protocol.answer('新回答'))
+      await vi.advanceTimersByTimeAsync(0)
+      expect(snapshot(ctx).live.reasoningDurationMs).toBe(3500)
+      await vi.advanceTimersByTimeAsync(1000)
+      second.push(...protocol.completion)
+      second.close()
+      await vi.advanceTimersByTimeAsync(0)
+      await task
+
+      const saved = snapshot(ctx)
+      expect(saved.message.reasoningDurationMs).toBe(3500)
+      expect(live.reasoningDurationMs).toBe(3500)
+      expect(saved.message.generationDurationMs).toBe(7500)
+      vi.setSystemTime(Date.now() + 60_000)
+      expect(snapshot(ctx).live.reasoningDurationMs).toBe(3500)
+      const { getMessageTimingByMessageId } = await import('../services/conversations')
+      expect(
+        (await getMessageTimingByMessageId([saved.message])).get(saved.message.id)
+          ?.reasoningDurationMs,
+      ).toBe(3500)
+    },
+  )
+
+  it('新尝试始终无输出而取消时，保留的思考耗时不包含重试等待', async () => {
+    const ctx = fixture('responses', true)
+    const first = controlledSse(
+      { type: 'response.created' },
+      { type: 'response.reasoning_summary_text.delta', delta: '保留的思考' },
+    )
+    const fetch = vi.fn().mockResolvedValueOnce(first.response).mockResolvedValue(sse(overloaded))
+    vi.stubGlobal('fetch', fetch)
+    const task = engines.responses(ctx)
+    await vi.advanceTimersByTimeAsync(2000)
+    first.push(overloaded)
+    await vi.advanceTimersByTimeAsync(2500)
+    ctx.abortController.abort()
+    await vi.advanceTimersByTimeAsync(0)
+    await task
+    const saved = snapshot(ctx)
+    expect(saved.run.state).toBe('canceled')
+    expect(saved.message.reasoningDurationMs).toBe(2000)
+    expect(saved.live.reasoningDurationMs).toBe(2000)
+    expect(saved.message.generationDurationMs).toBe(4500)
+    expect(saved.message.processSteps).toEqual([{ kind: 'reasoning', text: '保留的思考' }])
+  })
+
+  it('空正文 delta 不结束思考，只有真实终答才开始折叠', async () => {
+    const ctx = fixture('responses', true)
+    const upstream = controlledSse({ type: 'response.created' }, delta(''))
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(upstream.response))
+    const task = engines.responses(ctx)
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(snapshot(ctx).live.answerStarted).toBe(false)
+    upstream.push({ type: 'response.reasoning_summary_text.delta', delta: '思考中' })
+    await vi.advanceTimersByTimeAsync(2000)
+    upstream.push(delta('回答'), done)
+    await vi.advanceTimersByTimeAsync(0)
+    await task
+    expect(snapshot(ctx).message.reasoningDurationMs).toBe(3000)
+  })
+
+  it('始终没有正文时，空 delta 不把整次思考耗时截为零', async () => {
+    const ctx = fixture('responses', true)
+    const upstream = controlledSse({ type: 'response.created' }, delta(''))
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(upstream.response))
+    const task = engines.responses(ctx)
+    await vi.advanceTimersByTimeAsync(1000)
+    upstream.push({ type: 'response.reasoning_summary_text.delta', delta: '思考中' })
+    await vi.advanceTimersByTimeAsync(2000)
+    upstream.push(done)
+    await vi.advanceTimersByTimeAsync(0)
+    await task
+    expect(snapshot(ctx).message.reasoningDurationMs).toBe(3000)
+    expect(snapshot(ctx).logs[0]?.firstTokenLatencyMs).toBeNull()
+  })
+
   it.each(['html', 'json'] as const)(
     '524 的 %s 错误页重试后恢复，原文仅进入脱敏诊断',
     async (format) => {

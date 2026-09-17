@@ -12,6 +12,25 @@ const ev = (
 })
 
 describe('compactRunEventsForReplay', () => {
+  it('preserves the first delta timestamp while advancing the replay cursor', () => {
+    const compacted = compactRunEventsForReplay([
+      {
+        ...ev(1, 'response.reasoning_summary_text.delta', { delta: '第一' }),
+        createdAt: new Date(1000),
+      },
+      {
+        ...ev(2, 'response.reasoning_summary_text.delta', { delta: '段' }),
+        createdAt: new Date(4000),
+      },
+    ])
+    expect(compacted).toEqual([
+      {
+        ...ev(2, 'response.reasoning_summary_text.delta', { delta: '第一段' }),
+        createdAt: new Date(1000),
+      },
+    ])
+  })
+
   it('merges consecutive text deltas and keeps the latest sequence cursor', () => {
     const compacted = compactRunEventsForReplay([
       ev(0, 'run.created'),

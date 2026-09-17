@@ -8,6 +8,8 @@ export interface WireEvent {
   type: string
   seq: number
   data: Record<string, unknown>
+  /** 服务端观测时间（毫秒）；旧客户端/事件可省略，回放时不能改用接收时间。 */
+  createdAt?: number
 }
 
 /** 合成事件类型（与上游 response.* 共用同一 SSE 通道与 seq 计数器） */
@@ -68,6 +70,7 @@ export interface RunDoneData {
   annotations?: UrlCitation[]
   usage: MessageUsage
   incompleteReason: string | null
+  reasoningDurationMs?: number | null
 }
 
 export interface RunErrorData {
@@ -76,10 +79,12 @@ export interface RunErrorData {
   code?: string
   /** true 表示流中先前展示的部分输出已被上游明确作废。 */
   discardPartialOutput?: boolean
+  reasoningDurationMs?: number | null
 }
 
 export interface RunSimpleTerminalData {
   state: RunState
+  reasoningDurationMs?: number | null
 }
 
 export interface ConversationTitleUpdatedData {

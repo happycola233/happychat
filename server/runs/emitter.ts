@@ -3,6 +3,7 @@ export interface RunEvent {
   sequenceNumber: number
   type: string
   data: Record<string, unknown>
+  createdAt: Date
 }
 
 type Listener = (ev: RunEvent) => void

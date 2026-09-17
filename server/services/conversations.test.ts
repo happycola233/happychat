@@ -22,6 +22,37 @@ const itemEvent = (
 })
 
 describe('reasoning timing helpers', () => {
+  it('uses the last output reset even when events are supplied out of order', () => {
+    const events = [
+      ev('run.done', 8, 19000),
+      ev('response.created', 1, 1000),
+      ev('answer.started', 2, 3000),
+      ev('run.output_reset', 4, 14000),
+      ev('response.created', 5, 12000),
+      ev('answer.started', 7, 17000),
+    ]
+    expect(reasoningStartedAtMs(events)).toBe(12000)
+    expect(computeReasoningDurationMs(events)).toBe(5000)
+  })
+
+  it('stops retained reasoning at the first retry wait, including later attempts without output', () => {
+    const events = [
+      ev('response.created', 1, 1000),
+      ev('response.reasoning_text.delta', 2, 2000),
+      { ...ev('run.retry', 3, 4000), data: { phase: 'waiting' } },
+      { ...ev('run.retry', 4, 9000), data: { phase: 'attempting' } },
+      { ...ev('run.retry', 5, 12000), data: { phase: 'waiting' } },
+      ev('run.canceled', 6, 14000),
+    ]
+    expect(computeReasoningDurationMs(events, new Date(14000))).toBe(3000)
+  })
+
+  it('uses raw reasoning as the start marker when the gateway omits lifecycle events', () => {
+    const events = [ev('response.reasoning_text.delta', 1, 1200), ev('answer.started', 2, 3200)]
+    expect(reasoningStartedAtMs(events)).toBe(1200)
+    expect(computeReasoningDurationMs(events)).toBe(2000)
+  })
+
   it('falls back to the first output text delta for old runs without answer.started', () => {
     const events = [
       ev('run.created', 0, 900),

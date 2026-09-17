@@ -599,7 +599,9 @@ async function runResponseAttempt(
         liveReasoningStartedAt === null &&
         (ev.type === 'response.created' ||
           ev.type === 'response.in_progress' ||
-          ev.type === 'response.reasoning_summary_text.delta')
+          ((ev.type === 'response.reasoning_summary_text.delta' ||
+            ev.type === 'response.reasoning_text.delta') &&
+            str(ev.data.delta).length > 0))
       ) {
         liveReasoningStartedAt = eventObservedAt
       }
@@ -620,13 +622,14 @@ async function runResponseAttempt(
         ev.type === 'response.output_text.delta' &&
         Boolean(provisionalRawAnswerItemId) &&
         str(ev.data.item_id) === provisionalRawAnswerItemId
-      if (rawProvisionalDelta && provisionalRawAnswerFirstDeltaAt === null) {
+      if (rawProvisionalDelta && str(ev.data.delta) && provisionalRawAnswerFirstDeltaAt === null) {
         provisionalRawAnswerFirstDeltaAt = eventObservedAt
         provisionalRawAnswerFirstDeltaData = ev.data
       }
 
       if (
         ev.type === 'response.output_text.delta' &&
+        str(ev.data.delta).length > 0 &&
         !rawProvisionalDelta &&
         !commentaryStepsByItemId.has(str(ev.data.item_id)) &&
         !answerStarted

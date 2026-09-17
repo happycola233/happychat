@@ -16,10 +16,7 @@ import { requireUser } from '../auth/middleware'
 import { jsonValidator } from '../http/validator'
 import { must } from '../lib/assert'
 import { getOwnedConversation, toConversationDTO, toMessageDTO } from '../services/conversations'
-import {
-  REASONING_END_EVENT_TYPES,
-  REASONING_START_EVENT_TYPES,
-} from '../services/reasoning-timing'
+import { getReasoningTimingSnapshot } from '../services/run-timing-snapshot'
 import { prepareRegenerate, prepareRun } from '../runs/prepare'
 import { runManager } from '../runs/manager'
 import { runEmitter, type RunEvent } from '../runs/emitter'
@@ -165,36 +162,7 @@ runRoutes.get('/active', async (c) => {
   const [model] = r.modelId
     ? await db.select().from(models).where(eq(models.id, r.modelId)).limit(1)
     : []
-  const [reasoningStart] = await db
-    .select({
-      type: runEvents.type,
-      sequenceNumber: runEvents.sequenceNumber,
-      createdAt: runEvents.createdAt,
-    })
-    .from(runEvents)
-    .where(
-      and(eq(runEvents.runId, r.id), inArray(runEvents.type, [...REASONING_START_EVENT_TYPES])),
-    )
-    .orderBy(asc(runEvents.sequenceNumber))
-    .limit(1)
-  const [reasoningEnd] = reasoningStart
-    ? await db
-        .select({
-          type: runEvents.type,
-          sequenceNumber: runEvents.sequenceNumber,
-          createdAt: runEvents.createdAt,
-        })
-        .from(runEvents)
-        .where(
-          and(
-            eq(runEvents.runId, r.id),
-            gt(runEvents.sequenceNumber, reasoningStart.sequenceNumber),
-            inArray(runEvents.type, [...REASONING_END_EVENT_TYPES]),
-          ),
-        )
-        .orderBy(asc(runEvents.sequenceNumber))
-        .limit(1)
-    : []
+  const reasoningTiming = await getReasoningTimingSnapshot(r.id)
   const [firstImageEvent] = await db
     .select({
       type: runEvents.type,
@@ -205,18 +173,12 @@ runRoutes.get('/active', async (c) => {
     .where(and(eq(runEvents.runId, r.id), inArray(runEvents.type, IMAGE_PROGRESS_TYPES)))
     .orderBy(asc(runEvents.sequenceNumber))
     .limit(1)
-  const reasoningDurationMs =
-    reasoningStart && reasoningEnd
-      ? Math.max(0, reasoningEnd.createdAt.getTime() - reasoningStart.createdAt.getTime())
-      : null
-
   return c.json({
     run: {
       runId: r.id,
       assistantMessageId: r.assistantMessageId,
       lastSequenceNumber: r.lastSequenceNumber,
-      upstreamStartedAt: reasoningStart?.createdAt.getTime() ?? null,
-      reasoningDurationMs,
+      ...reasoningTiming,
       imageStartedAt: firstImageEvent?.createdAt.getTime() ?? null,
       reasoningEnabled: isReasoningEnabled(model, r.requestParams as ModelParams | null),
     },
@@ -268,8 +230,16 @@ runRoutes.get('/:id/stream', async (c) => {
         w?.()
       })
 
-      const writeEvent = (type: string, seq: number, data: Record<string, unknown>) =>
-        stream.writeSSE({ id: String(seq), data: JSON.stringify({ type, seq, data }) })
+      const writeEvent = (
+        type: string,
+        seq: number,
+        data: Record<string, unknown>,
+        createdAt: Date,
+      ) =>
+        stream.writeSSE({
+          id: String(seq),
+          data: JSON.stringify({ type, seq, data, createdAt: createdAt.getTime() }),
+        })
 
       const waitNext = () =>
         new Promise<void>((resolve) => {
@@ -292,7 +262,7 @@ runRoutes.get('/:id/stream', async (c) => {
           .orderBy(asc(runEvents.sequenceNumber))
         for (const row of compactRunEventsForReplay(backfill)) {
           if (aborted) return
-          await writeEvent(row.type, row.sequenceNumber, row.data)
+          await writeEvent(row.type, row.sequenceNumber, row.data, row.createdAt)
           lastSeq = Math.max(lastSeq, row.sequenceNumber)
           if (isTerminalEventType(row.type)) sawTerminal = true
         }
@@ -307,7 +277,7 @@ runRoutes.get('/:id/stream', async (c) => {
             .where(and(eq(runEvents.runId, id), gt(runEvents.sequenceNumber, lastSeq)))
             .orderBy(asc(runEvents.sequenceNumber))
           for (const row of compactRunEventsForReplay(extra)) {
-            await writeEvent(row.type, row.sequenceNumber, row.data)
+            await writeEvent(row.type, row.sequenceNumber, row.data, row.createdAt)
             lastSeq = Math.max(lastSeq, row.sequenceNumber)
             if (isTerminalEventType(row.type)) sawTerminal = true
           }
@@ -325,6 +295,7 @@ runRoutes.get('/:id/stream', async (c) => {
               terminalTypeFor(fresh.state),
               lastSeq + 1,
               terminalDataFor(fresh, usageSnapshot?.terminalReason),
+              fresh.finishedAt ?? new Date(),
             )
           }
           return
@@ -337,7 +308,7 @@ runRoutes.get('/:id/stream', async (c) => {
           while (queue.length > 0) {
             const ev = queue.shift()!
             if (ev.sequenceNumber <= lastSeq) continue
-            await writeEvent(ev.type, ev.sequenceNumber, ev.data)
+            await writeEvent(ev.type, ev.sequenceNumber, ev.data, ev.createdAt)
             lastSeq = ev.sequenceNumber
             if (isTerminalEventType(ev.type)) return
           }

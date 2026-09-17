@@ -318,6 +318,7 @@ describe('finalizeRun terminal snapshots', () => {
           message: 'upstream failed',
           code: 'request_rejected',
           discardPartialOutput: true,
+          reasoningDurationMs: null,
         },
       },
     ])

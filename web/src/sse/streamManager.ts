@@ -31,8 +31,12 @@ export function startStream(opts: StartOptions): void {
   store.set(opts.conversationId, {
     runId: opts.runId,
     assistantMessageId: opts.assistantMessageId,
-    ...initialLive(opts.upstreamStartedAt ?? null, opts.reasoningEnabled ?? false),
-    reasoningDurationMs: opts.reasoningDurationMs ?? null,
+    // 从头回放时由带时间戳的事件还原，不能把当前尝试的快照套到早先事件上。
+    ...initialLive(
+      opts.fromSeq < 0 ? null : (opts.upstreamStartedAt ?? null),
+      opts.reasoningEnabled ?? false,
+    ),
+    reasoningDurationMs: opts.fromSeq < 0 ? null : (opts.reasoningDurationMs ?? null),
     imageStartedAt: opts.imageStartedAt ?? null,
   })
 

@@ -23,43 +23,28 @@ function deltaReplayKey(ev: ReplayableRunEvent): string | null {
  * 历史回放不需要逐 token 重演动画；把连续、同一输出槽位的 delta 合并，
  * 能避免刷新恢复时向浏览器灌入成千上万条 SSE 帧。
  */
-export function compactRunEventsForReplay(events: ReplayableRunEvent[]): ReplayableRunEvent[] {
-  const compacted: ReplayableRunEvent[] = []
-  let pending: ReplayableRunEvent | null = null
-  let pendingKey: string | null = null
-
-  const flushPending = () => {
-    if (!pending) return
-    compacted.push(pending)
-    pending = null
-    pendingKey = null
-  }
+export function compactRunEventsForReplay<T extends ReplayableRunEvent>(events: T[]): T[] {
+  const compacted: T[] = []
+  let previousKey: string | null = null
 
   for (const ev of events) {
     const key = deltaReplayKey(ev)
-    if (!key) {
-      flushPending()
-      compacted.push(ev)
-      continue
-    }
-
-    if (pending && pendingKey === key) {
-      pending = {
-        type: ev.type,
+    const previous = compacted.at(-1)
+    if (key && previous && previousKey === key) {
+      compacted[compacted.length - 1] = {
+        // 游标推进到最后一帧，观测时间保留首帧，避免回放压缩改变思考起点。
+        ...previous,
         sequenceNumber: ev.sequenceNumber,
         data: {
           ...ev.data,
-          delta: str(pending.data.delta) + str(ev.data.delta),
+          delta: str(previous.data.delta) + str(ev.data.delta),
         },
       }
-      continue
+    } else {
+      compacted.push(ev)
     }
-
-    flushPending()
-    pending = { type: ev.type, sequenceNumber: ev.sequenceNumber, data: { ...ev.data } }
-    pendingKey = key
+    previousKey = key
   }
 
-  flushPending()
   return compacted
 }

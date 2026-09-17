@@ -53,7 +53,7 @@ function isOutput(type: string, data: Record<string, unknown>): boolean {
   )
 }
 
-type PendingEvent = { type: string; data: Record<string, unknown>; observedAt?: Date }
+type PendingEvent = { type: string; data: Record<string, unknown>; observedAt: Date }
 
 /**
  * 一次用户生成只有一个 run、一个结算入口和一份重试预算。
@@ -69,7 +69,7 @@ export async function executeRun(
   const timing = new UpstreamResponseLatencyTracker()
   const sensitiveContent = new Set(collectProviderOpaqueStrings(ctx.body))
   let sequence = 0
-  const emit = (type: string, data: Record<string, unknown>, observedAt?: Date): number => {
+  const emit = (type: string, data: Record<string, unknown>, observedAt = new Date()): number => {
     collectProviderOpaqueStrings(data).forEach((value) => sensitiveContent.add(value))
     const sanitizedData = sanitizeEventData(type, data, [...sensitiveContent])
     const sequenceNumber = sequence++
@@ -79,11 +79,17 @@ export async function executeRun(
         sequenceNumber,
         type,
         data: sanitizedData,
-        ...(observedAt ? { createdAt: observedAt } : {}),
+        createdAt: observedAt,
       })
       .run()
     db.update(runs).set({ lastSequenceNumber: sequenceNumber }).where(eq(runs.id, ctx.run.id)).run()
-    runEmitter.emit({ runId: ctx.run.id, sequenceNumber, type, data: sanitizedData })
+    runEmitter.emit({
+      runId: ctx.run.id,
+      sequenceNumber,
+      type,
+      data: sanitizedData,
+      createdAt: observedAt,
+    })
     return sequenceNumber
   }
   emit(RUN_EVENT_TYPE.created, {
@@ -172,7 +178,8 @@ export async function executeRun(
       for (const event of pending) emit(event.type, event.data, event.observedAt)
       pending.length = 0
     }
-    const persistEmit: RunAttemptRuntime['persistEmit'] = (type, data, observedAt) => {
+    // 在进入缓冲前冻结时间；Chat/Anthropic 的合成事件同样按实际发生时间计时。
+    const persistEmit: RunAttemptRuntime['persistEmit'] = (type, data, observedAt = new Date()) => {
       collectProviderOpaqueStrings(data).forEach((value) => sensitiveContent.add(value))
       if (type.startsWith('image.generation.') && typeof data.attachmentId === 'string')
         attachments.add(data.attachmentId)

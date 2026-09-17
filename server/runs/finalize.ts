@@ -206,15 +206,17 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
     const terminalErrorCode = a.errorCode ?? persistedErrorType
     a.persistEmit(RUN_EVENT_TYPE.error, {
       state: 'failed',
+      reasoningDurationMs,
       message: a.errorMessage ?? '生成失败',
       ...(terminalErrorCode ? { code: terminalErrorCode } : {}),
       ...(a.discardPartialOutput ? { discardPartialOutput: true } : {}),
     })
   } else if (a.state === 'canceled') {
-    a.persistEmit(RUN_EVENT_TYPE.canceled, { state: 'canceled' })
+    a.persistEmit(RUN_EVENT_TYPE.canceled, { state: 'canceled', reasoningDurationMs })
   } else {
     a.persistEmit(RUN_EVENT_TYPE.done, {
       state: a.state,
+      reasoningDurationMs,
       messageId: a.assistantMessage.id,
       // 与终态状态同帧交给前端，避免先清空流式内容再读取数据库造成闪烁。
       text: a.text,

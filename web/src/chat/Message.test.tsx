@@ -64,6 +64,23 @@ function expectAssistantRecoveryActions(html: string) {
 }
 
 describe('assistant message branch action', () => {
+  it.each(['waiting', 'attempting'] as const)(
+    'freezes retained thinking while retry is %s',
+    (phase) => {
+      const html = renderMessage(assistantMessage('streaming', { content: [] }), {
+        live: {
+          ...initialLive(1000, true),
+          reasoningDurationMs: 2500,
+          processSteps: [{ kind: 'reasoning', id: 'reasoning', text: '已有思考', partKey: null }],
+          retry: { phase, attempt: 2, maxAttempts: 3, nextRetryAt: null, reason: '正在重试' },
+        },
+      })
+      expect(html).toContain('已思考 2s')
+      expect(html).not.toContain('正在思考')
+      expect(html).not.toContain('reasoning-summary-footer')
+    },
+  )
+
   it('renders after the regenerate action for a completed assistant message', () => {
     const html = renderMessage(assistantMessage())
 

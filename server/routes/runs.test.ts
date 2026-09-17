@@ -62,6 +62,62 @@ afterAll(() => {
 })
 
 describe('GET /api/runs/:id/stream', () => {
+  it('回放保留原始事件时间，合并 delta 不改变思考起点', async () => {
+    const conversation = dbClient.db
+      .insert(schema.conversations)
+      .values({ userId: 'run-route-user' })
+      .returning()
+      .get()
+    const run = dbClient.db
+      .insert(schema.runs)
+      .values({
+        conversationId: conversation.id,
+        userId: 'run-route-user',
+        state: 'completed',
+        finishedAt: new Date(5000),
+      })
+      .returning()
+      .get()
+    dbClient.db
+      .insert(schema.runEvents)
+      .values([
+        {
+          runId: run.id,
+          sequenceNumber: 0,
+          type: 'response.reasoning_summary_text.delta',
+          data: { delta: '第一' },
+          createdAt: new Date(1000),
+        },
+        {
+          runId: run.id,
+          sequenceNumber: 1,
+          type: 'response.reasoning_summary_text.delta',
+          data: { delta: '段' },
+          createdAt: new Date(3000),
+        },
+        {
+          runId: run.id,
+          sequenceNumber: 2,
+          type: 'run.done',
+          data: { state: 'completed' },
+          createdAt: new Date(5000),
+        },
+      ])
+      .run()
+    const response = await app.request(`/api/runs/${run.id}/stream`, {
+      headers: { Cookie: userCookie },
+    })
+    expect(parseSseEvents(await response.text())).toEqual([
+      {
+        type: 'response.reasoning_summary_text.delta',
+        seq: 1,
+        data: { delta: '第一段' },
+        createdAt: 1000,
+      },
+      { type: 'run.done', seq: 2, data: { state: 'completed' }, createdAt: 5000 },
+    ])
+  })
+
   it('缺少持久化终态事件时，用 run 快照合成包含错误消息与代码的 run.error', async () => {
     const [conversation] = await dbClient.db
       .insert(schema.conversations)
@@ -91,6 +147,7 @@ describe('GET /api/runs/:id/stream', () => {
       {
         type: 'run.error',
         seq: 0,
+        createdAt: run.finishedAt!.getTime(),
         data: {
           state: 'failed',
           message: '上游拒绝了请求',
@@ -136,6 +193,7 @@ describe('GET /api/runs/:id/stream', () => {
         {
           type: 'run.error',
           seq: 0,
+          createdAt: run.finishedAt!.getTime(),
           data: {
             state: 'failed',
             message: `业务终态：${terminalReason}`,
@@ -146,4 +204,60 @@ describe('GET /api/runs/:id/stream', () => {
       ])
     },
   )
+})
+
+describe('GET /api/runs/active', () => {
+  it('恢复当前尝试的思考起点和暂停时间，不使用第一次尝试', async () => {
+    const conversation = dbClient.db
+      .insert(schema.conversations)
+      .values({ userId: 'run-route-user' })
+      .returning()
+      .get()
+    const run = dbClient.db
+      .insert(schema.runs)
+      .values({ conversationId: conversation.id, userId: 'run-route-user', state: 'running' })
+      .returning()
+      .get()
+    const events = [
+      { type: 'response.created', createdAt: 1000 },
+      { type: 'answer.started', createdAt: 3000 },
+      { type: 'run.output_reset', createdAt: 8000 },
+      { type: 'response.created', createdAt: 6000 },
+      { type: 'response.reasoning_text.delta', createdAt: 8000, data: { delta: '当前思考' } },
+    ]
+    dbClient.db
+      .insert(schema.runEvents)
+      .values(
+        events.map((event, sequenceNumber) => ({
+          ...event,
+          runId: run.id,
+          sequenceNumber,
+          createdAt: new Date(event.createdAt),
+          data: event.data ?? {},
+        })),
+      )
+      .run()
+    const active = async () => {
+      const response = await app.request(`/api/runs/active?conversationId=${conversation.id}`, {
+        headers: { Cookie: userCookie },
+      })
+      return response.json()
+    }
+    expect(await active()).toMatchObject({
+      run: { upstreamStartedAt: 6000, reasoningDurationMs: null },
+    })
+    dbClient.db
+      .insert(schema.runEvents)
+      .values({
+        runId: run.id,
+        sequenceNumber: 5,
+        type: 'run.retry',
+        createdAt: new Date(11000),
+        data: { phase: 'waiting' },
+      })
+      .run()
+    expect(await active()).toMatchObject({
+      run: { upstreamStartedAt: 6000, reasoningDurationMs: 5000 },
+    })
+  })
 })

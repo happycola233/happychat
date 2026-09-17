@@ -17,7 +17,7 @@ import { splitVisibleUnits } from './markdownStreamFade'
 import { normalizeReasoningMarkdown } from './reasoningMarkdown'
 import { splitReasoningSections, type ReasoningSection } from './reasoningSections'
 
-export type ProcessTrackStatus = 'working' | 'completed' | 'stopped'
+export type ProcessTrackStatus = 'working' | 'paused' | 'completed' | 'stopped'
 
 interface CollapseScrollAnchor {
   scroller: HTMLElement

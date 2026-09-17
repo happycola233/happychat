@@ -136,44 +136,26 @@ const APPEND_DELTA_TYPES = new Set([
 
 function compactAppendEvents(events: WireEvent[]): WireEvent[] {
   const compacted: WireEvent[] = []
-  let pendingType: string | null = null
-  let pendingKey: string | null = null
-  let pendingSeq = -1
-  let pendingData: Record<string, unknown> | null = null
-
-  const flushPending = () => {
-    if (!pendingType || !pendingData) return
-    compacted.push({ type: pendingType, seq: pendingSeq, data: pendingData })
-    pendingType = null
-    pendingKey = null
-    pendingSeq = -1
-    pendingData = null
-  }
+  let previousKey: string | null = null
 
   for (const ev of events) {
     const eventKey = APPEND_DELTA_TYPES.has(ev.type)
       ? responseDeltaIdentityKey(ev.type, ev.data)
       : null
-    if (!eventKey) {
-      flushPending()
+    const previous = compacted.at(-1)
+    if (eventKey && previous && previousKey === eventKey) {
+      // 合并 delta 仍保留首帧的观测时间，计时不能受批处理时机影响。
+      compacted[compacted.length - 1] = {
+        ...previous,
+        seq: ev.seq,
+        data: { ...ev.data, delta: str(previous.data.delta) + str(ev.data.delta) },
+      }
+    } else {
       compacted.push(ev)
-      continue
     }
-
-    if (pendingKey === eventKey && pendingData) {
-      pendingSeq = ev.seq
-      pendingData = { ...ev.data, delta: str(pendingData.delta) + str(ev.data.delta) }
-      continue
-    }
-
-    flushPending()
-    pendingType = ev.type
-    pendingKey = eventKey
-    pendingSeq = ev.seq
-    pendingData = { ...ev.data }
+    previousKey = eventKey
   }
 
-  flushPending()
   return compacted
 }
 
@@ -377,9 +359,10 @@ function appendReasoningDelta(
   s: LiveMessage,
   data: Record<string, unknown>,
   kind: 'summary' | 'raw',
+  observedAt: number,
 ): LiveMessage {
-  if (!str(data.delta)) return markUpstreamStarted(s)
-  if (kind === 'raw' && s.reasoningKind === 'summary') return markUpstreamStarted(s)
+  if (!str(data.delta)) return s
+  if (kind === 'raw' && s.reasoningKind === 'summary') return s
 
   const baseSteps =
     kind === 'summary' && s.reasoningKind === 'raw'
@@ -401,23 +384,29 @@ function appendReasoningDelta(
       : appendReasoningTextDelta({ text: step.text, partKey: step.partKey }, data)
   processSteps[index] = { ...step, text: next.text, partKey: next.partKey }
   return {
-    ...markUpstreamStarted(s),
+    ...markUpstreamStarted(s, observedAt),
     processSteps,
     reasoningKind: kind,
   }
 }
 
-function markUpstreamStarted(s: LiveMessage): LiveMessage {
-  return { ...s, upstreamStartedAt: s.upstreamStartedAt ?? Date.now() }
+function markUpstreamStarted(s: LiveMessage, observedAt: number): LiveMessage {
+  return { ...s, upstreamStartedAt: s.upstreamStartedAt ?? observedAt }
 }
 
-function finishReasoning(s: LiveMessage, exactDurationMs: number | null = null): LiveMessage {
-  if (s.reasoningDurationMs !== null) return s
-  if (exactDurationMs !== null) {
-    return { ...s, reasoningDurationMs: Math.max(0, exactDurationMs) }
+function finishReasoning(
+  s: LiveMessage,
+  observedAt: number,
+  exactDurationMs?: number | null,
+): LiveMessage {
+  if (exactDurationMs !== undefined) {
+    return {
+      ...s,
+      reasoningDurationMs: exactDurationMs === null ? null : Math.max(0, exactDurationMs),
+    }
   }
-  if (!s.upstreamStartedAt) return s
-  return { ...s, reasoningDurationMs: Math.max(0, Date.now() - s.upstreamStartedAt) }
+  if (s.reasoningDurationMs !== null || s.upstreamStartedAt === null) return s
+  return { ...s, reasoningDurationMs: Math.max(0, observedAt - s.upstreamStartedAt) }
 }
 
 /** 拒绝或内容过滤会让后端删除生成附件，这里同步清掉所有可见的部分结果引用。 */
@@ -525,12 +514,16 @@ function upsertImageGeneration(
 
 /** 将一个 SSE WireEvent 折叠进流式消息状态。 */
 export function reduceEvent(s: LiveMessage, ev: WireEvent): LiveMessage {
+  const observedAt = ev.createdAt ?? Date.now()
+  const exactDurationMs =
+    'reasoningDurationMs' in ev.data ? num(ev.data.reasoningDurationMs) : undefined
   switch (ev.type) {
     case RUN_EVENT_TYPE.outputReset:
-      return { ...initialLive(num(ev.data.startedAt), s.reasoningEnabled), retry: s.retry }
+      // 新尝试的起点由随后回放的上游事件给出；请求发起时间包含连接等待。
+      return { ...initialLive(null, s.reasoningEnabled), retry: s.retry }
     case RUN_EVENT_TYPE.retry:
       return {
-        ...s,
+        ...(ev.data.phase === 'waiting' ? finishReasoning(s, observedAt) : s),
         retry: ev.data.phase === 'connected' ? undefined : (ev.data as unknown as RunRetryData),
       }
     case 'run.created':
@@ -543,17 +536,17 @@ export function reduceEvent(s: LiveMessage, ev: WireEvent): LiveMessage {
       }
     case 'response.created':
     case 'response.in_progress':
-      return markUpstreamStarted(s)
+      return markUpstreamStarted(s, observedAt)
     case 'answer.started':
-      return { ...finishReasoning(s, num(ev.data.reasoningDurationMs)), answerStarted: true }
+      return { ...finishReasoning(s, observedAt, exactDurationMs), answerStarted: true }
     case RUN_EVENT_TYPE.outputItemReclassified:
       return reclassifyOutputItem(s, ev.data)
     case 'response.output_text.delta':
       return appendOutputText(s, ev.data)
     case 'response.reasoning_summary_text.delta':
-      return appendReasoningDelta(s, ev.data, 'summary')
+      return appendReasoningDelta(s, ev.data, 'summary', observedAt)
     case 'response.reasoning_text.delta':
-      return appendReasoningDelta(s, ev.data, 'raw')
+      return appendReasoningDelta(s, ev.data, 'raw', observedAt)
     case 'response.output_text.annotation.added': {
       const itemId = str(ev.data.item_id)
       if (
@@ -609,7 +602,7 @@ export function reduceEvent(s: LiveMessage, ev: WireEvent): LiveMessage {
         completedAt: Date.now(),
       })
     case 'run.done': {
-      const completed = finishReasoning(s)
+      const completed = finishReasoning(s, observedAt, exactDurationMs)
       const finalText = typeof ev.data.text === 'string' ? ev.data.text : completed.text
       return {
         ...completed,
@@ -625,7 +618,7 @@ export function reduceEvent(s: LiveMessage, ev: WireEvent): LiveMessage {
     }
     case 'run.error': {
       const failed: LiveMessage = {
-        ...finishReasoning(s),
+        ...finishReasoning(s, observedAt, exactDurationMs),
         status: 'failed',
         retry: undefined,
         error: str(ev.data.message) || '生成失败',
@@ -636,14 +629,14 @@ export function reduceEvent(s: LiveMessage, ev: WireEvent): LiveMessage {
     }
     case 'run.canceled':
       return {
-        ...finishReasoning(s),
+        ...finishReasoning(s, observedAt, exactDurationMs),
         status: 'canceled',
         retry: undefined,
         processSteps: settleProcessSteps(s.processSteps),
       }
     case 'run.interrupted':
       return {
-        ...finishReasoning(s),
+        ...finishReasoning(s, observedAt, exactDurationMs),
         status: 'interrupted',
         retry: undefined,
         processSteps: settleProcessSteps(s.processSteps),
