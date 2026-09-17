@@ -171,6 +171,19 @@ export const appSettings = sqliteTable('app_settings', {
 
 // ========================= 站内公告 =========================
 
+export const announcementImages = sqliteTable(
+  'announcement_images',
+  {
+    id: pk(),
+    storagePath: text('storage_path').notNull(),
+    width: integer('width').notNull(),
+    height: integer('height').notNull(),
+    byteSize: integer('byte_size').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index('announcement_images_created_idx').on(t.createdAt)],
+)
+
 /**
  * 站内公告（多条、可排期）。可见性在读取时按
  * status='published' 且 now ∈ [publishAt ?? -∞, expiresAt ?? +∞] 计算，
@@ -201,6 +214,23 @@ export const announcements = sqliteTable(
   (t) => [
     index('announcements_status_publish_idx').on(t.status, t.publishAt),
     index('announcements_pinned_idx').on(t.pinned),
+  ],
+)
+
+/** 图片可被多条公告复用，访问权限与回收都以实际引用为准。 */
+export const announcementImageLinks = sqliteTable(
+  'announcement_image_links',
+  {
+    announcementId: text('announcement_id')
+      .notNull()
+      .references(() => announcements.id, { onDelete: 'cascade' }),
+    imageId: text('image_id')
+      .notNull()
+      .references(() => announcementImages.id, { onDelete: 'cascade' }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.announcementId, t.imageId] }),
+    index('announcement_image_links_image_idx').on(t.imageId),
   ],
 )
 
@@ -544,6 +574,7 @@ export const messages = sqliteTable(
     // 兼容升级前消息的旧检索列；新消息统一写 process_steps。
     searchActions: text('search_actions', { mode: 'json' }).$type<SearchAction[]>(),
     inputTokens: integer('input_tokens'),
+    lastInputTokens: integer('last_input_tokens'),
     cacheWriteTokens: integer('cache_write_tokens'),
     cachedTokens: integer('cached_tokens'),
     outputTokens: integer('output_tokens'),

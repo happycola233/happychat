@@ -60,8 +60,8 @@ export function ContextSuggestionSettings({ config }: { config: AppConfigDTO }) 
                 提醒阈值
               </label>
               <p className="mt-1 max-w-xl text-xs leading-5 text-neutral-500">
-                按当前保留的对话文字估算
-                Token，不包含附件或私有思考内容，也不影响实际请求。用户可在当前标签页关闭本次聊天的提醒。
+                上次请求返回的输入 Token 超过此值时提醒，包含模型计入的文字、图片与文件等输入，默认
+                100K。 用户可在当前标签页关闭本次聊天的提醒。
               </p>
             </div>
             <div className="w-full shrink-0 sm:w-44">

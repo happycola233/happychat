@@ -4,6 +4,7 @@ import type { ContentPart } from '@shared/types/domain'
 import { db } from '../db/client'
 import { attachments, conversations, messages } from '../db/schema'
 import { removeUploadStrict } from '../storage/files'
+import { cleanupUnusedAnnouncementImages } from './announcement-images'
 
 /** 未绑定上传的保留期：满 24 小时后才有资格被回收。 */
 export const ORPHAN_ATTACHMENT_RETENTION_MS = 24 * 60 * 60 * 1000
@@ -374,7 +375,12 @@ export function startOrphanAttachmentCleanupScheduler(
   options: CleanupSchedulerOptions = {},
 ): () => void {
   const cleanup =
-    options.cleanup ?? (() => cleanupExpiredOrphanAttachments({ shouldContinue: () => !stopped }))
+    options.cleanup ??
+    (async () => {
+      const result = await cleanupExpiredOrphanAttachments({ shouldContinue: () => !stopped })
+      if (!stopped) cleanupUnusedAnnouncementImages()
+      return result
+    })
   const intervalMs = options.intervalMs ?? ORPHAN_ATTACHMENT_CLEANUP_INTERVAL_MS
   const logger = options.logger ?? console
   let running = false

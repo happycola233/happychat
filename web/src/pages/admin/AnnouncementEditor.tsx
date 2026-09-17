@@ -13,7 +13,6 @@ import {
   updateAnnouncement,
 } from '../../api/announcements'
 import { ApiRequestError } from '../../api/client'
-import { AnnouncementArticle } from '../../announcements/AnnouncementArticle'
 import { AnnouncementReader } from '../../announcements/AnnouncementReader'
 import { Button } from '../../components/ui/Button'
 import { Modal } from '../../components/ui/Modal'
@@ -24,6 +23,7 @@ import { CHANNEL_LABEL, formatAnnouncementAudience, LEVEL_META } from '../../lib
 import { toast } from '../../store/toast'
 import { AnnouncementAudienceDialog } from './AnnouncementAudienceDialog'
 import { sameUserScope } from './userScopeSelection'
+import { AnnouncementBodyEditor } from './AnnouncementBodyEditor'
 
 interface Props {
   announcement: AdminAnnouncementDTO | null
@@ -56,15 +56,13 @@ const STATUS_OPTIONS: { value: AnnouncementStatus; label: string }[] = [
   { value: 'published', label: '已发布' },
 ]
 
-const textareaClass =
-  'h-96 min-h-[260px] w-full resize-y rounded-xl border border-neutral-300 bg-white px-3.5 py-2.5 font-mono text-[13px] leading-6 text-neutral-800 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100'
-
 export function AnnouncementEditor({ announcement, onClose }: Props) {
   const qc = useQueryClient()
   const editing = !!announcement
 
   const [title, setTitle] = useState(announcement?.title ?? '')
   const [body, setBody] = useState(announcement?.body ?? '')
+  const [imageUploading, setImageUploading] = useState(false)
   const [previewOpen, setPreviewOpen] = useState(false)
   const [level, setLevel] = useState<AnnouncementLevel>(announcement?.level ?? 'info')
   const [channel, setChannel] = useState<AnnouncementChannel>(announcement?.channel ?? 'silent')
@@ -170,6 +168,7 @@ export function AnnouncementEditor({ announcement, onClose }: Props) {
       <Modal
         open
         onClose={onClose}
+        dismissible={!imageUploading && !save.isPending}
         size="workspace"
         height="workspace"
         title={editing ? '编辑公告' : '新建公告'}
@@ -179,10 +178,14 @@ export function AnnouncementEditor({ announcement, onClose }: Props) {
               <Eye className="h-4 w-4" />
               预览
             </Button>
-            <Button variant="secondary" onClick={onClose}>
+            <Button
+              variant="secondary"
+              disabled={imageUploading || save.isPending}
+              onClick={onClose}
+            >
               取消
             </Button>
-            <Button loading={save.isPending} onClick={onSave}>
+            <Button loading={save.isPending} disabled={imageUploading} onClick={onSave}>
               {editing ? '保存' : '创建'}
             </Button>
           </>
@@ -252,31 +255,12 @@ export function AnnouncementEditor({ announcement, onClose }: Props) {
           </div>
 
           {/* 正文 + 实时预览 */}
-          <div className="grid gap-4 md:grid-cols-2">
-            <label className="flex min-h-0 flex-col">
-              <span className="mb-1.5 block text-xs font-medium text-neutral-500 dark:text-neutral-400">
-                正文（Markdown）
-              </span>
-              <textarea
-                className={textareaClass}
-                value={body}
-                onChange={(e) => setBody(e.target.value)}
-                placeholder={'支持 Markdown：**加粗**、[链接](https://…)、列表、`代码` 等'}
-              />
-            </label>
-            <div className="flex min-h-0 flex-col">
-              <span className="mb-1.5 flex items-center gap-1 text-xs font-medium text-neutral-500 dark:text-neutral-400">
-                <Eye className="h-3.5 w-3.5" /> 实时预览
-              </span>
-              <div className="hc-scrollbar h-96 overflow-y-auto rounded-xl bg-neutral-50 px-5 py-6 dark:bg-neutral-950/50">
-                {body.trim() ? (
-                  <AnnouncementArticle announcement={previewContent} />
-                ) : (
-                  <p className="text-sm text-neutral-400">预览将在此显示…</p>
-                )}
-              </div>
-            </div>
-          </div>
+          <AnnouncementBodyEditor
+            body={body}
+            onChange={setBody}
+            preview={previewContent}
+            onBusyChange={setImageUploading}
+          />
 
           {/* 置顶 / 排期：无外框；pt 补回与 Markdown 区的间距，行距避免挤在一起 */}
           <div className="space-y-5 pt-4">

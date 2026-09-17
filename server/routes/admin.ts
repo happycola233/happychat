@@ -719,6 +719,11 @@ adminRoutes.get('/announcements/:id/audience', async (c) => {
 adminRoutes.post('/announcements', jsonValidator(announcementCreateSchema), async (c) => {
   const result = await createAnnouncement(c.req.valid('json'), c.get('user').id)
   if (!result.ok) {
+    if (result.code === 'unknown_images')
+      return c.json(
+        { error: { message: '有图片已失效，请移除后重新上传', code: result.code } },
+        400,
+      )
     if (result.code === 'unknown_users') {
       return c.json(
         {
@@ -739,6 +744,11 @@ adminRoutes.post('/announcements', jsonValidator(announcementCreateSchema), asyn
 adminRoutes.patch('/announcements/:id', jsonValidator(announcementUpdateSchema), async (c) => {
   const result = await updateAnnouncement(c.req.param('id'), c.req.valid('json'))
   if (!result.ok) {
+    if (result.code === 'unknown_images')
+      return c.json(
+        { error: { message: '有图片已失效，请移除后重新上传', code: result.code } },
+        400,
+      )
     if (result.code === 'announcement_missing') {
       return c.json({ error: { message: '公告不存在', code: 'not_found' } }, 404)
     }

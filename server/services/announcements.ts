@@ -1,4 +1,4 @@
-import { and, desc, eq, exists, gt, inArray, isNotNull, isNull, lte, or, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNotNull, or, sql } from 'drizzle-orm'
 import type {
   AdminAnnouncementDTO,
   AnnouncementAudienceDTO,
@@ -10,6 +10,9 @@ import type { AnnouncementCreateInput, AnnouncementUpdateInput } from '@shared/s
 import { db } from '../db/client'
 import { announcementReads, announcements, announcementUserTargets, users } from '../db/schema'
 import type { AuthUser } from '../http/types'
+import { announcementVisibleCondition } from './announcement-visibility'
+import { hasMissingAnnouncementImages, replaceAnnouncementImageLinks } from './announcement-images'
+import { announcementBodyImageIds } from '@shared/util/announcementImages'
 
 type AnnouncementRow = typeof announcements.$inferSelect
 const AUDIENCE_INSERT_BATCH_SIZE = 250
@@ -181,6 +184,7 @@ export async function getAnnouncementAudience(id: string): Promise<AnnouncementA
 
 export type CreateAnnouncementResult =
   | { ok: true; announcement: AdminAnnouncementDTO }
+  | { ok: false; code: 'unknown_images' }
   | { ok: false; code: 'empty_audience' }
   | { ok: false; code: 'unknown_users'; unknownUserIds: string[] }
 
@@ -189,6 +193,7 @@ export async function createAnnouncement(
   input: AnnouncementCreateInput,
   createdBy: string,
 ): Promise<CreateAnnouncementResult> {
+  const imageIds = announcementBodyImageIds(input.body)
   const result = db.transaction(
     (tx) => {
       const selectedUserIds = input.audience === 'selected' ? [...new Set(input.userIds)] : []
@@ -210,6 +215,9 @@ export async function createAnnouncement(
         return { ok: false, code: 'unknown_users', unknownUserIds } as const
       }
 
+      if (hasMissingAnnouncementImages(tx, imageIds))
+        return { ok: false, code: 'unknown_images' } as const
+
       const row = tx
         .insert(announcements)
         .values({
@@ -227,6 +235,8 @@ export async function createAnnouncement(
         .returning({ id: announcements.id })
         .get()
       if (!row) throw new Error('创建公告失败')
+
+      replaceAnnouncementImageLinks(tx, row.id, imageIds)
 
       for (let offset = 0; offset < selectedUserIds.length; offset += AUDIENCE_INSERT_BATCH_SIZE) {
         const batch = selectedUserIds.slice(offset, offset + AUDIENCE_INSERT_BATCH_SIZE)
@@ -247,6 +257,7 @@ export async function createAnnouncement(
 
 export type UpdateAnnouncementResult =
   | { ok: true; announcement: AdminAnnouncementDTO }
+  | { ok: false; code: 'unknown_images' }
   | { ok: false; code: 'announcement_missing' }
   | { ok: false; code: 'empty_audience' }
   | { ok: false; code: 'unknown_users'; unknownUserIds: string[] }
@@ -256,10 +267,13 @@ export async function updateAnnouncement(
   id: string,
   patch: AnnouncementUpdateInput,
 ): Promise<UpdateAnnouncementResult> {
+  const imageIds = patch.body === undefined ? null : announcementBodyImageIds(patch.body)
   const result = db.transaction(
     (tx) => {
       const existing = tx.select().from(announcements).where(eq(announcements.id, id)).get()
       if (!existing) return { ok: false, code: 'announcement_missing' } as const
+      if (imageIds !== null && hasMissingAnnouncementImages(tx, imageIds))
+        return { ok: false, code: 'unknown_images' } as const
 
       const audienceChanged = patch.audience !== undefined || patch.userIds !== undefined
       const nextAudience = patch.audience ?? existing.audience
@@ -304,6 +318,7 @@ export async function updateAnnouncement(
         set.expiresAt = patch.expiresAt != null ? new Date(patch.expiresAt) : null
       }
       tx.update(announcements).set(set).where(eq(announcements.id, id)).run()
+      if (imageIds !== null) replaceAnnouncementImageLinks(tx, id, imageIds)
 
       if (audienceChanged) {
         tx.delete(announcementUserTargets)
@@ -336,37 +351,6 @@ export async function deleteAnnouncement(id: string): Promise<void> {
   await db.delete(announcements).where(eq(announcements.id, id))
 }
 
-/** 受众条件：全体用户，或 selected 名单中包含当前账号。管理员不隐式绕过。 */
-function audienceVisibleCondition(userId: string) {
-  return or(
-    eq(announcements.audience, 'all'),
-    and(
-      eq(announcements.audience, 'selected'),
-      exists(
-        db
-          .select({ userId: announcementUserTargets.userId })
-          .from(announcementUserTargets)
-          .where(
-            and(
-              eq(announcementUserTargets.announcementId, announcements.id),
-              eq(announcementUserTargets.userId, userId),
-            ),
-          ),
-      ),
-    ),
-  )
-}
-
-/** 生效窗口 + 精确受众的可见性条件（读取时计算，无 cron）。 */
-function visibleCondition(user: AuthUser, now: Date) {
-  return and(
-    eq(announcements.status, 'published'),
-    or(isNull(announcements.publishAt), lte(announcements.publishAt, now)),
-    or(isNull(announcements.expiresAt), gt(announcements.expiresAt, now)),
-    audienceVisibleCondition(user.id),
-  )
-}
-
 /** 用户端：列出当前对该用户生效的公告（含是否已读），置顶优先、按时间倒序。 */
 export async function listActiveForUser(user: AuthUser): Promise<UserAnnouncementDTO[]> {
   const rows = await db
@@ -389,7 +373,7 @@ export async function listActiveForUser(user: AuthUser): Promise<UserAnnouncemen
         eq(announcementReads.userId, user.id),
       ),
     )
-    .where(visibleCondition(user, new Date()))
+    .where(announcementVisibleCondition(user, new Date()))
     .orderBy(desc(announcements.pinned), desc(announcements.createdAt))
   return rows.map((row) => ({
     id: row.id,
@@ -408,7 +392,7 @@ async function isAnnouncementVisibleToUser(id: string, user: AuthUser): Promise<
   const [row] = await db
     .select({ id: announcements.id })
     .from(announcements)
-    .where(and(eq(announcements.id, id), visibleCondition(user, new Date())))
+    .where(and(eq(announcements.id, id), announcementVisibleCondition(user, new Date())))
     .limit(1)
   return !!row
 }

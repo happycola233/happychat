@@ -17,6 +17,7 @@ import { runRoutes } from './routes/runs'
 import { attachmentRoutes } from './routes/attachments'
 import { shareRoutes } from './routes/shares'
 import { announcementRoutes } from './routes/announcements'
+import { adminAnnouncementImageRoutes, announcementImageRoutes } from './routes/announcement-images'
 import { quotaRoutes } from './routes/quota'
 import { isVersionedAssetPath, productionWebCacheMiddleware } from './http/web-cache'
 import { resolveClientIp } from './http/client-ip'
@@ -44,6 +45,7 @@ app.get('/api/health', (c) =>
 )
 
 app.route('/api/auth', authRoutes)
+app.route('/api/admin/announcement-images', adminAnnouncementImageRoutes)
 app.route('/api/admin', adminRoutes)
 app.route('/api/models', modelRoutes)
 app.route('/api/conversations', conversationRoutes)
@@ -53,6 +55,7 @@ app.route('/api/model-icons', modelIconRoutes)
 app.route('/api/runs', runRoutes)
 app.route('/api/attachments', attachmentRoutes)
 app.route('/api/shares', shareRoutes)
+app.route('/api/announcements/images', announcementImageRoutes)
 app.route('/api/announcements', announcementRoutes)
 app.route('/api/quota', quotaRoutes)
 

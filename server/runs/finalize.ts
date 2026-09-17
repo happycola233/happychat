@@ -122,6 +122,7 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
         reasoningDurationMs,
         generationDurationMs,
         inputTokens: a.usage.inputTokens,
+        lastInputTokens: a.usage.lastInputTokens ?? a.usage.inputTokens,
         cacheWriteTokens: a.usage.cacheWriteTokens,
         cachedTokens: a.usage.cachedTokens,
         outputTokens: a.usage.outputTokens,

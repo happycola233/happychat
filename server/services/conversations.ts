@@ -133,6 +133,7 @@ export function toMessageDTO(
       m.totalTokens != null
         ? {
             inputTokens: m.inputTokens ?? 0,
+            ...(m.lastInputTokens != null ? { lastInputTokens: m.lastInputTokens } : {}),
             cacheWriteTokens: m.cacheWriteTokens ?? 0,
             cachedTokens: m.cachedTokens ?? 0,
             outputTokens: m.outputTokens ?? 0,

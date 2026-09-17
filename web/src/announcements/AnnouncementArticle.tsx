@@ -45,7 +45,7 @@ export function AnnouncementArticle({ announcement }: { announcement: Announceme
           {announcement.title}
         </h2>
       </header>
-      <Markdown text={announcement.body} className="hc-announcement-body" />
+      <Markdown text={announcement.body} className="hc-announcement-body" announcementImages />
     </article>
   )
 }

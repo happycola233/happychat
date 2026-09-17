@@ -44,7 +44,7 @@ export function ContextSuggestionPopover({
             建议优化上下文
           </p>
           <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-            当前保留文字约{' '}
+            上次请求输入{' '}
             <span className="font-medium tabular-nums text-neutral-700 dark:text-neutral-200">
               {tokens.toLocaleString()} Token
             </span>
@@ -64,7 +64,9 @@ export function ContextSuggestionPopover({
         合理调整历史消息与附件的携带范围，可减少后续请求的数据传输与处理量，从而缩短响应时间，并帮助模型持续聚焦于您的最新需求。您的聊天记录和原始附件仍保存在聊天中。
       </p>
       <div className="mt-2.5 flex items-center justify-between gap-2">
-        <span className="text-[11px] text-neutral-400 dark:text-neutral-500">估算不含附件</span>
+        <span className="text-[11px] text-neutral-400 dark:text-neutral-500">
+          模型返回的实际用量
+        </span>
         <button
           type="button"
           onClick={onOpen}

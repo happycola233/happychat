@@ -27,6 +27,7 @@ import { rehypeStreamFade } from './markdownStreamFade'
 import { markdownSanitizeSchema, rehypeSafeInlineStyles, rehypeSanitize } from './markdownHtml'
 import { MESSAGE_BODY_TEXT_CLASS } from './messageStyles'
 import { resolveNearestTargetScrollTop } from './scrollAnchor'
+import { AnnouncementImage } from '../announcements/AnnouncementImage'
 
 export type MarkdownVariant = 'message' | 'reasoning'
 
@@ -36,6 +37,8 @@ interface MarkdownProps {
   className?: string
   /** 流式生成中：让新到达的文字逐段淡入（替代打字光标）。 */
   animate?: boolean
+  /** 公告专用的非破坏性图片裁剪与展示尺寸。 */
+  announcementImages?: boolean
 }
 
 const INTERNAL_HASH_RE = /^#[^\s#]+$/
@@ -437,7 +440,25 @@ const REMARK_PLUGINS: Options['remarkPlugins'] = [
   [remarkMath, { singleDollarTextMath: false }],
 ]
 
-function MarkdownImpl({ text, variant = 'message', className, animate = false }: MarkdownProps) {
+const ANNOUNCEMENT_SANITIZE_SCHEMA = {
+  ...markdownSanitizeSchema,
+  attributes: {
+    ...markdownSanitizeSchema.attributes,
+    img: [...(markdownSanitizeSchema.attributes?.img ?? []), 'dataCrop'],
+  },
+}
+const ANNOUNCEMENT_COMPONENTS: Components = {
+  ...COMPONENTS_BY_VARIANT.message.static,
+  img: AnnouncementImage,
+}
+
+function MarkdownImpl({
+  text,
+  variant = 'message',
+  className,
+  animate = false,
+  announcementImages = false,
+}: MarkdownProps) {
   const normalizedText = normalizeMarkdownMath(text)
   const reactId = useId()
   const clobberPrefix = useMemo(() => markdownInstancePrefix(reactId), [reactId])
@@ -446,12 +467,12 @@ function MarkdownImpl({ text, variant = 'message', className, animate = false }:
     () => [
       rehypeRaw,
       rehypeSafeInlineStyles,
-      [rehypeSanitize, markdownSanitizeSchema],
+      [rehypeSanitize, announcementImages ? ANNOUNCEMENT_SANITIZE_SCHEMA : markdownSanitizeSchema],
       [rehypeKatex, { throwOnError: false }],
       rehypeHighlight,
       ...(animate ? [rehypeStreamFade] : []),
     ],
-    [animate],
+    [animate, announcementImages],
   )
   return (
     <div
@@ -473,7 +494,11 @@ function MarkdownImpl({ text, variant = 'message', className, animate = false }:
           footnoteBackLabel,
         }}
         rehypePlugins={rehypePlugins}
-        components={COMPONENTS_BY_VARIANT[variant][animate ? 'streaming' : 'static']}
+        components={
+          announcementImages
+            ? ANNOUNCEMENT_COMPONENTS
+            : COMPONENTS_BY_VARIANT[variant][animate ? 'streaming' : 'static']
+        }
       >
         {normalizedText}
       </ReactMarkdown>

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { ConversationDTO, MessageDTO } from '@shared/types/api'
 import { useContextOptimizationSuggestion } from '../hooks/useModels'
-import { estimateContextTextTokens } from './contextSuggestion'
+import { lastRequestInputTokens } from './contextSuggestion'
 
 function wasDismissed(key: string): boolean {
   try {
@@ -20,11 +20,8 @@ export function useContextSuggestion(
   const storageKey = `happychat-context-suggestion:${conversation.id}`
   const [dismissed, setDismissed] = useState(() => wasDismissed(storageKey))
   const tokens = useMemo(
-    () =>
-      enabled && config?.enabled && !dismissed
-        ? estimateContextTextTokens(messages, conversation.contextPolicy)
-        : 0,
-    [enabled, config?.enabled, dismissed, messages, conversation.contextPolicy],
+    () => (enabled && config?.enabled && !dismissed ? lastRequestInputTokens(messages) : null),
+    [enabled, config?.enabled, dismissed, messages],
   )
   const dismiss = () => {
     setDismissed(true)
@@ -35,8 +32,10 @@ export function useContextSuggestion(
     }
   }
   return {
-    tokens,
-    visible: Boolean(enabled && config?.enabled && !dismissed && tokens >= config.tokenThreshold),
+    tokens: tokens ?? 0,
+    visible: Boolean(
+      enabled && config?.enabled && !dismissed && tokens !== null && tokens > config.tokenThreshold,
+    ),
     dismiss,
   }
 }

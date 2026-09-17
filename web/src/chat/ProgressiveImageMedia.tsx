@@ -89,7 +89,7 @@ export function ProgressiveImageMedia({
 
   return (
     <div
-      className="hc-image-stage-body relative mt-2 aspect-[4/3]"
+      className="hc-image-stage-body relative mt-2 aspect-square"
       style={
         { aspectRatio, '--hc-image-transition-duration': `${TRANSITION_MS}ms` } as CSSProperties
       }

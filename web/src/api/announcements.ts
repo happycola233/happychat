@@ -5,7 +5,15 @@ import type {
   UserAnnouncementDTO,
 } from '@shared/types/api'
 import type { AnnouncementCreateInput, AnnouncementUpdateInput } from '@shared/schemas/announcement'
-import { apiDelete, apiGet, apiPatch, apiPost } from './client'
+import { apiDelete, apiGet, apiPatch, apiPost, apiUpload } from './client'
+import type { AnnouncementImageDTO } from '@shared/schemas/announcement-image'
+
+export async function uploadAnnouncementImage(file: File): Promise<AnnouncementImageDTO> {
+  const form = new FormData()
+  form.append('file', file)
+  return (await apiUpload<{ image: AnnouncementImageDTO }>('/admin/announcement-images', form))
+    .image
+}
 
 // ---------------- 管理端 CRUD（/admin/*，RequireAdmin） ----------------
 

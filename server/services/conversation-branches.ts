@@ -256,6 +256,7 @@ export async function createConversationBranch(
       generationDurationMs: timing?.generationDurationMs ?? null,
       annotations: sourceMessage.annotations,
       inputTokens: sourceMessage.inputTokens,
+      lastInputTokens: sourceMessage.lastInputTokens,
       cacheWriteTokens: sourceMessage.cacheWriteTokens,
       cachedTokens: sourceMessage.cachedTokens,
       outputTokens: sourceMessage.outputTokens,

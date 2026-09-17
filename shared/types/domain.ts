@@ -337,6 +337,8 @@ export type ContentPart =
   | { type: 'image_result'; attachment_id: string; revised_prompt?: string }
 
 export interface MessageUsage {
+  /** 最近一次上游请求的输入量；续跑/重试累计用量时保留，用于上下文提醒。旧消息可缺省。 */
+  lastInputTokens?: number
   /** 上游报告的总输入 token，包含缓存写入与缓存读取 token。 */
   inputTokens: number
   /** 本次写入提示词缓存的输入 token。 */
