@@ -8,7 +8,7 @@ import type {
   ExportTimePrecision,
 } from '@shared/schemas/export'
 import { EXPORT_BATCH_MAX, EXPORT_FORMATS } from '@shared/schemas/export'
-import { EXPORT_FORMAT_CAPS } from '@shared/util/exportOptions'
+import { EXPORT_FORMAT_CAPS, normalizeExportOptions } from '@shared/util/exportOptions'
 import { getConversation } from '../api/chat'
 import {
   downloadBatchExport,
@@ -156,21 +156,20 @@ export function ExportDialog({
   )
 
   const options: ExportOptions = useMemo(
-    () => ({
-      format,
-      scope: effectiveScope,
-      messageIds: selectedIds,
-      includeReasoning,
-      includeModel,
-      includeCitations,
-      includeSearch,
-      includeUsage,
-      attachmentMode: caps.attachmentModes.includes(attachmentMode)
-        ? attachmentMode
-        : caps.attachmentModes[0]!,
-      timePrecision,
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    }),
+    () =>
+      normalizeExportOptions({
+        format,
+        scope: effectiveScope,
+        messageIds: selectedIds,
+        includeReasoning,
+        includeModel,
+        includeCitations,
+        includeSearch,
+        includeUsage,
+        attachmentMode,
+        timePrecision,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      }),
     [
       format,
       effectiveScope,
@@ -182,7 +181,6 @@ export function ExportDialog({
       includeUsage,
       attachmentMode,
       timePrecision,
-      caps,
     ],
   )
 
@@ -318,16 +316,16 @@ export function ExportDialog({
               )
             })}
           </div>
-          {caps.specUrl && (
+          {caps.spec && (
             <p className="text-[12px] leading-5 text-neutral-400">
               该格式遵循开放规范：
               <a
-                href={caps.specUrl}
+                href={caps.spec.url}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-sky-600 hover:underline dark:text-sky-400"
               >
-                chatlog-md 格式规范 v1 ↗
+                {caps.spec.label} ↗
               </a>
             </p>
           )}
@@ -363,11 +361,7 @@ export function ExportDialog({
             <SelectRow label="附件">
               <Select
                 aria-label="附件处理方式"
-                value={
-                  caps.attachmentModes.includes(attachmentMode)
-                    ? attachmentMode
-                    : caps.attachmentModes[0]!
-                }
+                value={options.attachmentMode}
                 onChange={(e) => setAttachmentMode(e.target.value as ExportAttachmentMode)}
                 options={caps.attachmentModes.map((m) => ({
                   value: m,

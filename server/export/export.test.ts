@@ -1,6 +1,5 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { eq } from 'drizzle-orm'
 import { unzipSync, strFromU8 } from 'fflate'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
@@ -16,7 +15,9 @@ let exporter: typeof import('./index')
 let seq = 0
 
 beforeAll(async () => {
-  tmpDir = mkdtempSync(join(tmpdir(), 'happychat-export-'))
+  const tempRoot = resolve('.tmp')
+  mkdirSync(tempRoot, { recursive: true })
+  tmpDir = mkdtempSync(join(tempRoot, 'happychat-export-'))
   process.env.NODE_ENV = 'test'
   process.env.DATA_DIR = tmpDir
   process.env.DATABASE_URL = join(tmpDir, 'happychat-test.db')
@@ -318,42 +319,46 @@ describe('chatlog-md 导出', () => {
 
     const text = zipText(result.file.data, '.chat.md')
     // front matter
-    expect(text.startsWith('---\nformat: chatlog-md/1\n')).toBe(true)
+    expect(text.startsWith('---\nformat: chatlog-md/2\n')).toBe(true)
     expect(text).toContain('title: 导出测试对话')
     expect(text).toContain('timezone: Asia/Shanghai')
-    expect(text).toContain('exported_by: HappyChat')
-    // 日期节（按上海时区分日 + 中文星期）
-    expect(text).toContain('# @2025-03-28 · 周五')
-    expect(text).toContain('# @2025-03-29 · 周六')
-    // 消息头：时间戳到秒；AI 带模型名
+    expect(text).toContain('x-happychat:')
+    // 日期节由阅读器计算星期，不写入日期标题。
+    expect(text).toContain('# @2025-03-28\n')
+    expect(text).toContain('# @2025-03-29\n')
+    expect(text).not.toContain('· 周')
+    // 消息头只含角色与时间；模型独立保存为 YAML 字段。
     expect(text).toContain('## 🧑‍💻 @user · 2025-03-28 23:04:06')
-    expect(text).toContain('## 🤖 @ai · 2025-03-28 23:04:19 · 测试模型')
-    // 思考块：标记行 + 引用体
-    expect(text).toContain('> 🤔 已思考 1m 24s')
-    expect(text).toContain('> **理解图片**')
+    expect(text).toContain('## 🤖 @ai · 2025-03-28 23:04:19\n')
+    expect(text).toContain('name: "测试模型"')
+    expect(text).toContain('<!-- @part reasoning -->\n**理解图片**')
+    expect(text).toContain('reasoning_duration_ms: 84000')
     // 附件：链接形（已嵌入）与纯名形（文件缺失）
     expect(text).toContain('🖼️ [照片.png](assets/照片.png)')
-    expect(text).toContain('🖼️ 走丢的图.png')
-    expect(text).toContain('<!-- @meta generated=true prompt=一张丢失的图 -->')
-    // 正文哨兵转义（规范 §10）：严格匹配消息头正则的行才转义
-    expect(text).toContain('\\## @ai')
-    expect(text).toContain('\\🖼️ 假附件行')
-    expect(text).toContain('\\# @2025-01-01')
-    // 「@user 后跟非 · 分隔文本」不是合法消息头，不是哨兵 → 原样保留保证往返保真
+    expect(text).toContain('name: "走丢的图.png"')
+    expect(text).toContain('generated: true')
+    expect(text).toContain('revised_prompt: "一张丢失的图"')
+    // V2 显式 answer 内的标题和附件图标天然是正文，无需改写。
+    expect(text).toContain('\n## @ai\n')
+    expect(text).toContain('\n🖼️ 假附件行\n')
+    expect(text).toContain('\n# @2025-01-01\n')
     expect(text).not.toContain('\\## @user 假装消息头')
     expect(text).toContain('\n## @user 假装消息头')
     // 日期后跟非 · 分隔文本同理（§5 正则要求 · 分隔标题）
     expect(text).not.toContain('\\# @2025-01-01 发布日志')
     expect(text).toContain('\n# @2025-01-01 发布日志')
-    // 本就以 \ 开头且剥掉 \ 后命中哨兵的行要再补一个 \，与解析侧剥一层构成无损往返
-    expect(text).toContain('\\\\🖼️ 反斜杠行')
+    expect(text).toContain('\n\\🖼️ 反斜杠行')
     expect(text).toContain('普通行不受影响')
     // 引用来源按 URL 去重
     expect(text).toContain('**来源**')
     expect(text).toContain('1. [示例来源](https://example.com/a)')
-    expect(text).not.toContain('重复来源')
+    expect(text).not.toContain('2. [重复来源]')
+    expect(text).toContain('title: "重复来源"')
     // 默认不含用量 meta
-    expect(text).not.toContain('input_tokens=')
+    expect(text).not.toContain('input_tokens:')
+    expect(text).toContain('<!-- @part search -->')
+    expect(text).toContain('<!-- @part open_page -->')
+    expect(text).toContain('type: "x_keyword_search"')
   })
 
   it('仅文件名模式输出单文件；关闭时间后无日期节与时间戳', async () => {
@@ -376,11 +381,10 @@ describe('chatlog-md 导出', () => {
     )
     if (!noTime.ok) throw new Error('导出失败')
     const noTimeText = new TextDecoder().decode(noTime.file.data)
-    // 严格形状的日期节哨兵不应存在（正文里被转义的 \# @… 与带尾巴的非哨兵行不算）
-    expect(noTimeText).not.toMatch(/^# @\d{4}-\d{2}-\d{2}\s*(?:·.*)?$/m)
+    expect(noTimeText).not.toContain('# @2025-03-28')
+    expect(noTimeText).not.toContain('# @2025-03-29')
     expect(noTimeText).toContain('## 🧑‍💻 @user\n')
-    // omit 只移除附件行哨兵；正文里被转义的 \🖼️ 文本不受影响
-    expect(noTimeText).not.toMatch(/^🖼️ /m)
+    // omit 移除真实附件；answer 块中相同图标的原始正文保留。
     expect(noTimeText).not.toContain('照片.png')
   })
 
@@ -399,10 +403,10 @@ describe('chatlog-md 导出', () => {
     if (!result.ok) throw new Error('导出失败')
     const text = new TextDecoder().decode(result.file.data)
     expect(text).toContain('## 🧑‍💻 @user · 2025-03-28')
-    expect(text).toMatch(/<!-- @meta [^>]*input_tokens=100/)
-    expect(text).toMatch(/total_tokens=150/)
-    expect(text).toMatch(/cached_tokens=20/)
-    expect(text).toMatch(/generation_ms=3210/)
+    expect(text).toContain('usage:\n  input_tokens: 100')
+    expect(text).toContain('total_tokens: 150')
+    expect(text).toContain('cache_read_tokens: 20')
+    expect(text).toContain('duration_ms: 3210')
   })
 
   it('手动选择消息只导出选中子集；选中集不在路径上时报 empty_selection', async () => {
@@ -590,6 +594,49 @@ describe('其他格式', () => {
 })
 
 describe('预览 / 批量 / 边界', () => {
+  it('V2 预览与下载文本一致；批量文档的附件相对路径和原始文件字节一致', async () => {
+    const tree = await createExportTree()
+    const second = await createConversation(tree.user.id, '第二份虚构日记')
+    const secondMessage = await addMessage({
+      conversationId: second.id,
+      role: 'user',
+      createdAt: new Date('2026-09-20T00:00:00Z'),
+      content: [
+        { type: 'input_text', text: '这是第二个独立文档。' },
+        { type: 'input_image', attachment_id: tree.img.id },
+      ],
+    })
+    await setActiveLeaf(second.id, secondMessage.id)
+    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-20T12:00:00Z'))
+    try {
+      const config = opts({ format: 'chatlog-md', includeUsage: true })
+      const preview = await exporter.previewConversationExport(tree.user.id, tree.conv.id, config)
+      const single = await exporter.exportConversation(tree.user.id, tree.conv.id, config)
+      const batch = await exporter.exportConversationsBatch(
+        tree.user.id,
+        [tree.conv.id, second.id],
+        config,
+      )
+      if (!preview.ok || !single.ok || !batch.ok) throw new Error('V2 导出失败')
+      expect(preview.preview.preview).toBe(zipText(single.file.data, '.chat.md'))
+      const entries = unzipSync(batch.file.data)
+      const documents = Object.keys(entries).filter((name) => name.endsWith('.chat.md'))
+      expect(documents).toHaveLength(2)
+      for (const filename of documents) {
+        const text = strFromU8(entries[filename]!)
+        expect(text).toContain('format: chatlog-md/2')
+        const directory = filename.slice(0, filename.lastIndexOf('/') + 1)
+        expect(text).toContain('](assets/照片.png)')
+        expect(entries[`${directory}assets/照片.png`]).toEqual(
+          new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]),
+        )
+      }
+      expect(strFromU8(entries[documents[1]!]!)).not.toContain('你好，看图')
+    } finally {
+      now.mockRestore()
+    }
+  })
+
   it('预览不读磁盘但返回一致的产物结构与截断文本', async () => {
     const { user, conv } = await createExportTree()
     const result = await exporter.previewConversationExport(
@@ -601,8 +648,8 @@ describe('预览 / 批量 / 边界', () => {
     expect(result.preview.kind).toBe('zip')
     expect(result.preview.filename.endsWith('.zip')).toBe(true)
     expect(result.preview.entries?.some((e) => e.name === 'assets/照片.png')).toBe(true)
-    // 磁盘缺失的附件在预览里同样按纯名形展示
-    expect(result.preview.preview).toContain('🖼️ 走丢的图.png')
+    // 磁盘缺失的生成图同样保留名称/提示词，但不写不存在的 path。
+    expect(result.preview.preview).toContain('name: "走丢的图.png"')
     expect(result.preview.preview).toContain('🖼️ [照片.png](assets/照片.png)')
     expect(result.preview.truncated).toBe(false)
     expect(result.preview.messageCount).toBe(4)

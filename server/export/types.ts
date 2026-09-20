@@ -1,5 +1,24 @@
 import type { ConversationDTO, MessageDTO } from '@shared/types/api'
 
+/** chatlog-md/2 的逐消息元数据；缺失用量与真实的 0 必须保持可区分。 */
+export interface ChatlogMetadata {
+  model?: { id?: string; name?: string }
+  reasoning?: { effort: string }
+  usage?: {
+    input_tokens?: number
+    output_tokens?: number
+    cache_read_tokens?: number
+    cache_write_tokens?: number
+    reasoning_tokens?: number
+    total_tokens?: number
+  }
+}
+
+/** 常规 DTO 继续服务其他格式，V2 额外携带未补零的用量及请求时模型快照。 */
+export interface ExportMessage extends MessageDTO {
+  chatlogMetadata?: ChatlogMetadata
+}
+
 /** 一条附件在导出时的完整上下文（DB 元数据 + 可选的磁盘内容）。 */
 export interface ExportAttachment {
   id: string
@@ -21,7 +40,7 @@ export interface ExportSource {
   /** 会话标题（空标题已回退为默认值） */
   title: string
   /** 参与导出的消息：active=根→叶路径顺序；full=按创建时间升序的整棵树 */
-  messages: MessageDTO[]
+  messages: ExportMessage[]
   /**
    * scope=full 时的有效当前叶子：会话的 activeLeafId 若指向被剔除的
    * 流式占位消息，已回退到最近的存活祖先；scope=active 时为 null

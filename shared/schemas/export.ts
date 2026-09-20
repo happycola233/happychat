@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-/** 支持的导出格式（数组顺序即导出弹窗的卡片展示顺序；chatlog-md 遵循 chatlog-md/1 规范）。 */
+/** 支持的导出格式（数组顺序即导出弹窗的卡片展示顺序；chatlog-md 遵循 chatlog-md/2 规范）。 */
 export const EXPORT_FORMATS = ['markdown', 'chatlog-md', 'html', 'json', 'jsonl', 'txt'] as const
 export type ExportFormat = (typeof EXPORT_FORMATS)[number]
 

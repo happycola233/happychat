@@ -15,8 +15,8 @@ export interface ExportFormatCaps {
   mime: string
   /** 选择卡片上的一句话说明 */
   description: string
-  /** 该格式遵循的开放规范链接（弹窗内提供跳转）；无则不展示 */
-  specUrl?: string
+  /** 该格式遵循的开放规范，名称与链接一并维护，避免版本文案与目标分离。 */
+  spec?: { label: string; url: string }
   /** 支持思考过程（含进展说明） */
   reasoning: boolean
   /** 支持模型名标注 */
@@ -57,13 +57,15 @@ export const EXPORT_FORMAT_CAPS: Record<ExportFormat, ExportFormatCaps> = {
     label: 'chatlog-md 日记',
     ext: 'chat.md',
     mime: 'text/markdown; charset=utf-8',
-    description: '遵循 chatlog-md/1 规范的纯 Markdown 对话日记，适合长期保存与程序解析',
-    specUrl:
-      'https://github.com/happycola233/dialogary/blob/main/chatlog-md-%E6%A0%BC%E5%BC%8F%E8%A7%84%E8%8C%83.md',
+    description: 'chatlog-md/2 对话日记，保留思考、检索与附件，方便长期保存与整理',
+    spec: {
+      label: 'chatlog-md 格式规范 v2',
+      url: 'https://github.com/happycola233/dialogary/blob/main/chatlog-md-%E6%A0%BC%E5%BC%8F%E8%A7%84%E8%8C%83.md#chatlog-md2-%E6%A0%BC%E5%BC%8F%E8%A7%84%E8%8C%83',
+    },
     reasoning: true,
     model: true,
     citations: true,
-    search: false,
+    search: true,
     usage: true,
     time: true,
     scopeFull: false,

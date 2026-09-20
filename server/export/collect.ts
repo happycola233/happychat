@@ -14,8 +14,9 @@ import {
   toConversationDTO,
 } from '../services/conversations'
 import { assignAssetPaths, attachmentRefsOf, textOfContent, type AttachmentRef } from './content'
+import { collectChatlogMetadata } from './metadata'
 import { resolveTimezone } from './time'
-import type { ExportAttachment, ExportSource } from './types'
+import type { ExportAttachment, ExportMessage, ExportSource } from './types'
 
 /**
  * embed 模式一次导出（含批量累计）允许打包的附件总字节数上限。
@@ -60,7 +61,7 @@ export async function collectExportSource(
   ])
   const dtoById = new Map(dtos.map((d) => [d.id, d]))
 
-  let messages: MessageDTO[]
+  let messages: ExportMessage[]
   if (options.scope === 'full') {
     messages = dtos
   } else {
@@ -89,6 +90,18 @@ export async function collectExportSource(
   )
 
   if (messages.length === 0) return { ok: false, code: 'empty_selection' }
+
+  if (options.format === 'chatlog-md') {
+    const selectedIds = new Set(messages.map((message) => message.id))
+    const metadataById = await collectChatlogMetadata(
+      rows.filter((message) => selectedIds.has(message.id)),
+      options,
+    )
+    messages = messages.map((message) => ({
+      ...message,
+      chatlogMetadata: metadataById.get(message.id),
+    }))
+  }
 
   // scope=full 时计算有效的 activeLeafId：若指向被剔除的流式占位消息，
   // 沿 parentId 回退到最近的存活祖先，避免 JSON 导出留下悬空引用

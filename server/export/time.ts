@@ -1,7 +1,6 @@
 /** 导出专用的时区感知时间格式化（基于 Intl，无第三方依赖）。 */
 
 const partsFormatterCache = new Map<string, Intl.DateTimeFormat>()
-const weekdayFormatterCache = new Map<string, Intl.DateTimeFormat>()
 
 /**
  * 校验 IANA 时区并归一化（大小写变体坍缩为规范名）；无效或缺省时回退服务器本地时区。
@@ -55,26 +54,6 @@ export function formatStamp(
   if (precision === 'day') return date
   if (precision === 'minute') return `${date} ${p.hour}:${p.minute}`
   return `${date} ${p.hour}:${p.minute}:${p.second}`
-}
-
-const WEEKDAY_ZH: Record<string, string> = {
-  Sun: '周日',
-  Mon: '周一',
-  Tue: '周二',
-  Wed: '周三',
-  Thu: '周四',
-  Fri: '周五',
-  Sat: '周六',
-}
-
-/** 目标时区的中文星期（周一…周日）。 */
-export function formatWeekdayZh(ms: number, timezone: string): string {
-  let formatter = weekdayFormatterCache.get(timezone)
-  if (!formatter) {
-    formatter = new Intl.DateTimeFormat('en-US', { timeZone: timezone, weekday: 'short' })
-    weekdayFormatterCache.set(timezone, formatter)
-  }
-  return WEEKDAY_ZH[formatter.format(new Date(ms))] ?? ''
 }
 
 /** 思考/生成时长的短格式：40s / 1m 24s（与 chatlog-md 规范示例一致）。 */
