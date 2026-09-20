@@ -3,13 +3,15 @@ import Database from 'better-sqlite3'
 import { describe, expect, it } from 'vitest'
 import type { RetryPolicy } from '@shared/schemas/retry'
 
-const migration = readFileSync(
-  new URL('./migrations/0047_retry_cloudflare_timeout.sql', import.meta.url),
-  'utf8',
-)
-
-describe('524 超时重试配置迁移', () => {
-  it('只为已选择 504 的配置补齐 524，保留总开关、参数和其他错误选择', () => {
+describe.each([
+  { status: 520, relatedStatus: 502, migrationName: '0048_retry_cloudflare_unknown_error.sql' },
+  { status: 524, relatedStatus: 504, migrationName: '0047_retry_cloudflare_timeout.sql' },
+])('$status 重试配置迁移', ({ status, relatedStatus, migrationName }) => {
+  it('只为已选择对应网关错误的配置补齐状态码，保留总开关、参数和其他错误选择', () => {
+    const migration = readFileSync(
+      new URL(`./migrations/${migrationName}`, import.meta.url),
+      'utf8',
+    )
     const sqlite = new Database(':memory:')
     try {
       sqlite.exec('CREATE TABLE app_settings (id text PRIMARY KEY, upstream_retry text)')
@@ -22,11 +24,13 @@ describe('524 超时重试配置迁移', () => {
           maxRetries: 3,
           retryStatusCodes: [408, 409, 429, 500, 502, 503, 504, 529],
         },
-        disabled: { enabled: false, retryStatusCodes: [504] },
-        custom: { enabled: true, initialDelaySeconds: 15, retryStatusCodes: [429, 504] },
+        disabled: { enabled: false, retryStatusCodes: [relatedStatus] },
+        custom: { enabled: true, initialDelaySeconds: 15, retryStatusCodes: [429, relatedStatus] },
         rateLimitOnly: { enabled: true, retryStatusCodes: [429] },
+        internalErrorOnly: { enabled: true, retryStatusCodes: [500] },
         none: { enabled: true, retryStatusCodes: [] },
-        alreadyIncluded: { enabled: true, retryStatusCodes: [504, 524] },
+        alreadyIncluded: { enabled: true, retryStatusCodes: [relatedStatus, status] },
+        standalone: { enabled: true, retryStatusCodes: [status] },
         missing: null,
       }
       const insert = sqlite.prepare('INSERT INTO app_settings VALUES (?, ?)')
@@ -42,10 +46,9 @@ describe('524 超时重试配置迁移', () => {
       }[]
       for (const row of rows) {
         const previous = policies[row.id]
-        const expected =
-          previous?.retryStatusCodes.includes(504) && !previous.retryStatusCodes.includes(524)
-            ? { ...previous, retryStatusCodes: [...previous.retryStatusCodes, 524] }
-            : previous
+        const expected = ['defaults', 'disabled', 'custom'].includes(row.id)
+          ? { ...previous, retryStatusCodes: [...previous!.retryStatusCodes, status] }
+          : previous
         expect(row.upstream_retry ? JSON.parse(row.upstream_retry) : null).toEqual(expected)
       }
     } finally {

@@ -33,25 +33,44 @@ afterAll(() => {
 })
 
 describe('全局应用配置', () => {
-  it('524 可单独保存和关闭，重新启动迁移后不覆盖管理员选择', async () => {
-    expect((await appConfigService.getAppConfig()).upstreamRetry.retryStatusCodes).toContain(524)
-    await appConfigService.updateAppConfig(
-      appConfigUpdateSchema.parse({
-        upstreamRetry: { ...DEFAULT_RETRY_POLICY, enabled: true, retryStatusCodes: [504, 524] },
-      }),
-    )
-    expect((await appConfigService.getAppConfig()).upstreamRetry.retryStatusCodes).toEqual([
-      504, 524,
-    ])
-    await appConfigService.updateAppConfig(
-      appConfigUpdateSchema.parse({
-        upstreamRetry: { ...DEFAULT_RETRY_POLICY, enabled: true, retryStatusCodes: [504] },
-      }),
-    )
-    const migration = await import('../db/migrate')
-    migration.runMigrations()
-    expect((await appConfigService.getAppConfig()).upstreamRetry.retryStatusCodes).toEqual([504])
-  })
+  it.each([
+    { status: 520, relatedStatus: 502 },
+    { status: 524, relatedStatus: 504 },
+  ])(
+    '$status 可单独保存和关闭，重新启动迁移后不覆盖管理员选择',
+    async ({ status, relatedStatus }) => {
+      expect((await appConfigService.getAppConfig()).upstreamRetry.retryStatusCodes).toContain(
+        status,
+      )
+      await appConfigService.updateAppConfig(
+        appConfigUpdateSchema.parse({
+          upstreamRetry: {
+            ...DEFAULT_RETRY_POLICY,
+            enabled: true,
+            retryStatusCodes: [relatedStatus, status],
+          },
+        }),
+      )
+      expect((await appConfigService.getAppConfig()).upstreamRetry.retryStatusCodes).toEqual([
+        relatedStatus,
+        status,
+      ])
+      await appConfigService.updateAppConfig(
+        appConfigUpdateSchema.parse({
+          upstreamRetry: {
+            ...DEFAULT_RETRY_POLICY,
+            enabled: true,
+            retryStatusCodes: [relatedStatus],
+          },
+        }),
+      )
+      const migration = await import('../db/migrate')
+      migration.runMigrations()
+      expect((await appConfigService.getAppConfig()).upstreamRetry.retryStatusCodes).toEqual([
+        relatedStatus,
+      ])
+    },
+  )
 
   it('较大的重试等待设置可以通过接口校验并完整保存', async () => {
     const upstreamRetry = {

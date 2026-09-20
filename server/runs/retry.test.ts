@@ -407,12 +407,17 @@ describe('整次生成自动重试与审计', () => {
     expect(snapshot(ctx).logs[0]?.firstTokenLatencyMs).toBeNull()
   })
 
-  it.each(['html', 'json'] as const)(
-    '524 的 %s 错误页重试后恢复，原文仅进入脱敏诊断',
-    async (format) => {
+  it.each([
+    { status: 520, format: 'html', message: '上游服务暂时不可用（HTTP 520）。' },
+    { status: 520, format: 'json', message: '上游服务返回错误（HTTP 520）。' },
+    { status: 524, format: 'html', message: '上游服务响应超时（HTTP 524），请稍后重试。' },
+    { status: 524, format: 'json', message: '上游服务响应超时（HTTP 524），请稍后重试。' },
+  ])(
+    '$status 的 $format 错误页重试后恢复，原文仅进入脱敏诊断',
+    async ({ status, format, message }) => {
       const ctx = fixture()
       const rawHtml =
-        '<!DOCTYPE html><html><title>524: A timeout occurred</title>' +
+        `<!DOCTYPE html><html><title>${status}: Upstream error</title>` +
         '<body>"signature":"test-private-signature"' +
         'x'.repeat(9000) +
         '</body></html>'
@@ -425,7 +430,7 @@ describe('整次生成自动重试与审计', () => {
               : JSON.stringify({
                   error: { type: 'server_error', code: 'internal_server_error', message: rawHtml },
                 }),
-            { status: 524, headers: { 'Retry-After': '2' } },
+            { status, headers: { 'Retry-After': '2' } },
           ),
         )
         .mockImplementation(success)
@@ -445,8 +450,8 @@ describe('整次生成自动重试与审计', () => {
       expect(failure).toMatchObject({
         attempt: 1,
         stage: 'connecting',
-        httpStatus: 524,
-        message: '上游服务响应超时（HTTP 524），请稍后重试。',
+        httpStatus: status,
+        message,
         stopReason: null,
       })
       expect(failure?.rawMessage).toHaveLength(8192)

@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-export const RETRYABLE_HTTP_STATUSES = [408, 409, 429, 500, 502, 503, 504, 524, 529] as const
+export const RETRYABLE_HTTP_STATUSES = [408, 409, 429, 500, 502, 503, 504, 520, 524, 529] as const
 
 const waitSecondsSchema = z
   .number('请输入正整数秒数')

@@ -337,6 +337,13 @@
       "when": 1789638264336,
       "tag": "0047_retry_cloudflare_timeout",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "6",
+      "when": 1789904742164,
+      "tag": "0048_retry_cloudflare_unknown_error",
+      "breakpoints": true
     }
   ]
 }
