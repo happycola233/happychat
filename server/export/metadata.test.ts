@@ -216,7 +216,44 @@ describe('chatlog-md/2 持久化元数据', () => {
     expect((await collectMessage(fixture)).chatlogMetadata).toEqual(expected)
   })
 
-  it('历史快照缺少名称时不把其他模型的当前名称配给它', async () => {
+  it('旧日志仍关联同一模型配置时，保留请求时 ID 并补充当前显示名称', async () => {
+    const fixture = await createFixture()
+    const run = await addRun(fixture)
+    await dbClient.db.insert(schema.usageLogs).values({
+      runId: run.id,
+      modelId: fixture.model.id,
+      modelLabel: 'example-model-v1',
+    })
+    await dbClient.db
+      .update(schema.models)
+      .set({ modelId: 'example-model-v1-alias', displayName: '示例模型一（备用渠道）' })
+      .where(eq(schema.models.id, fixture.model.id))
+
+    const message = await collectMessage(fixture)
+    expect(message.modelLabel).toBe('示例模型一（备用渠道）')
+    expect(message.chatlogMetadata?.model).toEqual({
+      id: 'example-model-v1',
+      name: '示例模型一（备用渠道）',
+    })
+    expect((await collectMessage(fixture, { includeModel: false })).chatlogMetadata).toEqual({})
+  })
+
+  it('名称快照缺失且模型已删除时，不根据上游 ID 借用其他配置的名称', async () => {
+    const fixture = await createFixture()
+    const run = await addRun(fixture)
+    await dbClient.db.insert(schema.usageLogs).values({
+      runId: run.id,
+      modelId: fixture.model.id,
+      modelLabel: 'example-model-v1',
+    })
+    await createFixture()
+    await dbClient.db.delete(schema.models).where(eq(schema.models.id, fixture.model.id))
+    expect((await collectMessage(fixture)).chatlogMetadata).toEqual({
+      model: { id: 'example-model-v1' },
+    })
+  })
+
+  it('历史快照没有配置关联且模型标识不一致时，不补充当前名称', async () => {
     const fixture = await createFixture()
     const run = await addRun(fixture)
     await dbClient.db.insert(schema.usageLogs).values({ runId: run.id, modelLabel: 'older-model' })

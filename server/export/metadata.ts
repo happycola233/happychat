@@ -18,15 +18,19 @@ export async function collectChatlogMetadata(
   const runIds = [
     ...new Set(assistantRows.flatMap((message) => (message.runId ? [message.runId] : []))),
   ]
-  const modelIds = [
+  const modelConfigIds = [
     ...new Set(assistantRows.flatMap((message) => (message.modelId ? [message.modelId] : []))),
   ]
   const [modelRows, runRows, usageRows] = await Promise.all([
-    options.includeModel && modelIds.length > 0
+    options.includeModel && modelConfigIds.length > 0
       ? db
-          .select({ id: models.id, modelId: models.modelId, displayName: models.displayName })
+          .select({
+            configId: models.id,
+            upstreamModelId: models.modelId,
+            displayName: models.displayName,
+          })
           .from(models)
-          .where(inArray(models.id, modelIds))
+          .where(inArray(models.id, modelConfigIds))
       : [],
     options.includeReasoning && runIds.length > 0
       ? db
@@ -38,7 +42,8 @@ export async function collectChatlogMetadata(
       ? db
           .select({
             runId: usageLogs.runId,
-            modelId: usageLogs.modelLabel,
+            modelConfigId: usageLogs.modelId,
+            upstreamModelId: usageLogs.modelLabel,
             modelName: usageLogs.modelDisplayName,
             reasoningEffort: usageLogs.reasoningEffort,
           })
@@ -46,7 +51,7 @@ export async function collectChatlogMetadata(
           .where(and(inArray(usageLogs.runId, runIds), eq(usageLogs.kind, 'chat')))
       : [],
   ])
-  const modelById = new Map(modelRows.map((model) => [model.id, model]))
+  const modelByConfigId = new Map(modelRows.map((model) => [model.configId, model]))
   const runById = new Map(runRows.map((run) => [run.id, run]))
   const usageByRunId = new Map(usageRows.map((usage) => [usage.runId, usage]))
 
@@ -56,12 +61,14 @@ export async function collectChatlogMetadata(
       if (message.role === 'assistant') {
         const snapshot = message.runId ? usageByRunId.get(message.runId) : undefined
         if (options.includeModel) {
-          const currentModel = message.modelId ? modelById.get(message.modelId) : undefined
-          const id = snapshot?.modelId ?? currentModel?.modelId
-          // 请求时 ID 已保留但名称未保留时，仅在当前配置仍是同一模型时补充名称。
-          const name =
-            snapshot?.modelName ??
-            (currentModel?.modelId === id ? currentModel?.displayName : undefined)
+          const currentModel = message.modelId ? modelByConfigId.get(message.modelId) : undefined
+          const id = snapshot?.upstreamModelId ?? currentModel?.upstreamModelId
+          // 同一配置可以调整上游 ID 或渠道别名；旧日志没有名称快照时仍可补充其显示名。
+          // 名称快照始终优先，补名不改写请求时 ID，也不按 ID 搜索其他配置借用名称。
+          const canUseCurrentName =
+            currentModel &&
+            (snapshot?.modelConfigId === currentModel.configId || currentModel.upstreamModelId === id)
+          const name = snapshot?.modelName ?? (canUseCurrentName ? currentModel.displayName : undefined)
           if (id || name) metadata.model = { ...(id ? { id } : {}), ...(name ? { name } : {}) }
         }
         if (options.includeReasoning) {

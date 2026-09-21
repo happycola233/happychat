@@ -106,7 +106,7 @@
 #### chatlog-md/2 导出约定
 
 - API 格式标识仍是 `chatlog-md`，单次、预览和批量均输出 V2；扩展名仍为 `.chat.md`，含附件时 ZIP 内的路径相对各自文档。格式卡片、规范名称和 URL 共用能力矩阵。
-- 消息 `id` 独立保存；`model.id/name` 使用请求快照，无法追溯时才读取现有模型，绝不使用内部模型 UUID。`reasoning.effort` 跟随思考开关；不存在实际记录时不补默认强度。
+- 消息 `id` 独立保存；`model.id/name` 分别优先使用请求快照。旧日志没有名称快照时，若仍关联同一模型配置或上游 ID 一致，则使用该配置的当前显示名称，即使该配置后来调整过上游 ID；请求时 ID 保持原值。模型已删除时不向其他同 ID 配置借用名称，也不导出内部模型 UUID。`reasoning.effort` 跟随思考开关；不存在实际记录时不补默认强度。
 - `usage` 从原始 nullable token 列读取，保留部分记录、真实 0 和不一致的上游总量。完整输入已包含缓存，输出已包含推理，不重复求和。历史上已被上游适配器写成 0 的字段无法在导出时反推为未知。
 - reasoning/commentary/web 与 X 检索按 `processSteps` 原顺序保存；正文与附件再按 `content` 原顺序输出。消息状态与整轮耗时位于 `x-generation`，不会将同一思考耗时重复写到多个块。检索完整保留 `action`，不补造结果。
 - 生成图和特殊附件名称采用结构化附件块，生成提示词不截断、不改字符。引用位于 `x-citations` 扩展块（逐正文引用在块元数据），不冒充个人批注或某次搜索的结果。
@@ -440,7 +440,7 @@
 
 ## 11. 测试与验证（`scripts/` + vitest）
 
-- 单测（`npm run test`，最近验证 **215 个文件 / 1683 个用例**）：上下文专项覆盖整组保留、重复引用去重、手选分支隔离、发送前文件读取次数、跨聊天引用拦截、一次性选择的成功消费与失败恢复；除原有注册、权限、分支、导出、Responses/chat、附件清理与前端流式覆盖外，公告专项覆盖精确受众可见性、确认越权拦截、受众原子替换、强提示不可绕过、历史曝光迁移与共享面板渲染；分享卡片专项覆盖公开快照摘要优先级与截断、动态值 HTML 转义、Open Graph / Twitter Card / canonical / 现有应用图标、反向代理公开地址还原、撤销链接不再产出预览数据及动态 HTML 的 `no-cache`；Anthropic 专项覆盖 URL 拼接、原生鉴权头、分页模型目录/capabilities、模型代际 profile、必填输出上限、manual thinking 预算约束、可见 body 与“删模板不补回”、reasoning 开关保留管理员 thinking 模板、manual/adaptive thinking、sampling 限制、大请求交由上游判断、图片/PDF/文本映射、SSE index 聚合、signature/redacted/encrypted/citation opaque 保留、流内错误状态映射、`refusal` 作废部分输出、客户端工具失败、截断工具 replay 门控、网关缺失 `message_stop` 的完整性判定、web search 业务错误及其人类可读导出、citation 安全协议、usage、`pause_turn` 续跑与来源门控 replay 隔离。
+- 单测（`npm run test`，最近验证 **215 个文件 / 1685 个用例**）：上下文专项覆盖整组保留、重复引用去重、手选分支隔离、发送前文件读取次数、跨聊天引用拦截、一次性选择的成功消费与失败恢复；除原有注册、权限、分支、导出、Responses/chat、附件清理与前端流式覆盖外，公告专项覆盖精确受众可见性、确认越权拦截、受众原子替换、强提示不可绕过、历史曝光迁移与共享面板渲染；分享卡片专项覆盖公开快照摘要优先级与截断、动态值 HTML 转义、Open Graph / Twitter Card / canonical / 现有应用图标、反向代理公开地址还原、撤销链接不再产出预览数据及动态 HTML 的 `no-cache`；Anthropic 专项覆盖 URL 拼接、原生鉴权头、分页模型目录/capabilities、模型代际 profile、必填输出上限、manual thinking 预算约束、可见 body 与“删模板不补回”、reasoning 开关保留管理员 thinking 模板、manual/adaptive thinking、sampling 限制、大请求交由上游判断、图片/PDF/文本映射、SSE index 聚合、signature/redacted/encrypted/citation opaque 保留、流内错误状态映射、`refusal` 作废部分输出、客户端工具失败、截断工具 replay 门控、网关缺失 `message_stop` 的完整性判定、web search 业务错误及其人类可读导出、citation 安全协议、usage、`pause_turn` 续跑与来源门控 replay 隔离。
   **公告图片与上下文提醒专项**：覆盖图片真实解码 / MIME 伪装 / EXIF 方向、管理员上传权限、草稿和精确受众读取、排期与撤回、失效图片的原子保存、共享引用与孤立清理、Markdown 源码定位与裁剪净化，以及上下文提醒的严格阈值与重试累计隔离。计数口径参考 [OpenAI 图片输入文档](https://developers.openai.com/api/docs/guides/images-vision) 与 [文件输入文档](https://developers.openai.com/api/docs/guides/file-inputs)。
 
   **自动重试专项**：`server/runs/retry.test.ts` 通过真实临时 SQLite 与合成上游验证首字前/后错误、流内过载、断流、超时、停止、重试预算、内容替换、用量累计与删除聊天后的审计；三个文本协议通过保持响应未完成的可控流验证思考增量实时可见、缓冲前时间保真，以及实时/回放/消息读取的单次耗时一致；另覆盖后续无输出取消、空 delta 与无正文终止。`server/routes/runs.test.ts` 锁定 SSE 时间戳和 active 恢复，`replay.test.ts` 锁定压缩后的首帧时间，`Message.test.tsx` 锁定等待与重连时停止秒表；`server/provider/retry.test.ts` 验证统一分类与长计时；Cloudflare 520 / 524 覆盖 HTML 和 JSON 包装错误页的重试恢复、Retry-After 等待与诊断脱敏，`server/db/retry-cloudflare-migrations.test.ts` 与 `server/services/appConfig.test.ts` 验证旧配置一次性补齐及管理员关闭后的持久性；`RetryAuditDetails.test.tsx` 验证后台阶段、恢复与停止原因文案。
