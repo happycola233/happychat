@@ -15,6 +15,7 @@ export const userPreferencesPatchSchema = z
     autoScrollOnOpen: z.boolean(),
     showScrollToBottom: z.boolean(),
     showTimelineNav: z.boolean(),
+    timelineNavPosition: z.enum(['left', 'right']),
     showNewChatGradientGlow: z.boolean(),
     sendOnEnterDesktop: z.boolean(),
     sendOnEnterMobile: z.boolean(),

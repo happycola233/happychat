@@ -117,6 +117,7 @@ export function toMessageDTO(
 ): MessageDTO {
   return {
     id: m.id,
+    bookmarked: m.bookmarked,
     conversationId: m.conversationId,
     parentId: m.parentId,
     role: m.role,

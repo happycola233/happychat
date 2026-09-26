@@ -332,9 +332,7 @@ describe('Markdown images', () => {
       <Markdown text={'![说明](https://example.com/demo.png "图片标题")'} animate={animate} />,
     )
 
-    expect(html).toContain(
-      '<img src="https://example.com/demo.png" alt="说明" title="图片标题"/>',
-    )
+    expect(html).toContain('<img src="https://example.com/demo.png" alt="说明" title="图片标题"/>')
   })
 })
 
@@ -462,6 +460,38 @@ describe('Markdown 安全性', () => {
     expect(html).not.toContain('javascript:')
     expect(html).toContain('点我')
     expect(html).toContain('alt="危险图片"')
+  })
+})
+
+describe('Markdown preview', () => {
+  it('保留中文粗体、列表和代码，不挂载链接、图片、复制按钮或 Mermaid 图表', () => {
+    const html = renderToStaticMarkup(
+      <Markdown
+        variant="preview"
+        text={[
+          '**重点。**后续',
+          '',
+          '- 第一项',
+          '- 第二项',
+          '',
+          '[参考](https://example.test)',
+          '',
+          '![插图](https://example.test/image.png)',
+          '',
+          '```mermaid',
+          'flowchart TD',
+          'A-->B',
+          '```',
+        ].join('\n')}
+      />,
+    )
+    expect(html).toContain('<strong>重点。</strong>')
+    expect(html).toContain('<ul>')
+    expect(html).toContain('<li>第一项</li>')
+    expect(html).toContain('<pre>')
+    expect(html).toContain('[图片：插图]')
+    expect(html).not.toMatch(/<(?:button|a|img)\b/)
+    expect(html).not.toContain('正在渲染图表')
   })
 })
 

@@ -483,22 +483,6 @@ html.hc-ios .hc-chat-scroll {
   justify-self: end;
 }
 
-/* 时间轴导航展开面板：从右缘轻微滑入。 */
-@keyframes hc-timeline-panel-in {
-  from {
-    opacity: 0;
-    transform: translateX(6px) scale(0.98);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0) scale(1);
-  }
-}
-.hc-timeline-panel-in {
-  animation: hc-timeline-panel-in 0.16s ease-out;
-  transform-origin: right center;
-}
-
 /* Markdown 渲染排版 */
 .hc-md > :first-child {
   margin-top: 0;

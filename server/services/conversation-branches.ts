@@ -245,6 +245,7 @@ export async function createConversationBranch(
       role: sourceMessage.role,
       status: sourceMessage.status,
       content: remapContent(sourceMessage.content, attachmentIdMap),
+      bookmarked: sourceMessage.bookmarked,
       runtimeContext: sourceMessage.runtimeContext,
       modelId: sourceMessage.modelId,
       // run/事件/用量日志属于原始上游调用；消息自身的展示快照则必须完整保留。

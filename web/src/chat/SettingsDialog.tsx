@@ -20,6 +20,7 @@ import type {
   MessageFontSize,
   MessageTimeFormat,
   ThemePreference,
+  TimelineNavPosition,
   UserPreferences,
 } from '@shared/types/domain'
 import { useIsDark } from '../lib/useIsDark'
@@ -123,6 +124,7 @@ function PreferenceSelect<T extends string, TOption extends SelectOption<T> = Se
   options,
   onChange,
   menuClassName = 'w-56',
+  menuPlacement = 'bottom',
   leading,
   ariaLabel,
 }: {
@@ -130,6 +132,7 @@ function PreferenceSelect<T extends string, TOption extends SelectOption<T> = Se
   options: readonly TOption[]
   onChange: (v: T) => void
   menuClassName?: string
+  menuPlacement?: 'top' | 'bottom'
   leading?: (option: TOption) => ReactNode
   ariaLabel: string
 }) {
@@ -174,7 +177,8 @@ function PreferenceSelect<T extends string, TOption extends SelectOption<T> = Se
         <div
           role="menu"
           className={clsx(
-            'hc-pop-in absolute right-0 top-full z-40 mt-2 min-w-full rounded-2xl border border-black/10 bg-white p-1.5 text-neutral-900 shadow-[0_18px_45px_rgba(0,0,0,0.18)] dark:border-white/10 dark:bg-[#303030] dark:text-neutral-100 dark:shadow-[0_18px_45px_rgba(0,0,0,0.45)]',
+            'hc-pop-in absolute right-0 z-40 min-w-full rounded-2xl border border-black/10 bg-white p-1.5 text-neutral-900 shadow-[0_18px_45px_rgba(0,0,0,0.18)] dark:border-white/10 dark:bg-[#303030] dark:text-neutral-100 dark:shadow-[0_18px_45px_rgba(0,0,0,0.45)]',
+            menuPlacement === 'top' ? 'bottom-full mb-2' : 'top-full mt-2',
             menuClassName,
           )}
         >
@@ -253,6 +257,9 @@ function PrefToggleRow({
 function GeneralPanel() {
   const theme = useSettings((s) => s.theme)
   const setTheme = useSettings((s) => s.setTheme)
+  const showTimelineNav = useSettings((s) => s.preferences.showTimelineNav)
+  const timelineNavPosition = useSettings((s) => s.preferences.timelineNavPosition)
+  const setPreferences = useSettings((s) => s.setPreferences)
 
   return (
     <div className="pb-2">
@@ -301,10 +308,28 @@ function GeneralPanel() {
           desc="开启后，进入或切换对话时直接显示最新消息；关闭后从对话顶部的最早消息开始显示。"
         />
         <PrefToggleRow prefKey="showScrollToBottom" title="显示「滚动到底部」按钮" />
-        <PrefToggleRow
-          prefKey="showTimelineNav"
+        <Row
           title="消息时间轴导航"
-          desc="在聊天右侧显示你发送过的消息列表，悬停查看、点击快速跳转（仅桌面端视图）。"
+          desc="悬停预览问答，点击跳转或收藏。"
+          control={
+            <PreferenceSelect<TimelineNavPosition | 'off'>
+              ariaLabel="消息时间轴导航"
+              value={showTimelineNav ? timelineNavPosition : 'off'}
+              onChange={(position) =>
+                setPreferences(
+                  position === 'off'
+                    ? { showTimelineNav: false }
+                    : { showTimelineNav: true, timelineNavPosition: position },
+                )
+              }
+              menuPlacement="top"
+              options={[
+                { value: 'off', label: '关闭' },
+                { value: 'left', label: '左侧' },
+                { value: 'right', label: '右侧' },
+              ]}
+            />
+          }
         />
       </SettingsSection>
     </div>

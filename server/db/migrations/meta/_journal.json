@@ -344,6 +344,13 @@
       "when": 1789904742164,
       "tag": "0048_retry_cloudflare_unknown_error",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "6",
+      "when": 1790407558066,
+      "tag": "0049_message_bookmarks",
+      "breakpoints": true
     }
   ]
 }

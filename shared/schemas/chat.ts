@@ -60,6 +60,10 @@ export const pinConversationSchema = z.object({
   pinned: z.boolean(),
 })
 
+export const bookmarkMessageSchema = z.object({
+  bookmarked: z.boolean(),
+})
+
 export const regenerateSchema = z.object({
   contextAttachments: contextAttachmentSelectionSchema.optional(),
   assistantMessageId: z.string().min(1),

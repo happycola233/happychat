@@ -4,6 +4,7 @@ import {
   resolveActiveTimelineId,
   shouldShowTimeline,
   timelineItemsFromMessages,
+  TIMELINE_JUMP_OFFSET_PX,
 } from './timelineItems'
 
 function userMessage(id: string, text: string): MessageDTO {
@@ -14,11 +15,11 @@ function userMessage(id: string, text: string): MessageDTO {
   } as unknown as MessageDTO
 }
 
-function assistantMessage(id: string): MessageDTO {
+function assistantMessage(id: string, text = '回复'): MessageDTO {
   return {
     id,
     role: 'assistant',
-    content: [{ type: 'output_text', text: '回复', annotations: [] }],
+    content: [{ type: 'output_text', text, annotations: [] }],
   } as unknown as MessageDTO
 }
 
@@ -30,8 +31,8 @@ describe('timelineItemsFromMessages', () => {
       userMessage('u2', '你好'),
     ])
     expect(items).toEqual([
-      { id: 'u1', label: '第一行 第二行 结尾' },
-      { id: 'u2', label: '你好' },
+      { id: 'u1', prompt: '第一行 第二行 结尾', reply: '回复', bookmarked: false },
+      { id: 'u2', prompt: '你好', reply: '等待回复', bookmarked: false },
     ])
   })
 
@@ -47,9 +48,57 @@ describe('timelineItemsFromMessages', () => {
       content: [{ type: 'input_file', attachmentId: 'att2', filename: 'a.txt' }],
     } as unknown as MessageDTO
     expect(timelineItemsFromMessages([withImage, withFile])).toEqual([
-      { id: 'u1', label: '[图片]' },
-      { id: 'u2', label: '[附件]' },
+      { id: 'u1', prompt: '[图片]', reply: '等待回复', bookmarked: false },
+      { id: 'u2', prompt: '[附件]', reply: '等待回复', bookmarked: false },
     ])
+  })
+
+  it('逐轮配对当前分支回复，保留 Markdown 与收藏，不串入下一轮', () => {
+    const markdown = '**重点。**后续\n\n- 第一项\n- 第二项'
+    const items = timelineItemsFromMessages([
+      { ...userMessage('u1', '提问一'), bookmarked: true },
+      assistantMessage('a1', markdown),
+      userMessage('u2', '提问二'),
+      assistantMessage('a2', '另一个回复'),
+      userMessage('u3', '还没回复'),
+    ])
+    expect(items.map(({ reply }) => reply)).toEqual([markdown, '另一个回复', '等待回复'])
+    expect(items[0]?.bookmarked).toBe(true)
+  })
+
+  it('使用当前流式正文，不把 reasoning 或 commentary 当作回复', () => {
+    const user = userMessage('u1', '提问')
+    const assistant = assistantMessage('a1', '旧正文')
+    assistant.content.unshift({ type: 'output_text', text: '过程说明', phase: 'commentary' })
+    expect(timelineItemsFromMessages([user, assistant])[0]?.reply).toBe('旧正文')
+    expect(
+      timelineItemsFromMessages([user, assistant], {
+        assistantMessageId: 'a1',
+        text: '**正在更新**',
+        status: 'streaming',
+      })[0]?.reply,
+    ).toBe('**正在更新**')
+    expect(
+      timelineItemsFromMessages([user, assistant], {
+        assistantMessageId: 'a1',
+        text: '',
+        status: 'streaming',
+      })[0]?.reply,
+    ).toBe('正在回复…')
+  })
+
+  it('生成图片有明确摘要，长文本限制预览解析量', () => {
+    const image = assistantMessage('a1', '')
+    image.content = [{ type: 'image_result', attachment_id: 'image-1' }]
+    expect(timelineItemsFromMessages([userMessage('u1', '画一朵花'), image])[0]?.reply).toBe(
+      '已生成图片',
+    )
+    expect(
+      timelineItemsFromMessages([
+        userMessage('u2', '长文'),
+        assistantMessage('a2', '文'.repeat(50000)),
+      ])[0]?.reply,
+    ).toHaveLength(2000)
   })
 })
 
@@ -84,5 +133,25 @@ describe('resolveActiveTimelineId', () => {
 
   it('滚动到底部时归最后一条', () => {
     expect(resolveActiveTimelineId(anchors, 2400, 600, 3000)).toBe('u3')
+  })
+
+  it('大屏跳转到短消息时，受限激活线不会误选下一轮', () => {
+    const shortAnchors = [
+      { id: 'u1', top: 68 },
+      { id: 'u2', top: 300 },
+      { id: 'u3', top: 600 },
+    ]
+    const clientHeight = 960
+    const activationRatio = Math.min(0.35, (TIMELINE_JUMP_OFFSET_PX + 20) / clientHeight)
+    expect(resolveActiveTimelineId(shortAnchors, 0, clientHeight, 2000, activationRatio)).toBe('u1')
+    expect(
+      resolveActiveTimelineId(
+        shortAnchors,
+        300 - TIMELINE_JUMP_OFFSET_PX,
+        clientHeight,
+        2000,
+        activationRatio,
+      ),
+    ).toBe('u2')
   })
 })

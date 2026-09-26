@@ -405,6 +405,8 @@ export type AccentColor = 'default' | 'blue' | 'green' | 'yellow' | 'pink' | 'or
 /** 模型选择器列表视图：平铺（分组标题可折叠）/ 二级目录（先选分组再钻取模型）。 */
 export type ModelPickerView = 'flat' | 'tree'
 
+export type TimelineNavPosition = 'left' | 'right'
+
 /**
  * 账户级用户偏好：服务端为源（持久化到 user_settings.preferences），
  * 前端以 localStorage 作首屏缓存避免闪烁。注意区别于 store/chat.ts 里的
@@ -418,8 +420,10 @@ export interface UserPreferences {
   autoScrollOnOpen: boolean
   /** 显示「滚动到底部」浮动按钮 */
   showScrollToBottom: boolean
-  /** 消息时间轴导航：聊天右侧展示用户消息快捷列表，点击跳转（仅桌面端视图） */
+  /** 消息时间轴导航：悬停预览一轮问答，点击跳转（仅桌面端视图） */
   showTimelineNav: boolean
+  /** 时间轴靠聊天区域的哪一侧显示，默认右侧。 */
+  timelineNavPosition: TimelineNavPosition
   /** 新聊天渐变光晕背景：桌面端空会话输入框后方的柔和渐变背景 */
   showNewChatGradientGlow: boolean
   /** 桌面端按 Enter 发送（关闭则 Enter 换行、Ctrl/⌘+Enter 发送） */

@@ -58,7 +58,11 @@ import { ModelControlMenu } from './ModelControlMenu'
 import { QuotaNotice } from './QuotaNotice'
 import { ModelUsageNotice } from './ModelUsageNotice'
 import { TimelineNav } from './TimelineNav'
-import { shouldShowTimeline, timelineItemsFromMessages } from './timelineItems'
+import {
+  shouldShowTimeline,
+  timelineItemsFromMessages,
+  TIMELINE_JUMP_OFFSET_PX,
+} from './timelineItems'
 import { shouldShowTopFade } from './topFade'
 import { AnnouncementBanner } from '../announcements/AnnouncementBanner'
 import { ConversationDocumentTitle } from './ConversationDocumentTitle'
@@ -87,8 +91,6 @@ const SCROLL_BUTTON_IDLE_MS = 2400
 const PROGRAMMATIC_SCROLL_RESET_MS = 1200
 /** 落底动画标记的持续时长：覆盖 500ms 平移 + 免责声明延迟淡入（300ms 延迟 + 500ms 过渡）。 */
 const DOCK_ANIMATION_SETTLE_MS = 900
-/** 时间轴跳转后消息顶部与视口的间距：给悬浮顶栏让位再留一点呼吸感。 */
-const TIMELINE_JUMP_OFFSET_PX = 76
 /** 前端只做即时反馈；真正的拦截在服务端（`prepareRun` → 429 quota_exceeded）。 */
 const QUOTA_BLOCKED_HINT = '当前模型的额度已用尽，请切换其他模型或联系管理员'
 
@@ -125,6 +127,7 @@ export default function ChatView() {
   const autoScrollOnOpen = useSettings((s) => s.preferences.autoScrollOnOpen)
   const showScrollToBottom = useSettings((s) => s.preferences.showScrollToBottom)
   const showTimelineNav = useSettings((s) => s.preferences.showTimelineNav)
+  const timelineNavPosition = useSettings((s) => s.preferences.timelineNavPosition)
   const showNewChatGradientGlow = useSettings((s) => s.preferences.showNewChatGradientGlow)
   const openMobileSidebar = useSidebarStore((s) => s.setMobileOpen)
   const isMobile = useIsMobile()
@@ -871,7 +874,7 @@ export default function ChatView() {
   // 升层与光晕大渐变的光栅化在打字期完成，发送必先有草稿，发送瞬间依旧没有「首次升层」掉帧，
   // 且落底 transform 在合成线程跑，不被首条消息挂载的主线程重排阻塞。落位后撤下标记。
   const composerLayerWarm = (heroComposer && composerHasDraft) || dockAnimated
-  const timelineItems = timelineItemsFromMessages(messages)
+  const timelineItems = timelineItemsFromMessages(messages, stream)
   const timelineVisible = !isMobile && showTimelineNav && shouldShowTimeline(timelineItems.length)
   const topFadeVisible = shouldShowTopFade({
     viewportWidth,
@@ -1004,11 +1007,19 @@ export default function ChatView() {
           )}
         </div>
 
-        {/* 消息时间轴导航：仅桌面端、用户消息多于 3 条时出现在右缘中部。 */}
+        {/* 时间轴可切换左右两侧，预览始终向聊天区域内侧展开。 */}
         {timelineVisible && (
-          <div className="pointer-events-none absolute inset-y-0 right-1.5 z-20 hidden items-center md:flex">
+          <div
+            className={clsx(
+              'pointer-events-none absolute bottom-[calc(var(--hc-composer-overlay-height)+1rem)] top-20 z-20 hidden items-center md:flex',
+              timelineNavPosition === 'left' ? 'left-3' : 'right-3',
+            )}
+          >
             <div className="pointer-events-auto">
               <TimelineNav
+                key={id}
+                conversationId={id!}
+                position={timelineNavPosition}
                 items={timelineItems}
                 scrollContainerRef={scrollRef}
                 onJump={scrollToMessage}

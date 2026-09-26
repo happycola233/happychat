@@ -22,6 +22,16 @@ describe('updateProfileSchema', () => {
 })
 
 describe('updateSettingsSchema', () => {
+  it('接受左右导航位置，拒绝未知位置', () => {
+    for (const timelineNavPosition of ['left', 'right']) {
+      expect(updateSettingsSchema.safeParse({ preferences: { timelineNavPosition } }).success).toBe(
+        true,
+      )
+    }
+    expect(
+      updateSettingsSchema.safeParse({ preferences: { timelineNavPosition: 'top' } }).success,
+    ).toBe(false)
+  })
   it('allows updating the accent color preference', () => {
     const parsed = updateSettingsSchema.parse({ preferences: { accentColor: 'purple' } })
     expect(parsed).toEqual({ preferences: { accentColor: 'purple' } })
@@ -35,8 +45,8 @@ describe('updateSettingsSchema', () => {
   })
 
   it('rejects unknown accent colors', () => {
-    expect(
-      updateSettingsSchema.safeParse({ preferences: { accentColor: 'cyan' } }).success,
-    ).toBe(false)
+    expect(updateSettingsSchema.safeParse({ preferences: { accentColor: 'cyan' } }).success).toBe(
+      false,
+    )
   })
 })

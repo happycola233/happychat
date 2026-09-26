@@ -19,6 +19,7 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   autoScrollOnOpen: true,
   showScrollToBottom: true,
   showTimelineNav: true,
+  timelineNavPosition: 'right',
   showNewChatGradientGlow: true,
   sendOnEnterDesktop: true,
   sendOnEnterMobile: false,
@@ -57,6 +58,7 @@ export function mergePreferences(
     autoScrollOnOpen: partial?.autoScrollOnOpen ?? DEFAULT_PREFERENCES.autoScrollOnOpen,
     showScrollToBottom: partial?.showScrollToBottom ?? DEFAULT_PREFERENCES.showScrollToBottom,
     showTimelineNav: partial?.showTimelineNav ?? DEFAULT_PREFERENCES.showTimelineNav,
+    timelineNavPosition: partial?.timelineNavPosition ?? DEFAULT_PREFERENCES.timelineNavPosition,
     showNewChatGradientGlow:
       partial?.showNewChatGradientGlow ?? DEFAULT_PREFERENCES.showNewChatGradientGlow,
     sendOnEnterDesktop:

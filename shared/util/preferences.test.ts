@@ -12,6 +12,7 @@ describe('mergePreferences', () => {
       autoScrollOnOpen: true,
       showScrollToBottom: true,
       showTimelineNav: true,
+      timelineNavPosition: 'right',
       showNewChatGradientGlow: true,
       sendOnEnterDesktop: true,
       sendOnEnterMobile: false,
@@ -29,6 +30,11 @@ describe('mergePreferences', () => {
   it('returns a complete copy of defaults for null/undefined', () => {
     expect(mergePreferences(null)).toEqual(DEFAULT_PREFERENCES)
     expect(mergePreferences(undefined)).toEqual(DEFAULT_PREFERENCES)
+  })
+
+  it('旧偏好默认在右侧显示时间轴，并保留用户选择的左侧位置', () => {
+    expect(mergePreferences({ showTimelineNav: true }).timelineNavPosition).toBe('right')
+    expect(mergePreferences({ timelineNavPosition: 'left' }).timelineNavPosition).toBe('left')
   })
 
   it('overrides provided keys and keeps defaults for the rest', () => {

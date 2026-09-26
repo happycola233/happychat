@@ -33,7 +33,7 @@ export type MarkdownVariant = 'message' | 'reasoning'
 
 interface MarkdownProps {
   text: string
-  variant?: MarkdownVariant
+  variant?: MarkdownVariant | 'preview'
   className?: string
   /** 流式生成中：让新到达的文字逐段淡入（替代打字光标）。 */
   animate?: boolean
@@ -430,6 +430,12 @@ const COMPONENTS_BY_VARIANT: Record<MarkdownVariant, Record<'static' | 'streamin
   },
 }
 
+// 摘要只负责阅读：链接/图片转为文字，代码和表格保留结构，不挂载复制按钮或图表。
+const PREVIEW_COMPONENTS: Components = {
+  a: ({ children }) => <span>{children}</span>,
+  img: ({ alt }) => <span>{alt ? `[图片：${alt}]` : '[图片]'}</span>,
+}
+
 const REMARK_PLUGINS: Options['remarkPlugins'] = [
   remarkGfm,
   // CommonMark 会把 CJK 句末标点视为 punctuation，导致 `**文字。**文字` 无法闭合。
@@ -480,7 +486,9 @@ function MarkdownImpl({
         'hc-md break-words',
         variant === 'message'
           ? MESSAGE_BODY_TEXT_CLASS
-          : 'hc-md-reasoning text-sm leading-6 text-neutral-500 dark:text-neutral-400',
+          : variant === 'preview'
+            ? 'hc-md-preview'
+            : 'hc-md-reasoning text-sm leading-6 text-neutral-500 dark:text-neutral-400',
         className,
       )}
     >
@@ -495,9 +503,11 @@ function MarkdownImpl({
         }}
         rehypePlugins={rehypePlugins}
         components={
-          announcementImages
-            ? ANNOUNCEMENT_COMPONENTS
-            : COMPONENTS_BY_VARIANT[variant][animate ? 'streaming' : 'static']
+          variant === 'preview'
+            ? PREVIEW_COMPONENTS
+            : announcementImages
+              ? ANNOUNCEMENT_COMPONENTS
+              : COMPONENTS_BY_VARIANT[variant][animate ? 'streaming' : 'static']
         }
       >
         {normalizedText}

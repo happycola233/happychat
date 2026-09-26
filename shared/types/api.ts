@@ -216,6 +216,8 @@ export interface ProviderTestResult {
 
 export interface MessageDTO {
   id: string
+  /** 用户消息的时间轴收藏；旧分享快照中可能不存在。 */
+  bookmarked?: boolean
   conversationId: string
   parentId: string | null
   role: Role

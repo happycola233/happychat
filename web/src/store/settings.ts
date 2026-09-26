@@ -19,6 +19,7 @@ interface SettingsStore {
   preferences: UserPreferences
   hydrate: (dto: UserSettingsDTO) => void
   setTheme: (theme: ThemePreference) => void
+  setPreferences: (patch: Partial<UserPreferences>) => void
   setPreference: <K extends keyof UserPreferences>(key: K, value: UserPreferences[K]) => void
 }
 
@@ -52,13 +53,15 @@ export const useSettings = create<SettingsStore>()(
         applyTheme(theme)
         void persistRemote({ theme })
       },
-      setPreference: (key, value) => {
-        const preferences = { ...get().preferences, [key]: value }
+      setPreferences: (patch) => {
+        const preferences = { ...get().preferences, ...patch }
         set({ preferences })
-        if (key === 'messageFontSize') applyFontSize(preferences.messageFontSize)
-        if (key === 'accentColor') applyAccentColor(preferences.accentColor)
-        void persistRemote({ preferences: { [key]: value } as Partial<UserPreferences> })
+        if (patch.messageFontSize !== undefined) applyFontSize(preferences.messageFontSize)
+        if (patch.accentColor !== undefined) applyAccentColor(preferences.accentColor)
+        void persistRemote({ preferences: patch })
       },
+      setPreference: (key, value) =>
+        get().setPreferences({ [key]: value } as Partial<UserPreferences>),
     }),
     {
       name: 'happychat-settings',

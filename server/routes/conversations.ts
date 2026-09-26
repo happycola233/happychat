@@ -1,9 +1,10 @@
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { CONVERSATION_EVENT_TYPE } from '@shared/types/events'
 import {
   batchDeleteConversationsSchema,
+  bookmarkMessageSchema,
   createConversationBranchSchema,
   moveConversationsSchema,
   pinConversationSchema,
@@ -14,7 +15,7 @@ import { createShareSchema } from '@shared/schemas/share'
 import { updateContextPolicySchema } from '@shared/schemas/context'
 import { exportBatchRequestSchema, exportConversationRequestSchema } from '@shared/schemas/export'
 import { db } from '../db/client'
-import { conversations } from '../db/schema'
+import { conversations, messages } from '../db/schema'
 import { requireUser } from '../auth/middleware'
 import { jsonValidator } from '../http/validator'
 import {
@@ -273,6 +274,28 @@ conversationRoutes.get('/:id/attachments', async (c) => {
   if (!conversation) return c.json({ error: { message: '会话不存在', code: 'not_found' } }, 404)
   return c.json({ attachments: await getConversationAttachments(conversation) })
 })
+
+conversationRoutes.patch(
+  '/:id/messages/:messageId/bookmark',
+  jsonValidator(bookmarkMessageSchema),
+  async (c) => {
+    const conversation = await getOwnedConversation(c.get('user').id, c.req.param('id'))
+    if (!conversation) return c.json({ error: { message: '会话不存在', code: 'not_found' } }, 404)
+    const [updated] = await db
+      .update(messages)
+      .set({ bookmarked: c.req.valid('json').bookmarked })
+      .where(
+        and(
+          eq(messages.id, c.req.param('messageId')),
+          eq(messages.conversationId, conversation.id),
+          eq(messages.role, 'user'),
+        ),
+      )
+      .returning({ id: messages.id, bookmarked: messages.bookmarked })
+    if (!updated) return c.json({ error: { message: '消息不存在', code: 'not_found' } }, 404)
+    return c.json(updated)
+  },
+)
 
 conversationRoutes.patch('/:id/context', jsonValidator(updateContextPolicySchema), async (c) => {
   const conv = await getOwnedConversation(c.get('user').id, c.req.param('id'))

@@ -1,0 +1,228 @@
+.hc-timeline {
+  --timeline-tick: #d4d4d4;
+  --timeline-current: #737373;
+  --timeline-bookmarked: #8a8a8a;
+  --timeline-hovered: #262626;
+  --timeline-tick-height: 2px;
+  --timeline-bookmark-dot-size: 2.25px;
+  --timeline-bookmark-dot-color: #404040;
+  position: relative;
+  /* 最长刻度 32px + 两侧留白 + 收藏点；不可让横向滚动裁掉小圆点。 */
+  width: 56px;
+}
+.dark .hc-timeline {
+  --timeline-tick: #525252;
+  --timeline-current: #b5b5b5;
+  --timeline-bookmarked: #a3a3a3;
+  --timeline-hovered: #f5f5f5;
+  --timeline-bookmark-dot-color: #e5e5e5;
+}
+.hc-timeline-rail {
+  max-height: min(440px, calc(100dvh - var(--hc-composer-overlay-height, 180px) - 7rem));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  padding-block: 6px;
+}
+.hc-timeline-tick {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding-left: 6px;
+  cursor: pointer;
+  border-radius: 4px;
+  outline-offset: -1px;
+}
+.hc-timeline-bar {
+  display: block;
+  height: var(--timeline-tick-height);
+  overflow: visible;
+  flex-shrink: 0;
+  color: var(--timeline-tick);
+  /* 横线和圆点共用 SVG 坐标与栅格化，避免 CSS 背景取整后看起来错位。 */
+  shape-rendering: geometricPrecision;
+  transition:
+    width 140ms ease-out,
+    color 140ms ease-out;
+}
+.hc-timeline[data-position='right'] .hc-timeline-tick {
+  justify-content: flex-end;
+  padding-left: 0;
+  padding-right: 12px;
+}
+.hc-timeline-tick[data-bookmarked] .hc-timeline-bar {
+  color: var(--timeline-bookmarked);
+}
+.hc-timeline-tick[data-current] .hc-timeline-bar {
+  color: var(--timeline-current);
+}
+.hc-timeline-tick .hc-timeline-bar.hc-timeline-bar-hovered {
+  color: var(--timeline-hovered);
+}
+.hc-timeline-bookmark-dot {
+  cx: calc(100% + 4px + var(--timeline-bookmark-dot-size) / 2);
+  cy: 50%;
+  r: calc(var(--timeline-bookmark-dot-size) / 2);
+  fill: var(--timeline-bookmark-dot-color);
+}
+.hc-timeline[data-position='right'] .hc-timeline-bar {
+  transform: scaleX(-1);
+}
+.hc-timeline-preview {
+  position: absolute;
+  left: calc(100% + 10px);
+  z-index: 1;
+  width: 384px;
+  padding: 12px;
+  border: 1px solid #e0e0e0;
+  border-radius: 20px;
+  background: #fff;
+  color: #262626;
+  /* 与聊天正文共用字号变量和行高，随账户的小/中/大字号设置即时变化。 */
+  font-size: var(--hc-msg-font);
+  line-height: 1.6;
+  box-shadow: 0 8px 18px rgb(0 0 0 / 0.07);
+}
+/* 填满刻度与卡片之间的间隙，让移向书签的鼠标仍留在同一预览内。 */
+.hc-timeline-preview::before {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  right: 100%;
+  width: 10px;
+}
+.hc-timeline[data-position='right'] .hc-timeline-preview {
+  right: calc(100% + 10px);
+  left: auto;
+}
+.hc-timeline[data-position='right'] .hc-timeline-preview::before {
+  right: auto;
+  left: 100%;
+}
+.dark .hc-timeline-preview {
+  border-color: #404040;
+  background: #262626;
+  color: #f5f5f5;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.24);
+}
+.hc-timeline-preview-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+.hc-timeline-prompt {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: inherit;
+  font-weight: 600;
+  line-height: inherit;
+}
+.hc-timeline-jump {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  cursor: pointer;
+}
+.hc-timeline-bookmark {
+  position: relative;
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin: -1px -3px -1px 0;
+  border-radius: 8px;
+  color: #8a8a8a;
+  cursor: pointer;
+  pointer-events: auto;
+  transition:
+    color 140ms,
+    background-color 140ms;
+}
+.hc-timeline-bookmark:hover {
+  background: #f5f5f5;
+  color: #262626;
+}
+.hc-timeline-bookmark[aria-pressed='true'] {
+  color: #262626;
+}
+.dark .hc-timeline-bookmark {
+  color: #a3a3a3;
+}
+.dark .hc-timeline-bookmark:hover {
+  background: #404040;
+  color: #f5f5f5;
+}
+.dark .hc-timeline-bookmark[aria-pressed='true'] {
+  color: #d4d4d4;
+}
+.hc-timeline-bookmark:disabled {
+  cursor: wait;
+}
+.hc-timeline :is(button):focus-visible {
+  outline: 2px solid var(--timeline-current);
+}
+/* 三行真实 Markdown 摘要：保留强调、列表与代码结构，不展示全文控件。 */
+.hc-timeline .hc-md-preview {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  max-height: 3lh;
+  margin-top: 4px;
+  color: #8a8a8a;
+  font-size: inherit;
+  line-height: inherit;
+  pointer-events: none;
+  overflow-wrap: anywhere;
+}
+.dark .hc-timeline .hc-md-preview {
+  color: #a3a3a3;
+}
+.hc-timeline .hc-md-preview :is(p, ul, ol, li, pre, blockquote, h1, h2, h3, h4, h5, h6, table) {
+  margin-block: 0;
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+}
+.hc-timeline .hc-md-preview :is(ul, ol) {
+  padding-left: 1.3em;
+}
+.hc-timeline .hc-md-preview strong {
+  font-weight: 650;
+}
+.hc-timeline .hc-md-preview pre {
+  white-space: pre-wrap;
+}
+.hc-timeline .hc-md-preview :is(.footnotes, hr) {
+  display: none;
+}
+@keyframes hc-timeline-panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(var(--timeline-preview-offset, -4px));
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+.hc-timeline-panel-in {
+  animation: hc-timeline-panel-in 140ms ease-out;
+}
+.hc-timeline[data-position='right'] {
+  --timeline-preview-offset: 4px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hc-timeline-bar,
+  .hc-timeline-bookmark {
+    transition: none;
+  }
+  .hc-timeline-panel-in {
+    animation: none;
+  }
+}

@@ -552,6 +552,7 @@ export const messages = sqliteTable(
       .references(() => conversations.id, { onDelete: 'cascade' }),
     // 自引用分支树（无 DB 级 FK，由应用维护）
     parentId: text('parent_id'),
+    bookmarked: integer('bookmarked', { mode: 'boolean' }).notNull().default(false),
     role: text('role').$type<Role>().notNull(),
     status: text('status').$type<MessageStatus>().notNull().default('complete'),
     content: text('content', { mode: 'json' }).$type<ContentPart[]>().notNull(),

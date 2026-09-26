@@ -34,6 +34,12 @@ export const pinConversation = (id: string, pinned: boolean) =>
     (r) => r.conversation,
   )
 
+export const bookmarkMessage = (conversationId: string, messageId: string, bookmarked: boolean) =>
+  apiPatch<{ id: string; bookmarked: boolean }>(
+    `/conversations/${conversationId}/messages/${messageId}/bookmark`,
+    { bookmarked },
+  )
+
 export const searchConversations = (q: string) =>
   apiGet<{ results: ConversationSearchResultDTO[] }>(
     `/conversations/search?q=${encodeURIComponent(q)}`,
