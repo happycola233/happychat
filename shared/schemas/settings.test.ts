@@ -49,4 +49,19 @@ describe('updateSettingsSchema', () => {
       false,
     )
   })
+
+  it.each(['accent', 'blue', 'green', 'yellow', 'pink', 'orange', 'purple'])(
+    '接受独立更新光晕配色 %s，不附带修改重点色',
+    (newChatGlowColor) => {
+      expect(updateSettingsSchema.parse({ preferences: { newChatGlowColor } })).toEqual({
+        preferences: { newChatGlowColor },
+      })
+    },
+  )
+
+  it.each(['default', 'cyan', null])('拒绝无效光晕配色 %s', (newChatGlowColor) => {
+    expect(updateSettingsSchema.safeParse({ preferences: { newChatGlowColor } }).success).toBe(
+      false,
+    )
+  })
 })

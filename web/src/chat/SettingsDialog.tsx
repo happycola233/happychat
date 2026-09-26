@@ -19,6 +19,7 @@ import type {
   AccentColor,
   MessageFontSize,
   MessageTimeFormat,
+  NewChatGlowColor,
   ThemePreference,
   TimelineNavPosition,
   UserPreferences,
@@ -67,6 +68,11 @@ const ACCENT_OPTIONS = [
   light: string
   dark: string
 }[]
+
+const GLOW_COLOR_OPTIONS = [
+  { value: 'accent', label: '跟随重点色' },
+  ...ACCENT_OPTIONS.filter((option) => option.value !== 'default'),
+] as const
 
 const TABS: { id: SettingsTab; label: string; icon: ComponentType<{ className?: string }> }[] = [
   { id: 'general', label: '通用', icon: SlidersHorizontal },
@@ -232,6 +238,34 @@ function AccentColorSelect() {
   )
 }
 
+function GlowColorSelect() {
+  const value = useSettings((s) => s.preferences.newChatGlowColor)
+  const accentColor = useSettings((s) => s.preferences.accentColor)
+  const setPreference = useSettings((s) => s.setPreference)
+  const isDark = useIsDark()
+  const accentOption = ACCENT_OPTIONS.find((option) => option.value === accentColor)!
+
+  return (
+    <PreferenceSelect<NewChatGlowColor, (typeof GLOW_COLOR_OPTIONS)[number]>
+      ariaLabel="光晕颜色"
+      value={value}
+      onChange={(color) => setPreference('newChatGlowColor', color)}
+      options={GLOW_COLOR_OPTIONS}
+      menuClassName="w-64"
+      leading={(option) => {
+        const swatch = option.value === 'accent' ? accentOption : option
+        return (
+          <span
+            aria-hidden="true"
+            className="h-3.5 w-3.5 rounded-full"
+            style={{ backgroundColor: isDark ? swatch.dark : swatch.light }}
+          />
+        )
+      }}
+    />
+  )
+}
+
 function PrefToggleRow({
   prefKey,
   title,
@@ -257,6 +291,7 @@ function PrefToggleRow({
 function GeneralPanel() {
   const theme = useSettings((s) => s.theme)
   const setTheme = useSettings((s) => s.setTheme)
+  const showNewChatGradientGlow = useSettings((s) => s.preferences.showNewChatGradientGlow)
   const showTimelineNav = useSettings((s) => s.preferences.showTimelineNav)
   const timelineNavPosition = useSettings((s) => s.preferences.timelineNavPosition)
   const setPreferences = useSettings((s) => s.setPreferences)
@@ -286,6 +321,9 @@ function GeneralPanel() {
           title="新聊天渐变光晕背景"
           desc="在桌面端新聊天页输入框后方显示柔和渐变光晕。"
         />
+        {showNewChatGradientGlow && (
+          <Row title="光晕颜色" spacing="relaxed" control={<GlowColorSelect />} />
+        )}
       </SettingsSection>
 
       <SettingsSection title="发送与换行">

@@ -336,6 +336,14 @@ html.hc-ios .hc-chat-scroll {
    translate(-50%, 50%) 把光晕几何中心精确压在输入框中心上，盒子长高时全程跟随。
    宽扁大椭圆 + 多段渐变近似高斯衰减，边缘收敛到全透明，避免出现可见光圈。 */
 .hc-hero-glow {
+  /* 默认与蓝色保留原有配方；其余配色仅覆盖光晕色阶，不改消息气泡或按钮。 */
+  --hc-hero-glow-tint: #3a83f7;
+  --hc-hero-glow-core: color-mix(in srgb, var(--hc-hero-glow-tint) 22%, rgb(240 246 253 / 0.9));
+  --hc-hero-glow-middle: color-mix(in srgb, var(--hc-hero-glow-tint) 13%, rgb(243 248 254 / 0.62));
+  --hc-hero-glow-edge: color-mix(in srgb, var(--hc-hero-glow-tint) 6%, rgb(247 250 254 / 0.3));
+  --hc-hero-glow-middle-stop: 34%;
+  --hc-hero-glow-edge-stop: 62%;
+  --hc-hero-glow-transparent: rgb(255 255 255 / 0);
   position: absolute;
   bottom: var(--hc-hero-glow-anchor, 4rem);
   left: 50%;
@@ -343,46 +351,71 @@ html.hc-ios .hc-chat-scroll {
   height: min(56rem, 120vh);
   transform: translate(-50%, 50%);
   pointer-events: none;
-  /* 色调优先读 --hc-accent-glow-tint（默认重点色借用蓝色），未定义时回退到当前重点色。 */
   background: radial-gradient(
     closest-side,
-    color-mix(
-        in srgb,
-        var(--hc-accent-glow-tint, var(--hc-accent-swatch)) 22%,
-        rgb(240 246 253 / 0.9)
-      )
-      0%,
-    color-mix(
-        in srgb,
-        var(--hc-accent-glow-tint, var(--hc-accent-swatch)) 13%,
-        rgb(243 248 254 / 0.62)
-      )
-      34%,
-    color-mix(
-        in srgb,
-        var(--hc-accent-glow-tint, var(--hc-accent-swatch)) 6%,
-        rgb(247 250 254 / 0.3)
-      )
-      62%,
-    rgb(255 255 255 / 0) 100%
+    var(--hc-hero-glow-core) 0%,
+    var(--hc-hero-glow-middle) var(--hc-hero-glow-middle-stop),
+    var(--hc-hero-glow-edge) var(--hc-hero-glow-edge-stop),
+    var(--hc-hero-glow-transparent) 100%
   );
 }
 .dark .hc-hero-glow {
-  /* 深色用更沉的藏蓝底，重点色只做轻微染色，避免发灰发亮。 */
-  background: radial-gradient(
-    closest-side,
-    color-mix(
-        in srgb,
-        var(--hc-accent-glow-tint, var(--hc-accent-swatch)) 12%,
-        rgb(13 19 42 / 0.95)
-      )
-      0%,
-    color-mix(in srgb, var(--hc-accent-glow-tint, var(--hc-accent-swatch)) 6%, rgb(10 15 34 / 0.6))
-      36%,
-    color-mix(in srgb, var(--hc-accent-glow-tint, var(--hc-accent-swatch)) 3%, rgb(8 12 28 / 0.3))
-      64%,
-    rgb(0 0 0 / 0) 100%
-  );
+  --hc-hero-glow-tint: #2c67c5;
+  --hc-hero-glow-core: color-mix(in srgb, var(--hc-hero-glow-tint) 12%, rgb(13 19 42 / 0.95));
+  --hc-hero-glow-middle: color-mix(in srgb, var(--hc-hero-glow-tint) 6%, rgb(10 15 34 / 0.6));
+  --hc-hero-glow-edge: color-mix(in srgb, var(--hc-hero-glow-tint) 3%, rgb(8 12 28 / 0.3));
+  --hc-hero-glow-middle-stop: 36%;
+  --hc-hero-glow-edge-stop: 64%;
+  --hc-hero-glow-transparent: rgb(0 0 0 / 0);
+}
+
+/* 由光晕自身的配色属性选色，与页面重点色解耦，不影响消息气泡和按钮。 */
+.hc-hero-glow[data-glow-color='green'] {
+  --hc-hero-glow-hue: 155;
+}
+.hc-hero-glow[data-glow-color='yellow'] {
+  --hc-hero-glow-hue: 90;
+}
+.hc-hero-glow[data-glow-color='pink'] {
+  --hc-hero-glow-hue: 350;
+}
+.hc-hero-glow[data-glow-color='orange'] {
+  --hc-hero-glow-hue: 55;
+}
+.hc-hero-glow[data-glow-color='purple'] {
+  --hc-hero-glow-hue: 300;
+}
+.hc-hero-glow:is(
+  [data-glow-color='green'],
+  [data-glow-color='yellow'],
+  [data-glow-color='pink'],
+  [data-glow-color='orange'],
+  [data-glow-color='purple']
+) {
+  /* 分开控制感知明度与色度：中心透亮，中外圈逐步褪色，不再混入固定的蓝底。 */
+  --hc-hero-glow-core: oklch(92% 0.045 var(--hc-hero-glow-hue) / 0.92);
+  --hc-hero-glow-middle: oklch(95% 0.03 var(--hc-hero-glow-hue) / 0.67);
+  --hc-hero-glow-edge: oklch(97% 0.015 var(--hc-hero-glow-hue) / 0.34);
+}
+.hc-hero-glow[data-glow-color='yellow'] {
+  /* 黄色保持接近白底的明度，以清透的淡金色替代低明度带来的灰褐感。 */
+  --hc-hero-glow-core: rgb(255 242 190 / 0.88);
+  --hc-hero-glow-middle: rgb(255 248 222 / 0.62);
+  --hc-hero-glow-edge: rgb(255 253 243 / 0.3);
+}
+.dark
+  .hc-hero-glow:is(
+    [data-glow-color='green'],
+    [data-glow-color='yellow'],
+    [data-glow-color='pink'],
+    [data-glow-color='orange'],
+    [data-glow-color='purple']
+  ) {
+  /* 以原蓝色三段的感知明度和透明度为基准，保持相同的黑底融合程度。
+     中外圈随蓝色一同收暗，避免高明度、低色度铺成能看清轮廓的椭圆雾层。 */
+  --hc-hero-glow-core: oklch(24.2% 0.041 var(--hc-hero-glow-hue) / 0.956);
+  --hc-hero-glow-middle: oklch(21.4% 0.035 var(--hc-hero-glow-hue) / 0.624);
+  --hc-hero-glow-edge: oklch(20% 0.031 var(--hc-hero-glow-hue) / 0.321);
 }
 
 /* 行扩展动画容器：内层网格瞬时排版，容器高度由 Composer 的 syncHeight 过渡跟随。

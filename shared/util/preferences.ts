@@ -1,4 +1,9 @@
-import type { AccentColor, ModelPickerView, UserPreferences } from '../types/domain'
+import type {
+  AccentColor,
+  ModelPickerView,
+  NewChatGlowColor,
+  UserPreferences,
+} from '../types/domain'
 import { DEFAULT_CONTEXT_POLICY } from './contextPolicy'
 
 export const ACCENT_COLORS = [
@@ -11,6 +16,11 @@ export const ACCENT_COLORS = [
   'purple',
 ] as const satisfies readonly AccentColor[]
 
+export const NEW_CHAT_GLOW_COLORS = [
+  'accent',
+  ...ACCENT_COLORS.filter((color) => color !== 'default'),
+] as const satisfies readonly NewChatGlowColor[]
+
 export const MODEL_PICKER_VIEWS = ['flat', 'tree'] as const satisfies readonly ModelPickerView[]
 
 /** 账户级偏好的默认值，前后端共用以保证一致。 */
@@ -21,6 +31,7 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   showTimelineNav: true,
   timelineNavPosition: 'right',
   showNewChatGradientGlow: true,
+  newChatGlowColor: 'accent',
   sendOnEnterDesktop: true,
   sendOnEnterMobile: false,
   defaultExpandReasoning: true,
@@ -39,6 +50,10 @@ function isAccentColor(value: unknown): value is AccentColor {
 
 function isModelPickerView(value: unknown): value is ModelPickerView {
   return typeof value === 'string' && (MODEL_PICKER_VIEWS as readonly string[]).includes(value)
+}
+
+function isNewChatGlowColor(value: unknown): value is NewChatGlowColor {
+  return typeof value === 'string' && (NEW_CHAT_GLOW_COLORS as readonly string[]).includes(value)
 }
 
 /**
@@ -61,6 +76,9 @@ export function mergePreferences(
     timelineNavPosition: partial?.timelineNavPosition ?? DEFAULT_PREFERENCES.timelineNavPosition,
     showNewChatGradientGlow:
       partial?.showNewChatGradientGlow ?? DEFAULT_PREFERENCES.showNewChatGradientGlow,
+    newChatGlowColor: isNewChatGlowColor(partial?.newChatGlowColor)
+      ? partial.newChatGlowColor
+      : DEFAULT_PREFERENCES.newChatGlowColor,
     sendOnEnterDesktop:
       partial?.sendOnEnterDesktop ??
       legacySendOnEnterDesktop ??

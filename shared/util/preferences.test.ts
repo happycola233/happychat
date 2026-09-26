@@ -14,6 +14,7 @@ describe('mergePreferences', () => {
       showTimelineNav: true,
       timelineNavPosition: 'right',
       showNewChatGradientGlow: true,
+      newChatGlowColor: 'accent',
       sendOnEnterDesktop: true,
       sendOnEnterMobile: false,
       defaultExpandReasoning: true,
@@ -65,6 +66,23 @@ describe('mergePreferences', () => {
   it('falls back to the default accent color for stale invalid values', () => {
     const merged = mergePreferences({ accentColor: 'cyan' } as never)
     expect(merged.accentColor).toBe('default')
+  })
+
+  it('旧偏好继续跟随重点色，独立光晕配色与重点色互不覆盖', () => {
+    expect(mergePreferences({ accentColor: 'green' }).newChatGlowColor).toBe('accent')
+    const preferences = mergePreferences({ accentColor: 'green', newChatGlowColor: 'purple' })
+    expect(mergePreferences({ ...preferences, accentColor: 'orange' })).toMatchObject({
+      accentColor: 'orange',
+      newChatGlowColor: 'purple',
+    })
+    expect(mergePreferences({ ...preferences, showNewChatGradientGlow: false })).toMatchObject({
+      showNewChatGradientGlow: false,
+      newChatGlowColor: 'purple',
+    })
+  })
+
+  it('无效的缓存光晕配色恢复为跟随重点色', () => {
+    expect(mergePreferences({ newChatGlowColor: 'cyan' } as never).newChatGlowColor).toBe('accent')
   })
 
   it('drops unknown/stale keys and yields exactly the known key set', () => {

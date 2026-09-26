@@ -402,6 +402,9 @@ export type MessageTimeFormat = 'time' | 'datetime'
 /** ChatGPT 风重点色：驱动用户消息气泡与发送按钮。 */
 export type AccentColor = 'default' | 'blue' | 'green' | 'yellow' | 'pink' | 'orange' | 'purple'
 
+/** 新聊天光晕：跟随重点色，或独立使用一种彩色配色。 */
+export type NewChatGlowColor = 'accent' | Exclude<AccentColor, 'default'>
+
 /** 模型选择器列表视图：平铺（分组标题可折叠）/ 二级目录（先选分组再钻取模型）。 */
 export type ModelPickerView = 'flat' | 'tree'
 
@@ -426,6 +429,8 @@ export interface UserPreferences {
   timelineNavPosition: TimelineNavPosition
   /** 新聊天渐变光晕背景：桌面端空会话输入框后方的柔和渐变背景 */
   showNewChatGradientGlow: boolean
+  /** 新聊天光晕颜色；accent 表示跟随重点色，默认重点色对应蓝色光晕。 */
+  newChatGlowColor: NewChatGlowColor
   /** 桌面端按 Enter 发送（关闭则 Enter 换行、Ctrl/⌘+Enter 发送） */
   sendOnEnterDesktop: boolean
   /** 手机端按 Enter 发送（关闭则 Enter 换行，点发送按钮发送） */

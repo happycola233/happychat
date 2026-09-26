@@ -129,6 +129,11 @@ export default function ChatView() {
   const showTimelineNav = useSettings((s) => s.preferences.showTimelineNav)
   const timelineNavPosition = useSettings((s) => s.preferences.timelineNavPosition)
   const showNewChatGradientGlow = useSettings((s) => s.preferences.showNewChatGradientGlow)
+  const resolvedGlowColor = useSettings((s) =>
+    s.preferences.newChatGlowColor === 'accent'
+      ? s.preferences.accentColor
+      : s.preferences.newChatGlowColor,
+  )
   const openMobileSidebar = useSidebarStore((s) => s.setMobileOpen)
   const isMobile = useIsMobile()
   const devicePixelRatio = useDevicePixelRatio()
@@ -1061,11 +1066,12 @@ export default function ChatView() {
             } as CSSProperties
           }
         >
-          {/* 居中态输入框下方的柔和光晕（随重点色自适应）。
+          {/* 居中态输入框下方的柔和光晕（跟随重点色或使用独立配色）。
               淡出过渡只在「发送首条消息」的落底动画期间启用，切换会话时立即消失，
               避免光晕跟着输入框滑到底部才淡出。 */}
           <div
             aria-hidden="true"
+            data-glow-color={resolvedGlowColor}
             className={clsx(
               'hc-hero-glow',
               dockAnimated && 'transition-opacity duration-500 motion-reduce:transition-none',

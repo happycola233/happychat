@@ -5,6 +5,7 @@ import { eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { BootstrapStatus } from '@shared/types/api'
+import type { UserPreferences } from '@shared/types/domain'
 import type { AppEnv } from '../http/types'
 
 let temporaryDirectory: string
@@ -114,6 +115,51 @@ async function readInvite(code: string) {
     .limit(1)
   return invite
 }
+
+describe('新聊天光晕偏好', () => {
+  it('保存独立颜色、切换重点色和关闭光晕后仍保留选择，也可恢复跟随', async () => {
+    const cookie = responseCookie(await register({ username: 'glow-settings-user' }))
+    const readSettings = () => authenticatedRequest('/api/auth/settings', cookie)
+    const updatePreferences = (preferences: Partial<UserPreferences>) =>
+      authenticatedRequest('/api/auth/settings', cookie, {
+        method: 'PUT',
+        body: JSON.stringify({ preferences }),
+      })
+
+    await expect((await readSettings()).json()).resolves.toMatchObject({
+      settings: { preferences: { newChatGlowColor: 'accent' } },
+    })
+
+    expect(
+      (await updatePreferences({ accentColor: 'green', newChatGlowColor: 'purple' })).status,
+    ).toBe(200)
+    expect((await updatePreferences({ accentColor: 'orange' })).status).toBe(200)
+    expect((await updatePreferences({ showNewChatGradientGlow: false })).status).toBe(200)
+    await expect((await readSettings()).json()).resolves.toMatchObject({
+      settings: {
+        preferences: {
+          accentColor: 'orange',
+          newChatGlowColor: 'purple',
+          showNewChatGradientGlow: false,
+        },
+      },
+    })
+
+    expect(
+      (await updatePreferences({ showNewChatGradientGlow: true, newChatGlowColor: 'accent' }))
+        .status,
+    ).toBe(200)
+    await expect((await readSettings()).json()).resolves.toMatchObject({
+      settings: {
+        preferences: {
+          accentColor: 'orange',
+          newChatGlowColor: 'accent',
+          showNewChatGradientGlow: true,
+        },
+      },
+    })
+  })
+})
 
 describe('注册邀请码策略', () => {
   it('首位用户无需邀请码并成为管理员，bootstrap 同时返回首装状态与原始默认策略', async () => {

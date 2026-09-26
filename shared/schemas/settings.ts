@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { ACCENT_COLORS, MODEL_PICKER_VIEWS } from '../util/preferences'
+import { ACCENT_COLORS, MODEL_PICKER_VIEWS, NEW_CHAT_GLOW_COLORS } from '../util/preferences'
 import { passwordSchema, usernameSchema } from './auth'
 import { contextPolicySchema } from './context'
 
@@ -17,6 +17,7 @@ export const userPreferencesPatchSchema = z
     showTimelineNav: z.boolean(),
     timelineNavPosition: z.enum(['left', 'right']),
     showNewChatGradientGlow: z.boolean(),
+    newChatGlowColor: z.enum(NEW_CHAT_GLOW_COLORS),
     sendOnEnterDesktop: z.boolean(),
     sendOnEnterMobile: z.boolean(),
     defaultExpandReasoning: z.boolean(),
