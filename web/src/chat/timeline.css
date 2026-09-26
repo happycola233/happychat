@@ -78,8 +78,8 @@
   border-radius: 20px;
   background: #fff;
   color: #262626;
-  /* 与聊天正文共用字号变量和行高，随账户的小/中/大字号设置即时变化。 */
-  font-size: var(--hc-msg-font);
+  /* 预览比聊天正文小 1px，仍随账户的小/中/大字号设置即时变化。 */
+  font-size: calc(var(--hc-msg-font) - 1px);
   line-height: 1.6;
   box-shadow: 0 8px 18px rgb(0 0 0 / 0.07);
 }
