@@ -1367,15 +1367,6 @@ html.hc-ios .hc-chat-scroll {
     opacity: 0;
   }
 }
-.hc-snake-board {
-  background-color: #f5f8f6;
-  background-image: radial-gradient(rgb(0 0 0 / 0.07) 0.7px, transparent 0.7px);
-  background-size: calc(100% / 18) calc(100% / 10);
-}
-.dark .hc-snake-board {
-  background-color: #202622;
-  background-image: radial-gradient(rgb(255 255 255 / 0.06) 0.7px, transparent 0.7px);
-}
 .dark .hc-generated-image-frame {
   color-scheme: dark;
 }

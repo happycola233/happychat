@@ -1,205 +1,222 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Pause, Play, RotateCcw } from 'lucide-react'
-import { clsx } from 'clsx'
 import {
+  advanceSnake,
   createSnakeGame,
   pauseSnake,
-  SNAKE_COLUMNS,
-  SNAKE_ROWS,
+  queueSnakeTurn,
   snakeDirectionForKey,
-  stepSnake,
-  turnSnake,
   type SnakeDirection,
+  type SnakeGameState,
 } from './snakeGame'
+import { SnakeBoard, type SnakeBoardHandle } from './SnakeBoard'
+import './snakeGame.css'
 
-const CONTROL_CLASS =
-  'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-neutral-500 transition hover:bg-black/5 hover:text-neutral-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:text-neutral-400 dark:hover:bg-white/10 dark:hover:text-neutral-100'
+const DIRECTIONS = [
+  { direction: 'left', label: '向左', Icon: ArrowLeft },
+  { direction: 'up', label: '向上', Icon: ArrowUp },
+  { direction: 'down', label: '向下', Icon: ArrowDown },
+  { direction: 'right', label: '向右', Icon: ArrowRight },
+] as const
 
 export function ImageWaitingGame() {
   const [game, setGame] = useState(createSnakeGame)
+  const motionRef = useRef(game)
+  const drawingRef = useRef<SnakeBoardHandle>(null)
   const boardRef = useRef<HTMLDivElement>(null)
-  const touchOrigin = useRef<{ x: number; y: number } | null>(null)
+  const touchOrigin = useRef<{ x: number; y: number; pointerId: number } | null>(null)
   const instructionId = useId()
   const running = game.status === 'running'
   const ended = game.status === 'over' || game.status === 'won'
 
+  const updateGame = useCallback((update: (state: SnakeGameState) => SnakeGameState) => {
+    motionRef.current = update(motionRef.current)
+    setGame(motionRef.current)
+  }, [])
+  const pause = useCallback(() => updateGame(pauseSnake), [updateGame])
+
+  useLayoutEffect(() => {
+    drawingRef.current!.draw(motionRef.current)
+  }, [game])
+
   useEffect(() => {
     if (!running) return
-    const timer = window.setInterval(() => {
-      const random = Math.random()
-      setGame((state) => stepSnake(state, random))
-    }, 180)
-    return () => window.clearInterval(timer)
+    let previousTime = performance.now()
+    let frame: number
+    const animate = (time: number) => {
+      const previous = motionRef.current
+      // 浏览器卡顿后不补走一大段看不见的路；正常帧始终按真实经过时间匀速前进。
+      const elapsed = Math.min(64, Math.max(0, time - previousTime))
+      previousTime = time
+      const next = advanceSnake(previous, elapsed, Math.random)
+      motionRef.current = next
+      drawingRef.current!.draw(next)
+      if (next.body !== previous.body || next.status !== previous.status) setGame(next)
+      if (next.status === 'running') frame = requestAnimationFrame(animate)
+    }
+    frame = requestAnimationFrame(animate)
+    return () => cancelAnimationFrame(frame)
   }, [running])
 
   useEffect(() => {
-    const pause = () => setGame(pauseSnake)
+    boardRef.current!.focus({ preventScroll: true })
     const visibilityChanged = () => {
       if (document.visibilityState === 'hidden') pause()
     }
+    // 滚出视口也暂停，避免用户查看聊天时在看不见的棋盘里输掉一局。
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!entry!.isIntersecting) pause()
+    })
+    observer.observe(boardRef.current!)
     document.addEventListener('visibilitychange', visibilityChanged)
     window.addEventListener('blur', pause)
     return () => {
+      observer.disconnect()
       document.removeEventListener('visibilitychange', visibilityChanged)
       window.removeEventListener('blur', pause)
     }
-  }, [])
+  }, [pause])
 
   const play = () => {
-    setGame((state) => ({ ...(ended ? createSnakeGame() : state), status: 'running' }))
+    updateGame((state) => ({
+      ...(state.status === 'over' || state.status === 'won' ? createSnakeGame() : state),
+      status: 'running',
+    }))
     boardRef.current?.focus({ preventScroll: true })
   }
   const turn = (direction: SnakeDirection) => {
-    setGame((state) => turnSnake(state, direction))
+    updateGame((state) => queueSnakeTurn(state, direction))
     boardRef.current?.focus({ preventScroll: true })
   }
   const statusText =
     game.status === 'won'
-      ? '全部吃到了！'
+      ? '填满棋盘，通关了！'
       : game.status === 'over'
-        ? '再来一局？'
+        ? '撞到自己了'
         : game.status === 'paused'
           ? '已暂停'
-          : '玩一局贪吃蛇'
-  const directions = [
-    { direction: 'left', label: '向左', Icon: ArrowLeft },
-    { direction: 'up', label: '向上', Icon: ArrowUp },
-    { direction: 'down', label: '向下', Icon: ArrowDown },
-    { direction: 'right', label: '向右', Icon: ArrowRight },
-  ] as const
+          : '给等待一点乐趣'
+  const statusContent = (
+    <div className="hc-snake-overlay-content">
+      <p role="status" className="hc-snake-message">
+        {statusText}
+      </p>
+      <p className="hc-snake-caption">
+        {ended
+          ? `本局 ${game.score} 分${game.status === 'over' ? ' · 红圈标出了相撞的位置' : ''}`
+          : game.status === 'paused'
+            ? '继续游戏，从这里出发'
+            : '吃光点长大，避开自己的身体'}
+      </p>
+      <button type="button" onClick={play} className="hc-snake-play">
+        {ended ? <RotateCcw size={14} /> : <Play size={14} fill="currentColor" />}
+        {ended ? '再玩一次' : game.status === 'paused' ? '继续游戏' : '开始游戏'}
+      </button>
+    </div>
+  )
 
   return (
     <section
       aria-label="等待时玩贪吃蛇"
-      className="hc-anim-in mt-2"
+      className="hc-snake-game hc-anim-in"
+      data-state={game.status}
       onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) setGame(pauseSnake)
+        if (!event.currentTarget.contains(event.relatedTarget)) pause()
       }}
     >
-      <div className="mb-2 flex items-center justify-between gap-2 text-xs">
-        <span className="text-neutral-500 dark:text-neutral-400">图片仍在生成</span>
-        <span
-          aria-label={`得分 ${game.score}`}
-          className="font-medium tabular-nums text-neutral-600 dark:text-neutral-300"
-        >
-          {game.score} 分
-        </span>
-      </div>
+      <header className="hc-snake-header">
+        <span className="hc-snake-title">贪吃蛇</span>
+        <div className="hc-snake-toolbar">
+          <output className="hc-snake-score" aria-label={`得分 ${game.score}`} aria-live="polite">
+            <strong key={game.score}>{String(game.score).padStart(2, '0')}</strong>
+            <span>分</span>
+          </output>
+          <button
+            type="button"
+            disabled={game.status === 'ready' || ended}
+            aria-label={game.status === 'paused' ? '继续游戏' : '暂停游戏'}
+            onClick={() => (running ? pause() : play())}
+            className="hc-snake-icon-button"
+          >
+            {game.status === 'paused' ? <Play size={15} /> : <Pause size={15} />}
+          </button>
+        </div>
+      </header>
       <div
         ref={boardRef}
         role="group"
         aria-label="贪吃蛇游戏区域"
         aria-describedby={instructionId}
         tabIndex={0}
-        className="hc-snake-board relative overflow-hidden rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-neutral-900"
+        className="hc-snake-board"
         onKeyDown={(event) => {
+          if (event.altKey || event.ctrlKey || event.metaKey) return
           const direction = snakeDirectionForKey(event.key)
           if (direction && running) {
             event.preventDefault()
+            if (event.repeat) return
             turn(direction)
-          } else if (event.key === ' ' && event.target === event.currentTarget) {
+          } else if (
+            (event.key === ' ' || event.key === 'Enter') &&
+            event.target === event.currentTarget
+          ) {
             event.preventDefault()
-            if (running) setGame(pauseSnake)
+            if (event.repeat) return
+            if (running) pause()
             else play()
           } else if (event.key === 'Escape') {
-            setGame(pauseSnake)
+            pause()
           }
         }}
         onPointerDown={(event) => {
-          if (event.pointerType === 'mouse' || !running) return
-          touchOrigin.current = { x: event.clientX, y: event.clientY }
+          if (!event.isPrimary || event.pointerType === 'mouse' || !running) return
+          touchOrigin.current = { x: event.clientX, y: event.clientY, pointerId: event.pointerId }
           event.currentTarget.setPointerCapture(event.pointerId)
         }}
-        onPointerUp={(event) => {
+        onPointerMove={(event) => {
           const origin = touchOrigin.current
-          touchOrigin.current = null
-          if (!origin) return
+          if (!origin || origin.pointerId !== event.pointerId) return
           const dx = event.clientX - origin.x
           const dy = event.clientY - origin.y
           if (Math.max(Math.abs(dx), Math.abs(dy)) < 12) return
+          // 越过阈值立即记录转向，不必等手指离屏；同一次拖动可以连续改变方向。
           turn(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : dy > 0 ? 'down' : 'up')
+          touchOrigin.current = { x: event.clientX, y: event.clientY, pointerId: event.pointerId }
+        }}
+        onPointerUp={() => {
+          touchOrigin.current = null
         }}
         onPointerCancel={() => {
           touchOrigin.current = null
         }}
         style={{ touchAction: running ? 'none' : 'pan-y' }}
       >
-        <svg
-          viewBox={`0 0 ${SNAKE_COLUMNS * 16} ${SNAKE_ROWS * 16}`}
-          className={clsx('block w-full', !running && 'opacity-20')}
-          aria-hidden="true"
-        >
-          {game.body.map((point, index) => (
-            <rect
-              key={`${point.x}-${point.y}`}
-              x={point.x * 16 + 1.5}
-              y={point.y * 16 + 1.5}
-              width={13}
-              height={13}
-              rx={index === 0 ? 5 : 4}
-              className="fill-emerald-600 dark:fill-emerald-400"
-              opacity={Math.max(0.3, 1 - index * 0.045)}
-            />
-          ))}
-          {game.food && (
-            <circle
-              cx={game.food.x * 16 + 8}
-              cy={game.food.y * 16 + 8}
-              r={4.5}
-              className="fill-amber-500 dark:fill-amber-300"
-            />
-          )}
-        </svg>
-        {!running && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5">
-            <p
-              role="status"
-              className="text-[13px] font-medium text-neutral-600 dark:text-neutral-300"
-            >
-              {statusText}
-            </p>
-            <button
-              type="button"
-              onClick={play}
-              className="inline-flex min-h-9 items-center gap-1.5 rounded-full bg-neutral-800 px-4 text-xs font-medium text-white transition hover:bg-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:ring-offset-2 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-white"
-            >
-              {ended ? <RotateCcw className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-              {ended ? '再玩一次' : game.status === 'paused' ? '继续' : '开始游戏'}
-            </button>
-          </div>
-        )}
+        <SnakeBoard ref={drawingRef} game={game} />
+        {!running && !ended && <div className="hc-snake-overlay">{statusContent}</div>}
       </div>
-      <div className="mt-1.5 flex items-center justify-between gap-1">
-        <div className="flex items-center gap-0.5" aria-label="方向控制">
-          {directions.map(({ direction, label, Icon }) => (
+      {ended && <div className="hc-snake-result">{statusContent}</div>}
+      <footer className="hc-snake-footer">
+        <div className="hc-snake-controls" aria-label="方向控制">
+          {DIRECTIONS.map(({ direction, label, Icon }) => (
             <button
               key={direction}
               type="button"
               aria-label={label}
               disabled={!running}
-              className={clsx(CONTROL_CLASS, 'disabled:opacity-30')}
+              className="hc-snake-direction"
+              data-direction={direction}
               onClick={() => turn(direction)}
             >
-              <Icon className="h-4 w-4" />
+              <Icon size={15} />
             </button>
           ))}
         </div>
-        <button
-          type="button"
-          disabled={!running}
-          aria-label="暂停游戏"
-          onClick={() => setGame(pauseSnake)}
-          className={clsx(CONTROL_CLASS, 'disabled:opacity-30')}
-        >
-          <Pause className="h-4 w-4" />
-        </button>
-      </div>
-      <p
-        id={instructionId}
-        className="mt-0.5 text-[11px] leading-4 text-neutral-400 dark:text-neutral-500"
-      >
-        方向键或滑动转向 · 空格暂停 · 可穿过边缘
-      </p>
+        <div id={instructionId} className="hc-snake-instructions">
+          <span className="hc-snake-desktop-hint">方向键 / WASD 转向 · 空格暂停</span>
+          <span className="hc-snake-touch-hint">滑动或轻点箭头转向</span>
+          <span>可穿过边缘 · 撞到自己会结束</span>
+        </div>
+      </footer>
     </section>
   )
 }

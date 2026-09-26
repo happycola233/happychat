@@ -1,4 +1,4 @@
-import { useId, useState } from 'react'
+import { useId, useState, type ReactNode } from 'react'
 import { Check, ChevronDown, Gamepad2 } from 'lucide-react'
 import { clsx } from 'clsx'
 import type { ContentPart } from '@shared/types/domain'
@@ -17,7 +17,7 @@ interface Props {
 }
 
 export function ProgressiveImageStage({ live, completedImages, onUseImageSource }: Props) {
-  const [gameExpanded, setGameExpanded] = useState(false)
+  const [gameGenerationId, setGameGenerationId] = useState<string | null>(null)
   const gameId = useId()
   const generations = live.imageGenerations.length
     ? live.imageGenerations
@@ -45,6 +45,9 @@ export function ProgressiveImageStage({ live, completedImages, onUseImageSource 
     })
   const active = live.status === 'streaming' && ordered.some((image) => image.status !== 'done')
   const waitingForRetry = live.retry?.phase === 'waiting'
+  // 一局跟随打开时的图片；该图完成就收起，避免多图完成时把游戏搬到另一张图并重开。
+  const gameExpanded =
+    active && ordered.some((image) => image.id === gameGenerationId && image.status !== 'done')
 
   return (
     <div className={ordered.length === 1 ? 'w-[min(24rem,100%)]' : 'w-[min(40rem,100%)]'}>
@@ -62,6 +65,13 @@ export function ProgressiveImageStage({ live, completedImages, onUseImageSource 
             liveStatus={live.status}
             waitingForRetry={waitingForRetry}
             onUseImageSource={onUseImageSource}
+            game={
+              gameExpanded && generation.id === gameGenerationId ? (
+                <div id={gameId}>
+                  <ImageWaitingGame />
+                </div>
+              ) : undefined
+            }
           />
         ))}
       </div>
@@ -71,20 +81,19 @@ export function ProgressiveImageStage({ live, completedImages, onUseImageSource 
             type="button"
             aria-expanded={gameExpanded}
             aria-controls={gameId}
-            onClick={() => setGameExpanded((value) => !value)}
+            onClick={() =>
+              setGameGenerationId(
+                gameExpanded ? null : ordered.find((image) => image.status !== 'done')!.id,
+              )
+            }
             className="inline-flex min-h-8 items-center gap-1.5 rounded-lg px-1.5 text-xs text-neutral-400 transition hover:bg-black/[0.035] hover:text-neutral-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400/50 dark:text-neutral-500 dark:hover:bg-white/5 dark:hover:text-neutral-300"
           >
             <Gamepad2 className="h-3.5 w-3.5" />
-            {gameExpanded ? '收起小游戏' : '玩贪吃蛇'}
+            {gameExpanded ? '返回图片' : '玩贪吃蛇'}
             <ChevronDown
               className={clsx('h-3 w-3 transition-transform', gameExpanded && 'rotate-180')}
             />
           </button>
-          {gameExpanded && (
-            <div id={gameId}>
-              <ImageWaitingGame />
-            </div>
-          )}
         </div>
       )}
     </div>
@@ -116,12 +125,14 @@ function ProgressiveImageCard({
   liveStatus,
   waitingForRetry,
   onUseImageSource,
+  game,
 }: {
   generation: LiveImageGeneration
   total: number
   liveStatus: LiveStatus
   waitingForRetry: boolean
   onUseImageSource?: (source: ImageEditSource) => void
+  game?: ReactNode
 }) {
   const finalId = generation.attachmentId
   const previewId = generation.previewAttachmentId
@@ -168,13 +179,17 @@ function ProgressiveImageCard({
         </span>
       </div>
       {(activeUrl || active) && (
-        <ProgressiveImageMedia
-          src={activeUrl}
-          done={done}
-          active={active && !waitingForRetry}
-          caption={generation.revisedPrompt}
-        />
+        // 保持媒体组件挂载，游戏期间照常下载与解码预览，返回时无需重新加载。
+        <div hidden={Boolean(game)}>
+          <ProgressiveImageMedia
+            src={activeUrl}
+            done={done}
+            active={active && !waitingForRetry && !game}
+            caption={generation.revisedPrompt}
+          />
+        </div>
       )}
+      {game}
       {done && finalId && onUseImageSource && (
         <button
           type="button"
