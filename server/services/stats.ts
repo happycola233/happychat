@@ -106,6 +106,7 @@ function whereOf(conds: SQL[]): SQL | undefined {
 function sumCost(
   rows: {
     pricingSnapshot: ModelPricing | null
+    costUsd?: number | null
     inputTokens: number
     cacheWriteTokens: number
     cachedTokens: number
@@ -121,6 +122,7 @@ function sumCost(
 }
 
 const TOKEN_SUMS = {
+  costUsd: sql<number | null>`sum(${usageLogs.costUsd})`,
   inputTokens: sql<number>`coalesce(sum(${usageLogs.inputTokens}),0)`,
   cacheWriteTokens: sql<number>`coalesce(sum(${usageLogs.cacheWriteTokens}),0)`,
   cachedTokens: sql<number>`coalesce(sum(${usageLogs.cachedTokens}),0)`,
@@ -150,7 +152,7 @@ async function usageSummary(filter: StatsFilter) {
     .select({ pricingSnapshot: usageLogs.pricingSnapshot, ...TOKEN_SUMS })
     .from(usageLogs)
     .where(whereOf(conds))
-    .groupBy(usageLogs.pricingSnapshot)
+    .groupBy(usageLogs.pricingSnapshot, sql`${usageLogs.costUsd} is null`)
   return { ...agg!, costUsd: sumCost(byPricing) }
 }
 
@@ -274,11 +276,12 @@ export async function getAnalytics(filter: StatsFilter): Promise<AnalyticsDTO> {
       cachedTokens: TOKEN_SUMS.cachedTokens,
       outputTokens: TOKEN_SUMS.outputTokens,
       imageTokens: TOKEN_SUMS.imageTokens,
+      costUsd: TOKEN_SUMS.costUsd,
       reasoningTokens: sql<number>`coalesce(sum(${usageLogs.reasoningTokens}),0)`,
     })
     .from(usageLogs)
     .where(whereOf(conds))
-    .groupBy(bucketExpr, usageLogs.pricingSnapshot)
+    .groupBy(bucketExpr, usageLogs.pricingSnapshot, sql`${usageLogs.costUsd} is null`)
     .orderBy(asc(bucketExpr))
 
   const byTs = new Map<number, AnalyticsSeriesPoint>()
@@ -334,6 +337,7 @@ async function usageBreakdown(filter: StatsFilter) {
       usageLogs.providerId,
       usageLogs.providerLabel,
       usageLogs.pricingSnapshot,
+      sql`${usageLogs.costUsd} is null`,
     )
   const modelRows = new Map<string, UsageBreakdownDTO>()
   const providerRows = new Map<string, UsageBreakdownDTO>()
@@ -388,7 +392,7 @@ export async function getUserStats(filter: StatsFilter): Promise<UserStatDTO[]> 
       successes: sql<number>`coalesce(sum(${usageLogs.success}),0)`,
       totalTokens: sql<number>`coalesce(sum(${usageLogs.totalTokens}),0)`,
       reasoningTokens: sql<number>`coalesce(sum(${usageLogs.reasoningTokens}),0)`,
-      imageGenerations: sql<number>`coalesce(sum(case when ${usageLogs.imageTokens} > 0 then 1 else 0 end),0)`,
+      imageGenerations: sql<number>`coalesce(sum(case when ${usageLogs.generatedImageCount} > 0 or ${usageLogs.imageTokens} > 0 then 1 else 0 end),0)`,
       lastUsageAt: sql<number | null>`max(${usageLogs.createdAt})`,
     })
     .from(usageLogs)
@@ -408,10 +412,17 @@ export async function getUserStats(filter: StatsFilter): Promise<UserStatDTO[]> 
       cachedTokens: TOKEN_SUMS.cachedTokens,
       outputTokens: TOKEN_SUMS.outputTokens,
       imageTokens: TOKEN_SUMS.imageTokens,
+      costUsd: TOKEN_SUMS.costUsd,
     })
     .from(usageLogs)
     .where(whereOf(conds))
-    .groupBy(usageLogs.userId, usageLogs.modelId, usageLogs.modelLabel, usageLogs.pricingSnapshot)
+    .groupBy(
+      usageLogs.userId,
+      usageLogs.modelId,
+      usageLogs.modelLabel,
+      usageLogs.pricingSnapshot,
+      sql`${usageLogs.costUsd} is null`,
+    )
 
   const costByUser = new Map<string, number>()
   const modelCallsByUser = new Map<string, Map<string, { model: string; calls: number }>>()
@@ -584,6 +595,7 @@ export async function listUsageEvents(filter: StatsFilter): Promise<Paginated<Us
         success: log.success,
         errorType: log.errorType,
         costUsd: costUsd(log, log.pricingSnapshot),
+        costBreakdown: log.costBreakdown,
         reasoningEffort,
         durationMs,
         upstreamResponseLatencyMs: log.upstreamResponseLatencyMs,

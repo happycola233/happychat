@@ -233,6 +233,7 @@ async function aggregateUsageSince(userId: string, startMs: number): Promise<Usa
     .select({
       modelId: usageLogs.modelId,
       pricingSnapshot: usageLogs.pricingSnapshot,
+      costUsd: sql<number | null>`sum(${usageLogs.costUsd})`,
       requests: sql<number>`count(*)`,
       inputTokens: sql<number>`coalesce(sum(${usageLogs.inputTokens}),0)`,
       cacheWriteTokens: sql<number>`coalesce(sum(${usageLogs.cacheWriteTokens}),0)`,
@@ -242,7 +243,7 @@ async function aggregateUsageSince(userId: string, startMs: number): Promise<Usa
     })
     .from(usageLogs)
     .where(and(...conditions))
-    .groupBy(usageLogs.modelId, usageLogs.pricingSnapshot)
+    .groupBy(usageLogs.modelId, usageLogs.pricingSnapshot, sql`${usageLogs.costUsd} is null`)
 
   const aggregate: UsageAggregate = {
     totalRequests: 0,

@@ -1,6 +1,7 @@
 import { and, eq, inArray } from 'drizzle-orm'
 import type {
   ContentPart,
+  ImageGenerationUsage,
   MessageUsage,
   ModelParams,
   ProcessStep,
@@ -8,7 +9,7 @@ import type {
 } from '@shared/types/domain'
 import { RUN_EVENT_TYPE } from '@shared/types/events'
 import type { RunRetrySummary } from '@shared/types/retry'
-import { costUsd as estimateCostUsd } from '@shared/util/cost'
+import { calculateRequestCost } from '@shared/util/cost'
 import { isReasoningEnabled, requestedReasoningEffort } from '@shared/util/reasoning'
 import { db } from '../db/client'
 import { conversations, errorLogs, messages, runs, usageLogs } from '../db/schema'
@@ -38,6 +39,7 @@ export interface FinalizeArgs {
   annotations: UrlCitation[]
   usage: MessageUsage
   imageTokens?: number
+  imageUsage?: ImageGenerationUsage[]
   incompleteReason: string | null
   errorMessage: string | null
   errorType?: string | null
@@ -77,7 +79,8 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
     getFirstTokenLatencySnapshot(a.run.id, a.startedAt),
   ])
   const reasoningEffort = requestedReasoningEffort(a.run.requestParams)
-  const messageCostUsd = estimateCostUsd(
+  const imageUsage = a.imageUsage ?? []
+  const costBreakdown = calculateRequestCost(
     {
       inputTokens: a.usage.inputTokens,
       cacheWriteTokens: a.usage.cacheWriteTokens,
@@ -86,7 +89,10 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
       imageTokens: a.imageTokens ?? 0,
     },
     a.model.pricing,
+    a.model.kind,
+    imageUsage,
   )
+  const messageCostUsd = costBreakdown.totalUsd
   const terminalReason = terminalReasonForUsage(a.state, {
     incompleteReason: a.incompleteReason,
     errorType: a.errorType,
@@ -129,6 +135,7 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
         reasoningTokens: a.usage.reasoningTokens,
         totalTokens: a.usage.totalTokens,
         costUsd: messageCostUsd,
+        costBreakdown,
         // 仅写消息私有列；run.done、日志与面向浏览器的 DTO 都不携带该信封。
         providerReplayContext:
           a.state === 'completed' || a.state === 'incomplete'
@@ -160,6 +167,9 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
         modelDisplayName: a.model.displayName,
         providerLabel: a.provider.name,
         pricingSnapshot: a.model.pricing,
+        costUsd: messageCostUsd,
+        costBreakdown,
+        imageUsage,
         conversationId: a.conversation.id,
         inputTokens: a.usage.inputTokens,
         cacheWriteTokens: a.usage.cacheWriteTokens,
@@ -168,7 +178,9 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
         reasoningTokens: a.usage.reasoningTokens,
         totalTokens: a.usage.totalTokens,
         reasoningEffort,
-        imageTokens: a.imageTokens ?? 0,
+        imageTokens:
+          imageUsage.reduce((sum, image) => sum + (image.imageOutputTokens ?? 0), 0) ||
+          (a.imageTokens ?? 0),
         generatedImageCount,
         durationMs: generationDurationMs,
         upstreamResponseLatencyMs: a.upstreamResponseLatencyMs,

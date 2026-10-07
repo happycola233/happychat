@@ -432,6 +432,41 @@ describe('cache-write cost integration', () => {
 })
 
 describe('historical cost snapshots', () => {
+  it('combines frozen image bills and legacy token bills without dropping either group', async () => {
+    const hourStart = Date.UTC(2027, 0, 8, 8)
+    const user = await insertUser()
+    const pricingSnapshot = { input: 2, output: 8 }
+    await insertUsageLog(hourStart, {
+      userId: user.id,
+      pricingSnapshot,
+      inputTokens: 1_000_000,
+      outputTokens: 500_000,
+    })
+    await insertUsageLog(hourStart + 1, {
+      userId: user.id,
+      pricingSnapshot,
+      inputTokens: 1_000_000,
+      outputTokens: 500_000,
+      costUsd: 0.1,
+      generatedImageCount: 2,
+    })
+    await insertUsageLog(hourStart + 2, {
+      userId: user.id,
+      pricingSnapshot,
+      inputTokens: 1_000_000,
+      costUsd: 0,
+    })
+    const filter = { userId: user.id, from: hourStart, to: hourStart + HOUR_MS }
+    const overview = await stats.getOverview(filter)
+    const analytics = await stats.getAnalytics({ ...filter, bucket: 'hour' })
+    const users = await stats.getUserStats(filter)
+    expect(overview.totals.costUsd).toBeCloseTo(6.1)
+    expect(analytics.series[0]?.costUsd).toBeCloseTo(6.1)
+    expect(analytics.models[0]?.costUsd).toBeCloseTo(6.1)
+    expect(analytics.providers[0]?.costUsd).toBeCloseTo(6.1)
+    expect(users[0]?.costUsd).toBeCloseTo(6.1)
+    expect(users[0]?.imageGenerations).toBe(1)
+  })
   it('keeps past costs stable across price changes and model deletion', async () => {
     const hourStart = Date.UTC(2027, 0, 7, 8)
     const user = await insertUser()

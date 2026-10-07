@@ -2,7 +2,8 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { clsx } from 'clsx'
 import { ArrowDown, ArrowUp, Check, Clock, Coins, Zap } from 'lucide-react'
 import type { MessageCostDisplayDTO } from '@shared/types/api'
-import type { MessageUsage } from '@shared/types/domain'
+import type { MessageUsage, RequestCostBreakdown } from '@shared/types/domain'
+import { CostBreakdown } from '../components/CostBreakdown'
 import { copyToClipboard } from '../lib/clipboard'
 import { toast } from '../store/toast'
 import {
@@ -99,12 +100,14 @@ export function MessageUsageStats({
   usage,
   durationMs,
   costUsd,
+  costBreakdown,
   costDisplay,
   className,
 }: {
   usage: MessageUsage
   durationMs: number | null
   costUsd?: number | null
+  costBreakdown?: RequestCostBreakdown | null
   costDisplay?: MessageCostDisplayDTO
   className?: string
 }) {
@@ -169,7 +172,8 @@ export function MessageUsageStats({
         <span>
           {formatTokens(usage.inputTokens)}
           <span data-token-unit className={omitTokenUnits ? 'hidden' : undefined}>
-            {' '}tokens
+            {' '}
+            tokens
           </span>
           {cacheDetails.length > 0 && `（缓存${cacheDetails.join(' · ')}）`}
         </span>
@@ -179,7 +183,8 @@ export function MessageUsageStats({
         <span>
           {formatTokens(usage.outputTokens)}
           <span data-token-unit className={omitTokenUnits ? 'hidden' : undefined}>
-            {' '}tokens
+            {' '}
+            tokens
           </span>
         </span>
       </span>
@@ -195,11 +200,18 @@ export function MessageUsageStats({
           {formatDuration(durationMs)}
         </span>
       )}
-      {formattedCost && (
-        <span className="inline-flex items-center gap-1" title={formattedCost.title}>
-          <Coins className="h-3 w-3" />
-          {formattedCost.value}
-        </span>
+      {(formattedCost ||
+        (costBreakdown &&
+          (costBreakdown.imageCount > 0 || costBreakdown.imageStatus !== 'complete'))) && (
+        <CostBreakdown breakdown={costBreakdown}>
+          <span
+            className="inline-flex items-center gap-1"
+            title={formattedCost?.title ?? '本次预估成本（USD）'}
+          >
+            <Coins className="h-3 w-3" />
+            {formattedCost?.value ?? '$0'}
+          </span>
+        </CostBreakdown>
       )}
     </div>
   )

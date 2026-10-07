@@ -271,7 +271,7 @@ export async function getPublicShare(token: string): Promise<PublicShareDTO | nu
     title: row.title,
     messages: config.showCost
       ? snapshot
-      : snapshot.map((message) => ({ ...message, costUsd: null })),
+      : snapshot.map((message) => ({ ...message, costUsd: null, costBreakdown: null })),
     showCost: config.showCost,
     messageCostDisplay,
     createdAt: row.createdAt.getTime(),

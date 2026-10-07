@@ -143,6 +143,7 @@ export function toMessageDTO(
           }
         : null,
     costUsd: messageCostUsd,
+    costBreakdown: messageCostUsd === null ? null : m.costBreakdown,
     errorMessage: m.errorMessage,
     createdAt: m.createdAt.getTime(),
   }
@@ -171,6 +172,7 @@ export async function getMessageCostByMessageId(rows: MsgRow[]): Promise<Map<str
     .select({
       runId: usageLogs.runId,
       pricingSnapshot: usageLogs.pricingSnapshot,
+      costUsd: usageLogs.costUsd,
       inputTokens: usageLogs.inputTokens,
       cacheWriteTokens: usageLogs.cacheWriteTokens,
       cachedTokens: usageLogs.cachedTokens,
@@ -188,6 +190,7 @@ export async function getMessageCostByMessageId(rows: MsgRow[]): Promise<Map<str
       estimateCostUsd(
         {
           inputTokens: usage.inputTokens,
+          costUsd: usage.costUsd,
           cacheWriteTokens: usage.cacheWriteTokens,
           cachedTokens: usage.cachedTokens,
           outputTokens: usage.outputTokens,

@@ -2,6 +2,7 @@ import { and, eq } from 'drizzle-orm'
 import type {
   AssistantPhase,
   ContentPart,
+  ImageGenerationUsage,
   MessageUsage,
   ModelParams,
   ProcessStep,
@@ -24,6 +25,7 @@ import {
 import { db } from '../db/client'
 import { runEvents } from '../db/schema'
 import { providerClientFromRow } from '../provider/client'
+import { imageToolRequest, parseImageGenerationUsage } from '../provider/image-usage'
 import { friendlyUpstreamMessage, UpstreamError } from '../provider/errors'
 import type { ReasoningReplayContextV1 } from '../provider/reasoning-replay'
 import {
@@ -164,6 +166,8 @@ async function runResponseAttempt(
     { attachmentId: string; revisedPrompt: string | null; contentPart: ContentPart }
   >()
   const imageContentParts: ContentPart[] = []
+  const imageUsageByCall = new Map<string, ImageGenerationUsage>()
+  const imageRequest = imageToolRequest(ctx.body)
   const imageSlots = new Map<string, ImageGenerationSlot>()
   const imageSlotOrder: ImageGenerationSlot[] = []
   const partialImageAttachmentIds = new Set<string>()
@@ -516,6 +520,29 @@ async function runResponseAttempt(
   ): void => {
     const callId = imageItemId(item)
     const slot = ensureImageSlot({ callId, outputIndex, fallback: callId || fallbackId })
+    // done 与终态 output 会重复出现同一次工具调用；后到的 usage 只补齐，绝不重复计量。
+    const previousUsage = imageUsageByCall.get(slot.generationId)
+    if (str(item.result) || item.usage) {
+      const nextUsage = parseImageGenerationUsage(item.usage, str(item.result) ? 1 : 0, item, {
+        ...imageRequest,
+        model: previousUsage?.model ?? imageRequest.model,
+        size: previousUsage?.size ?? imageRequest.size,
+        quality: previousUsage?.quality ?? imageRequest.quality,
+      })
+      imageUsageByCall.set(slot.generationId, {
+        ...nextUsage,
+        imageCount: Math.max(nextUsage.imageCount, previousUsage?.imageCount ?? 0),
+        textInputTokens: nextUsage.textInputTokens ?? previousUsage?.textInputTokens ?? null,
+        imageInputTokens: nextUsage.imageInputTokens ?? previousUsage?.imageInputTokens ?? null,
+        imageOutputTokens: nextUsage.imageOutputTokens ?? previousUsage?.imageOutputTokens ?? null,
+        cachedTextInputTokens: item.usage
+          ? nextUsage.cachedTextInputTokens
+          : (previousUsage?.cachedTextInputTokens ?? 0),
+        cachedImageInputTokens: item.usage
+          ? nextUsage.cachedImageInputTokens
+          : (previousUsage?.cachedImageInputTokens ?? 0),
+      })
+    }
     const saved = saveFinalImage(item, slot)
     if (!saved?.isNew) return
     persistEmit(
@@ -554,6 +581,7 @@ async function runResponseAttempt(
   ) => {
     // failed 终态也可能携带最终 usage / response id，不能只解析成功终态。
     applyFinalResponse(response)
+    saveResponseImages(response)
 
     const terminal = classifyResponsesTerminal(response, {
       eventState,
@@ -574,7 +602,6 @@ async function runResponseAttempt(
       return { terminal, errorMessage: terminalErrorMessage }
     }
 
-    saveResponseImages(response)
     captureReasoningReplayContext(terminal.state, response)
     return { terminal, errorMessage: null }
   }
@@ -907,6 +934,7 @@ async function runResponseAttempt(
     processSteps: collectProcessSteps(),
     annotations,
     usage,
+    imageUsage: [...imageUsageByCall.values()],
     incompleteReason,
     errorMessage,
     errorType,

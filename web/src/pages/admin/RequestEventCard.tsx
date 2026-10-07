@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { CostBreakdown } from '../../components/CostBreakdown'
 import type { UsageLogDTO } from '@shared/types/api'
 import { formatInt, formatUsd } from '../../lib/format'
 import { CopyButton } from '../../components/ui/CopyButton'
@@ -52,9 +53,14 @@ export function RequestEventCard({ row }: { row: UsageLogDTO }) {
         {[
           { label: '总耗时', value: formatRequestLatency(row.durationMs) },
           { label: 'Tokens', value: formatInt(row.totalTokens) },
-          { label: '成本', value: formatUsd(row.costUsd) },
+          {
+            label: '成本',
+            value: (
+              <CostBreakdown breakdown={row.costBreakdown}>{formatUsd(row.costUsd)}</CostBreakdown>
+            ),
+          },
         ].map((metric) => (
-          <div key={metric.label}>
+          <div key={metric.label} className="min-w-0 has-[details[open]]:col-span-3">
             <dt className="text-[11px] text-neutral-500">{metric.label}</dt>
             <dd className="mt-1 text-sm font-medium tabular-nums">{metric.value}</dd>
           </div>

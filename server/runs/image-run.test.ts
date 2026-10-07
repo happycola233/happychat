@@ -11,6 +11,7 @@ let UpstreamError: typeof import('../provider/errors').UpstreamError
 let fixtureSeq = 0
 
 const providerMocks = vi.hoisted(() => ({
+  createResponseStream: vi.fn(),
   createImage: vi.fn(),
   editImage: vi.fn(),
 }))
@@ -38,6 +39,7 @@ beforeAll(async () => {
 })
 
 beforeEach(() => {
+  providerMocks.createResponseStream.mockReset()
   providerMocks.createImage.mockReset()
   providerMocks.editImage.mockReset()
 })
@@ -112,6 +114,170 @@ async function createFixture() {
 }
 
 describe('runImageEngine audit outcome', () => {
+  it('counts all returned images at a fixed unit price and keeps the frozen bill after edits', async () => {
+    const fixture = await createFixture()
+    fixture.model.pricing = {
+      input: 100,
+      output: 100,
+      imageGeneration: { mode: 'per_image', price: 0.05 },
+    }
+    providerMocks.createImage.mockResolvedValue({
+      data: [{ b64_json: 'iVBORw0KGgo=' }, { b64_json: 'iVBORw0KGgo=' }],
+      usage: { input_tokens: 5000, output_tokens: 5000 },
+    })
+    await imageRun.runImageEngine({
+      ...fixture,
+      body: { prompt: 'synthetic fixture', size: '1024x1024', quality: 'high' },
+      abortController: new AbortController(),
+    })
+    const log = dbClient.db
+      .select()
+      .from(schema.usageLogs)
+      .where(eq(schema.usageLogs.runId, fixture.run.id))
+      .get()!
+    const message = dbClient.db
+      .select()
+      .from(schema.messages)
+      .where(eq(schema.messages.id, fixture.assistantMessage.id))
+      .get()!
+    expect(message.content.filter((part) => part.type === 'image_result')).toHaveLength(2)
+    expect(log).toMatchObject({
+      generatedImageCount: 2,
+      costUsd: 0.1,
+      costBreakdown: { chatUsd: 0, imageUsd: 0.1, imageCount: 2, imageStatus: 'complete' },
+    })
+    expect(message.costBreakdown).toEqual(log.costBreakdown)
+    dbClient.db
+      .update(schema.models)
+      .set({ pricing: { imageGeneration: { mode: 'per_image', price: 9 } } })
+      .where(eq(schema.models.id, fixture.model.id))
+      .run()
+    const stats = await import('../services/stats')
+    expect((await stats.getOverview({ userId: fixture.user.id })).totals.costUsd).toBe(0.1)
+    dbClient.db
+      .delete(schema.conversations)
+      .where(eq(schema.conversations.id, fixture.conversation.id))
+      .run()
+    expect((await stats.listUsageEvents({ userId: fixture.user.id })).items[0]?.costUsd).toBe(0.1)
+  })
+
+  it.each(['per_image', 'tokens'] as const)(
+    'settles Responses tool images once with %s pricing',
+    async (mode) => {
+      const fixture = await createFixture()
+      fixture.model.kind = 'responses'
+      fixture.model.pricing = {
+        input: 10,
+        output: 50,
+        imageGeneration:
+          mode === 'per_image'
+            ? { mode, price: 0.2, tiers: [{ size: '1024x1024', quality: 'high', price: 0.05 }] }
+            : { mode, textInput: 5, imageInput: 8, imageOutput: 30 },
+      }
+      const item = {
+        id: 'image-call',
+        type: 'image_generation_call',
+        result: 'iVBORw0KGgo=',
+        status: 'completed',
+        size: '1024x1024',
+        quality: 'high',
+        usage: {
+          input_tokens: 1000,
+          input_tokens_details: { text_tokens: 1000, image_tokens: 0 },
+          output_tokens: 1000,
+        },
+      }
+      providerMocks.createResponseStream.mockImplementation(async function* () {
+        yield {
+          type: 'response.image_generation_call.partial_image',
+          data: {
+            item_id: item.id,
+            output_index: 0,
+            partial_image_index: 0,
+            partial_image_b64: 'iVBORw0KGgo=',
+          },
+        }
+        yield { type: 'response.output_item.done', data: { output_index: 0, item } }
+        yield {
+          type: 'response.completed',
+          data: {
+            response: {
+              id: 'response-test',
+              status: 'completed',
+              output: [{ id: item.id, type: item.type, result: item.result }],
+              usage: { input_tokens: 1000, output_tokens: 1000, total_tokens: 2000 },
+            },
+          },
+        }
+      })
+      const engine = await import('./engine')
+      await engine.runEngine({
+        ...fixture,
+        body: { tools: [{ type: 'image_generation', model: 'image-test' }] },
+        abortController: new AbortController(),
+      })
+      const log = dbClient.db
+        .select()
+        .from(schema.usageLogs)
+        .where(eq(schema.usageLogs.runId, fixture.run.id))
+        .get()!
+      expect(log.generatedImageCount).toBe(1)
+      expect(log.imageUsage).toHaveLength(1)
+      expect(log.imageUsage?.[0]).toMatchObject({ size: '1024x1024', quality: 'high' })
+      expect(log.costBreakdown?.chatUsd).toBeCloseTo(0.06)
+      expect(log.costBreakdown?.imageUsd).toBeCloseTo(mode === 'per_image' ? 0.05 : 0.035)
+      expect(log.costBreakdown?.imageStatus).toBe('complete')
+    },
+  )
+
+  it('freezes a same-provider price reference before the stream and discloses missing tool tokens', async () => {
+    const fixture = await createFixture()
+    dbClient.db
+      .update(schema.models)
+      .set({ pricing: { imageGeneration: { mode: 'per_image', price: 0.1 } } })
+      .where(eq(schema.models.id, fixture.model.id))
+      .run()
+    const pricingService = await import('../services/model-pricing')
+    expect(
+      pricingService.validImagePricingSource(
+        { imagePricingModelId: fixture.model.id },
+        'other-provider',
+        'responses',
+      ),
+    ).toBe(false)
+    fixture.model = {
+      ...fixture.model,
+      kind: 'responses',
+      pricing: { imagePricingModelId: fixture.model.id },
+    }
+    providerMocks.createResponseStream.mockImplementation(async function* () {
+      dbClient.db
+        .update(schema.models)
+        .set({ pricing: { imageGeneration: { mode: 'per_image', price: 9 } } })
+        .where(eq(schema.models.id, fixture.model.id))
+        .run()
+      yield {
+        type: 'response.completed',
+        data: {
+          response: {
+            id: 'response-reference',
+            status: 'completed',
+            output: [{ id: 'image-ref', type: 'image_generation_call', result: 'iVBORw0KGgo=' }],
+          },
+        },
+      }
+    })
+    const engine = await import('./engine')
+    await engine.runEngine({ ...fixture, body: {}, abortController: new AbortController() })
+    const log = dbClient.db
+      .select()
+      .from(schema.usageLogs)
+      .where(eq(schema.usageLogs.runId, fixture.run.id))
+      .get()!
+    expect(log.costUsd).toBe(0.1)
+    expect(log.pricingSnapshot).toEqual({ imageGeneration: { mode: 'per_image', price: 0.1 } })
+    expect(log.imageUsage?.[0]?.imageOutputTokens).toBeNull()
+  })
   it('settles successful image state and usage atomically', async () => {
     const fixture = await createFixture()
     providerMocks.createImage.mockResolvedValue({

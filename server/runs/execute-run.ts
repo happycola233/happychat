@@ -13,6 +13,7 @@ import {
   type UpstreamResponseTimingObserver,
 } from '../provider/response-timing'
 import { getAppConfig } from '../services/appConfig'
+import { resolveModelPricing } from '../services/model-pricing'
 import { runEmitter } from './emitter'
 import {
   collectProviderOpaqueStrings,
@@ -63,6 +64,7 @@ export async function executeRun(
   ctx: EngineContext,
   executeAttempt: (ctx: EngineContext, runtime: RunAttemptRuntime) => Promise<FinalizeArgs>,
 ): Promise<void> {
+  ctx = { ...ctx, model: { ...ctx.model, pricing: resolveModelPricing(ctx.model) } }
   const policy = (await getAppConfig()).upstreamRetry
   const startedAt = new Date()
   const deadline = startedAt.getTime() + policy.maxElapsedSeconds * 1000
@@ -107,6 +109,7 @@ export async function executeRun(
   let visibleAttachments = new Set<string>()
   let totalUsage: FinalizeArgs['usage'] | null = null
   let totalImageTokens = 0
+  const imageUsage: NonNullable<FinalizeArgs['imageUsage']> = []
   let result: FinalizeArgs
 
   for (;;) {
@@ -254,6 +257,7 @@ export async function executeRun(
       result = { ...result, state: 'canceled', errorMessage: null }
     totalUsage = totalUsage ? addMessageUsage(totalUsage, result.usage) : result.usage
     totalImageTokens += result.imageTokens ?? 0
+    imageUsage.push(...(result.imageUsage ?? []))
     // 成功的空回答及明确拒绝也必须替换旧内容；普通失败且没有新输出时保留上次内容。
     if (
       result.state === 'completed' ||
@@ -344,6 +348,7 @@ export async function executeRun(
     providerReplayContext: visible.providerReplayContext,
     usage: totalUsage!,
     imageTokens: totalImageTokens,
+    imageUsage,
     startedAt,
     upstreamResponseLatencyMs: timing.latencyMs,
     persistEmit: emit,

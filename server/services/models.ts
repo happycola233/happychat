@@ -27,6 +27,7 @@ import { models, modelGroups, modelUserAccess, providers, users } from '../db/sc
 import { must } from '../lib/assert'
 import { maskSecret } from '../lib/mask'
 import { modelIconReferencesExist } from './model-icon-references'
+import { validImagePricingSource } from './model-pricing'
 
 type ModelRow = typeof models.$inferSelect
 type ProviderRow = typeof providers.$inferSelect
@@ -301,6 +302,7 @@ export type ModelConfigurationErrorCode =
   | 'anthropic_max_output_tokens_required'
   | 'anthropic_thinking_budget_conflict'
   | 'invalid_default_effort'
+  | 'invalid_image_pricing_source'
 
 function includesReasoningEffort(
   allowedEfforts: Parameters<typeof normalizeReasoningEffortOptions>[0],
@@ -329,6 +331,9 @@ export async function createModel(input: ModelCreateInput): Promise<CreateModelR
         .limit(1)
         .get()
       if (!provider) return { ok: false, code: 'provider_missing' } as const
+      if (!validImagePricingSource(input.pricing, input.providerId, input.kind)) {
+        return { ok: false, code: 'invalid_image_pricing_source' } as const
+      }
       if (!providerProtocolSupportsModelKind(provider.protocol, input.kind)) {
         return { ok: false, code: 'provider_protocol_mismatch' } as const
       }
@@ -510,6 +515,15 @@ export async function updateModel(id: string, input: ModelUpdateInput): Promise<
       if (!provider) return { ok: false, code: 'provider_missing' }
 
       const nextKind = input.kind ?? existing.kind
+      if (
+        !validImagePricingSource(
+          input.pricing === undefined ? existing.pricing : input.pricing,
+          nextProviderId,
+          nextKind,
+        )
+      ) {
+        return { ok: false, code: 'invalid_image_pricing_source' }
+      }
       if (!providerProtocolSupportsModelKind(provider.protocol, nextKind)) {
         return { ok: false, code: 'provider_protocol_mismatch' }
       }

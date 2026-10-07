@@ -365,6 +365,13 @@
       "when": 1791348600000,
       "tag": "0051_anthropic_direct_search_default",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "6",
+      "when": 1791372574576,
+      "tag": "0052_image_generation_pricing",
+      "breakpoints": true
     }
   ]
 }

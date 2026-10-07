@@ -4,6 +4,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { Copy, GripVertical, SlidersHorizontal, Trash2 } from 'lucide-react'
 import type { AdminModelDTO } from '@shared/types/api'
 import type { ModelCapabilities } from '@shared/types/domain'
+import { normalizeModelPricing } from '@shared/util/cost'
 import { ModelIconMark, DEFAULT_MODEL_ICON_TONE_CLASS } from '../../components/ModelIcon'
 import { ModelTagList } from '../../components/ModelTags'
 import { Checkbox } from '../../components/ui/Checkbox'
@@ -40,7 +41,7 @@ export function ModelListHeader() {
       <span className="pl-7">模型 / ID</span>
       <span>供应商 / 接口</span>
       <span>能力 / 默认思考</span>
-      <span title="美元 / 每 100 万 Token">输入 / 输出 · $ / 百万</span>
+      <span>定价 · USD</span>
       <span>可用用户</span>
       <span>启用</span>
       <span className="text-right">操作</span>
@@ -84,6 +85,15 @@ export function ModelListRow({
     transition,
     isDragging,
   } = useSortable({ id: model.id, disabled: !sortable })
+  const pricing = normalizeModelPricing(model.pricing, model.kind)
+  const imagePricing = pricing.imageGeneration
+  const imagePriceLabel = pricing.imagePricingModelId
+    ? '生图 · 引用定价'
+    : imagePricing?.mode === 'per_image'
+      ? `${priceText(imagePricing.price)} / 张${imagePricing.tiers?.length ? ' · 分档' : ''}`
+      : imagePricing
+        ? `图片输出 ${priceText(imagePricing.imageOutput)} / 百万`
+        : null
   const accessLabel =
     model.accessMode === 'all'
       ? '全部用户'
@@ -211,14 +221,20 @@ export function ModelListRow({
         onClick={() => onEdit('pricing')}
         aria-label={`配置 ${model.displayName} 的定价`}
         className="col-start-2 row-start-2 min-w-0 rounded text-right text-xs leading-[18px] tabular-nums hover:text-sky-600 xl:col-auto xl:row-auto xl:text-left dark:hover:text-sky-400"
-        title="编辑定价 · USD / 每 100 万 Token"
+        title="编辑定价"
       >
         <span className="block truncate text-neutral-800 dark:text-neutral-200">
-          {priceText(model.pricing?.input)} / {priceText(model.pricing?.output)}
+          {model.kind === 'image'
+            ? imagePriceLabel
+            : `${priceText(pricing.input)} / ${priceText(pricing.output)} · 百万`}
         </span>
         <span className="hidden truncate text-neutral-500 xl:block">
-          缓存{' '}
-          {model.pricing?.cachedInput == null ? '随输入' : priceText(model.pricing.cachedInput)}
+          {model.kind === 'image'
+            ? imagePricing?.mode === 'per_image'
+              ? '按张计价'
+              : '按 Token 计价'
+            : (imagePriceLabel ??
+              `缓存 ${pricing.cachedInput == null ? '随输入' : priceText(pricing.cachedInput)}`)}
         </span>
       </button>
       <button

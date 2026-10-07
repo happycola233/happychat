@@ -321,6 +321,7 @@ export function Message({
               usage={message.usage}
               durationMs={message.generationDurationMs}
               costUsd={message.costUsd}
+              costBreakdown={message.costBreakdown}
               costDisplay={costDisplay}
             />
           )}

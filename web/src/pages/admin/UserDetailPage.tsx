@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, Gauge, PauseCircle } from 'lucide-react'
 import type { AdminUserQuotaDetailDTO, UsageLogDTO, UserStatDTO } from '@shared/types/api'
 import { formatQuotaCostUsd } from '@shared/util/quota'
+import { CostBreakdown } from '../../components/CostBreakdown'
 import { getUsageEvents, getUserQuotaDetail, getUserStats } from '../../api/admin'
 import { StatCard } from '../../components/ui/StatCard'
 import { Pagination } from '../../components/ui/Pagination'
@@ -317,7 +318,9 @@ export default function UserDetailPage() {
                           {formatInt(e.totalTokens)}
                         </td>
                         <td className={`${td} tabular-nums text-neutral-600 dark:text-neutral-300`}>
-                          {formatUsd(e.costUsd)}
+                          <CostBreakdown breakdown={e.costBreakdown}>
+                            {formatUsd(e.costUsd)}
+                          </CostBreakdown>
                         </td>
                         <td className={td}>
                           <RequestOutcomeBadge

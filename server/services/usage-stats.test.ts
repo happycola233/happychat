@@ -68,6 +68,23 @@ async function logUsage(
 }
 
 describe('个人使用情况统计', () => {
+  it('按张生图无需 Token 也计入费用与生图次数，并与旧费用合并', async () => {
+    const userId = await createUser()
+    const now = new Date()
+    await logUsage(userId, { at: now, tokens: 1 })
+    await dbClient.db
+      .insert(schema.usageLogs)
+      .values({
+        userId,
+        modelLabel: 'gpt-test',
+        pricingSnapshot: PRICING,
+        costUsd: 0.1,
+        generatedImageCount: 2,
+        createdAt: now,
+      })
+    const models = await usageStats.getUserModelUsage(userId, 0)
+    expect(models[0]?.costUsd).toBeCloseTo(1.1)
+  })
   it('按当前外显名称汇总同一模型的历史 ID 与旧名称，停用模型也可识别', async () => {
     const userId = await createUser()
     const providerId = 'usage-name-provider-' + fixtureSeq++

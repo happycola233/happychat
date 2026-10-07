@@ -307,6 +307,7 @@ interface AggregatedRow {
   modelId: string | null
   modelLabel: string | null
   pricingSnapshot: ModelPricing | null
+  costUsd: number | null
   requests: number
   inputTokens: number
   cacheWriteTokens: number
@@ -347,6 +348,7 @@ async function aggregate(
       // 用量表展示当前外显名称；模型删除后继续使用请求日志里的历史名称。
       modelLabel: sql<string | null>`coalesce(${models.displayName}, ${usageLogs.modelLabel})`,
       pricingSnapshot: usageLogs.pricingSnapshot,
+      costUsd: sql<number | null>`sum(${usageLogs.costUsd})`,
       requests: sql<number>`count(*)`,
       inputTokens: sql<number>`coalesce(sum(${usageLogs.inputTokens}),0)`,
       cacheWriteTokens: sql<number>`coalesce(sum(${usageLogs.cacheWriteTokens}),0)`,
@@ -354,7 +356,7 @@ async function aggregate(
       outputTokens: sql<number>`coalesce(sum(${usageLogs.outputTokens}),0)`,
       imageTokens: sql<number>`coalesce(sum(${usageLogs.imageTokens}),0)`,
       totalTokens: sql<number>`coalesce(sum(${usageLogs.totalTokens}),0)`,
-      imageRequests: sql<number>`coalesce(sum(case when ${usageLogs.imageTokens} > 0 then 1 else 0 end),0)`,
+      imageRequests: sql<number>`coalesce(sum(case when ${usageLogs.generatedImageCount} > 0 or ${usageLogs.imageTokens} > 0 then 1 else 0 end),0)`,
     })
     .from(usageLogs)
     .leftJoin(models, eq(usageLogs.modelId, models.id))
@@ -366,6 +368,7 @@ async function aggregate(
       usageLogs.modelLabel,
       models.displayName,
       usageLogs.pricingSnapshot,
+      sql`${usageLogs.costUsd} is null`,
     )
   return rows as AggregatedRow[]
 }

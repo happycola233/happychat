@@ -18,6 +18,8 @@ import type {
   AnnouncementLevel,
   AnnouncementStatus,
   ContentPart,
+  ImageGenerationUsage,
+  RequestCostBreakdown,
   CostCurrency,
   MessageStatus,
   ModelAccessMode,
@@ -583,6 +585,7 @@ export const messages = sqliteTable(
     totalTokens: integer('total_tokens'),
     // 按请求时模型价格快照计算的展示成本；独立分支复制该值，不依赖用量审计记录。
     costUsd: real('cost_usd'),
+    costBreakdown: text('cost_breakdown', { mode: 'json' }).$type<RequestCostBreakdown>(),
     errorMessage: text('error_message'),
     createdAt: createdAt(),
   },
@@ -712,6 +715,9 @@ export const usageLogs = sqliteTable(
     providerLabel: text('provider_label'),
     // 请求发起时的价格快照；后续改价或删除模型不得改写历史成本。
     pricingSnapshot: text('pricing_snapshot', { mode: 'json' }).$type<ModelPricing>(),
+    costUsd: real('cost_usd'),
+    costBreakdown: text('cost_breakdown', { mode: 'json' }).$type<RequestCostBreakdown>(),
+    imageUsage: text('image_usage', { mode: 'json' }).$type<ImageGenerationUsage[]>(),
     conversationId: text('conversation_id'),
     // 请求类型：两者都进入成本/审计统计；只有 chat 会被用户额度规则聚合。
     kind: text('kind').$type<UsageLogKind>().notNull().default('chat'),

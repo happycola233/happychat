@@ -144,7 +144,47 @@ export interface ModelPricing {
   /** 从提示词缓存读取的输入 token 单价。未配置时成本估算回退到普通输入价。 */
   cachedInput?: number
   output?: number
+  /** 仅供旧价格快照回算；新配置使用 imageGeneration。 */
   image?: number
+  imageGeneration?: ImageGenerationPricing
+  /** 引用同供应商的纯生图模型定价；请求开始时解析并冻结实际价格。 */
+  imagePricingModelId?: string
+}
+
+export type ImageGenerationPricing =
+  | {
+      mode: 'tokens'
+      textInput?: number
+      imageInput?: number
+      imageOutput?: number
+      cachedTextInput?: number
+      cachedImageInput?: number
+    }
+  | {
+      mode: 'per_image'
+      price?: number
+      tiers?: { size?: string; quality?: string; price: number }[]
+    }
+
+/** 每次生图的独立用量；null 表示上游未报告，不能当作免费。 */
+export interface ImageGenerationUsage {
+  model: string | null
+  imageCount: number
+  size: string | null
+  quality: string | null
+  textInputTokens: number | null
+  imageInputTokens: number | null
+  imageOutputTokens: number | null
+  cachedTextInputTokens: number
+  cachedImageInputTokens: number
+}
+
+export interface RequestCostBreakdown {
+  chatUsd: number
+  imageUsd: number
+  totalUsd: number
+  imageCount: number
+  imageStatus: 'complete' | 'missing_usage' | 'missing_pricing'
 }
 
 export type ModelKind = 'responses' | 'chat' | 'anthropic' | 'image'

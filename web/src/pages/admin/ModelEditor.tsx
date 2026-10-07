@@ -51,6 +51,9 @@ import { TagsInput } from './TagsInput'
 import { ModelEditorNavigation } from './ModelEditorNavigation'
 import { RequestPreview } from './RequestPreview'
 import { ModelUsageNoticeEditor } from './ModelUsageNoticeEditor'
+import { ModelPricingEditor } from './ModelPricingEditor'
+import { normalizeModelPricing } from '@shared/util/cost'
+import { pricingSchema } from '@shared/schemas/model-config'
 import { DEFAULT_MODEL_USAGE_NOTICE, modelUsageNoticeSchema } from '@shared/schemas/user-notices'
 
 const fieldClass = inputClass
@@ -237,7 +240,9 @@ function ModelEditorForm({
     model?.replayProviderContext ?? false,
   )
   const [params, setParams] = useState<ModelParams>(model?.defaultParams ?? {})
-  const [pricing, setPricing] = useState<ModelPricing>(model?.pricing ?? {})
+  const [pricing, setPricing] = useState<ModelPricing>(() =>
+    normalizeModelPricing(model?.pricing, model?.kind ?? 'responses'),
+  )
   const initialHardParamsText = model?.hardParams ? JSON.stringify(model.hardParams, null, 2) : ''
   const [hardParamsText, setHardParamsText] = useState(initialHardParamsText)
   const draftSnapshot = JSON.stringify({
@@ -372,13 +377,9 @@ function ModelEditorForm({
   }
 
   const cleanedPricing = (): ModelPricing | null => {
-    const p: ModelPricing = {}
-    if (pricing.input != null) p.input = pricing.input
-    if (pricing.cacheWriteInput != null) p.cacheWriteInput = pricing.cacheWriteInput
-    if (pricing.cachedInput != null) p.cachedInput = pricing.cachedInput
-    if (pricing.output != null) p.output = pricing.output
-    if (pricing.image != null) p.image = pricing.image
-    return Object.keys(p).length ? p : null
+    const parsed = pricingSchema.safeParse(normalizeModelPricing(pricing, kind))
+    if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? '请检查定价设置')
+    return parsed.data
   }
 
   const parseHardParams = (text = hardParamsText): Record<string, unknown> | null => {
@@ -995,33 +996,15 @@ function ModelEditorForm({
           <FormSection
             title="定价"
             hidden={section !== 'pricing'}
-            hint="USD / 每 100 万 tokens，用于成本估算；修改后只影响新请求，不会重算历史成本。缓存写入、读取均是总输入的子项，其价格留空时回退到普通输入价；其他价格留空不计。"
+            hint="用于预估请求费用。修改只影响新请求，历史费用保持不变。"
           >
-            <div className="grid grid-cols-2 items-end gap-x-3 gap-y-2.5 lg:grid-cols-3">
-              {(
-                [
-                  ['input', '普通输入 input'],
-                  ['output', '输出 output'],
-                  ['cachedInput', '缓存读取/输入 cache read/input'],
-                  ['cacheWriteInput', '缓存写入 cache write'],
-                  ['image', '图片 image'],
-                ] as const
-              ).map(([key, label]) => (
-                <SmallField key={key} label={label}>
-                  <input
-                    className={compactFieldClass}
-                    type="number"
-                    step="any"
-                    min="0"
-                    value={pricing[key] ?? ''}
-                    onChange={(e) =>
-                      setPricing((p) => ({ ...p, [key]: numOrUndef(e.target.value) }))
-                    }
-                    placeholder="未设置"
-                  />
-                </SmallField>
-              ))}
-            </div>
+            <ModelPricingEditor
+              kind={kind}
+              pricing={normalizeModelPricing(pricing, kind)}
+              onChange={setPricing}
+              providerId={providerId}
+              models={models}
+            />
           </FormSection>
 
           {/* ============ 高级 ============ */}

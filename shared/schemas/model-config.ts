@@ -139,14 +139,64 @@ export const modelParamsSchema = z.object({
   image: imageOptionsSchema.optional(),
 })
 
-/** 按模型定价（USD / 1M tokens），各项可选、非负。 */
-export const pricingSchema = z.object({
-  input: z.number().min(0).optional(),
-  cacheWriteInput: z.number().min(0).optional(),
-  cachedInput: z.number().min(0).optional(),
-  output: z.number().min(0).optional(),
-  image: z.number().min(0).optional(),
-})
+const priceSchema = z.number().nonnegative()
+export const imageGenerationPricingSchema = z.discriminatedUnion('mode', [
+  z.object({
+    mode: z.literal('tokens'),
+    textInput: priceSchema.optional(),
+    imageInput: priceSchema.optional(),
+    imageOutput: priceSchema.optional(),
+    cachedTextInput: priceSchema.optional(),
+    cachedImageInput: priceSchema.optional(),
+  }),
+  z.object({
+    mode: z.literal('per_image'),
+    price: priceSchema.optional(),
+    tiers: z
+      .array(
+        z.object({
+          size: z
+            .string()
+            .trim()
+            .regex(/^\d+x\d+$/, '请填写尺寸，例如 1024x1024')
+            .optional(),
+          quality: z.string().trim().min(1).max(40).optional(),
+          price: priceSchema,
+        }),
+      )
+      .max(50)
+      .superRefine((tiers, ctx) => {
+        const keys = new Set<string>()
+        tiers.forEach((tier, index) => {
+          const key = `${tier.size ?? ''}/${tier.quality ?? ''}`
+          if ((!tier.size && !tier.quality) || keys.has(key)) {
+            ctx.addIssue({
+              code: 'custom',
+              path: [index],
+              message: '请指定尺寸或质量，且不要重复添加相同档位',
+            })
+          }
+          keys.add(key)
+        })
+      })
+      .optional(),
+  }),
+])
+
+/** 聊天按 USD / 百万 Token，生图独立选择 Token 或按张计价。 */
+export const pricingSchema = z
+  .object({
+    input: z.number().min(0).optional(),
+    cacheWriteInput: z.number().min(0).optional(),
+    cachedInput: z.number().min(0).optional(),
+    output: z.number().min(0).optional(),
+    image: z.number().min(0).optional(),
+    imageGeneration: imageGenerationPricingSchema.optional(),
+    imagePricingModelId: z.string().min(1).optional(),
+  })
+  .refine((pricing) => !(pricing.imageGeneration && pricing.imagePricingModelId), {
+    message: '请选择自定义生图定价或已有生图定价',
+  })
 
 export const modelUpdateSchema = z.object({
   usageNotice: modelUsageNoticeSchema.nullable().optional(),

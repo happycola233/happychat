@@ -599,6 +599,39 @@ describe('整次生成自动重试与审计', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
+  it('重试替换已生成图片后仍保留其独立费用，不按可见图片数重算', async () => {
+    const ctx = fixture()
+    ctx.model.pricing = { imageGeneration: { mode: 'per_image', price: 0.05 } }
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          sse(
+            {
+              type: 'response.output_item.done',
+              output_index: 0,
+              item: {
+                id: 'billed-image',
+                type: 'image_generation_call',
+                result: 'aW1hZ2U=',
+              },
+            },
+            overloaded,
+          ),
+        )
+        .mockImplementation(success),
+    )
+    await drain(engines.responses(ctx))
+    const saved = snapshot(ctx)
+    expect(saved.message.content.some((part) => part.type === 'image_result')).toBe(false)
+    expect(saved.logs[0]).toMatchObject({
+      generatedImageCount: 0,
+      costUsd: 0.05,
+      costBreakdown: { imageCount: 1, imageUsd: 0.05, imageStatus: 'complete' },
+    })
+  })
+
   it('重试取代图片预览后清理旧附件，刷新回放不恢复已删除图片', async () => {
     const ctx = fixture()
     vi.stubGlobal(

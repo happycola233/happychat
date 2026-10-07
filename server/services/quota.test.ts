@@ -189,6 +189,33 @@ describe('额度快照与拦截', () => {
     expect((await quota.checkQuota(userId, modelA)).ok).toBe(true)
   })
 
+  it('按张生图成本与旧 Token 成本共同消耗额度，已冻结的零费用不再回算', async () => {
+    const { userId, modelA } = await createFixture()
+    await bindPolicy(userId, [monthlyCost(2)])
+    await logUsage(userId, modelA, { costUsd: 1 })
+    await dbClient.db
+      .insert(schema.usageLogs)
+      .values({
+        userId,
+        modelId: modelA,
+        pricingSnapshot: PRICING,
+        inputTokens: 1000,
+        costUsd: 0,
+        generatedImageCount: 1,
+      })
+    expect((await quota.checkQuota(userId, modelA)).ok).toBe(true)
+    await dbClient.db
+      .insert(schema.usageLogs)
+      .values({
+        userId,
+        modelId: modelA,
+        pricingSnapshot: PRICING,
+        costUsd: 1,
+        generatedImageCount: 2,
+      })
+    expect((await quota.checkQuota(userId, modelA)).ok).toBe(false)
+  })
+
   it('全局关闭时完全不判定（配置与计数仍保留）', async () => {
     const { userId, modelA } = await createFixture()
     await bindPolicy(userId, [monthlyCost(1)])

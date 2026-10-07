@@ -299,6 +299,7 @@ adminRoutes.post('/models/request-preview', jsonValidator(requestPreviewSchema),
 })
 
 const MODEL_CONFIGURATION_ERROR_MESSAGES: Record<ModelConfigurationErrorCode, string> = {
+  invalid_image_pricing_source: '请选择同一供应商下的纯生图模型作为定价来源',
   provider_missing: '所属供应商不存在',
   provider_protocol_mismatch: '模型类型与所属供应商协议不匹配',
   group_missing: '所选分组不存在，请刷新后重试',

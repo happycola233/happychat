@@ -6,6 +6,7 @@ import type {
   AnnouncementPhase,
   AnnouncementStatus,
   ContentPart,
+  RequestCostBreakdown,
   CostCurrency,
   EffectiveQuotaRule,
   QuotaAdjustmentKind,
@@ -237,6 +238,7 @@ export interface MessageDTO {
   usage: MessageUsage | null
   /** 请求时价格快照计算的预估成本（USD）；旧消息/分享快照可能没有该字段。 */
   costUsd?: number | null
+  costBreakdown?: RequestCostBreakdown | null
   errorMessage: string | null
   createdAt: number
 }
@@ -397,6 +399,7 @@ export interface ErrorLogDTO {
 }
 
 export interface UsageLogDTO {
+  costBreakdown?: RequestCostBreakdown | null
   retrySummary?: import('./retry').RunRetrySummary | null
   id: string
   /** 对话生成对应的 run；标题总结及 run 已被级联删除的历史事件为 null。 */

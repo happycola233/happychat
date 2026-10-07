@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
 import { SlidersHorizontal } from 'lucide-react'
 import type { UsageResult } from '@shared/types/domain'
+import { CostBreakdown } from '../../components/CostBreakdown'
 import { getUsageEvents, listAdminModels, listProviders, listUsers } from '../../api/admin'
 import { DateRangePicker } from '../../components/ui/DateRangePicker'
 import { CopyButton } from '../../components/ui/CopyButton'
@@ -365,7 +366,11 @@ export default function RequestEventsPage() {
                           </div>
                         </td>
                         <td className={requestCell}>
-                          <div className={primaryValue}>{formatUsd(row.costUsd)}</div>
+                          <div className={primaryValue}>
+                            <CostBreakdown breakdown={row.costBreakdown}>
+                              {formatUsd(row.costUsd)}
+                            </CostBreakdown>
+                          </div>
                         </td>
                         <td className={requestCell}>
                           <RequestOutcomeBadge
