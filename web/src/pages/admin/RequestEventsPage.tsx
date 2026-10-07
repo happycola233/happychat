@@ -5,6 +5,7 @@ import { SlidersHorizontal } from 'lucide-react'
 import type { UsageResult } from '@shared/types/domain'
 import { getUsageEvents, listAdminModels, listProviders, listUsers } from '../../api/admin'
 import { DateRangePicker } from '../../components/ui/DateRangePicker'
+import { CopyButton } from '../../components/ui/CopyButton'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { type RangeKey } from '../../lib/dateRange'
@@ -262,7 +263,7 @@ export default function RequestEventsPage() {
             ))}
           </div>
           <div className={`${tableScroll} hidden xl:block`}>
-            <div className={`${tableShell} min-w-[1160px]`}>
+            <div className={`${tableShell} min-w-[1300px]`}>
               <table className={tableEl}>
                 <thead className={tableHead}>
                   <tr>
@@ -276,6 +277,7 @@ export default function RequestEventsPage() {
                     <th className={`${th} w-[120px]`}>缓存</th>
                     <th className={`${th} w-[76px]`}>成本</th>
                     <th className={`${th} w-[114px]`}>结果</th>
+                    <th className={`${th} w-[140px]`}>操作</th>
                   </tr>
                 </thead>
                 <tbody className={tableBody}>
@@ -375,6 +377,9 @@ export default function RequestEventsPage() {
                           <div>
                             <RequestGeneratedImagesBadge row={row} />
                           </div>
+                        </td>
+                        <td className={requestCell}>
+                          <CopyButton value={row.id} label="复制事件 ID" />
                         </td>
                       </tr>
                     )
