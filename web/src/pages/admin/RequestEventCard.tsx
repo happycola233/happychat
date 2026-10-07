@@ -60,7 +60,7 @@ export function RequestEventCard({ row }: { row: UsageLogDTO }) {
             ),
           },
         ].map((metric) => (
-          <div key={metric.label} className="min-w-0 has-[details[open]]:col-span-3">
+          <div key={metric.label} className="min-w-0">
             <dt className="text-[11px] text-neutral-500">{metric.label}</dt>
             <dd className="mt-1 text-sm font-medium tabular-nums">{metric.value}</dd>
           </div>

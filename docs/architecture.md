@@ -417,7 +417,7 @@
 - `provider/image-usage.ts` 解析 Images API 或兼容供应商 `image_generation_call.usage` 的独立用量；Responses 顶层用量仅归聊天，不用其 `output_tokens` 推算生图。官方 Responses 工具对象不保证回传生图 Token，缺失字段保留 null；按 Token 计价显示“图片费用未完整统计”，已知部分仍计入总额。按张可在无 Token 用量时正常结算；`auto` 未回显实际尺寸 / 质量且可能命中不同档位时也标记缺口，不猜默认价。缓存折扣仅在上游返回对应明细时扣除。
 - Images API 保存 `data[]` 中全部最终图片；Responses 按现有 generation slot 合并 done / 终态 output，partial 预览不计张数，较晚的不完整事件保留先前的规格与用量。`executeRun` 累计所有重试已产生的生图成本，即使可见结果被新尝试替换；`generated_image_count` 仍表示最终保留回复的图片数，费用明细中的 `imageCount` 表示各次尝试合计的计费图片数。
 - `shared/util/cost.ts calculateRequestCost` 统一生成 `RequestCostBreakdown`（聊天、生图、合计、图片数与完整性）。迁移 `0052` 新增 `usage_logs.cost_usd` / `cost_breakdown` / `image_usage` 和 `messages.cost_breakdown`，在 finalize 事务中随价格快照落库。概览、趋势、用户统计与成本额度优先累加冻结的 `cost_usd`（含 0）；旧日志继续按原 `pricing_snapshot` 和旧公式计算。SQL 同时按价格快照与 `cost_usd IS NULL` 分组，避免新旧同价记录混算漏账。迁移只加列，不重估历史账单。
-- 当前模型配置中的旧 `image` 字段由 `normalizeModelPricing` 转为生图输出价；纯生图旧 `input` 用于两个输入价，`image` 优先于旧 `output`，不再重复计输出。此归一化只用于当前配置 / 新请求，历史价格快照不变。`CostBreakdown.tsx` 在消息、请求事件、手机卡片与用户明细复用费用展开；全局隐藏消息成本时同时隐藏明细，分支复制保留费用快照。
+- 当前模型配置中的旧 `image` 字段由 `normalizeModelPricing` 转为生图输出价；纯生图旧 `input` 用于两个输入价，`image` 优先于旧 `output`，不再重复计输出。此归一化只用于当前配置 / 新请求，历史价格快照不变。`CostBreakdown.tsx` 在消息、请求事件、手机卡片与用户明细复用原生 Popover 浮层，点击金额打开，Escape / 外点关闭，不撑高用量行或表格、不受滚动容器裁切；管理端缺口仅以同排图标标记，原因放在明细内。用户端未配置价格的项目按 0 显示，不展示配置提醒；确实缺少用量时保留缺口提示。`lib/costDisplay.ts` 统一消息金额与明细的币种、换算与小额精度。全局隐藏消息成本时同时隐藏明细，分支复制保留费用快照。
 - 2026-10-07 核对 [OpenAI 图片生成成本说明](https://developers.openai.com/api/docs/guides/image-generation#cost-and-latency)：Responses 主模型费用与生图模型费用分别产生，图片输出有独立 Token 单价；按张定价用于按成图数量收费的供应商。测试覆盖独立输入 / 输出、两种计价、档位 / 免费 / 缺失用量、最终事件去重、多图、来源冻结、历史账单与额度统计一致性。
 
 ## 10. 管理后台（里程碑 B 重构 + C/D 增强）

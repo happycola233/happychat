@@ -86,4 +86,63 @@ describe('MessageUsageStats', () => {
     expect(html).toContain('原始成本：$0.0681 USD')
     expect(html).toContain('汇率：1 USD ≈ 7.123456 CNY')
   })
+
+  it('shows unpriced images as free without configuration notices for users', () => {
+    const html = renderToStaticMarkup(
+      <MessageUsageStats
+        usage={{
+          inputTokens: 0,
+          cachedTokens: 0,
+          cacheWriteTokens: 0,
+          outputTokens: 0,
+          reasoningTokens: 0,
+          totalTokens: 0,
+        }}
+        durationMs={null}
+        costUsd={0}
+        costDisplay={{ currency: 'CNY', usdToCnyRate: 7 }}
+        costBreakdown={{
+          chatUsd: 0,
+          imageUsd: 0,
+          totalUsd: 0,
+          imageCount: 1,
+          imageStatus: 'missing_pricing',
+        }}
+      />,
+    )
+
+    expect(html).toContain('¥0')
+    expect(html).toContain('图片生成')
+    expect(html).not.toContain('未完整统计')
+    expect(html).not.toContain('未配置')
+    expect(html).not.toContain('已统计')
+  })
+
+  it('uses the displayed currency for both chat and image amounts', () => {
+    const html = renderToStaticMarkup(
+      <MessageUsageStats
+        usage={{
+          inputTokens: 1000,
+          cachedTokens: 0,
+          cacheWriteTokens: 0,
+          outputTokens: 500,
+          reasoningTokens: 0,
+          totalTokens: 1500,
+        }}
+        durationMs={1000}
+        costUsd={0.15}
+        costDisplay={{ currency: 'CNY', usdToCnyRate: 7 }}
+        costBreakdown={{
+          chatUsd: 0.03,
+          imageUsd: 0.12,
+          totalUsd: 0.15,
+          imageCount: 1,
+          imageStatus: 'complete',
+        }}
+      />,
+    )
+    expect(html).toContain('¥0.21')
+    expect(html).toContain('¥0.84')
+    expect(html).toContain('¥1.05')
+  })
 })

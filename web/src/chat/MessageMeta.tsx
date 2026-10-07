@@ -4,6 +4,7 @@ import { ArrowDown, ArrowUp, Check, Clock, Coins, Zap } from 'lucide-react'
 import type { MessageCostDisplayDTO } from '@shared/types/api'
 import type { MessageUsage, RequestCostBreakdown } from '@shared/types/domain'
 import { CostBreakdown } from '../components/CostBreakdown'
+import { formatCostAmount } from '../lib/costDisplay'
 import { copyToClipboard } from '../lib/clipboard'
 import { toast } from '../store/toast'
 import {
@@ -203,13 +204,13 @@ export function MessageUsageStats({
       {(formattedCost ||
         (costBreakdown &&
           (costBreakdown.imageCount > 0 || costBreakdown.imageStatus !== 'complete'))) && (
-        <CostBreakdown breakdown={costBreakdown}>
+        <CostBreakdown breakdown={costBreakdown} display={costDisplay} showUnpricedNotice={false}>
           <span
             className="inline-flex items-center gap-1"
             title={formattedCost?.title ?? '本次预估成本（USD）'}
           >
             <Coins className="h-3 w-3" />
-            {formattedCost?.value ?? '$0'}
+            {formattedCost?.value ?? formatCostAmount(0, costDisplay)}
           </span>
         </CostBreakdown>
       )}
