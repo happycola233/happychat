@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import type { ReactNode } from 'react'
+import type { ReactNode, RefObject } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { PROMPT_VARIABLES } from '@shared/util/promptTemplate'
 import {
@@ -154,16 +154,7 @@ function ToggleRow({
   )
 }
 
-/** model 为 null 时进入「新建」模式。 */
-export function ModelEditor({
-  model,
-  onClose,
-  initialSection = 'general',
-  models = [],
-  modelSearch = '',
-  onModelSearch,
-  onSelectModel,
-}: {
+interface ModelEditorProps {
   model: AdminModelDTO | null
   onClose: () => void
   initialSection?: ModelEditorSection
@@ -171,6 +162,32 @@ export function ModelEditor({
   modelSearch?: string
   onModelSearch?: (search: string) => void
   onSelectModel?: (model: AdminModelDTO, section: ModelEditorSection) => void
+}
+
+/** model 为 null 时进入「新建」模式。 */
+export function ModelEditor(props: ModelEditorProps) {
+  // 列表位置属于本次弹窗；模型切换只重建表单，关闭弹窗后再清除位置。
+  const navigationScrollTopRef = useRef<number | null>(null)
+  return (
+    <ModelEditorForm
+      key={props.model?.id ?? 'new'}
+      {...props}
+      navigationScrollTopRef={navigationScrollTopRef}
+    />
+  )
+}
+
+function ModelEditorForm({
+  model,
+  onClose,
+  initialSection = 'general',
+  models = [],
+  modelSearch = '',
+  onModelSearch,
+  onSelectModel,
+  navigationScrollTopRef,
+}: ModelEditorProps & {
+  navigationScrollTopRef: RefObject<number | null>
 }) {
   const qc = useQueryClient()
   const isCreate = model === null
@@ -538,6 +555,7 @@ export function ModelEditor({
               onSearch={onModelSearch}
               onSelect={switchModel}
               disabled={save.isPending}
+              scrollTopRef={navigationScrollTopRef}
             />
           ) : undefined
         }

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useLayoutEffect, useRef, type RefObject } from 'react'
 import { clsx } from 'clsx'
 import type { AdminModelDTO } from '@shared/types/api'
 import { SearchField } from '../../components/ui/SearchField'
@@ -10,6 +10,7 @@ export function ModelEditorNavigation({
   onSearch,
   onSelect,
   disabled,
+  scrollTopRef,
 }: {
   models: AdminModelDTO[]
   currentId: string
@@ -17,21 +18,30 @@ export function ModelEditorNavigation({
   onSearch: (value: string) => void
   onSelect: (model: AdminModelDTO) => void
   disabled: boolean
+  scrollTopRef: RefObject<number | null>
 }) {
+  const navigationRef = useRef<HTMLElement>(null)
   const activeRef = useRef<HTMLButtonElement>(null)
   const keyword = search.trim().toLowerCase()
   const matches = models.filter((model) =>
     `${model.displayName} ${model.modelId} ${model.providerName}`.toLowerCase().includes(keyword),
   )
-  useEffect(() => {
-    activeRef.current?.scrollIntoView({ block: 'nearest' })
-  }, [currentId])
+  useLayoutEffect(() => {
+    const navigation = navigationRef.current!
+    // 首次打开定位当前模型；切换时在绘制前恢复原位置，避免列表跳动。
+    if (scrollTopRef.current === null) activeRef.current?.scrollIntoView({ block: 'nearest' })
+    else navigation.scrollTop = scrollTopRef.current
+    return () => {
+      scrollTopRef.current = navigation.scrollTop
+    }
+  }, [scrollTopRef])
   return (
     <>
       <div className="p-3">
         <SearchField placeholder="搜索模型" value={search} onChange={onSearch} />
       </div>
       <nav
+        ref={navigationRef}
         aria-label="切换配置模型"
         className="hc-scrollbar min-h-0 flex-1 overflow-y-auto px-2 pb-3"
       >

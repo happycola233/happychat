@@ -486,7 +486,6 @@ export default function ModelsPage() {
 
       {editorOpen && (
         <ModelEditor
-          key={editorModel?.id ?? 'new'}
           model={editorModel}
           models={models ?? []}
           modelSearch={editorSearch}
