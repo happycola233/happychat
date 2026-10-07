@@ -35,6 +35,8 @@ export interface AnthropicModelProfile {
   effortValues: string[]
   thinkingDefaultsOn: boolean
   canDisableThinking: boolean
+  supportsBetweenTools?: boolean
+  defaultEffort?: ReasoningEffort
   rejectsNonDefaultSampling: boolean
 }
 
@@ -48,8 +50,13 @@ function matchesModel(modelId: string, baseId: string): boolean {
 }
 
 function knownAnthropicProfile(modelId: string): AnthropicModelProfile | null {
+  const opus55 = matchesModel(modelId, 'claude-opus-5-5')
+  const sonnet55 = matchesModel(modelId, 'claude-sonnet-5-5')
   const generationFiveAlwaysThinking =
-    matchesModel(modelId, 'claude-fable-5') || matchesModel(modelId, 'claude-mythos-5')
+    opus55 ||
+    sonnet55 ||
+    matchesModel(modelId, 'claude-fable-5') ||
+    matchesModel(modelId, 'claude-mythos-5')
   const generationFive =
     matchesModel(modelId, 'claude-sonnet-5') ||
     matchesModel(modelId, 'claude-opus-5') ||
@@ -62,6 +69,8 @@ function knownAnthropicProfile(modelId: string): AnthropicModelProfile | null {
       effortValues: FULL_EFFORTS,
       thinkingDefaultsOn: generationFive,
       canDisableThinking: !generationFiveAlwaysThinking,
+      supportsBetweenTools: sonnet55,
+      defaultEffort: opus55 ? 'medium' : 'high',
       rejectsNonDefaultSampling: true,
     }
   }
@@ -154,6 +163,9 @@ export function anthropicReasoningEffortOptions(
 ): ReasoningEffortOption[] {
   if (!profile.preferredThinkingType) return []
   const options = profile.canDisableThinking ? [DEFAULT_REASONING_EFFORT_OPTIONS[0]!] : []
+  if (profile.supportsBetweenTools) {
+    options.push({ value: 'between_tools', description: '仅工具间思考' })
+  }
   if (profile.effortValues.length > 0) {
     return [
       ...options,
@@ -173,17 +185,46 @@ export function anthropicDefaultReasoningEffort(
   profile: AnthropicModelProfile,
 ): ReasoningEffort | null {
   if (!profile.preferredThinkingType) return null
+  if (profile.defaultEffort && profile.effortValues.includes(profile.defaultEffort)) {
+    return profile.defaultEffort
+  }
   if (profile.effortValues.includes('high')) return 'high'
   return profile.effortValues[0] ?? 'enabled'
 }
 
-const ANTHROPIC_DOCUMENTED_MAX_OUTPUT_TOKENS_PRESET = 16_000
+export const ANTHROPIC_WEB_SEARCH_TOOL_TYPE = 'web_search_20260318'
 
-/** Anthropic thinking 指南使用的宽裕示例值；目录有更小模型上限时以目录为准。 */
-export function anthropicDefaultMaxOutputTokens(reportedMaxTokens?: number): number {
-  return typeof reportedMaxTokens === 'number' && reportedMaxTokens > 0
-    ? Math.min(ANTHROPIC_DOCUMENTED_MAX_OUTPUT_TOKENS_PRESET, reportedMaxTokens)
-    : ANTHROPIC_DOCUMENTED_MAX_OUTPUT_TOKENS_PRESET
+/** 优先使用目录报告的完整上限；缺字段的网关按型号取普通 Messages 上限，不启用 Batch beta。 */
+export function anthropicDefaultMaxOutputTokens(
+  modelId: string,
+  reportedMaxTokens?: number,
+): number {
+  if (
+    typeof reportedMaxTokens === 'number' &&
+    Number.isInteger(reportedMaxTokens) &&
+    reportedMaxTokens > 0
+  ) {
+    return reportedMaxTokens
+  }
+  if (
+    matchesModel(modelId, 'claude-opus-4-1') ||
+    matchesModel(modelId, 'claude-opus-4-0') ||
+    /^claude-opus-4-\d{8}$/i.test(modelId)
+  )
+    return 32_000
+  if (
+    [
+      'claude-opus-4-5',
+      'claude-sonnet-4-5',
+      'claude-haiku-4-5',
+      'claude-sonnet-4-0',
+      'claude-3-7-sonnet',
+    ].some((id) => matchesModel(modelId, id)) ||
+    /^claude-sonnet-4-\d{8}$/i.test(modelId)
+  )
+    return 64_000
+  // 4.6+ 的已知型号当前均为 128k；未知兼容型号采用同一可见预设，管理员可按网关调整。
+  return 128_000
 }
 
 export function hasAnthropicMaxOutputTokens(params: ModelParams | null | undefined): boolean {
@@ -214,15 +255,16 @@ export function createAnthropicDefaultHardParams(
   reportedMaxTokens?: number,
 ): ModelHardParams {
   const profile = anthropicModelProfile(modelId, capabilities)
-  const maxTokens = anthropicDefaultMaxOutputTokens(reportedMaxTokens)
+  const maxTokens = anthropicDefaultMaxOutputTokens(modelId, reportedMaxTokens)
   const hardParams: ModelHardParams = {
     cache_control: {
       type: 'ephemeral',
     },
     tools: [
       {
-        type: 'web_search_20250305',
+        type: ANTHROPIC_WEB_SEARCH_TOOL_TYPE,
         name: 'web_search',
+        allowed_callers: ['direct'],
       },
     ],
   }

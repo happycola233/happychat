@@ -221,28 +221,31 @@ describe('AnthropicStreamAccumulator', () => {
     expect(() => accumulator.finish()).toThrow('content_block_stop')
   })
 
-  it('从 HTTP 200 的搜索结果 block 提取业务错误码', () => {
+  it.each([
+    ['web_search_tool_result', 'web_search_result', 'max_uses_exceeded'],
+    ['code_execution_tool_result', 'code_execution_error', 'too_many_requests'],
+  ])('从 HTTP 200 的 %s 提取业务错误码', (blockType, effectType, errorCode) => {
     const accumulator = new AnthropicStreamAccumulator()
     expect(
       accumulator.accept(
         event('content_block_start', {
           index: 0,
           content_block: {
-            type: 'web_search_tool_result',
+            type: blockType,
             tool_use_id: 'srv_failed',
             content: {
-              type: 'web_search_tool_result_error',
-              error_code: 'max_uses_exceeded',
+              type: `${blockType}_error`,
+              error_code: errorCode,
             },
           },
         }),
       ),
     ).toEqual([
       {
-        type: 'web_search_result',
+        type: effectType,
         index: 0,
         toolUseId: 'srv_failed',
-        errorCode: 'max_uses_exceeded',
+        errorCode,
       },
     ])
   })

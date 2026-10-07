@@ -60,7 +60,7 @@ export function inferModelDefaults(
       allowedEfforts,
       defaultEffort,
       defaultParams: {
-        max_output_tokens: anthropicDefaultMaxOutputTokens(anthropicMaxTokens),
+        max_output_tokens: anthropicDefaultMaxOutputTokens(modelId, anthropicMaxTokens),
       },
       hardParams: createAnthropicDefaultHardParams(
         modelId,

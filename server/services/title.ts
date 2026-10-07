@@ -120,11 +120,15 @@ async function callTitleModel(
       max_tokens: 512,
     }
     const profile = anthropicModelProfile(m.modelId)
-    // Sonnet 5 等型号默认开启 adaptive thinking；标题任务显式关闭，避免 512 token 被思考耗尽。
-    if (profile.thinkingDefaultsOn && profile.canDisableThinking) {
+    // 标题优先使用型号允许的最低思考模式；始终自适应思考的型号用 low 并留出思考预算。
+    if (profile.supportsBetweenTools) {
+      body.thinking = { type: 'between_tools' }
+      body.output_config = { effort: 'low' }
+    } else if (profile.thinkingDefaultsOn && profile.canDisableThinking) {
       body.thinking = { type: 'disabled' }
     } else if (profile.thinkingDefaultsOn) {
       body.output_config = { effort: 'low' }
+      body.max_tokens = 4096
     }
     const resp = (await client.createAnthropicMessage(body)) as {
       content?: { type?: string; text?: string }[]

@@ -164,7 +164,11 @@ export function buildAnthropicBody(options: BuildAnthropicBodyOptions): Record<s
   const effort = effectiveReasoningEffort(model, userParams)
   let thinkingEnabled = false
   if (model.capabilities.reasoning) {
-    if (!effort || effort === 'none') {
+    if (effort === 'between_tools' && profile.supportsBetweenTools) {
+      // 这是站内的模式选项，不是 output_config.effort 的上游枚举值。
+      body.thinking = { type: 'between_tools' }
+      thinkingEnabled = true
+    } else if (!effort || effort === 'none') {
       if (profile.thinkingDefaultsOn && profile.canDisableThinking) {
         body.thinking = { type: 'disabled' }
       } else if (!profile.canDisableThinking && isPlainObject(hardParams.thinking)) {
@@ -175,7 +179,7 @@ export function buildAnthropicBody(options: BuildAnthropicBodyOptions): Record<s
       body.thinking = hardParams.thinking
       thinkingEnabled = hardParams.thinking.type !== 'disabled'
     }
-    if (effort && effort !== 'none' && effort !== 'enabled') {
+    if (effort && !['none', 'enabled', 'between_tools'].includes(effort)) {
       body.output_config = { effort }
     }
   } else if (profile.thinkingDefaultsOn && profile.canDisableThinking) {
@@ -206,6 +210,17 @@ export function buildAnthropicBody(options: BuildAnthropicBodyOptions): Record<s
   delete hardParamsWithoutManagedFields.thinking
   delete hardParamsWithoutManagedFields.tools
   mergeDeep(body, hardParamsWithoutManagedFields)
+
+  if (
+    isPlainObject(body.thinking) &&
+    body.thinking.type === 'between_tools' &&
+    isPlainObject(body.output_config) &&
+    ['xhigh', 'max'].includes(String(body.output_config.effort))
+  ) {
+    throw new Error(
+      '仅工具间思考支持 low、medium、high；请降低高级参数中的 effort 或选择自适应思考档位',
+    )
+  }
 
   const tools = buildAnthropicTools(effectiveWebSearchEnabled(model, userParams), hardParams.tools)
   if (tools) body.tools = tools

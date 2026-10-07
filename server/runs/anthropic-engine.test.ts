@@ -123,7 +123,7 @@ async function createFixture() {
       messages: [{ role: 'user', content: [{ type: 'text', text: 'search' }] }],
       max_tokens: 1024,
       thinking: { type: 'adaptive', display: 'summarized' },
-      tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+      tools: [{ type: 'web_search_20260318', name: 'web_search' }],
       stream: true,
     },
     abortController: new AbortController(),
@@ -131,6 +131,243 @@ async function createFixture() {
 }
 
 describe('runAnthropicEngine', () => {
+  it.each([
+    {
+      label: '动态过滤失败展示搜索错误',
+      tools: [{ type: 'web_search_20260318', name: 'web_search' }],
+      searchError: true,
+    },
+    {
+      label: '直接搜索不把执行器错误归入搜索',
+      tools: [{ type: 'web_search_20260318', name: 'web_search', allowed_callers: ['direct'] }],
+      searchError: false,
+    },
+    {
+      label: '显式代码工具错误不误记为搜索失败',
+      tools: [
+        { type: 'web_search_20260318', name: 'web_search' },
+        { type: 'code_execution_20260120', name: 'code_execution' },
+      ],
+      searchError: false,
+    },
+  ])('$label', async ({ tools, searchError }) => {
+    const fixture = await createFixture()
+    fixture.body.tools = tools
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(
+        sseResponse([
+          { type: 'message_start', message: { id: 'msg_execution_error' } },
+          {
+            type: 'content_block_start',
+            index: 0,
+            content_block: {
+              type: 'server_tool_use',
+              id: 'srv_execution',
+              name: 'code_execution',
+              input: { code: 'private-filter-code' },
+            },
+          },
+          { type: 'content_block_stop', index: 0 },
+          {
+            type: 'content_block_start',
+            index: 1,
+            content_block: {
+              type: 'code_execution_tool_result',
+              tool_use_id: 'srv_execution',
+              content: {
+                type: 'code_execution_tool_result_error',
+                error_code: 'too_many_requests',
+              },
+            },
+          },
+          { type: 'content_block_stop', index: 1 },
+          { type: 'content_block_start', index: 2, content_block: { type: 'text', text: '' } },
+          {
+            type: 'content_block_delta',
+            index: 2,
+            delta: { type: 'text_delta', text: '工具暂时不可用' },
+          },
+          { type: 'content_block_stop', index: 2 },
+          {
+            type: 'message_delta',
+            delta: { stop_reason: 'end_turn' },
+            usage: { output_tokens: 10 },
+          },
+          { type: 'message_stop' },
+        ]),
+      ),
+    )
+    await anthropicEngine.runAnthropicEngine(fixture)
+    const saved = dbClient.db
+      .select()
+      .from(schema.messages)
+      .where(eq(schema.messages.id, fixture.assistantMessage.id))
+      .get()!
+    expect(saved.status).toBe('complete')
+    expect(saved.processSteps).toEqual(
+      searchError
+        ? [{ kind: 'search', action: { type: 'search', error: 'too_many_requests' } }]
+        : [],
+    )
+    const events = dbClient.db
+      .select()
+      .from(schema.runEvents)
+      .where(eq(schema.runEvents.runId, fixture.run.id))
+      .all()
+    const searchEvents = events.filter((event) => event.type === 'response.output_item.done')
+    expect(searchEvents).toHaveLength(searchError ? 1 : 0)
+    if (searchError) {
+      expect(searchEvents[0]!.data).toMatchObject({
+        output_index: 0,
+        item: { id: 'srv_execution', action: { error: 'too_many_requests' } },
+      })
+    }
+    expect(JSON.stringify(events)).not.toContain('private-filter-code')
+  })
+
+  it('动态搜索保留 caller/代码执行块，pause_turn 复用容器，浏览器只收到搜索与正文', async () => {
+    const fixture = await createFixture()
+    const caller = { type: 'code_execution_20260120', tool_id: 'srv_code' }
+    const initialBlocks = [
+      {
+        type: 'server_tool_use',
+        id: 'srv_code',
+        name: 'code_execution',
+        input: { code: 'private-filter-code' },
+      },
+      {
+        type: 'server_tool_use',
+        id: 'srv_search',
+        name: 'web_search',
+        input: { query: 'synthetic query' },
+        caller,
+      },
+      {
+        type: 'web_search_tool_result',
+        tool_use_id: 'srv_search',
+        caller,
+        content: [
+          {
+            type: 'web_search_result',
+            url: 'https://example.com',
+            title: 'Example',
+            encrypted_content: 'opaque-dynamic-search',
+          },
+        ],
+      },
+    ]
+    const resultBlock = {
+      type: 'code_execution_tool_result',
+      tool_use_id: 'srv_code',
+      content: {
+        type: 'code_execution_result',
+        stdout: 'private-filter-output',
+        stderr: '',
+        return_code: 0,
+        content: [],
+      },
+    }
+    const blockEvents = (blocks: Record<string, unknown>[]) =>
+      blocks.flatMap((block, index) => [
+        { type: 'content_block_start', index, content_block: block },
+        { type: 'content_block_stop', index },
+      ])
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: 'message_start',
+            message: { id: 'msg_dynamic_pause', usage: { input_tokens: 10 } },
+          },
+          ...blockEvents(initialBlocks),
+          {
+            type: 'message_delta',
+            delta: { stop_reason: 'pause_turn', container: { id: 'container_dynamic' } },
+            usage: { output_tokens: 20 },
+          },
+          { type: 'message_stop' },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: 'message_start',
+            message: {
+              id: 'msg_dynamic_final',
+              container: { id: 'container_dynamic' },
+              usage: { input_tokens: 30 },
+            },
+          },
+          ...blockEvents([resultBlock]),
+          { type: 'content_block_start', index: 1, content_block: { type: 'text', text: '' } },
+          {
+            type: 'content_block_delta',
+            index: 1,
+            delta: { type: 'text_delta', text: '搜索完成' },
+          },
+          {
+            type: 'content_block_delta',
+            index: 1,
+            delta: {
+              type: 'citations_delta',
+              citation: {
+                type: 'web_search_result_location',
+                url: 'https://example.com',
+                title: 'Example',
+                encrypted_index: 'opaque-dynamic-citation',
+              },
+            },
+          },
+          { type: 'content_block_stop', index: 1 },
+          {
+            type: 'message_delta',
+            delta: { stop_reason: 'end_turn' },
+            usage: { output_tokens: 4 },
+          },
+          { type: 'message_stop' },
+        ]),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+    await anthropicEngine.runAnthropicEngine(fixture)
+    const continuation = JSON.parse(String(fetchMock.mock.calls[1]![1]!.body))
+    expect(continuation).toMatchObject({
+      container: 'container_dynamic',
+      tools: fixture.body.tools,
+    })
+    expect(continuation.messages.at(-1).content).toEqual(initialBlocks)
+    const saved = dbClient.db
+      .select()
+      .from(schema.messages)
+      .where(eq(schema.messages.id, fixture.assistantMessage.id))
+      .get()!
+    expect(saved.status).toBe('complete')
+    expect(saved.content).toEqual([{ type: 'output_text', text: '搜索完成' }])
+    expect(saved.annotations).toHaveLength(1)
+    expect(saved.providerReplayContext).toMatchObject({
+      content: [...initialBlocks, resultBlock, expect.objectContaining({ type: 'text' })],
+    })
+    const events = dbClient.db
+      .select()
+      .from(schema.runEvents)
+      .where(eq(schema.runEvents.runId, fixture.run.id))
+      .all()
+    expect(
+      events.filter((event) => event.type === 'response.web_search_call.completed'),
+    ).toHaveLength(1)
+    const publicData = JSON.stringify(events)
+    for (const privateValue of [
+      'private-filter-code',
+      'private-filter-output',
+      'opaque-dynamic-search',
+      'opaque-dynamic-citation',
+      'container_dynamic',
+    ]) {
+      expect(publicData).not.toContain(privateValue)
+    }
+  })
+
   it('续跑 pause_turn，累计 usage，并只在私有信封保存 opaque blocks', async () => {
     const fixture = await createFixture()
     const fetchMock = vi

@@ -474,6 +474,24 @@ describe('标题总结', () => {
     })
   })
 
+  it.each([
+    ['claude-opus-5-5', undefined, 4096],
+    ['claude-sonnet-5-5', { type: 'between_tools' }, 512],
+    ['claude-sonnet-5', { type: 'disabled' }, 512],
+  ])('标题模型 %s 使用合法的最低思考设置', async (upstreamId, thinking, maxTokens) => {
+    const { conversationId, modelId } = await createFixture('anthropic')
+    await dbClient.db
+      .update(schema.models)
+      .set({ modelId: upstreamId as string })
+      .where(eq(schema.models.id, modelId))
+    await appConfig.updateAppConfig({ titleModelId: modelId })
+    await title.maybeGenerateTitle(conversationId)
+    const body = providerMocks.createAnthropicMessage.mock.calls[0]![0]
+    expect(body.thinking).toEqual(thinking)
+    expect(body.max_tokens).toBe(maxTokens)
+    if (upstreamId !== 'claude-sonnet-5') expect(body.output_config).toEqual({ effort: 'low' })
+  })
+
   it.each(['end_turn', 'stop_sequence'] as const)(
     'Anthropic %s 终态记为完成并使用生成标题',
     async (stopReason) => {

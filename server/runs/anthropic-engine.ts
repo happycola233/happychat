@@ -11,6 +11,7 @@ import { AnthropicStreamAccumulator } from '../provider/anthropic-stream'
 import { classifyAnthropicTerminal } from '../provider/anthropic-terminal'
 import { providerClientFromRow } from '../provider/client'
 import { UpstreamError } from '../provider/errors'
+import { isPlainObject } from '../provider/params'
 import type { AnthropicReplayContextV1 } from '../provider/reasoning-replay'
 import { collectProviderOpaqueStrings, redactProviderOpaqueContent } from './event-sanitize'
 import type { FinalizeArgs } from './finalize'
@@ -26,6 +27,21 @@ const EMPTY_USAGE: MessageUsage = {
   outputTokens: 0,
   reasoningTokens: 0,
   totalTokens: 0,
+}
+
+function hasImplicitSearchExecution(body: Record<string, unknown>): boolean {
+  if (!Array.isArray(body.tools)) return false
+  const tools = body.tools.filter(isPlainObject)
+  // 只有搜索自动配备的执行器失败才归入搜索状态，显式配置的代码工具可能有其他用途。
+  return (
+    !tools.some((tool) => tool.name === 'code_execution') &&
+    tools.some(
+      (tool) =>
+        (tool.type === 'web_search_20260209' || tool.type === 'web_search_20260318') &&
+        (!Array.isArray(tool.allowed_callers) ||
+          tool.allowed_callers.includes('code_execution_20260120')),
+    )
+  )
 }
 
 function continuationMessages(body: Record<string, unknown>): AnthropicMessage[] {
@@ -102,6 +118,7 @@ async function runAnthropicAttempt(
   const searchActionById = new Map<string, SearchAction>()
   const searchStepById = new Map<string, Extract<ProcessStep, { kind: 'search' }>>()
   const searchOutputIndexById = new Map<string, number>()
+  const implicitSearchExecution = hasImplicitSearchExecution(ctx.body)
 
   try {
     const client = providerClientFromRow(ctx.provider, upstreamResponseTiming)
@@ -186,16 +203,27 @@ async function runAnthropicAttempt(
                   action,
                 },
               })
-            } else if (effect.type === 'web_search_result') {
+            } else if (
+              effect.type === 'web_search_result' ||
+              (effect.type === 'code_execution_error' && implicitSearchExecution)
+            ) {
               const currentAction = searchActionById.get(effect.toolUseId) ?? { type: 'search' }
               const action: SearchAction = effect.errorCode
                 ? { ...currentAction, error: effect.errorCode }
                 : currentAction
               searchActionById.set(effect.toolUseId, action)
-              const searchStep = searchStepById.get(effect.toolUseId)
-              if (searchStep) searchStep.action = action
+              let searchStep = searchStepById.get(effect.toolUseId)
+              if (searchStep) {
+                searchStep.action = action
+              } else {
+                // 动态过滤可能在发起实际搜索前失败，此时没有 web_search_start 事件。
+                searchStep = { kind: 'search', action }
+                searchStepById.set(effect.toolUseId, searchStep)
+                processSteps.push(searchStep)
+                searchOutputIndexById.set(effect.toolUseId, searchOutputIndexById.size)
+              }
               persistEmit('response.output_item.done', {
-                output_index: searchOutputIndexById.get(effect.toolUseId) ?? 0,
+                output_index: searchOutputIndexById.get(effect.toolUseId)!,
                 item: {
                   type: 'web_search_call',
                   id: effect.toolUseId,
@@ -231,7 +259,12 @@ async function runAnthropicAttempt(
         })
       }
       messages = [...messages, { role: 'assistant', content: segmentContent }]
-      requestBody = { ...ctx.body, messages }
+      // 动态搜索在服务端容器内执行；同轮暂停后沿用容器，保留执行状态及未完成调用。
+      requestBody = {
+        ...requestBody,
+        messages,
+        ...(accumulator.containerId ? { container: accumulator.containerId } : {}),
+      }
     }
 
     const terminal = classifyAnthropicTerminal(finalStopReason)

@@ -15,6 +15,7 @@ export type AnthropicStreamEffect =
       toolUseId: string
       errorCode?: string
     }
+  | { type: 'code_execution_error'; index: number; toolUseId: string; errorCode: string }
 
 interface BlockState {
   block: AnthropicContentBlock
@@ -74,6 +75,7 @@ export class AnthropicStreamAccumulator {
   private sawMessageStop = false
 
   messageId: string | null = null
+  containerId: string | null = null
   stopReason: string | null = null
   usage: AnthropicUsage = {}
 
@@ -83,6 +85,9 @@ export class AnthropicStreamAccumulator {
       case 'message_start': {
         const message = objectField(event.data, 'message')
         if (typeof message.id === 'string') this.messageId = message.id
+        if (isPlainObject(message.container) && typeof message.container.id === 'string') {
+          this.containerId = message.container.id
+        }
         if (isPlainObject(message.usage)) this.mergeUsage(message.usage)
         break
       }
@@ -114,6 +119,18 @@ export class AnthropicStreamAccumulator {
             ...(typeof resultError?.error_code === 'string'
               ? { errorCode: resultError.error_code }
               : {}),
+          })
+        } else if (
+          block.type === 'code_execution_tool_result' &&
+          typeof block.tool_use_id === 'string' &&
+          isPlainObject(block.content) &&
+          typeof block.content.error_code === 'string'
+        ) {
+          effects.push({
+            type: 'code_execution_error',
+            index,
+            toolUseId: block.tool_use_id,
+            errorCode: block.content.error_code,
           })
         }
         break
@@ -178,6 +195,9 @@ export class AnthropicStreamAccumulator {
       case 'message_delta': {
         const delta = objectField(event.data, 'delta')
         if (typeof delta.stop_reason === 'string') this.stopReason = delta.stop_reason
+        if (isPlainObject(delta.container) && typeof delta.container.id === 'string') {
+          this.containerId = delta.container.id
+        }
         if (isPlainObject(event.data.usage)) this.mergeUsage(event.data.usage)
         break
       }

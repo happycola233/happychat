@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { PROMPT_VARIABLES } from '@shared/util/promptTemplate'
 import {
+  ANTHROPIC_WEB_SEARCH_TOOL_TYPE,
   anthropicDefaultMaxOutputTokens,
   anthropicDefaultReasoningEffort,
   anthropicDefaultHardParamsText,
@@ -302,8 +303,10 @@ export function ModelEditor({
     }))
     setReplayProviderContext(true)
     const defaultParamsMigration = migrateDefaultParamsToAnthropic(
-      params,
-      anthropicDefaultMaxOutputTokens(),
+      autoFilledAnthropicMaxOutputTokensRef.current
+        ? { ...params, max_output_tokens: undefined }
+        : params,
+      anthropicDefaultMaxOutputTokens(presetModelId),
     )
     if (defaultParamsMigration.autoFilledMaxOutputTokens) {
       autoFilledAnthropicMaxOutputTokensRef.current = true
@@ -884,7 +887,7 @@ export function ModelEditor({
               hidden={section !== 'capabilities'}
               hint={
                 kind === 'anthropic'
-                  ? 'max_output_tokens 为必填项，发送时映射为 max_tokens；预设 16000，取自 Anthropic thinking 指南的宽裕示例值。'
+                  ? '输出上限包含思考与正文，默认使用模型支持的最大值。可按需调低；实际用量以生成结果为准。'
                   : '用户未覆盖时使用；留空表示交给上游默认。'
               }
             >
@@ -959,7 +962,11 @@ export function ModelEditor({
                       autoFilledAnthropicMaxOutputTokensRef.current = false
                       setParams((p) => ({ ...p, max_output_tokens: numOrUndef(e.target.value) }))
                     }}
-                    placeholder={kind === 'anthropic' ? '16000' : '默认'}
+                    placeholder={
+                      kind === 'anthropic'
+                        ? String(anthropicDefaultMaxOutputTokens(modelId))
+                        : '默认'
+                    }
                   />
                 </SmallField>
               </div>
@@ -1049,12 +1056,14 @@ export function ModelEditor({
             {kind === 'anthropic' ? (
               <p className="text-xs leading-5 text-neutral-400">
                 <code className="font-mono">tools</code> 中的原生联网模板必须显式包含官方带版本的
-                type（默认 <code className="font-mono">web_search_20250305</code>）与{' '}
+                type（默认 <code className="font-mono">{ANTHROPIC_WEB_SEARCH_TOOL_TYPE}</code>）与{' '}
                 <code className="font-mono">name: web_search</code>
                 。联网开关只决定是否保留这条模板；
                 删除模板后，即使打开联网也不会暗中补回。日期后缀是官方固定的工具协议版本，不是失效日期；默认不设置{' '}
                 <code className="font-mono">max_uses</code>
-                ，不人为限制单次搜索次数。其他自定义工具原样保留。
+                ，不人为限制单次搜索次数。默认使用{' '}
+                <code className="font-mono">allowed_callers: ["direct"]</code>
+                ，直接搜索并返回完整结果；可按需调整调用方式以启用动态过滤。其他自定义工具原样保留。
               </p>
             ) : kind === 'chat' ? (
               <p className="text-xs leading-5 text-neutral-400">

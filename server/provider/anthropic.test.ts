@@ -140,6 +140,55 @@ describe('buildAnthropicMessages', () => {
 })
 
 describe('buildAnthropicBody', () => {
+  it.each(['low', 'medium', 'high', 'xhigh', 'max', 'none'])(
+    'Opus 5.5 的 %s 选择不会发送 disabled',
+    (effort) => {
+      const body = buildAnthropicBody({
+        model: model({
+          modelId: 'claude-opus-5-5',
+          hardParams: createAnthropicDefaultHardParams('claude-opus-5-5'),
+          allowedEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+          defaultEffort: 'medium',
+        }),
+        messages: [],
+        instructions: null,
+        userParams: { reasoning_effort: effort },
+        stream: true,
+      })
+      expect(body.thinking).toEqual({ type: 'adaptive', display: 'summarized' })
+      if (effort !== 'none') expect(body.output_config).toEqual({ effort })
+    },
+  )
+
+  it('Sonnet 5.5 工具间思考是独立模式；高强度档仍用 adaptive', () => {
+    const sonnet = model({
+      modelId: 'claude-sonnet-5-5',
+      hardParams: createAnthropicDefaultHardParams('claude-sonnet-5-5'),
+      allowedEfforts: ['between_tools', 'low', 'high', 'max'],
+      defaultEffort: 'high',
+    })
+    const options = { model: sonnet, messages: [], instructions: null, stream: true }
+    const reduced = buildAnthropicBody({
+      ...options,
+      userParams: { reasoning_effort: 'between_tools' },
+    })
+    expect(reduced.thinking).toEqual({ type: 'between_tools' })
+    expect(reduced).not.toHaveProperty('output_config')
+    expect(
+      buildAnthropicBody({ ...options, userParams: { reasoning_effort: 'max' } }),
+    ).toMatchObject({ thinking: { type: 'adaptive' }, output_config: { effort: 'max' } })
+    expect(() =>
+      buildAnthropicBody({
+        ...options,
+        model: {
+          ...sonnet,
+          hardParams: { ...sonnet.hardParams, output_config: { effort: 'max' } },
+        },
+        userParams: { reasoning_effort: 'between_tools' },
+      }),
+    ).toThrow('仅工具间思考')
+  })
+
   it('只在开关开启时应用高级 JSON 中的 thinking 与 web search 模板', () => {
     const base = model()
     const enabled = buildAnthropicBody({
@@ -159,7 +208,7 @@ describe('buildAnthropicBody', () => {
       cache_control: { type: 'ephemeral' },
       thinking: { type: 'adaptive', display: 'summarized' },
       output_config: { effort: 'high' },
-      tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+      tools: [{ type: 'web_search_20260318', name: 'web_search', allowed_callers: ['direct'] }],
     })
     expect(enabled).not.toHaveProperty('temperature')
     expect(enabled).not.toHaveProperty('top_p')

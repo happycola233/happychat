@@ -72,11 +72,11 @@ describe('inferModelDefaults', () => {
     })
     expect(defaults.defaultEffort).toBe('high')
     expect(defaults.replayProviderContext).toBe(true)
-    expect(defaults.defaultParams).toEqual({ max_output_tokens: 16000 })
+    expect(defaults.defaultParams).toEqual({ max_output_tokens: 128000 })
     expect(defaults.hardParams).toMatchObject({
       cache_control: { type: 'ephemeral' },
       thinking: { type: 'adaptive', display: 'summarized' },
-      tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+      tools: [{ type: 'web_search_20260318', name: 'web_search', allowed_callers: ['direct'] }],
     })
     expect(defaults.hardParams).not.toHaveProperty('max_tokens')
     expect(defaults.hardParams).not.toHaveProperty('tools.0.max_uses')
