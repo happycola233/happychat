@@ -1,6 +1,7 @@
 import type { MessageUsage, ModelParams, UrlCitation } from '@shared/types/domain'
 import { anthropicModelProfile, hasAnthropicThinkingBudgetConflict } from '@shared/util/anthropic'
 import { effectiveReasoningEffort } from '@shared/util/reasoning'
+import { isSupportedFileInputMime } from '@shared/util/fileTypes'
 import { effectiveWebSearchEnabled } from '@shared/util/searchTools'
 import { commentaryTextsOf } from '@shared/util/processTrack'
 import type { PathMessage, ResolvedAttachment } from './context'
@@ -49,7 +50,7 @@ function userAttachmentBlock(
       title: attachment.filename,
     }
   }
-  if (attachment.mime.startsWith('text/')) {
+  if (isSupportedFileInputMime(attachment.mime, 'anthropic')) {
     return {
       type: 'document',
       source: { type: 'text', media_type: 'text/plain', data: textFromDataUrl(attachment.dataUrl) },

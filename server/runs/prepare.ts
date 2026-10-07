@@ -30,7 +30,8 @@ import {
   prepareQuotaAdmission,
   type QuotaCycleClaim,
 } from '../services/quota'
-import { fileInputMime, toDataUrl, uploadFileExists } from '../storage/files'
+import { fileInputMime, isImageMime, isSupportedFileInputMime } from '@shared/util/fileTypes'
+import { toDataUrl, uploadFileExists } from '../storage/files'
 import type { ConvRow, ImageOperation, ModelRow, MsgRow, ProviderRow, RunRow } from './types'
 import { appendRuntimeContextInstructions, buildRuntimeContext } from './runtimeContext'
 
@@ -47,7 +48,6 @@ export interface ImageSourceRef {
 }
 
 const IMAGE_EDIT_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp'])
-const ANTHROPIC_IMAGE_MIMES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
 
 export interface PreparedRun {
   ok: true
@@ -311,7 +311,7 @@ async function validateAnthropicAttachments(
     const attachment = attachmentById.get(ref.id)
     if (!attachment) continue
     if (ref.kind === 'image') {
-      if (!ANTHROPIC_IMAGE_MIMES.has(attachment.mime)) {
+      if (!isImageMime(attachment.mime)) {
         return {
           ok: false,
           status: 400,
@@ -323,7 +323,7 @@ async function validateAnthropicAttachments(
     }
 
     const mime = fileInputMime(attachment.filename, attachment.mime)
-    if (mime !== 'application/pdf' && !mime?.startsWith('text/')) {
+    if (!isSupportedFileInputMime(mime, 'anthropic')) {
       return {
         ok: false,
         status: 400,

@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { eq, sql } from 'drizzle-orm'
+import { isImageMime } from '@shared/util/fileTypes'
 import { completePasswordResetSchema, loginSchema, registerSchema } from '@shared/schemas/auth'
 import {
   changePasswordSchema,
@@ -18,7 +19,6 @@ import { jsonValidator } from '../http/validator'
 import { getUserSettings, updateUserSettings } from '../services/settings'
 import {
   MAX_AVATAR_BYTES,
-  isImageMime,
   mimeFromPath,
   readUpload,
   removeUpload,

@@ -1,17 +1,11 @@
 import { Hono } from 'hono'
 import { and, eq } from 'drizzle-orm'
+import { isImageMime, uploadMime } from '@shared/util/fileTypes'
 import { db } from '../db/client'
 import { attachments } from '../db/schema'
 import { requireUser } from '../auth/middleware'
 import { newId } from '../lib/id'
-import {
-  isImageMime,
-  readUpload,
-  removeUploadStrict,
-  saveUpload,
-  sha256,
-  uploadMime,
-} from '../storage/files'
+import { readUpload, removeUploadStrict, saveUpload, sha256 } from '../storage/files'
 import type { AppEnv } from '../http/types'
 
 export const attachmentRoutes = new Hono<AppEnv>()

@@ -21,6 +21,7 @@ import { ProgressiveImageStage } from './ProgressiveImageStage'
 import { RetryStatus } from './RetryStatus'
 import { attachmentDraftsFromContent } from './attachmentDraft'
 import { MessageEditForm, type MessageEditSubmit } from './MessageEditForm'
+import type { AttachmentInputSupport } from './attachmentInput'
 import { BranchConversationIcon, EditIcon, RetryMessageIcon } from './icons'
 import { safeCitationUrl, SHOW_CITATION_SOURCE_CHIPS } from './citationDisplay'
 
@@ -37,7 +38,7 @@ interface Props {
   branch?: BranchInfo
   busy?: boolean
   onEdit?: (input: MessageEditSubmit) => boolean | void
-  editCapabilities?: { canImage?: boolean; canFile?: boolean }
+  editAttachmentSupport?: AttachmentInputSupport
   onRegenerate?: () => void
   onCreateBranch?: () => void
   creatingBranch?: boolean
@@ -117,7 +118,7 @@ export function Message({
   branch,
   busy,
   onEdit,
-  editCapabilities,
+  editAttachmentSupport,
   onRegenerate,
   onCreateBranch,
   creatingBranch,
@@ -149,8 +150,7 @@ export function Message({
         <MessageEditForm
           initialText={text}
           initialAttachments={attachmentDraftsFromContent(message.content)}
-          canImage={editCapabilities?.canImage}
-          canFile={editCapabilities?.canFile}
+          {...editAttachmentSupport}
           onCancel={() => setEditing(false)}
           onSubmit={(input) => onEdit?.(input)}
         />

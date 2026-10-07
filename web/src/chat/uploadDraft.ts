@@ -1,4 +1,5 @@
 import type { AttachmentDTO } from '@shared/types/api'
+import { isImageMime, uploadMime } from '@shared/util/fileTypes'
 
 /**
  * 待发送上传项的状态机：文件选中即刻以 uploading 上屏，
@@ -28,12 +29,13 @@ export function createUploadDraft(input: {
   file: File
   previewUrl: string | null
 }): UploadDraftItem {
+  const mime = uploadMime(input.file.name, input.file.type) ?? input.file.type
   return {
     localId: input.localId,
-    kind: input.file.type.startsWith('image/') ? 'image' : 'file',
+    kind: isImageMime(mime) ? 'image' : 'file',
     filename: input.file.name,
     byteSize: input.file.size,
-    mime: input.file.type,
+    mime,
     previewUrl: input.previewUrl,
     status: 'uploading',
     progress: 0,

@@ -175,7 +175,7 @@
 
 1. `getRunnableModel(modelId,userId)` 取模型+Provider（两者全局启用，且模型范围包含当前用户才行；管理员也不隐式绕过）。
    1a. `prepareQuotaAdmission(userId, model.id)`（`services/quota.ts`）——放在**任何写库之前**，同时返回拦截结果与需要启动的固定周期声明；被拦下的请求不留占位消息也不建 run，`PrepareError.status` 因此扩展为 `400 | 404 | 429`，code 为 `quota_exceeded`，文案含「哪条限制 / 已用多少 / 何时重置」。`prepareRegenerate` 同样校验；标题总结属于后台维护调用，明确不走额度准入。
-2. 校验附件归属与能力（图片需 `vision`、文件需 `file_input`）；Anthropic 另校验实际选中图片的 MIME、文件仅 PDF/`text/*`，不通过返 400。
+2. 校验附件归属与能力（图片需 `vision`、文件需 `file_input`）；Anthropic 另校验实际选中图片的 MIME、文件仅 PDF/纯文本（不含 RTF），与上传前过滤共用 `shared/util/fileTypes.ts`，不通过返 400。
 3. 没 conversationId 就建会话，并快照本次提供的 `contextPolicy` 或账户默认规则；已有聊天始终使用自己的规则。
 4. 建 user 消息（parent = `args.parentId ?? conv.activeLeafId`；**编辑重发时传 `parentId` 使其成为兄弟分支**），并按浏览器 IANA 时区生成、冻结 `runtime_context`。
 5. `createAssistantAndRun()`：先按 `contextPolicy` 选取当前分支历史，再应用本次 `contextAttachments`，最后读盘解析附件；本次提问及其新附件不裁剪。之后按 `model.kind` 完整构建并校验 body：`responses` 走 `buildResponseBody` + `buildInput`；每条历史 assistant 依次放门控后的 reasoning items、独立 commentary message、终答 message，只有上游曾给过的 message 才回放同一 `phase`，只有 commentary 而无正文时不补空 assistant。`chat` 走 `buildChatMessages` + `buildChatBody`，`anthropic` 走 `buildAnthropicMessages` + `buildAnthropicBody`；这两条协议绝不出现 phase，而把 commentary 按顺序拼在正文前以支持跨模型切换。系统提示词放顶层 `system`，runtime context 放到对应 user content 的首个 text block，图片/PDF/文本映射为原生 block。开启提供商私有上下文时，只有 Provider id/Base URL/上游模型 id 三元组完全匹配的历史 assistant 才使用服务端原始 Responses reasoning items 或 Anthropic content blocks，不匹配/未知版本跳过。`image` 走 `buildImageBody`/`buildImageEditBody`（prompt = 路径最后一条 user 文本；`gpt-image-2` 的 `size` 先按共享 util 校验）。请求体成功后，在同一个 `IMMEDIATE` 事务里确保 `quota_cycles` 锚点存在、创建 assistant 占位消息（status `streaming`）+ run（state `queued`，`created_at` 与周期锚点共用同一 `requestAt`，最终 instructions 随 insert 一次写入）并把 `conversation.active_leaf_id` 指到新 assistant；这样参数/附件错误不会留下 queued run，run 插入失败也会回滚周期锚点。
@@ -387,6 +387,7 @@
 
 ## 9. 附件与图片生成（`server/storage/files.ts` + `runs/image-run.ts`）
 
+- **上传前过滤**：`shared/util/fileTypes.ts` 统一扩展名/MIME 归一化、协议文件类型判断与选择器 `accept`。`ChatView` 把当前 `model.kind` 传给 `Composer` 和消息编辑框，两者通过 `attachmentInput.ts` + `useAttachmentUpload` 在选择、拖拽、粘贴和重试时先校验能力与格式；不兼容项不创建上传草稿、不发 XHR，混合选择继续上传其余文件。已上传后切换模型时保留草稿，发送前提示移除附件或切换模型；历史上下文仍由服务端发送边界复核。2026-10-07 核对 [Anthropic 官方文件文档](https://platform.claude.com/docs/en/build-with-claude/files#working-with-other-file-formats)：`document` 原生支持 PDF/纯文本，DOCX/XLSX 等须转换；`container_upload` 属于代码执行工具，不是本站当前附件映射路径。
 - 上传 `POST /api/attachments`（`routes/attachments.ts`，`c.req.parseBody()` 取 `File`）：先按扩展名规范化 MIME（例如浏览器上报为 `application/octet-stream` 的 `.log` 会转为 `text/plain`），再判 `isImageMime`→kind；通用上传层校验空文件与支持类型，不固化上游字节上限；落盘 `data/uploads/<uuid><ext>`，建 `attachments` 行，返回 `AttachmentDTO`。
 - 读取 `GET /api/attachments/:id`：校验 `userId` 后 `new Response(buf)` 内联返回（`<img src>` 走同源带 cookie）。
 - **删除清理**：删除会话（单条 `DELETE /:id` 与批量 `POST /batch-delete` 共用 `deleteConversations`）会一并清理其消息关联的附件行与磁盘文件；「清空全部对话」仍删除该用户全部附件。上传成功但没有发送消息的附件保持未绑定状态，`services/attachment-cleanup.ts` 在服务启动时立即扫描、之后每小时扫描，正常负载下约在创建后 24～25 小时删除孤立 DB 行与磁盘文件。单批最多处理 1000 个候选，一次调度会沿 `(created_at,id)` keyset 游标继续处理后续批次直至积压清空；前批失败项不会阻塞后续项，并会在下一次从头扫描时重试。消息历史在每次完整调度中只扫描一遍，按 250 条分页并主动让出事件循环；历史上“消息已引用但 message_id 仍为空”的异常行若只属于一个会话会原子修复，跨会话引用则保守保护。删除文件失败会回滚该附件的 DB 删除，日志包含 attachmentId 与错误阶段且错误样本有上限。

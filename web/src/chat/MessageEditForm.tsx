@@ -1,6 +1,9 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import type { ChangeEvent, ClipboardEvent, DragEvent } from 'react'
 import { clsx } from 'clsx'
+import { fileUploadAccept, IMAGE_UPLOAD_ACCEPT } from '@shared/util/fileTypes'
+import { toast } from '../store/toast'
+import { attachmentInputError, type AttachmentInputSupport } from './attachmentInput'
 import { AttachmentDraftList } from './AttachmentDraftList'
 import {
   attachmentDraftsFromAttachments,
@@ -22,11 +25,9 @@ export interface MessageEditSubmit {
   attachments: AttachmentDraftItem[]
 }
 
-interface MessageEditFormProps {
+interface MessageEditFormProps extends AttachmentInputSupport {
   initialText: string
   initialAttachments: AttachmentDraftItem[]
-  canImage?: boolean
-  canFile?: boolean
   onCancel: () => void
   onSubmit: (input: MessageEditSubmit) => boolean | void
 }
@@ -36,6 +37,7 @@ export function MessageEditForm({
   initialAttachments,
   canImage,
   canFile,
+  modelKind,
   onCancel,
   onSubmit,
 }: MessageEditFormProps) {
@@ -61,13 +63,11 @@ export function MessageEditForm({
 
   // 新上传的附件选中即上屏（uploads 三态），提交时把完成项并入既有草稿。
   const { uploads, uploadFiles, removeUpload, retryUpload, uploading, hasFailed } =
-    useAttachmentUpload({ canImage, canFile })
+    useAttachmentUpload({ canImage, canFile, modelKind })
   const uploadedDrafts = attachmentDraftsFromAttachments(completedUploadAttachments(uploads))
 
   const canSubmit =
-    canSubmitAttachmentDraft(draft, [...attachments, ...uploadedDrafts]) &&
-    !uploading &&
-    !hasFailed
+    canSubmitAttachmentDraft(draft, [...attachments, ...uploadedDrafts]) && !uploading && !hasFailed
 
   useLayoutEffect(() => {
     resizeTextarea()
@@ -80,7 +80,15 @@ export function MessageEditForm({
 
   const submitEdit = () => {
     if (!canSubmit) return
-    const accepted = onSubmit({ text: draft.trim(), attachments: [...attachments, ...uploadedDrafts] })
+    const readyAttachments = [...attachments, ...uploadedDrafts]
+    for (const attachment of readyAttachments) {
+      const error = attachmentInputError(attachment, { canImage, canFile, modelKind })
+      if (error) {
+        toast.error(error)
+        return
+      }
+    }
+    const accepted = onSubmit({ text: draft.trim(), attachments: readyAttachments })
     if (accepted !== false) onCancel()
   }
 
@@ -154,9 +162,7 @@ export function MessageEditForm({
         <AttachmentDraftList
           items={attachments}
           uploads={uploads}
-          onRemove={(draftId) =>
-            setAttachments((items) => removeAttachmentDraft(items, draftId))
-          }
+          onRemove={(draftId) => setAttachments((items) => removeAttachmentDraft(items, draftId))}
           onRemoveUpload={removeUpload}
           onRetryUpload={retryUpload}
           className="mb-2"
@@ -186,7 +192,7 @@ export function MessageEditForm({
                 <input
                   ref={imageInput}
                   type="file"
-                  accept="image/*"
+                  accept={IMAGE_UPLOAD_ACCEPT}
                   multiple
                   hidden
                   onChange={onPick}
@@ -205,7 +211,14 @@ export function MessageEditForm({
             )}
             {canFile && (
               <>
-                <input ref={fileInput} type="file" multiple hidden onChange={onPick} />
+                <input
+                  ref={fileInput}
+                  type="file"
+                  accept={fileUploadAccept(modelKind)}
+                  multiple
+                  hidden
+                  onChange={onPick}
+                />
                 <button
                   type="button"
                   data-testid="edit-upload-file"

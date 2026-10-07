@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { isImageMime, uploadMime } from '@shared/util/fileTypes'
 import { isUploadAbortError, uploadAttachment } from '../api/attachments'
 import { createRandomUuid } from '../lib/randomUuid'
 import { toast } from '../store/toast'
+import { attachmentInputError, type AttachmentInputSupport } from './attachmentInput'
 import {
   createUploadDraft,
   failUploadDraft,
@@ -13,11 +15,6 @@ import {
   setUploadDraftProgress,
   type UploadDraftItem,
 } from './uploadDraft'
-
-interface UseAttachmentUploadOptions {
-  canImage?: boolean
-  canFile?: boolean
-}
 
 /** 每个上传项的本地资源：原始 File 供重试，controller 供中止，previewUrl 供释放。 */
 interface UploadTask {
@@ -31,7 +28,7 @@ interface UploadTask {
  * 各文件并行上传、独立汇报进度；失败项可原位重试或移除。
  * 完成项留在列表里（status: done），由消费方在发送时取走并 clearUploads()。
  */
-export function useAttachmentUpload({ canImage, canFile }: UseAttachmentUploadOptions) {
+export function useAttachmentUpload({ canImage, canFile, modelKind }: AttachmentInputSupport) {
   const [uploads, setUploads] = useState<UploadDraftItem[]>([])
   const tasksRef = useRef(new Map<string, UploadTask>())
 
@@ -59,34 +56,30 @@ export function useAttachmentUpload({ canImage, canFile }: UseAttachmentUploadOp
 
   const uploadFiles = useCallback(
     (files: File[]) => {
-      let rejectedImageCapability = false
-      let rejectedFileCapability = false
+      const errors = new Set<string>()
       const supported = files.filter((file) => {
-        const isImage = file.type.startsWith('image/')
-        if (isImage && !canImage) {
-          rejectedImageCapability = true
-          return false
-        }
-        if (!isImage && !canFile) {
-          rejectedFileCapability = true
-          return false
-        }
-        return true
+        const error = attachmentInputError(
+          { filename: file.name, mime: file.type },
+          { canImage, canFile, modelKind },
+        )
+        if (error) errors.add(error)
+        return !error
       })
 
-      if (rejectedImageCapability) toast.error('当前模型不支持图片输入')
-      if (rejectedFileCapability) toast.error('当前模型不支持文件输入')
+      for (const error of errors) toast.error(error)
       if (!supported.length) return
 
       for (const file of supported) {
         const localId = createRandomUuid()
-        const previewUrl = file.type.startsWith('image/') ? URL.createObjectURL(file) : null
+        const previewUrl = isImageMime(uploadMime(file.name, file.type) ?? '')
+          ? URL.createObjectURL(file)
+          : null
         tasksRef.current.set(localId, { file, previewUrl, controller: null })
         setUploads((items) => [...items, createUploadDraft({ localId, file, previewUrl })])
         runUpload(localId, file)
       }
     },
-    [canFile, canImage, runUpload],
+    [canFile, canImage, modelKind, runUpload],
   )
 
   const removeUpload = useCallback((localId: string) => {
@@ -101,10 +94,18 @@ export function useAttachmentUpload({ canImage, canFile }: UseAttachmentUploadOp
     (localId: string) => {
       const task = tasksRef.current.get(localId)
       if (!task) return
+      const error = attachmentInputError(
+        { filename: task.file.name, mime: task.file.type },
+        { canImage, canFile, modelKind },
+      )
+      if (error) {
+        toast.error(error)
+        return
+      }
       setUploads((items) => restartUploadDraft(items, localId))
       runUpload(localId, task.file)
     },
-    [runUpload],
+    [canImage, canFile, modelKind, runUpload],
   )
 
   /** 发送成功后清空列表（正常路径此刻全部 done，中止/释放只是兜底）。 */

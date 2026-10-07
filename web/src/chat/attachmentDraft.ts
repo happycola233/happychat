@@ -15,13 +15,6 @@ export interface AttachmentDraftItem {
 
 export type AttachmentDraftSendRef = NonNullable<SendMessageInput['attachments']>[number]
 
-export interface AttachmentDraftSupport {
-  canImage: boolean
-  canFile: boolean
-}
-
-export type AttachmentDraftSupportIssue = 'image' | 'file' | null
-
 const RETAINED_IMAGE_FILENAME = '图片'
 
 export function attachmentDraftsFromContent(content: ContentPart[]): AttachmentDraftItem[] {
@@ -96,17 +89,4 @@ export function canSubmitAttachmentDraft(
   attachments: AttachmentDraftItem[],
 ): boolean {
   return text.trim().length > 0 || attachments.length > 0
-}
-
-export function getAttachmentDraftSupportIssue(
-  attachments: AttachmentDraftItem[],
-  support: AttachmentDraftSupport,
-): AttachmentDraftSupportIssue {
-  if (attachments.some((attachment) => attachment.kind === 'image') && !support.canImage) {
-    return 'image'
-  }
-  if (attachments.some((attachment) => attachment.kind === 'file') && !support.canFile) {
-    return 'file'
-  }
-  return null
 }

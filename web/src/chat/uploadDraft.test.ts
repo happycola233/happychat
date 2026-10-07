@@ -45,6 +45,14 @@ describe('createUploadDraft', () => {
     expect(item.kind).toBe('file')
     expect(item.previewUrl).toBeNull()
   })
+
+  it('浏览器未报告 MIME 时仍按扩展名展示图片草稿', () => {
+    const file = new File(['image'], 'photo.PNG')
+    expect(createUploadDraft({ localId: 'u3', file, previewUrl: 'blob:image' })).toMatchObject({
+      kind: 'image',
+      mime: 'image/png',
+    })
+  })
 })
 
 describe('上传状态流转', () => {
@@ -79,10 +87,7 @@ describe('上传状态流转', () => {
   })
 
   it('remove 精确移除对应项', () => {
-    const two = [
-      ...base,
-      createUploadDraft({ localId: 'u2', file: textFile, previewUrl: null }),
-    ]
+    const two = [...base, createUploadDraft({ localId: 'u2', file: textFile, previewUrl: null })]
     const items = removeUploadDraft(two, 'u1')
     expect(items.map((i) => i.localId)).toEqual(['u2'])
   })

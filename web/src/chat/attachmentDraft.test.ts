@@ -4,7 +4,6 @@ import {
   attachmentDraftFromAttachment,
   attachmentDraftsFromContent,
   canSubmitAttachmentDraft,
-  getAttachmentDraftSupportIssue,
   removeAttachmentDraft,
   toAttachmentRefs,
 } from './attachmentDraft'
@@ -66,7 +65,7 @@ describe('attachment draft helpers', () => {
     ])
   })
 
-  it('allows attachment-only edits and reports unsupported attachment kinds', () => {
+  it('allows attachment-only edits but rejects empty drafts', () => {
     const drafts = attachmentDraftsFromContent([
       { type: 'input_image', attachment_id: 'image-1' },
       { type: 'input_file', attachment_id: 'file-1', filename: 'report.pdf' },
@@ -74,8 +73,5 @@ describe('attachment draft helpers', () => {
 
     expect(canSubmitAttachmentDraft('', drafts)).toBe(true)
     expect(canSubmitAttachmentDraft('   ', [])).toBe(false)
-    expect(getAttachmentDraftSupportIssue(drafts, { canImage: false, canFile: true })).toBe('image')
-    expect(getAttachmentDraftSupportIssue(drafts, { canImage: true, canFile: false })).toBe('file')
-    expect(getAttachmentDraftSupportIssue(drafts, { canImage: true, canFile: true })).toBeNull()
   })
 })

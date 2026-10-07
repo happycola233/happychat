@@ -3,6 +3,7 @@ import type { ChangeEvent, ClipboardEvent, KeyboardEvent, ReactNode } from 'reac
 import { clsx } from 'clsx'
 import { Plus, Square, X } from 'lucide-react'
 import type { AttachmentDTO } from '@shared/types/api'
+import { fileUploadAccept, IMAGE_UPLOAD_ACCEPT } from '@shared/util/fileTypes'
 import { attachmentUrl } from '../api/attachments'
 import { useSettings } from '../store/settings'
 import { useIsMobile } from '../store/sidebar'
@@ -12,6 +13,8 @@ import { ImagePreviewTrigger } from './ImagePreview'
 import { AttachmentDraftList } from './AttachmentDraftList'
 import { completedUploadAttachments } from './uploadDraft'
 import { useAttachmentUpload } from './useAttachmentUpload'
+import { attachmentInputError, type AttachmentInputSupport } from './attachmentInput'
+import { toast } from '../store/toast'
 
 /** 输入框正文最大高度（超出内部滚动）。 */
 const TEXTAREA_MAX_HEIGHT_PX = 200
@@ -32,7 +35,7 @@ export interface ComposerMetrics {
   boxCenterFromBottom: number
 }
 
-interface Props {
+interface Props extends AttachmentInputSupport {
   onSend: (text: string, attachments: AttachmentDTO[], imageSources: ImageEditSource[]) => void
   disabled?: boolean
   streaming?: boolean
@@ -47,8 +50,6 @@ interface Props {
   notice?: ReactNode
   /** 已从历史清单主动选中附件，允许直接发起对话。 */
   hasContextAttachments?: boolean
-  canImage?: boolean
-  canFile?: boolean
   imageSources?: ImageEditSource[]
   scrollbarGutterWidth?: number
   onMetricsChange?: (metrics: ComposerMetrics) => void
@@ -162,6 +163,7 @@ export function Composer({
   hasContextAttachments = false,
   canImage,
   canFile,
+  modelKind,
   imageSources = [],
   scrollbarGutterWidth = 0,
   onMetricsChange,
@@ -195,7 +197,7 @@ export function Composer({
 
   // 附件选中即上屏（uploads 含上传中/失败/完成三态），发送时只取完成项。
   const { uploads, uploadFiles, removeUpload, retryUpload, clearUploads, uploading, hasFailed } =
-    useAttachmentUpload({ canImage, canFile })
+    useAttachmentUpload({ canImage, canFile, modelKind })
   const hasPreviews = imageSources.length > 0 || uploads.length > 0
 
   // 有无草稿上报给父层：ChatView 在桌面端新对话据此决定何时把输入框悬浮层预热为合成层
@@ -339,6 +341,13 @@ export function Composer({
 
   const submit = () => {
     if (!canSubmit) return
+    for (const attachment of readyAttachments) {
+      const error = attachmentInputError(attachment, { canImage, canFile, modelKind })
+      if (error) {
+        toast.error(error)
+        return
+      }
+    }
     onSend(text, readyAttachments, imageSources)
     setText('')
     clearUploads()
@@ -513,8 +522,22 @@ export function Composer({
           )}
 
           {/* 隐藏文件选择器常驻 DOM（拖拽/粘贴/E2E 依赖），入口聚合在「+」菜单里。 */}
-          <input ref={imageInput} type="file" accept="image/*" multiple hidden onChange={onPick} />
-          <input ref={fileInput} type="file" multiple hidden onChange={onPick} />
+          <input
+            ref={imageInput}
+            type="file"
+            accept={IMAGE_UPLOAD_ACCEPT}
+            multiple
+            hidden
+            onChange={onPick}
+          />
+          <input
+            ref={fileInput}
+            type="file"
+            accept={fileUploadAccept(modelKind)}
+            multiple
+            hidden
+            onChange={onPick}
+          />
 
           {/* 行扩展动画容器：高度由 JS 跟随内层网格实测高度过渡（见上方 syncHeight）。 */}
           <div ref={expandRef} className="hc-composer-expand">

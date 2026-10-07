@@ -68,7 +68,7 @@ import { AnnouncementBanner } from '../announcements/AnnouncementBanner'
 import { ConversationDocumentTitle } from './ConversationDocumentTitle'
 import { NotificationBell } from '../announcements/NotificationBell'
 import type { ImageEditSource } from './imageSource'
-import { getAttachmentDraftSupportIssue, toAttachmentRefs } from './attachmentDraft'
+import { toAttachmentRefs } from './attachmentDraft'
 import {
   captureViewportScroll,
   restoreViewportScroll,
@@ -790,18 +790,6 @@ export default function ChatView() {
       toast.error(QUOTA_BLOCKED_HINT)
       return false
     }
-    const supportIssue = getAttachmentDraftSupportIssue(input.attachments, {
-      canImage: model.capabilities.vision,
-      canFile: model.capabilities.file_input,
-    })
-    if (supportIssue === 'image') {
-      toast.error('当前模型不支持图片输入，请移除图片或切换模型')
-      return false
-    }
-    if (supportIssue === 'file') {
-      toast.error('当前模型不支持文件输入，请移除文件或切换模型')
-      return false
-    }
     shouldAutoFollowRef.current = true
     sendMut.mutate({
       conversationId: id,
@@ -981,9 +969,10 @@ export default function ChatView() {
                         live={stream && m.id === stream.assistantMessageId ? stream : undefined}
                         branch={branch}
                         busy={streaming || branchMut.isPending}
-                        editCapabilities={{
+                        editAttachmentSupport={{
                           canImage: model?.capabilities.vision,
                           canFile: model?.capabilities.file_input,
+                          modelKind: model?.kind,
                         }}
                         onEdit={m.role === 'user' ? (input) => onEdit(m, input) : undefined}
                         onRegenerate={m.role === 'assistant' ? () => onRegenerate(m.id) : undefined}
@@ -1124,6 +1113,7 @@ export default function ChatView() {
             }
             canImage={model?.capabilities.vision ?? false}
             canFile={model?.capabilities.file_input ?? false}
+            modelKind={model?.kind}
             imageSources={imageSources}
             scrollbarGutterWidth={scrollbarGutterWidth}
             onMetricsChange={setComposerMetrics}
