@@ -98,7 +98,6 @@ async function runAnthropicAttempt(
 ): Promise<FinalizeArgs> {
   const { startedAt, persistEmit, upstreamResponseTiming, recordError } = runtime
   const sensitiveProviderContent = new Set(collectProviderOpaqueStrings(ctx.body))
-  persistEmit('response.created', {})
   let text = ''
   const processSteps: ProcessStep[] = []
   const reasoningStepByPartKey = new Map<string, Extract<ProcessStep, { kind: 'reasoning' }>>()
@@ -135,6 +134,11 @@ async function runAnthropicAttempt(
           requestBody,
           ctx.abortController.signal,
         )) {
+          // message_start 才表示上游开始响应；连接等待和 ping 不应提前触发思考。
+          // pause_turn 续跑仍属于同次尝试，沿用第一段的起点。
+          if (continuation === 0 && event.type === 'message_start') {
+            persistEmit('response.created', {})
+          }
           collectProviderOpaqueStrings(event.data).forEach((value) =>
             sensitiveProviderContent.add(value),
           )

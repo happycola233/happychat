@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import type { MessageDTO } from '@shared/types/api'
-import { initialLive, type LiveMessage } from '../sse/eventReducer'
+import { initialLive, reduceEvent, type LiveMessage } from '../sse/eventReducer'
 import { Message, type BranchInfo } from './Message'
 
 function assistantMessage(
@@ -64,6 +64,29 @@ function expectAssistantRecoveryActions(html: string) {
 }
 
 describe('assistant message branch action', () => {
+  it('shows pending dots until the upstream message starts, then switches to thinking', () => {
+    const message = assistantMessage('streaming', { content: [] })
+    const waiting = reduceEvent(initialLive(), {
+      type: 'run.created',
+      seq: 0,
+      data: { reasoningEnabled: true },
+      createdAt: 1000,
+    })
+    const pendingHtml = renderMessage(message, { live: waiting })
+    expect(pendingHtml.match(/animate-bounce/g)).toHaveLength(3)
+    expect(pendingHtml).not.toContain('正在思考')
+
+    const started = reduceEvent(waiting, {
+      type: 'response.created',
+      seq: 1,
+      data: {},
+      createdAt: 3000,
+    })
+    const thinkingHtml = renderMessage(message, { live: started })
+    expect(thinkingHtml).toContain('正在思考')
+    expect(thinkingHtml).not.toContain('animate-bounce')
+  })
+
   it.each(['waiting', 'attempting'] as const)(
     'freezes retained thinking while retry is %s',
     (phase) => {

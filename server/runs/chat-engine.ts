@@ -21,7 +21,6 @@ async function runChatAttempt(
   runtime: RunAttemptRuntime,
 ): Promise<FinalizeArgs> {
   const { startedAt, persistEmit, upstreamResponseTiming, recordError } = runtime
-  persistEmit('response.created', {})
   let text = ''
   let reasoning = ''
   let usage: MessageUsage = {
@@ -44,6 +43,7 @@ async function runChatAttempt(
   let toolCallObserved = false
   let discardPartialOutput = false
   let answerStarted = false
+  let responseStarted = false
 
   try {
     const client = providerClientFromRow(ctx.provider, upstreamResponseTiming)
@@ -53,6 +53,11 @@ async function runChatAttempt(
         break
       }
 
+      // Chat 没有 message_start，首个实际 chunk（包括 role 空块）代表上游响应开始。
+      if (!responseStarted) {
+        responseStarted = true
+        persistEmit('response.created', {})
+      }
       const chunk = event.chunk
       const choice = chunk.choices?.[0]
       const delta = choice?.delta

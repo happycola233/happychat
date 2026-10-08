@@ -543,6 +543,7 @@ describe('runAnthropicEngine', () => {
       .from(schema.runEvents)
       .where(eq(schema.runEvents.runId, fixture.run.id))
     const serializedBrowserEvents = JSON.stringify(browserEvents)
+    expect(browserEvents.filter((event) => event.type === 'response.created')).toHaveLength(1)
     expect(serializedBrowserEvents).not.toContain('opaque-search-result')
     expect(serializedBrowserEvents).not.toContain('opaque-thinking-signature')
     expect(serializedBrowserEvents).not.toContain('opaque-citation-index')

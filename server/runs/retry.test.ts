@@ -220,7 +220,7 @@ function controlledSse(...initialEvents: unknown[]) {
 function reasoningProtocol(kind: 'responses' | 'chat' | 'anthropic') {
   if (kind === 'chat')
     return {
-      opening: [],
+      opening: [{ choices: [{ delta: { role: 'assistant', content: '' } }] }],
       reasoning: (text: string) => ({ choices: [{ delta: { reasoning_content: text } }] }),
       answer: (text: string) => [{ choices: [{ delta: { content: text } }] }],
       failure: { error: { type: 'server_error', message: 'Temporary failure' } },
@@ -271,6 +271,79 @@ async function drain(run: Promise<void>, ms = 3000) {
 }
 
 describe('整次生成自动重试与审计', () => {
+  it.each(['chat', 'anthropic'] as const)(
+    '%s 等待上游消息开始前保持等待状态，思考耗时不包含连接与心跳等待',
+    async (kind) => {
+      await setPolicy({ enabled: false })
+      const ctx = fixture(kind, true)
+      const protocol = reasoningProtocol(kind)
+      const upstream = controlledSse()
+      let resolveResponse!: (response: Response) => void
+      const fetch = vi.fn().mockReturnValue(
+        new Promise<Response>((resolve) => {
+          resolveResponse = resolve
+        }),
+      )
+      vi.stubGlobal('fetch', fetch)
+      const task = engines[kind](ctx)
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(fetch).toHaveBeenCalledTimes(1)
+      expect(snapshot(ctx).live.upstreamStartedAt).toBeNull()
+      expect(snapshot(ctx).events.map((event) => event.type)).toEqual(['run.created'])
+
+      resolveResponse(upstream.response)
+      if (kind === 'anthropic') upstream.push({ type: 'ping' })
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(snapshot(ctx).live.upstreamStartedAt).toBeNull()
+
+      const messageStartedAt = Date.now()
+      upstream.push(...protocol.opening)
+      await vi.advanceTimersByTimeAsync(2000)
+      expect(snapshot(ctx).live.upstreamStartedAt).toBe(messageStartedAt)
+      upstream.push(protocol.reasoning('测试思考'))
+      await vi.advanceTimersByTimeAsync(1000)
+      upstream.push(...protocol.answer('测试回答'), ...protocol.completion)
+      upstream.close()
+      await vi.advanceTimersByTimeAsync(0)
+      await task
+
+      const saved = snapshot(ctx)
+      expect(saved.run.state).toBe('completed')
+      expect(saved.events.filter((event) => event.type === 'response.created')).toHaveLength(1)
+      expect(saved.live.reasoningDurationMs).toBe(3000)
+      expect(saved.message.reasoningDurationMs).toBe(3000)
+      expect(saved.message.generationDurationMs).toBe(5000)
+      expect(saved.logs[0]?.upstreamResponseLatencyMs).toBe(1000)
+      expect(saved.logs[0]?.firstTokenLatencyMs).toBe(5000)
+    },
+  )
+
+  it.each([
+    { kind: 'chat', failure: 'http' },
+    { kind: 'chat', failure: 'stream' },
+    { kind: 'anthropic', failure: 'http' },
+    { kind: 'anthropic', failure: 'stream' },
+  ] as const)('$kind 在消息开始前 $failure 失败时不伪造思考', async ({ kind, failure }) => {
+    await setPolicy({ enabled: false })
+    const ctx = fixture(kind, true)
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          failure === 'http'
+            ? new Response(JSON.stringify({ error: { message: 'Unauthorized' } }), { status: 401 })
+            : sse(reasoningProtocol(kind).failure),
+        ),
+    )
+    await engines[kind](ctx)
+    const saved = snapshot(ctx)
+    expect(saved.run.state).toBe('failed')
+    expect(saved.live.upstreamStartedAt).toBeNull()
+    expect(saved.message.reasoningDurationMs).toBeNull()
+    expect(saved.events.some((event) => event.type === 'response.created')).toBe(false)
+  })
+
   it.each(['responses', 'chat', 'anthropic'] as const)(
     '%s 重试期间实时展示思考，实时、回放、消息读取只计当前尝试',
     async (kind) => {
