@@ -1,5 +1,4 @@
-import { Eye, EyeOff, Plus, Trash2 } from 'lucide-react'
-import { useState } from 'react'
+import { Plus, Trash2 } from 'lucide-react'
 import type { HeaderDraft } from './providerHeaderDrafts'
 import { Button } from '../../components/ui/Button'
 import { inputClass } from '../../components/ui/controlStyles'
@@ -14,33 +13,20 @@ export function ProviderHeadersEditor({
   onChange: (drafts: HeaderDraft[]) => void
   disabled: boolean
 }) {
-  const [visible, setVisible] = useState(false)
   const update = (id: string, field: 'name' | 'value', value: string) =>
     onChange(drafts.map((draft) => (draft.id === id ? { ...draft, [field]: value } : draft)))
   return (
     <section className="space-y-3 pt-2">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h3 className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
-            额外请求头{' '}
-            <span className="ml-1 text-xs font-normal text-neutral-400">
-              {drafts.length || '可选'}
-            </span>
-          </h3>
-          <p className="mt-1 text-xs leading-5 text-neutral-500 dark:text-neutral-400">
-            用于网关鉴权、项目标识或实验功能。所有上游请求都会携带。
-          </p>
-        </div>
-        {drafts.length > 0 && (
-          <button
-            type="button"
-            onClick={() => setVisible(!visible)}
-            className="rounded-lg p-2 text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
-            aria-label={visible ? '隐藏请求头值' : '显示请求头值'}
-          >
-            {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-          </button>
-        )}
+      <div>
+        <h3 className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
+          额外请求头{' '}
+          <span className="ml-1 text-xs font-normal text-neutral-400">
+            {drafts.length || '可选'}
+          </span>
+        </h3>
+        <p className="mt-1 text-xs leading-5 text-neutral-500 dark:text-neutral-400">
+          用于网关鉴权、项目标识或实验功能。所有上游请求都会携带。
+        </p>
       </div>
       {drafts.map((draft, index) => (
         <div key={draft.id} className="flex items-start gap-2">
@@ -58,7 +44,7 @@ export function ProviderHeadersEditor({
               className={`${inputClass} font-mono text-xs`}
               aria-label={`请求头 ${index + 1} 值`}
               placeholder="请求头的值"
-              type={visible ? 'text' : 'password'}
+              type="text"
               value={draft.value}
               onChange={(event) => update(draft.id, 'value', event.target.value)}
               disabled={disabled}
