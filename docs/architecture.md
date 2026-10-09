@@ -235,7 +235,7 @@
 | `attemptTimeoutSeconds` | 120 | 正整数秒，不设固定上限；发送请求到首次实际输出的等待上限，HTTP 200/created/ping/空 delta 不结束计时 |
 | `streamIdleTimeoutSeconds` | 300 | 非负整数秒；输出开始后连续无新内容的等待上限，0 表示关闭；不限制正常持续输出的总时长 |
 | `maxElapsedSeconds` | 900 | 从首次请求开始的重试时间预算，不能小于首次输出等待上限；耗尽后不再发起重试，正常输出可继续完成 |
-| `retryNetworkErrors` | `true` | 连接失败、缺少终态的 EOF、读取断流、首次输出与输出停滞超时 |
+| `retryNetworkErrors` | `true` | 连接失败、缺少终态的 EOF、读取断流（含 SSE code/type 为 `upstream_http2_stream_error` 的上游 HTTP/2 断流）、首次输出与输出停滞超时 |
 | `retryAfterOutput` | `true` | 输出中断后从原始输入重新生成；等待时保留旧内容，新内容到达后整体替换；关闭后仅未输出时重试 |
 | `retryStatusCodes` | 408、409、429、500、502、503、504、520、524、529 | HTTP 临时错误及已知 SSE code/type 的对应类别；永久错误优先排除 |
 

@@ -68,6 +68,8 @@ export function retryDecision(
       [
         'network_error',
         'incomplete_stream',
+        // 上游可能在 HTTP 200 的 SSE 内报告 HTTP/2 断流，仍按网络错误重试。
+        'upstream_http2_stream_error',
         'first_output_timeout',
         'stream_idle_timeout',
       ].includes(code),

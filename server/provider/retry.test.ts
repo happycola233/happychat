@@ -4,6 +4,40 @@ import { retryAfterMs, retryDecision, scheduleLongTimeout, waitForRetry } from '
 
 afterEach(() => vi.useRealTimers())
 describe('统一重试策略与长计时', () => {
+  it.each([{ code: 'upstream_http2_stream_error' }, { type: 'upstream_http2_stream_error' }])(
+    'HTTP 200 内的 HTTP/2 断流受网络重试开关与预算约束：%j',
+    (error) => {
+      const policy = { ...DEFAULT_RETRY_POLICY, enabled: true, retryStatusCodes: [] }
+      const failure = { status: 200, ...error }
+      const deadline = Date.now() + 900000
+      expect(retryDecision(policy, failure, 2, deadline, 'before_output').stopReason).toBeNull()
+      expect(retryDecision(policy, failure, 2, deadline, 'after_output').stopReason).toBeNull()
+      expect(
+        retryDecision({ ...policy, enabled: false }, failure, 2, deadline, 'after_output')
+          .stopReason,
+      ).toBe('disabled')
+      expect(
+        retryDecision(
+          { ...policy, retryNetworkErrors: false },
+          failure,
+          2,
+          deadline,
+          'after_output',
+        ).stopReason,
+      ).toBe('not_retryable')
+      expect(
+        retryDecision({ ...policy, retryAfterOutput: false }, failure, 2, deadline, 'after_output')
+          .stopReason,
+      ).toBe('output_retry_disabled')
+      expect(
+        retryDecision(policy, failure, policy.maxRetries + 1, deadline, 'after_output').stopReason,
+      ).toBe('attempts_exhausted')
+      expect(retryDecision(policy, failure, 2, Date.now(), 'after_output').stopReason).toBe(
+        'budget_exhausted',
+      )
+    },
+  )
+
   it.each([520, 524])('%i 使用独立开关，仍遵守永久错误、次数和时间预算', (status) => {
     const policy = { ...DEFAULT_RETRY_POLICY, enabled: true }
     const failure = { status, type: 'server_error', code: 'internal_server_error' }

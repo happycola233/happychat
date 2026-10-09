@@ -192,6 +192,11 @@ const delta = (text: string) => ({
   delta: text,
 })
 const overloaded = { type: 'error', code: 'server_is_overloaded', message: 'Temporary overload' }
+const http2StreamError = {
+  type: 'error',
+  code: 'upstream_http2_stream_error',
+  message: 'Upstream HTTP/2 stream failed',
+}
 const done = {
   type: 'response.completed',
   response: {
@@ -750,6 +755,7 @@ describe('整次生成自动重试与审计', () => {
   })
   it.each([
     overloaded,
+    http2StreamError,
     {
       type: 'error',
       error: { type: 'server_error', code: 'server_is_overloaded', message: 'Temporary overload' },
@@ -780,6 +786,58 @@ describe('整次生成自动重试与审计', () => {
     expect(saved.live.text).toBe('新回答')
     expect(saved.live.retry).toBeUndefined()
     expect(fetch.mock.calls[0]?.[1].body).toBe(fetch.mock.calls[1]?.[1].body)
+  })
+
+  it.each([
+    http2StreamError,
+    {
+      type: 'response.failed',
+      response: {
+        status: 'failed',
+        error: { code: http2StreamError.code, message: http2StreamError.message },
+      },
+    },
+  ])('服务错误重试后遇到 HTTP/2 断流仍可继续重试并保留真实审计：%j', async (error) => {
+    const ctx = fixture()
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sse(delta('首次部分回答'), {
+          type: 'response.failed',
+          response: {
+            status: 'failed',
+            error: { code: 'server_error', message: 'Temporary failure' },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(sse(delta('第二次部分回答'), error))
+      .mockImplementation(success)
+    vi.stubGlobal('fetch', fetch)
+    await drain(engines.responses(ctx))
+    const saved = snapshot(ctx)
+    expect(fetch).toHaveBeenCalledTimes(3)
+    expect(saved.run.state).toBe('completed')
+    expect(saved.logs).toHaveLength(1)
+    expect(saved.logs[0]?.retrySummary).toMatchObject({
+      attempts: 3,
+      outcome: 'completed',
+      failures: [
+        { errorCode: 'server_error', stage: 'after_output', httpStatus: 200, stopReason: null },
+        {
+          errorCode: http2StreamError.code,
+          stage: 'after_output',
+          httpStatus: 200,
+          stopReason: null,
+        },
+      ],
+    })
+    expect(saved.errors).toHaveLength(1)
+    expect(saved.errors[0]?.detail?.retry).toMatchObject({ attempts: 3, outcome: 'completed' })
+    expect(saved.live.text).toBe('新回答')
+    expect(saved.message.content).toEqual([{ type: 'output_text', text: '新回答' }])
+    expect(saved.events.filter((event) => event.type === 'run.output_reset')).toHaveLength(2)
+    expect(saved.events.filter((event) => event.type === 'run.done')).toHaveLength(1)
+    expect(saved.live.retry).toBeUndefined()
   })
 
   it('尚未输出就 EOF 也能重试；元数据、空 delta 不算首次输出', async () => {
