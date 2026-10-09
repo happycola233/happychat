@@ -272,6 +272,14 @@ export const modelReorderSchema = z.object({
     .refine((ids) => new Set(ids).size === ids.length, '模型顺序不能包含重复项'),
 })
 
+export const modelBatchDeleteSchema = z.object({
+  modelIds: z
+    .array(z.string().trim().min(1))
+    .min(1, '请选择要删除的模型')
+    .max(1000, '单次最多删除 1000 个模型')
+    .refine((ids) => new Set(ids).size === ids.length, '模型列表不能包含重复项'),
+})
+
 /**
  * 原子替换单个模型的用户访问范围。userIds 始终传完整名单，服务端不会做增量合并；
  * all 模式下名单会被清空。显式 accessMode 避免“空名单”被误解成“全部用户”。
@@ -292,4 +300,5 @@ export type ModelUpdateInput = z.infer<typeof modelUpdateSchema>
 export type ModelCreateInput = z.infer<typeof modelCreateSchema>
 export type ModelImportInput = z.infer<typeof modelImportSchema>
 export type ModelReorderInput = z.infer<typeof modelReorderSchema>
+export type ModelBatchDeleteInput = z.infer<typeof modelBatchDeleteSchema>
 export type ModelAccessUpdateInput = z.infer<typeof modelAccessUpdateSchema>

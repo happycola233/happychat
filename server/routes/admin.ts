@@ -1,9 +1,10 @@
 import { Hono } from 'hono'
 import type { Context } from 'hono'
-import { desc, eq } from 'drizzle-orm'
+import { desc, eq, inArray } from 'drizzle-orm'
 import {
   modelCreateSchema,
   modelAccessUpdateSchema,
+  modelBatchDeleteSchema,
   modelImportSchema,
   modelReorderSchema,
   modelUpdateSchema,
@@ -406,6 +407,15 @@ adminRoutes.patch('/models/:id', jsonValidator(modelUpdateSchema), async (c) => 
 adminRoutes.delete('/models/:id', async (c) => {
   await db.delete(models).where(eq(models.id, c.req.param('id')))
   return c.json({ ok: true })
+})
+
+adminRoutes.post('/models/batch-delete', jsonValidator(modelBatchDeleteSchema), async (c) => {
+  // 单条 DELETE 原子删除整批；沿用单删的外键行为，保留历史聊天与用量记录。
+  const deleted = await db
+    .delete(models)
+    .where(inArray(models.id, c.req.valid('json').modelIds))
+    .returning({ id: models.id })
+  return c.json({ ok: true, deleted: deleted.length })
 })
 
 /** 批量套用图标（管理端「批量识别图标」）。任一模型不存在则整批失败。 */

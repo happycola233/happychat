@@ -30,6 +30,7 @@ import type {
 import type {
   ModelCreateInput,
   ModelAccessUpdateInput,
+  ModelBatchDeleteInput,
   ModelImportInput,
   ModelReorderInput,
   ModelUpdateInput,
@@ -120,6 +121,8 @@ export const updateModel = (id: string, input: ModelUpdateInput) =>
 export const reorderModels = (input: ModelReorderInput) =>
   apiPost<{ ok: true }>('/admin/models/reorder', input)
 export const deleteModel = (id: string) => apiDelete<{ ok: true }>(`/admin/models/${id}`)
+export const batchDeleteModels = (input: ModelBatchDeleteInput) =>
+  apiPost<{ ok: true; deleted: number }>('/admin/models/batch-delete', input)
 export const getModelAccess = (id: string) => apiGet<ModelAccessDTO>(`/admin/models/${id}/access`)
 export const updateModelAccess = (id: string, input: ModelAccessUpdateInput) =>
   apiPut<{ ok: true }>(`/admin/models/${id}/access`, input)

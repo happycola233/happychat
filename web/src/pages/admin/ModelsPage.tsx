@@ -189,13 +189,29 @@ export default function ModelsPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : '复制失败'),
   })
 
+  const invalidateDeletedModels = () =>
+    Promise.all([
+      invalidate(),
+      qc.invalidateQueries({ queryKey: ['admin', 'providers'] }),
+      qc.invalidateQueries({ queryKey: ['admin', 'model-groups'] }),
+      qc.invalidateQueries({ queryKey: ['models'] }),
+    ])
+
   const remove = useMutation({
     mutationFn: adminApi.deleteModel,
     onSuccess: () => {
       toast.success('已删除')
-      invalidate()
-      qc.invalidateQueries({ queryKey: ['admin', 'model-groups'] })
-      qc.invalidateQueries({ queryKey: ['models'] })
+      return invalidateDeletedModels()
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : '删除失败'),
+  })
+
+  const batchRemove = useMutation({
+    mutationFn: adminApi.batchDeleteModels,
+    onSuccess: async ({ deleted }) => {
+      toast.success(`已删除 ${deleted} 个模型`)
+      await invalidateDeletedModels()
+      exitBatch()
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : '删除失败'),
   })
@@ -273,6 +289,18 @@ export default function ModelsPage() {
   const exitBatch = () => {
     setBatchMode(false)
     setSelectedIds(new Set())
+  }
+
+  const deleteSelectedModels = async () => {
+    // 与工具栏计数、分组和图标操作保持一致，只处理当前筛选结果内的选中项。
+    const modelIds = selectedModels.map((model) => model.id)
+    const confirmed = await askConfirm({
+      title: `删除所选的 ${modelIds.length} 个模型？`,
+      description: '所选模型将从用户端下架并删除配置，且无法恢复。已有聊天记录会保留。',
+      confirmLabel: '删除',
+      tone: 'danger',
+    })
+    if (confirmed) batchRemove.mutate({ modelIds })
   }
 
   const onDragEnd = (event: DragEndEvent) => {
@@ -367,6 +395,7 @@ export default function ModelsPage() {
           </Button>
           <Button
             variant={batchMode ? 'primary' : 'secondary'}
+            disabled={batchRemove.isPending}
             aria-pressed={batchMode}
             className="h-9 !px-3 !py-0 text-xs"
             onClick={() => (batchMode ? exitBatch() : setBatchMode(true))}
@@ -480,6 +509,8 @@ export default function ModelsPage() {
           onClear={() => setSelectedIds(new Set())}
           onAssign={() => setAssignOpen(true)}
           onDetectIcons={() => setBatchIconOpen(true)}
+          onDelete={() => void deleteSelectedModels()}
+          deletePending={batchRemove.isPending}
           onExit={exitBatch}
         />
       )}

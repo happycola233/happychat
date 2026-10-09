@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { clsx } from 'clsx'
-import { ArrowRight, FolderInput, Sparkles } from 'lucide-react'
+import { ArrowRight, FolderInput, Sparkles, Trash2 } from 'lucide-react'
 import type { AdminModelDTO, AdminModelGroupDTO } from '@shared/types/api'
 import type { ModelIcon } from '@shared/types/domain'
 import { sameModelIcon } from '@shared/util/modelIcon'
@@ -229,7 +229,7 @@ export function BatchIconDialog({
   )
 }
 
-/** 批量模式底部悬浮条：一行放下「选择状态 + 批量操作 + 退出」，不遮挡列表信息。 */
+/** 批量模式底部悬浮条；窄屏允许操作换行。 */
 export function ModelBatchToolbar({
   selectedCount,
   totalCount,
@@ -237,6 +237,8 @@ export function ModelBatchToolbar({
   onClear,
   onAssign,
   onDetectIcons,
+  onDelete,
+  deletePending,
   onExit,
 }: {
   selectedCount: number
@@ -245,9 +247,12 @@ export function ModelBatchToolbar({
   onClear: () => void
   onAssign: () => void
   onDetectIcons: () => void
+  onDelete: () => void
+  deletePending: boolean
   onExit: () => void
 }) {
   const hasSelection = selectedCount > 0
+  const canAct = hasSelection && !deletePending
   const allSelected = selectedCount === totalCount && totalCount > 0
   /** 批量操作按钮：无选中时保持可见但明确失效，避免用户以为功能消失。 */
   const actionClass = (enabled: boolean) =>
@@ -268,6 +273,7 @@ export function ModelBatchToolbar({
         >
           <Checkbox
             checked={allSelected}
+            disabled={deletePending}
             indeterminate={hasSelection && !allSelected}
             onChange={() => (allSelected ? onClear() : onSelectAll())}
             ariaLabel={allSelected ? '取消全选' : '全选'}
@@ -287,29 +293,41 @@ export function ModelBatchToolbar({
           </span>
         </label>
 
-        <span className="ml-auto flex items-center gap-1.5">
+        <span className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
           <button
             type="button"
-            disabled={!hasSelection}
+            disabled={!canAct}
             onClick={onAssign}
-            className={actionClass(hasSelection)}
+            className={actionClass(canAct)}
           >
             <FolderInput className="h-3.5 w-3.5" />
             移动到分组
           </button>
           <button
             type="button"
-            disabled={!hasSelection}
+            disabled={!canAct}
             onClick={onDetectIcons}
-            className={actionClass(hasSelection)}
+            className={actionClass(canAct)}
           >
             <Sparkles className="h-3.5 w-3.5" />
             批量识别图标
           </button>
           <Button
+            variant="danger"
+            size="sm"
+            className="h-8 rounded-full !px-3 !py-0 text-xs"
+            disabled={!canAct}
+            loading={deletePending}
+            onClick={onDelete}
+          >
+            {!deletePending && <Trash2 className="h-3.5 w-3.5" />}
+            {deletePending ? '删除中' : '删除'}
+          </Button>
+          <Button
             variant="primary"
             className="h-8 rounded-full !px-4 !py-0 text-xs"
             onClick={onExit}
+            disabled={deletePending}
           >
             完成
           </Button>
