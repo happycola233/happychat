@@ -31,7 +31,7 @@ describe('image pricing presentation', () => {
     for (const label of ['聊天费用', '文字提示词输入', '参考图片输入', '图片输出', '缓存价格'])
       expect(html).toContain(label)
   })
-  it('missing usage is visibly disclosed even when no image cost can be calculated', () => {
+  it('missing usage is disclosed on the cost popover trigger and in its details', () => {
     const html = renderToStaticMarkup(
       <CostBreakdown
         breakdown={{
@@ -47,6 +47,10 @@ describe('image pricing presentation', () => {
     )
     expect(html).toContain('图片费用未完整统计')
     expect(html).toContain('供应商未返回完整生图用量')
-    expect(html).toContain('<summary')
+    expect(html).toMatch(/<button\b[^>]*aria-label="查看费用明细，图片费用未完整统计"/)
+    expect(html).toContain('aria-haspopup="dialog"')
+    const popoverId = html.match(/popoverTarget="([^"]+)"/)?.[1]
+    expect(popoverId).toBeDefined()
+    expect(html).toContain(`<div id="${popoverId}" popover="auto" role="dialog"`)
   })
 })

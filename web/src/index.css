@@ -1322,6 +1322,13 @@ html.hc-ios .hc-chat-scroll {
   animation: hc-stream-fade 0.5s ease-out both;
 }
 
+/* 指针捕获保证拖出手柄后仍能调整；全局禁选避免拖动时误选聊天正文。 */
+html.hc-sidebar-resizing,
+html.hc-sidebar-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
 .hc-sidebar-panel-in {
   animation: hc-sidebar-panel-in 0.22s cubic-bezier(0.22, 1, 0.36, 1);
 }

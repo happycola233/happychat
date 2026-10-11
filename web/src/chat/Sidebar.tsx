@@ -54,6 +54,7 @@ import {
 } from './icons'
 import { SearchDialog } from './SearchDialog'
 import { ConversationActivityIndicator } from './ConversationActivityIndicator'
+import { SidebarFrame } from './SidebarFrame'
 
 type PopoverKind = 'pinned' | 'recent'
 
@@ -702,7 +703,8 @@ export function Sidebar() {
   const { data: folderData } = useFolders()
   const folders = useMemo(() => folderData ?? [], [folderData])
   const logout = useLogout()
-  const { collapsed, toggleCollapsed } = useSidebarStore()
+  const collapsed = useSidebarStore((s) => s.collapsed)
+  const toggleCollapsed = useSidebarStore((s) => s.toggleCollapsed)
   const pinnedSectionCollapsed = useSidebarStore((s) => s.pinnedSectionCollapsed)
   const recentSectionCollapsed = useSidebarStore((s) => s.recentSectionCollapsed)
   const togglePinnedSectionCollapsed = useSidebarStore((s) => s.togglePinnedSectionCollapsed)
@@ -936,18 +938,7 @@ export function Sidebar() {
           onClick={() => setMobileOpen(false)}
         />
       )}
-      <aside
-        className={clsx(
-          'flex h-full shrink-0 flex-col border-r border-neutral-200 bg-white text-neutral-900 dark:border-neutral-800 dark:bg-[#000000] dark:text-neutral-100',
-          // 桌面：文档流中的 rail
-          'md:relative md:translate-x-0 md:shadow-none md:transition-[width,background-color,border-color] md:duration-300 md:ease-[cubic-bezier(0.22,1,0.36,1)]',
-          railMode ? 'md:w-[48px]' : 'md:w-[240px]',
-          railMode ? 'md:overflow-visible' : 'overflow-hidden',
-          // 移动：固定抽屉，按 mobileOpen 滑入/滑出
-          'fixed inset-y-0 left-0 z-50 w-[280px] transition-transform duration-300',
-          mobileOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full',
-        )}
-      >
+      <SidebarFrame railMode={railMode} isMobile={isMobile} mobileOpen={mobileOpen}>
         {railMode ? (
           <>
             <div className="hc-sidebar-rail-in flex min-w-[48px] flex-1 flex-col">
@@ -1280,7 +1271,7 @@ export function Sidebar() {
             </div>
           </div>
         )}
-      </aside>
+      </SidebarFrame>
 
       <SearchDialog
         open={searchOpen}

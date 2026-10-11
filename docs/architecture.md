@@ -305,6 +305,7 @@
 ### 7.2 聊天组件（`web/src/chat/`）
 
 - `ChatLayout`(Sidebar+Outlet+全局弹窗宿主 SettingsDialog/FolderEditorDialog/AnnouncementDialog) / `ChatView`(编排，见 §5.6) / `Sidebar`(会话列表+文件夹+批量管理+新建+删除+管理入口+登出+主题切换)。
+- **侧栏宽度**（`SidebarFrame.tsx` + `store/sidebar.ts`）：桌面展开宽度默认 240px，可拖动右边缘在 240–480px 内调整，同时为聊天区至少保留 480px。偏好存在 `happychat-sidebar.width`，窗口缩窄仅限制显示宽度，不覆盖已保存的偏好；折叠栏仍为 48px，移动抽屉仍为 280px。拖动临时状态只在外壳内更新，松开时写入 store，避免每次移动都重渲染列表或写 localStorage；Pointer Capture 接管越界拖动，取消、Escape、切换布局及卸载时清理状态。手柄采用可聚焦的 `separator`，左右方向键以 8px 调整（Shift 为 32px），Home/End 到边界，双击恢复默认；浅/深色均有悬停与焦点反馈。交互语义参考 [WAI-ARIA Window Splitter](https://www.w3.org/WAI/ARIA/apg/patterns/windowsplitter/)，指针捕获参考 [MDN](https://developer.mozilla.org/en-US/docs/Web/API/Element/setPointerCapture)。
 - **后台回复状态**（`ConversationActivityIndicator.tsx` + `components/ui/ConversationCompletionToaster.tsx`）：非当前会话生成中显示行尾转圈，完成后显示未读圆点；默认灰与蓝重点色使用蓝点，其余配色读取自身 `--hc-accent-swatch`，浅色/深色分别取对应色值。转圈遵守 `prefers-reduced-motion`；按钮可访问名称追加“正在生成回复”/“有未查看的新回复”，完成提示使用预先存在的 `role=status` polite live region，不抢键盘焦点。
 - **账号菜单**（`Sidebar.tsx#AccountMenu`）：侧栏底部账号行与折叠栏头像共用同一个弹层。身份信息只在触发器上展示（头像、昵称；角色行仅管理员显示「管理员」，普通账号不显示第二行），弹层不再重复这块；菜单只含使用情况/设置/管理后台（管理员可见）与退出登录。常规操作区两项之间保留 2px 纵向间距；退出登录由独立分隔线与常驻红色危险语义区分。操作文字固定为整数 14px / 20px 行高，图形统一为整数 16px，并置于与文字行高同高的 20px 固定槽位中，避免浏览器缩放时半像素字号导致的栅格化错位。触发按钮以 `aria-expanded` + `aria-controls` 暴露开合状态，菜单项保留清晰的键盘焦点环；浅色/深色各自使用匹配的边框、表面与悬停色。
 - **侧边栏文件夹 + 批量管理（里程碑 E）**：

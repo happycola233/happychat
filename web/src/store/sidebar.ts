@@ -2,7 +2,14 @@ import { useEffect, useState } from 'react'
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
+export const SIDEBAR_DEFAULT_WIDTH = 240
+export const SIDEBAR_MIN_WIDTH = 240
+export const SIDEBAR_MAX_WIDTH = 480
+
 interface SidebarStore {
+  /** 桌面展开宽度；移动抽屉与折叠栏不使用这个值。 */
+  width: number
+  setWidth: (width: number) => void
   collapsed: boolean
   setCollapsed: (collapsed: boolean) => void
   toggleCollapsed: () => void
@@ -25,6 +32,8 @@ interface SidebarStore {
 export const useSidebarStore = create<SidebarStore>()(
   persist(
     (set) => ({
+      width: SIDEBAR_DEFAULT_WIDTH,
+      setWidth: (width) => set({ width }),
       collapsed: false,
       setCollapsed: (collapsed) => set({ collapsed }),
       toggleCollapsed: () => set((state) => ({ collapsed: !state.collapsed })),
@@ -56,11 +65,24 @@ export const useSidebarStore = create<SidebarStore>()(
     {
       name: 'happychat-sidebar',
       partialize: (s) => ({
+        width: s.width,
         collapsed: s.collapsed,
         pinnedSectionCollapsed: s.pinnedSectionCollapsed,
         recentSectionCollapsed: s.recentSectionCollapsed,
         expandedFolders: s.expandedFolders,
       }),
+      merge: (persisted, current) => {
+        const saved = persisted as Partial<SidebarStore> | undefined
+        const width = saved?.width
+        return {
+          ...current,
+          ...saved,
+          width:
+            typeof width === 'number' && Number.isFinite(width)
+              ? Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, width))
+              : SIDEBAR_DEFAULT_WIDTH,
+        }
+      },
     },
   ),
 )
