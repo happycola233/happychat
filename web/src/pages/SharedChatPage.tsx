@@ -28,6 +28,8 @@ type SharedAttachmentPart = Extract<
 
 const SHARE_HEADER_HEIGHT_CLASS = '[--hc-share-header-height:57px]'
 const SHARE_REASONING_STICKY_TOP_CLASS = 'top-[var(--hc-share-header-height)]'
+/** 代码块复制按钮吸顶时停在分享页顶栏下方。 */
+const SHARE_CODE_STICKY_TOP_CLASS = '[--hc-code-sticky-top:var(--hc-share-header-height)]'
 
 function useShareHeaderHeight(active: boolean) {
   const pageRef = useRef<HTMLDivElement>(null)
@@ -353,7 +355,11 @@ export default function SharedChatPage() {
   return (
     <div
       ref={pageRef}
-      className={clsx('min-h-full bg-white dark:bg-black', SHARE_HEADER_HEIGHT_CLASS)}
+      className={clsx(
+        'min-h-full bg-white dark:bg-black',
+        SHARE_HEADER_HEIGHT_CLASS,
+        SHARE_CODE_STICKY_TOP_CLASS,
+      )}
     >
       <header
         ref={headerRef}

@@ -932,6 +932,8 @@ export default function ChatView() {
           onPointerDownCapture={cancelProgrammaticScroll}
           onKeyDown={handleScrollKeyDown}
           data-testid="chat-scroll"
+          // 顶部渐变显示时顶栏按钮会压在消息列上方，吸顶控件需要让出顶栏这一行。
+          data-top-bar-overlap={topFadeVisible || undefined}
           className="hc-scrollbar hc-chat-scroll h-full overflow-y-auto"
         >
           {isEmpty ? (

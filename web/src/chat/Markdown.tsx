@@ -222,28 +222,31 @@ function CodeBlockFrame({ children, variant }: { children?: ReactNode; variant: 
     })
   }
   return (
+    // overflow-clip 只裁圆角、不建滚动容器，复制按钮的 sticky 才能相对外层滚动区生效。
     <div
       className={clsx(
-        'hc-code-block group/code overflow-hidden rounded-[1.35rem] bg-neutral-100 text-neutral-950 dark:bg-neutral-800 dark:text-neutral-50',
-        variant === 'reasoning' ? 'my-2' : 'my-4',
+        'hc-code-block overflow-clip rounded-[1.35rem] bg-neutral-100 text-neutral-950 dark:bg-neutral-800 dark:text-neutral-50',
+        variant === 'reasoning' ? 'hc-code-block-compact my-2' : 'my-4',
       )}
     >
-      <div
-        className={clsx(
-          'flex items-center gap-1.5 px-4 text-xs font-medium',
-          variant === 'reasoning' ? 'pt-2.5 pb-1' : 'pt-3 pb-1.5',
-        )}
-      >
+      <div className="hc-code-block-header flex items-center gap-1.5 pt-1.5 pr-12 pl-4 text-xs font-medium">
         <Code2 className="h-3.5 w-3.5 shrink-0" />
-        <span>{language}</span>
-        <button
-          onClick={copy}
-          className="ml-auto rounded-md p-1 text-neutral-500 transition hover:bg-neutral-200 hover:text-neutral-950 dark:text-neutral-200 dark:hover:bg-neutral-700 dark:hover:text-white"
-          aria-label="复制代码"
-          title="复制代码"
-        >
-          {copied ? <Check className="h-3.5 w-3.5" /> : <CopyIcon className="h-3.5 w-3.5" />}
-        </button>
+        <span className="truncate">{language}</span>
+      </div>
+      {/* 复制按钮挂在紧随顶栏的零高度轨道上：顶栏滚出视口后，按钮仍停在代码块可视区顶部。 */}
+      <div
+        className={clsx('hc-code-copy-rail', variant === 'message' && 'hc-code-copy-rail-sticky')}
+      >
+        <div className="hc-code-copy-slot pointer-events-none absolute right-4 bottom-0 flex items-center pt-1.5">
+          <button
+            onClick={copy}
+            className="pointer-events-auto rounded-md bg-neutral-100 p-1 text-neutral-500 transition hover:bg-neutral-200 hover:text-neutral-950 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700 dark:hover:text-white"
+            aria-label="复制代码"
+            title="复制代码"
+          >
+            {copied ? <Check className="h-3.5 w-3.5" /> : <CopyIcon className="h-3.5 w-3.5" />}
+          </button>
+        </div>
       </div>
       <pre
         ref={ref}

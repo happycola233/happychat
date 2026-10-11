@@ -21,6 +21,23 @@ describe('Markdown code blocks', () => {
 
     expect(html).toContain('Text')
   })
+
+  it('keeps the answer code copy button on a sticky rail', () => {
+    const html = renderToStaticMarkup(<Markdown text={'```ts\nconst a = 1\n```'} />)
+
+    expect(html).toContain('hc-code-copy-rail-sticky')
+    expect(html).toContain('overflow-clip')
+    expect(html).not.toContain('overflow-hidden')
+  })
+
+  it('keeps reasoning code copy buttons static inside the collapsible track', () => {
+    const html = renderToStaticMarkup(
+      <Markdown text={'```ts\nconst a = 1\n```'} variant="reasoning" />,
+    )
+
+    expect(html).toContain('hc-code-copy-rail')
+    expect(html).not.toContain('hc-code-copy-rail-sticky')
+  })
 })
 
 describe('Markdown tables', () => {
