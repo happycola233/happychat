@@ -145,6 +145,7 @@ export function toMessageDTO(
     costUsd: messageCostUsd,
     costBreakdown: messageCostUsd === null ? null : m.costBreakdown,
     errorMessage: m.errorMessage,
+    errorDetail: m.errorDetail,
     createdAt: m.createdAt.getTime(),
   }
 }

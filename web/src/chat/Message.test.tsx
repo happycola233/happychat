@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import type { MessageDTO } from '@shared/types/api'
+import type { MessageErrorDetail, UserRole } from '@shared/types/domain'
 import { initialLive, reduceEvent, type LiveMessage } from '../sse/eventReducer'
 import { Message, type BranchInfo } from './Message'
 
@@ -41,9 +42,15 @@ function siblingBranch(index = 0): BranchInfo {
 
 function renderMessage(
   message: MessageDTO,
-  extras: { live?: LiveMessage; branch?: BranchInfo } = {},
+  extras: {
+    live?: LiveMessage
+    branch?: BranchInfo
+    viewerRole?: UserRole
+    onOpenContextSettings?: () => void
+  } = {},
 ) {
   const queryClient = new QueryClient()
+  if (extras.viewerRole) queryClient.setQueryData(['me'], { role: extras.viewerRole })
   return renderToStaticMarkup(
     <QueryClientProvider client={queryClient}>
       <Message
@@ -52,6 +59,7 @@ function renderMessage(
         branch={extras.branch}
         onRegenerate={() => undefined}
         onCreateBranch={() => undefined}
+        onOpenContextSettings={extras.onOpenContextSettings}
       />
     </QueryClientProvider>,
   )
@@ -95,7 +103,7 @@ describe('assistant message branch action', () => {
           ...initialLive(1000, true),
           reasoningDurationMs: 2500,
           processSteps: [{ kind: 'reasoning', id: 'reasoning', text: '已有思考', partKey: null }],
-          retry: { phase, attempt: 2, maxAttempts: 3, nextRetryAt: null, reason: '正在重试' },
+          retry: { phase, attempt: 2, maxAttempts: 3, nextRetryAt: null },
         },
       })
       expect(html).toContain('已思考 2s')
@@ -211,5 +219,148 @@ describe('assistant citation source chips', () => {
     expect(html).not.toContain('data:text/html')
     expect(html).not.toContain('恶意来源')
     expect(html).not.toContain('数据链接')
+  })
+})
+
+describe('assistant failure explanation', () => {
+  const failed = (errorMessage: string, errorDetail?: MessageErrorDetail) =>
+    assistantMessage('error', { content: [], errorMessage, errorDetail })
+
+  it('explains an oversized context with advice, a context action and error codes', () => {
+    const html = renderMessage(
+      failed('对话内容超出了模型或上游服务可处理的上限。', {
+        errorType: 'invalid_request_error',
+        errorCode: 'context_too_large',
+        httpStatus: 413,
+        retryCount: 2,
+      }),
+      { onOpenContextSettings: () => undefined },
+    )
+    expect(html).toContain('对话内容超出了模型或上游服务可处理的上限。')
+    expect(html).toContain('「上下文优化」')
+    expect(html).toContain('调整上下文')
+    expect(html).toContain('context_too_large · HTTP 413 · 已自动重试 2 次')
+  })
+
+  it('omits the context action when the conversation cannot open context settings', () => {
+    const html = renderMessage(
+      failed('对话内容超出了模型或上游服务可处理的上限。', {
+        errorType: null,
+        errorCode: 'context_length_exceeded',
+        httpStatus: 400,
+        retryCount: 0,
+      }),
+    )
+    expect(html).not.toContain('调整上下文')
+    expect(html).not.toContain('已自动重试')
+  })
+
+  it('keeps legacy failures to their saved text only', () => {
+    const html = renderMessage(failed('已触发上游限流，请稍后重试。'))
+    expect(html).toContain('已触发上游限流，请稍后重试。')
+    expect(html).not.toContain('请稍候片刻')
+    expect(html).not.toContain(' · ')
+  })
+
+  it.each([
+    ['user', '这需要管理员处理，请联系管理员。'],
+    ['admin', '「管理后台 → 供应商」'],
+  ] as const)('tailors configuration advice for a %s', (viewerRole, hint) => {
+    const html = renderMessage(
+      failed('上游服务鉴权失败。', {
+        errorType: 'authentication_error',
+        errorCode: null,
+        httpStatus: 401,
+        retryCount: 0,
+      }),
+      { viewerRole },
+    )
+    expect(html).toContain(hint)
+  })
+
+  it('does not show a meaningless HTTP status for connection failures', () => {
+    const html = renderMessage(
+      failed('无法连接上游服务。', {
+        errorType: 'network_error',
+        errorCode: null,
+        httpStatus: null,
+        retryCount: 1,
+      }),
+    )
+    expect(html).toContain('network_error · 已自动重试 1 次')
+    expect(html).not.toContain('HTTP')
+  })
+
+  it('shows the structured live failure before the message is persisted', () => {
+    const live = reduceEvent(initialLive(), {
+      type: 'run.error',
+      seq: 3,
+      data: {
+        state: 'failed',
+        message: '上游服务当前负载过高。',
+        detail: { errorType: 'overloaded_error', errorCode: null, httpStatus: 529, retryCount: 3 },
+      },
+    })
+    const html = renderMessage(assistantMessage('streaming', { content: [] }), { live })
+    expect(html).toContain('这通常是暂时的，请稍后重新生成。')
+    expect(html).toContain('overloaded_error · HTTP 529 · 已自动重试 3 次')
+  })
+})
+
+describe('assistant retry status', () => {
+  const lastFailure = {
+    message: '上游服务当前负载过高。',
+    errorType: 'overloaded_error',
+    errorCode: null,
+    httpStatus: 529,
+    failedAt: Date.now(),
+  }
+
+  it('tells the user why it is waiting and when the next attempt starts', () => {
+    const html = renderMessage(assistantMessage('streaming', { content: [] }), {
+      live: {
+        ...initialLive(),
+        retry: {
+          phase: 'waiting',
+          attempt: 2,
+          maxAttempts: 6,
+          nextRetryAt: lastFailure.failedAt + 5000,
+          stage: 'connecting',
+          lastFailure,
+        },
+      },
+    })
+    expect(html).toMatch(/生成未成功，[45] 秒后自动重试/)
+    expect(html).toContain('第 1/5 次重试')
+    expect(html).toContain('上游服务当前负载过高。')
+    expect(html).toContain('overloaded_error · HTTP 529')
+    expect(html).toContain('scaleX(')
+    expect(html).not.toContain('已生成的内容会先保留')
+  })
+
+  it('keeps the previous failure visible while retrying after partial output', () => {
+    const html = renderMessage(assistantMessage('streaming', { content: [] }), {
+      live: {
+        ...initialLive(),
+        retry: {
+          phase: 'attempting',
+          attempt: 3,
+          maxAttempts: 6,
+          nextRetryAt: null,
+          stage: 'after_output',
+          lastFailure: {
+            ...lastFailure,
+            message: '与上游服务的连接在响应过程中断开。',
+            httpStatus: 200,
+          },
+        },
+      },
+    })
+    expect(html).toContain('正在重新生成')
+    expect(html).toContain('第 2/5 次重试')
+    expect(html).toContain('上次失败：与上游服务的连接在响应过程中断开。')
+    expect(html).toContain('已生成的内容会先保留')
+    expect(html).not.toContain('HTTP 200')
+    expect(html).not.toContain('scaleX(')
   })
 })

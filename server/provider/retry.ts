@@ -17,6 +17,8 @@ const PERMANENT_ERRORS = new Set([
   'invalid_api_key',
   'invalid_request_error',
   'context_length_exceeded',
+  'context_too_large',
+  'string_above_max_length',
   'request_too_large',
   'not_found_error',
   'model_not_found',

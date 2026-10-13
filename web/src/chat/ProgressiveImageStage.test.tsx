@@ -225,7 +225,6 @@ describe('ProgressiveImageStage', () => {
             attempt: 2,
             maxAttempts: 4,
             nextRetryAt: 10000,
-            reason: '暂时不可用',
           },
         }}
       />,

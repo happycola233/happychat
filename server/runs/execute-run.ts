@@ -1,6 +1,6 @@
 import { and, eq, inArray } from 'drizzle-orm'
 import type { ModelParams } from '@shared/types/domain'
-import { RUN_EVENT_TYPE } from '@shared/types/events'
+import { RUN_EVENT_TYPE, type RetryFailureNotice, type RunRetryData } from '@shared/types/events'
 import type { RetryAttemptFailure, RetryFailureStage } from '@shared/types/retry'
 import { isReasoningEnabled } from '@shared/util/reasoning'
 import { db } from '../db/client'
@@ -28,7 +28,11 @@ export interface RunAttemptRuntime {
   startedAt: Date
   persistEmit: (type: string, data: Record<string, unknown>, observedAt?: Date) => number
   upstreamResponseTiming: UpstreamResponseTimingObserver & { readonly latencyMs: number | null }
-  recordError: (error: UpstreamError | null, sensitiveValues?: readonly string[]) => void
+  /** 记录本次尝试的 Retry-After 与诊断原文；流内终态错误没有 UpstreamError，只传原文。 */
+  recordError: (
+    error: Partial<Pick<UpstreamError, 'retryAfterMs' | 'rawMessage'>> | null,
+    sensitiveValues?: readonly string[],
+  ) => void
 }
 
 /** 连接通知和空占位不算输出；思考、检索进展和图片同正文一样属于已经展示的内容。 */
@@ -55,6 +59,17 @@ function isOutput(type: string, data: Record<string, unknown>): boolean {
 }
 
 type PendingEvent = { type: string; data: Record<string, unknown>; observedAt: Date }
+
+/** 重试提示只携带已脱敏的用户文案与结构化标识；诊断原文仍只进入审计。 */
+function retryFailureNotice(failure: RetryAttemptFailure): RetryFailureNotice {
+  return {
+    message: failure.message,
+    errorType: failure.errorType,
+    errorCode: failure.errorCode,
+    httpStatus: failure.httpStatus,
+    failedAt: failure.failedAt,
+  }
+}
 
 /**
  * 一次用户生成只有一个 run、一个结算入口和一份重试预算。
@@ -129,16 +144,17 @@ export async function executeRun(
     let rawErrorMessage: string | undefined
     const pending: PendingEvent[] = []
     const attachments = new Set<string>()
-    const previousStage = failures.at(-1)?.stage
-    if (attempt > 1)
+    const previousFailure = failures.at(-1)
+    const previousStage = previousFailure?.stage
+    if (previousFailure)
       emit(RUN_EVENT_TYPE.retry, {
         phase: 'attempting',
         attempt,
         maxAttempts: policy.maxRetries + 1,
         nextRetryAt: null,
         stage: previousStage,
-        reason: '正在重新生成',
-      })
+        lastFailure: retryFailureNotice(previousFailure),
+      } satisfies RunRetryData)
 
     const armTimeout = () => {
       cancelTimeout?.()
@@ -198,8 +214,7 @@ export async function executeRun(
             maxAttempts: policy.maxRetries + 1,
             nextRetryAt: null,
             stage: previousStage,
-            reason: '已恢复生成',
-          })
+          } satisfies RunRetryData)
       }
       if (committed) return emit(type, data, observedAt)
       pending.push({ type, data, observedAt })
@@ -317,13 +332,8 @@ export async function executeRun(
       maxAttempts: policy.maxRetries + 1,
       nextRetryAt: failure.nextRetryAt,
       stage,
-      reason:
-        stage === 'after_output'
-          ? '生成中断，稍后重新生成'
-          : stage === 'before_output'
-            ? '尚未收到输出，稍后重试'
-            : '暂时无法开始生成',
-    })
+      lastFailure: retryFailureNotice(failure),
+    } satisfies RunRetryData)
     try {
       await waitForRetry(delayMs, ctx.abortController.signal)
     } catch {

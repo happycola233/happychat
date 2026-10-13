@@ -487,9 +487,9 @@ describe('整次生成自动重试与审计', () => {
 
   it.each([
     { status: 520, format: 'html', message: '上游服务暂时不可用（HTTP 520）。' },
-    { status: 520, format: 'json', message: '上游服务返回错误（HTTP 520）。' },
-    { status: 524, format: 'html', message: '上游服务响应超时（HTTP 524），请稍后重试。' },
-    { status: 524, format: 'json', message: '上游服务响应超时（HTTP 524），请稍后重试。' },
+    { status: 520, format: 'json', message: '上游服务暂时不可用（HTTP 520）。' },
+    { status: 524, format: 'html', message: '上游服务响应超时（HTTP 524）。' },
+    { status: 524, format: 'json', message: '上游服务响应超时（HTTP 524）。' },
   ])(
     '$status 的 $format 错误页重试后恢复，原文仅进入脱敏诊断',
     async ({ status, format, message }) => {
@@ -954,6 +954,62 @@ describe('整次生成自动重试与审计', () => {
       'before_output',
       'before_output',
     ])
+  })
+
+  it('重试事件向用户说明上一次失败原因，失败消息记录重试次数且不含诊断原文', async () => {
+    await setPolicy({ maxRetries: 1 })
+    const ctx = fixture()
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ error: { type: 'overloaded_error', message: 'node-7 overloaded' } }),
+          { status: 529 },
+        ),
+      )
+      .mockImplementation(() => sse(overloaded))
+    vi.stubGlobal('fetch', fetch)
+    await drain(engines.responses(ctx), 2000)
+
+    const saved = snapshot(ctx)
+    const retryEvents = saved.events
+      .filter((event) => event.type === 'run.retry')
+      .map((event) => event.data)
+    expect(retryEvents).toEqual([
+      expect.objectContaining({
+        phase: 'waiting',
+        attempt: 2,
+        stage: 'connecting',
+        lastFailure: {
+          message: '上游服务当前负载过高。',
+          errorType: 'overloaded_error',
+          errorCode: null,
+          httpStatus: 529,
+          failedAt: expect.any(Number),
+        },
+      }),
+      expect.objectContaining({
+        phase: 'attempting',
+        attempt: 2,
+        lastFailure: expect.objectContaining({ httpStatus: 529 }),
+      }),
+    ])
+    expect(JSON.stringify(retryEvents)).not.toContain('node-7')
+    expect(saved.message).toMatchObject({
+      status: 'error',
+      errorMessage: '上游服务当前负载过高。',
+      errorDetail: {
+        errorType: 'response_error',
+        errorCode: 'server_is_overloaded',
+        // 第二次失败发生在 HTTP 200 的流内，审计不伪造 HTTP 状态。
+        httpStatus: 200,
+        retryCount: 1,
+      },
+    })
+    expect(saved.live).toMatchObject({
+      status: 'failed',
+      errorDetail: expect.objectContaining({ retryCount: 1 }),
+    })
   })
 
   it.each([

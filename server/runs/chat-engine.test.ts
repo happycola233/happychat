@@ -426,8 +426,16 @@ describe('runChatEngine', () => {
 
     const { storedRun, storedMessage, usageLog } = await readResult(fixture)
     expect(storedRun).toMatchObject({ state: 'failed' })
-    expect(storedRun?.errorMessage).toContain('upstream stream failed')
-    expect(storedMessage).toMatchObject({ status: 'error' })
+    expect(storedRun?.errorMessage).toBe('上游服务暂时不可用。')
+    expect(storedMessage).toMatchObject({
+      status: 'error',
+      errorDetail: {
+        errorType: 'server_error',
+        errorCode: 'stream_failed',
+        httpStatus: 200,
+        retryCount: 0,
+      },
+    })
     expect(usageLog).toMatchObject({ success: false })
   })
 

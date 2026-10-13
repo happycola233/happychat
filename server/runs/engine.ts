@@ -589,16 +589,26 @@ async function runResponseAttempt(
     })
 
     if (terminal.state === 'failed') {
-      const terminalErrorMessage =
-        terminal.errorType === 'refusal'
-          ? '模型拒绝了此请求，请调整内容后重试。'
-          : terminal.errorType === 'content_filter'
-            ? '上游内容过滤器终止了生成，请调整内容后重试。'
-            : redactProviderOpaqueContent(response?.error?.message ?? '生成失败', [
-                ...sensitiveProviderContent,
-                ...collectProviderOpaqueStrings(response),
-              ])
       providerReplayContext = null
+      if (terminal.errorType === 'refusal')
+        return { terminal, errorMessage: '模型拒绝了此请求，请调整内容后重试。' }
+      if (terminal.errorType === 'content_filter')
+        return { terminal, errorMessage: '上游内容过滤器终止了生成，请调整内容后重试。' }
+      // 上游原文（可能含组织 ID 等）只进入脱敏诊断，用户看到按 code 归类的原因。
+      const sensitiveValues = [
+        ...sensitiveProviderContent,
+        ...collectProviderOpaqueStrings(response),
+      ]
+      recordError({ rawMessage: response?.error?.message }, sensitiveValues)
+      const terminalErrorMessage = redactProviderOpaqueContent(
+        friendlyUpstreamMessage({
+          type: terminal.errorType ?? undefined,
+          code: terminal.errorCode ?? undefined,
+          rawMessage: response?.error?.message,
+          status: 200,
+        }),
+        sensitiveValues,
+      )
       return { terminal, errorMessage: terminalErrorMessage }
     }
 
@@ -828,22 +838,31 @@ async function runResponseAttempt(
           errorMessage = terminalResult.errorMessage
           break
         }
-        case 'error':
+        case 'error': {
           receivedTerminalEvent = true
           state = 'failed'
           errorType = isRecord(ev.data.error)
             ? str(ev.data.error.type) || 'response_error'
             : 'response_error'
           errorCode = str(isRecord(ev.data.error) ? ev.data.error.code : ev.data.code) || null
+          const rawMessage =
+            str(isRecord(ev.data.error) ? ev.data.error.message : ev.data.message) || undefined
+          const sensitiveValues = [
+            ...sensitiveProviderContent,
+            ...collectProviderOpaqueStrings(ev.data),
+          ]
+          recordError({ rawMessage }, sensitiveValues)
           errorMessage = redactProviderOpaqueContent(
-            friendlyUpstreamMessage(
-              errorCode ?? errorType,
-              str(isRecord(ev.data.error) ? ev.data.error.message : ev.data.message) || '生成失败',
-              200,
-            ),
-            [...sensitiveProviderContent, ...collectProviderOpaqueStrings(ev.data)],
+            friendlyUpstreamMessage({
+              type: errorType,
+              code: errorCode ?? undefined,
+              rawMessage,
+              status: 200,
+            }),
+            sensitiveValues,
           )
           break
+        }
         default:
           break
       }

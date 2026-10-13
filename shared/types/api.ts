@@ -18,6 +18,7 @@ import type {
   QuotaWeekStart,
   QuotaWindow,
   UserQuotaOverrides,
+  MessageErrorDetail,
   MessageStatus,
   MessageUsage,
   ModelCapabilities,
@@ -240,6 +241,8 @@ export interface MessageDTO {
   costUsd?: number | null
   costBreakdown?: RequestCostBreakdown | null
   errorMessage: string | null
+  /** 失败原因的结构化标识；升级前的失败消息与旧分享快照没有该字段。 */
+  errorDetail?: MessageErrorDetail | null
   createdAt: number
 }
 

@@ -243,7 +243,12 @@ function parseChatBlock(block: string): ChatStreamEvent | null {
         ? String(error.code)
         : undefined
     throw new UpstreamError({
-      message: friendlyUpstreamMessage(errorType, rawMessage, 200),
+      message: friendlyUpstreamMessage({
+        type: errorType,
+        code: errorCode,
+        rawMessage,
+        status: 200,
+      }),
       status: 200,
       type: errorType,
       code: errorCode,

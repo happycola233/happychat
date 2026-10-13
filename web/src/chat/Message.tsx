@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import type { MessageCostDisplayDTO, MessageDTO } from '@shared/types/api'
 import type { UrlCitation } from '@shared/types/domain'
 import { liveStepsFromPersisted, type LiveMessage } from '../sse/eventReducer'
@@ -19,6 +19,7 @@ import {
 import type { ImageEditSource } from './imageSource'
 import { ProgressiveImageStage } from './ProgressiveImageStage'
 import { RetryStatus } from './RetryStatus'
+import { RunErrorNotice } from './RunErrorNotice'
 import { attachmentDraftsFromContent } from './attachmentDraft'
 import { MessageEditForm, type MessageEditSubmit } from './MessageEditForm'
 import type { AttachmentInputSupport } from './attachmentInput'
@@ -43,6 +44,8 @@ interface Props {
   onCreateBranch?: () => void
   creatingBranch?: boolean
   onUseImageSource?: (source: ImageEditSource) => void
+  /** 打开当前对话的上下文优化；新对话尚未创建时不提供。 */
+  onOpenContextSettings?: () => void
   costDisplay?: MessageCostDisplayDTO
 }
 
@@ -123,6 +126,7 @@ export function Message({
   onCreateBranch,
   creatingBranch,
   onUseImageSource,
+  onOpenContextSettings,
   costDisplay,
 }: Props) {
   const [editing, setEditing] = useState(false)
@@ -202,6 +206,7 @@ export function Message({
   const annotations = live ? live.annotations : (message.annotations ?? [])
   const error =
     live?.error ?? (message.status === 'error' ? (message.errorMessage ?? '生成失败') : null)
+  const errorDetail = live?.error ? live.errorDetail : message.errorDetail
   const liveStopped = Boolean(live?.status === 'canceled' && !text)
   const persistedStopped = Boolean(
     !live && message.status === 'interrupted' && message.errorMessage === '已停止生成' && !text,
@@ -247,10 +252,11 @@ export function Message({
         />
       )}
       {error ? (
-        <div className="flex items-start gap-2 rounded-xl bg-red-50 px-3 py-2.5 text-sm text-red-600 dark:bg-red-950/30 dark:text-red-400">
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>{error}</span>
-        </div>
+        <RunErrorNotice
+          message={error}
+          detail={errorDetail}
+          onOpenContextSettings={onOpenContextSettings}
+        />
       ) : null}
       {imageLive ? (
         <>

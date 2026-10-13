@@ -266,6 +266,7 @@ export async function createConversationBranch(
       costUsd: sourceCostByMessageId.get(sourceMessage.id) ?? null,
       costBreakdown: sourceMessage.costBreakdown,
       errorMessage: sourceMessage.errorMessage,
+      errorDetail: sourceMessage.errorDetail,
       createdAt: sourceMessage.createdAt,
     }
   })

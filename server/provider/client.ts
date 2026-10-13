@@ -144,7 +144,7 @@ export class ProviderClient {
     try {
       yield* parseSSEStream(res.body)
     } catch (error) {
-      throw error instanceof UpstreamError ? error : networkError(error)
+      throw error instanceof UpstreamError ? error : networkError(error, 'response')
     }
   }
 
@@ -166,7 +166,7 @@ export class ProviderClient {
     try {
       yield* parseChatStream(res.body)
     } catch (error) {
-      throw error instanceof UpstreamError ? error : networkError(error)
+      throw error instanceof UpstreamError ? error : networkError(error, 'response')
     }
   }
 
@@ -191,7 +191,7 @@ export class ProviderClient {
     try {
       yield* parseSSEStream(res.body)
     } catch (error) {
-      throw error instanceof UpstreamError ? error : networkError(error)
+      throw error instanceof UpstreamError ? error : networkError(error, 'response')
     }
   }
 
@@ -220,13 +220,18 @@ export class ProviderClient {
           status: res.status,
           type: 'invalid_response',
         })
-      throw networkError(error)
+      throw networkError(error, 'response')
     }
     const error = (data as { error?: { type?: string; code?: string; message?: string } } | null)
       ?.error
     if (error)
       throw new UpstreamError({
-        message: friendlyUpstreamMessage(error.type ?? error.code, error.message, res.status),
+        message: friendlyUpstreamMessage({
+          type: error.type,
+          code: error.code,
+          rawMessage: error.message,
+          status: res.status,
+        }),
         status: res.status,
         type: error.type,
         code: error.code,

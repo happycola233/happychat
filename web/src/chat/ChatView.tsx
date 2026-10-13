@@ -151,6 +151,7 @@ export default function ChatView() {
   const [optimisticUser, setOptimisticUser] = useState<string | null>(null)
   const [imageSources, setImageSources] = useState<ImageEditSource[]>([])
   const [contextOpen, setContextOpen] = useState(false)
+  const openContextSettings = useCallback(() => setContextOpen(true), [])
   const hasContextAttachments = useContextSelection((state) =>
     Boolean(id && state.byConversation[id]?.include.length),
   )
@@ -987,6 +988,7 @@ export default function ChatView() {
                             ? onUseImageSource
                             : undefined
                         }
+                        onOpenContextSettings={id && detail ? openContextSettings : undefined}
                       />
                     </div>
                   )

@@ -211,7 +211,7 @@ export class AnthropicStreamAccumulator {
           typeof error.message === 'string' ? error.message : 'Anthropic 流式响应失败'
         const status = anthropicStreamErrorStatus(type)
         throw new UpstreamError({
-          message: friendlyUpstreamMessage(type, rawMessage, status),
+          message: friendlyUpstreamMessage({ type, rawMessage, status }),
           status,
           type,
           rawMessage,

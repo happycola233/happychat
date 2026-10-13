@@ -1,4 +1,5 @@
-import type { MessageUsage, ProcessStep, RunState, UrlCitation } from './domain'
+import type { MessageErrorDetail, MessageUsage, ProcessStep, RunState, UrlCitation } from './domain'
+import type { RetryAttemptFailure, RetryFailureStage } from './retry'
 
 /**
  * SSE 线格式：每帧 `id: <seq>` + `data: <WireEvent JSON>`（不使用 event: 字段，
@@ -57,9 +58,17 @@ export interface RunRetryData {
   attempt: number
   maxAttempts: number
   nextRetryAt: number | null
-  reason: string
-  stage?: import('./retry').RetryFailureStage
+  /** 等待中为本次失败的阶段；重新尝试时为上一次失败的阶段。 */
+  stage?: RetryFailureStage
+  /** 触发重试的上一次失败（不含诊断原文）；connected 及升级前的事件没有该字段。 */
+  lastFailure?: RetryFailureNotice
 }
+
+/** 向用户解释“为什么在重试”所需的失败信息；文案与终态错误同源。 */
+export type RetryFailureNotice = Pick<
+  RetryAttemptFailure,
+  'message' | 'errorType' | 'errorCode' | 'httpStatus' | 'failedAt'
+>
 
 export interface RunDoneData {
   state: 'completed' | 'incomplete'
@@ -77,6 +86,8 @@ export interface RunErrorData {
   state: 'failed'
   message: string
   code?: string
+  /** 与消息持久化的诊断信息一致；按 run 状态合成的终态没有该字段。 */
+  detail?: MessageErrorDetail
   /** true 表示流中先前展示的部分输出已被上游明确作废。 */
   discardPartialOutput?: boolean
   reasoningDurationMs?: number | null

@@ -945,7 +945,7 @@ describe('runEngine reasoning replay privacy and terminal handling', () => {
     expect(storedRun).toMatchObject({
       state: 'failed',
       upstreamResponseId: 'response-failed',
-      errorMessage: 'upstream generation failed',
+      errorMessage: '上游服务暂时不可用。',
     })
     expect(storedMessage).toMatchObject({
       status: 'error',
@@ -961,8 +961,12 @@ describe('runEngine reasoning replay privacy and terminal handling', () => {
     expect(errorLog).toMatchObject({
       errorType: 'server_error',
       code: 'server_error',
-      message: 'upstream generation failed',
+      message: '上游服务暂时不可用。',
     })
+    // 上游原文不进入用户文案，但仍随失败经过保留供管理员诊断。
+    expect(
+      (errorLog?.detail as { retry: { failures: { rawMessage?: string }[] } }).retry.failures[0],
+    ).toMatchObject({ rawMessage: 'upstream generation failed' })
   })
 
   it('retries an invalid history only before streaming and redacts echoed ciphertext on failure', async () => {

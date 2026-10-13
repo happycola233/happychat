@@ -421,6 +421,21 @@ export type UsageResult =
 
 export type MessageStatus = 'complete' | 'streaming' | 'interrupted' | 'error'
 
+/** 一次失败的结构化标识；文案另行保存，界面据此判断原因类别与可用的处理建议。 */
+export interface RunErrorIdentity {
+  /** 上游 error.type，或本站归一的失败类型（如 network_error、first_output_timeout）。 */
+  errorType: string | null
+  errorCode: string | null
+  /** 上游实际返回的 HTTP 状态；未建立连接时为 null，流式响应内的错误为 200。 */
+  httpStatus: number | null
+}
+
+/** 失败消息随消息固化的诊断信息；不含上游原文，可安全展示给消息所有者。 */
+export interface MessageErrorDetail extends RunErrorIdentity {
+  /** 本次生成自动重试的次数，不含首次请求。 */
+  retryCount: number
+}
+
 export type RunState =
   | 'queued'
   | 'running'

@@ -148,7 +148,9 @@ describe('parseChatStream', () => {
       collectChatEvents(`event: error\ndata: ${JSON.stringify(frame)}\n\n`),
     ).rejects.toMatchObject({
       name: 'UpstreamError',
-      message: expect.stringContaining('stream exploded'),
+      // 服务端错误原文只留给诊断，用户只看到归类后的原因。
+      message: '上游服务暂时不可用。',
+      rawMessage: 'stream exploded',
       type: 'server_error',
       code: 'stream_failed',
     })
@@ -165,7 +167,8 @@ describe('parseChatStream', () => {
       collectChatEvents(`event: error\ndata: ${JSON.stringify(frame)}\n\ndata: [DONE]\n\n`),
     ).rejects.toMatchObject({
       name: 'UpstreamError',
-      message: expect.stringContaining('top-level stream error'),
+      message: '上游服务暂时不可用。',
+      rawMessage: 'top-level stream error',
       type: 'server_error',
       code: 'top_level_failed',
     })

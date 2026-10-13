@@ -2,6 +2,7 @@ import { and, eq, inArray } from 'drizzle-orm'
 import type {
   ContentPart,
   ImageGenerationUsage,
+  MessageErrorDetail,
   MessageUsage,
   ModelParams,
   ProcessStep,
@@ -100,6 +101,17 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
   })
   const persistedErrorType =
     a.state === 'failed' ? errorTypeForAudit(a.errorType, a.errorCode) : null
+  const lastFailure = a.retrySummary?.failures.at(-1)
+  // HTTP 状态取最后一次尝试的真实响应；Anthropic 流内错误推断的状态只用于重试分类。
+  const errorDetail: MessageErrorDetail | null =
+    a.state === 'failed'
+      ? {
+          errorType: a.errorType ?? null,
+          errorCode: a.errorCode ?? null,
+          httpStatus: lastFailure ? lastFailure.httpStatus : (a.httpStatus ?? null),
+          retryCount: Math.max(0, (a.retrySummary?.attempts ?? 1) - 1),
+        }
+      : null
 
   const finalized = db.transaction((tx) => {
     // 先做一次性 CAS；未命中说明已有终结者完成了全部落库，不能重复写日志或发事件。
@@ -148,6 +160,7 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
             : a.state === 'canceled'
               ? '已停止生成'
               : null),
+        errorDetail,
       })
       .where(eq(messages.id, a.assistantMessage.id))
       .run()
@@ -194,7 +207,6 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
       })
       .run()
 
-    const lastFailure = a.retrySummary?.failures.at(-1)
     if ((a.state === 'failed' && a.errorMessage) || lastFailure) {
       tx.insert(errorLogs)
         .values({
@@ -221,6 +233,7 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
       reasoningDurationMs,
       message: a.errorMessage ?? '生成失败',
       ...(terminalErrorCode ? { code: terminalErrorCode } : {}),
+      ...(errorDetail ? { detail: errorDetail } : {}),
       ...(a.discardPartialOutput ? { discardPartialOutput: true } : {}),
     })
   } else if (a.state === 'canceled') {

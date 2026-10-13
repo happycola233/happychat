@@ -298,6 +298,13 @@ describe('finalizeRun terminal snapshots', () => {
     // 新写入不再触碰旧列。
     expect(persistedFailedMessage?.searchActions).toBeNull()
     expect(persistedFailedRun?.errorCode).toBe('request_rejected')
+    // 没有重试经过时，HTTP 状态取引擎上报值，消息与终止事件携带同一份诊断信息。
+    expect(persistedFailedMessage?.errorDetail).toEqual({
+      errorType: 'refusal',
+      errorCode: 'request_rejected',
+      httpStatus: 400,
+      retryCount: 0,
+    })
     expect(persistedFailedUsage).toMatchObject({
       outcome: 'failed',
       terminalReason: 'refusal',
@@ -317,6 +324,12 @@ describe('finalizeRun terminal snapshots', () => {
           state: 'failed',
           message: 'upstream failed',
           code: 'request_rejected',
+          detail: {
+            errorType: 'refusal',
+            errorCode: 'request_rejected',
+            httpStatus: 400,
+            retryCount: 0,
+          },
           discardPartialOutput: true,
           reasoningDurationMs: null,
         },

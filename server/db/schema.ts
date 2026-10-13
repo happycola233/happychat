@@ -21,6 +21,7 @@ import type {
   ImageGenerationUsage,
   RequestCostBreakdown,
   CostCurrency,
+  MessageErrorDetail,
   MessageStatus,
   ModelAccessMode,
   ModelCapabilities,
@@ -587,6 +588,8 @@ export const messages = sqliteTable(
     costUsd: real('cost_usd'),
     costBreakdown: text('cost_breakdown', { mode: 'json' }).$type<RequestCostBreakdown>(),
     errorMessage: text('error_message'),
+    // 失败原因的结构化标识；与 error_message 同时写入，独立分支随消息一并复制。
+    errorDetail: text('error_detail', { mode: 'json' }).$type<MessageErrorDetail>(),
     createdAt: createdAt(),
   },
   (t) => [

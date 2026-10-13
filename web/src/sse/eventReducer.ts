@@ -1,10 +1,16 @@
 import type {
+  MessageErrorDetail,
   ProcessStep,
   SearchAction,
   UrlCitation,
   XSearchActionType,
 } from '@shared/types/domain'
-import { RUN_EVENT_TYPE, type RunRetryData, type WireEvent } from '@shared/types/events'
+import {
+  RUN_EVENT_TYPE,
+  type RunErrorData,
+  type RunRetryData,
+  type WireEvent,
+} from '@shared/types/events'
 import {
   appendReasoningSummaryDelta,
   appendReasoningTextDelta,
@@ -97,6 +103,7 @@ export interface LiveMessage {
   annotations: UrlCitation[]
   status: LiveStatus
   error?: string
+  errorDetail?: MessageErrorDetail
   imageStatus?: 'generating' | 'done'
   imageGenerations: LiveImageGeneration[]
   /** 兼容旧 UI 读取；新 UI 使用 imageGenerations。 */
@@ -622,6 +629,7 @@ export function reduceEvent(s: LiveMessage, ev: WireEvent): LiveMessage {
         status: 'failed',
         retry: undefined,
         error: str(ev.data.message) || '生成失败',
+        errorDetail: (ev.data as Partial<RunErrorData>).detail,
         processSteps: settleProcessSteps(s.processSteps),
       }
       if (ev.data.discardPartialOutput !== true) return failed
