@@ -1,57 +1,10 @@
+import {
+  collectProviderOpaqueStrings,
+  redactProviderOpaqueContent,
+} from '../provider/opaque-content'
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-const PROVIDER_OPAQUE_KEYS = new Set(['encrypted_content', 'encrypted_index', 'signature'])
-
-/** 收集请求或事件中的提供商私有 opaque 值，供错误文案精确脱敏。 */
-export function collectProviderOpaqueStrings(value: unknown): string[] {
-  const collected = new Set<string>()
-  const visited = new WeakSet<object>()
-
-  const visit = (candidate: unknown): void => {
-    if (typeof candidate !== 'object' || candidate === null) return
-    if (visited.has(candidate)) return
-    visited.add(candidate)
-
-    if (Array.isArray(candidate)) {
-      candidate.forEach(visit)
-      return
-    }
-
-    for (const [key, nestedValue] of Object.entries(candidate)) {
-      if (PROVIDER_OPAQUE_KEYS.has(key) && typeof nestedValue === 'string') {
-        collected.add(nestedValue)
-      } else if (
-        key === 'data' &&
-        (candidate as Record<string, unknown>).type === 'redacted_thinking' &&
-        typeof nestedValue === 'string'
-      ) {
-        collected.add(nestedValue)
-      } else {
-        visit(nestedValue)
-      }
-    }
-  }
-
-  visit(value)
-  return [...collected]
-}
-
-/** 错误消息可能回显请求字段；分类仍用原文，落库/SSE 前只保留脱敏文案。 */
-export function redactProviderOpaqueContent(
-  text: string,
-  sensitiveValues: readonly string[] = [],
-): string {
-  let redacted = text.replace(
-    /"(encrypted_content|encrypted_index|signature)"\s*:\s*"(?:\\.|[^"\\])*"/gi,
-    '"$1":null',
-  )
-  for (const sensitiveValue of sensitiveValues) {
-    if (sensitiveValue)
-      redacted = redacted.replaceAll(sensitiveValue, '[provider opaque content omitted]')
-  }
-  return redacted
 }
 
 /**

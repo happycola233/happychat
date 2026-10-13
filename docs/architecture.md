@@ -254,6 +254,8 @@
 
 ## 6. 上游 API 适配（`server/provider/`）
 
+错误文案中的私有字段脱敏由 `provider/opaque-content.ts` 共用。`UpstreamError` 保留完整诊断原文，协议引擎通过 `toUserMessage(sensitiveValues)` 结合本次请求与流中已知的私有值重建用户摘要；Responses 流内错误直接向 `friendlyUpstreamMessage` 传同一集合。必须先脱敏完整原文，再合并空白并截断，避免长密文或签名被切成无法精确匹配的片段；兼容降级判断仍使用未经改写的 `rawMessage`。
+
 所有上游事实以**真实冒烟 + 官方文档/SDK 类型双重确认**为准。OpenAI Responses：`store` 默认 false（故本地重放，不发 `previous_response_id`）；`output_text.delta.obfuscation` 必剥；推理等级按模型配置门控。Anthropic Messages：`max_tokens` 必填、系统提示词是顶层 `system`、消息角色仅 user/assistant、SSE 是按 index 分块的增量协议。两条路径的错误都归一为 `UpstreamError` 与本站统一终态。
 
 - `client.ts` `ProviderClient`：唯一对上游 fetch 的地方。OpenAI 用 `Authorization: Bearer` + `joinBaseUrl`；Anthropic 用 `x-api-key`、`anthropic-version: 2023-06-01` + `joinAnthropicUrl`，后者同时兼容根地址与已含 `/v1` 的网关。方法：`listModels`（Anthropic 自动按 `after_id` 分页并保留 capabilities/max_tokens）、`createResponse(Stream)`、`createChat(Stream)`、`createAnthropicMessage(Stream)`、`createImage`/`editImage`。JSON body 在每次 fetch 前序列化，自动重试使用原始请求输入；不在应用内固化上游请求体容量上限。

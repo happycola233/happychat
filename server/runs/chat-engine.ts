@@ -4,6 +4,7 @@ import { mapChatUsage } from '../provider/chat'
 import { classifyChatTerminal } from '../provider/chat-terminal'
 import { providerClientFromRow } from '../provider/client'
 import { UpstreamError } from '../provider/errors'
+import { collectProviderOpaqueStrings } from '../provider/opaque-content'
 import type { FinalizeArgs } from './finalize'
 import type { EngineContext } from './types'
 import { executeRun, type RunAttemptRuntime } from './execute-run'
@@ -134,7 +135,9 @@ async function runChatAttempt(
       const ue = e instanceof UpstreamError ? e : null
       recordError(ue)
       state = 'failed'
-      errorMessage = ue?.message ?? (e instanceof Error ? e.message : '生成失败')
+      errorMessage =
+        ue?.toUserMessage(collectProviderOpaqueStrings(ctx.body)) ??
+        (e instanceof Error ? e.message : '生成失败')
       errorType = ue?.type ?? null
       errorCode = ue?.code ?? null
       httpStatus = ue?.status ?? null

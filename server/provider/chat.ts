@@ -3,7 +3,7 @@ import type { MessageUsage, ModelParams } from '@shared/types/domain'
 import { effectiveReasoningEffort } from '@shared/util/reasoning'
 import { commentaryTextsOf } from '@shared/util/processTrack'
 import type { PathMessage, ResolvedAttachment } from './context'
-import { friendlyUpstreamMessage, UpstreamError } from './errors'
+import { UpstreamError } from './errors'
 import { isPlainObject, mergeDeep, type RequestModelConfig } from './params'
 import { applyPromptCacheKey } from './promptCache'
 
@@ -243,12 +243,6 @@ function parseChatBlock(block: string): ChatStreamEvent | null {
         ? String(error.code)
         : undefined
     throw new UpstreamError({
-      message: friendlyUpstreamMessage({
-        type: errorType,
-        code: errorCode,
-        rawMessage,
-        status: 200,
-      }),
       status: 200,
       type: errorType,
       code: errorCode,

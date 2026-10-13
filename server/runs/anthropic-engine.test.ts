@@ -951,7 +951,7 @@ describe('runAnthropicEngine', () => {
 
   it('上游错误回显不会泄漏 Anthropic opaque 内容', async () => {
     const fixture = await createFixture()
-    const opaqueSignature = 'opaque-signature-in-error'
+    const opaqueSignature = 'opaque-signature-in-error-' + 'x'.repeat(600)
     vi.stubGlobal(
       'fetch',
       vi.fn<typeof fetch>().mockResolvedValue(
@@ -994,7 +994,7 @@ describe('runAnthropicEngine', () => {
       .where(eq(schema.runEvents.runId, fixture.run.id))
 
     expect(JSON.stringify({ storedMessage, storedRun, storedErrors, browserEvents })).not.toContain(
-      opaqueSignature,
+      'opaque-signature-in-error-',
     )
     expect(storedMessage?.errorMessage).toContain('[provider opaque content omitted]')
     expect(storedErrors).toEqual([

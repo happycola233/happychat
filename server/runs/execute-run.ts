@@ -18,8 +18,8 @@ import { runEmitter } from './emitter'
 import {
   collectProviderOpaqueStrings,
   redactProviderOpaqueContent,
-  sanitizeEventData,
-} from './event-sanitize'
+} from '../provider/opaque-content'
+import { sanitizeEventData } from './event-sanitize'
 import { finalizeRun, type FinalizeArgs } from './finalize'
 import { removeGeneratedImageAttachments } from './generated-images'
 import type { EngineContext } from './types'

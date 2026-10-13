@@ -128,6 +128,40 @@ describe('上游错误提示与诊断原文', () => {
     expect(friendlyUpstreamMessage({ type: 'mystery', status: 200 })).toBe('上游请求失败。')
   })
 
+  it.each(['encrypted_content', 'encrypted_index', 'signature'])(
+    '先脱敏完整 %s JSON 值，再截断摘要',
+    (key) => {
+      const opaqueValue = 'test-private-prefix-' + 'x'.repeat(600)
+      const message = friendlyUpstreamMessage({
+        type: 'invalid_request_error',
+        status: 400,
+        rawMessage: `Invalid field: ${JSON.stringify({ [key]: opaqueValue })}. Please replace it.`,
+      })
+      expect(message).not.toContain('test-private-prefix-')
+      expect(message).toContain(`"${key}":null`)
+      expect(message).toContain('Please replace it.')
+    },
+  )
+
+  it('拿到私有值集合后从完整原文重建摘要，先于空白折叠和截断脱敏', async () => {
+    const opaqueValue = 'test-private-prefix-\n' + 'x'.repeat(600)
+    const rawMessage = `Invalid field ${opaqueValue}. Please replace it.`
+    const error = await toUpstreamError(
+      new Response(
+        JSON.stringify({ error: { type: 'invalid_request_error', message: rawMessage } }),
+        {
+          status: 400,
+        },
+      ),
+    )
+    const message = error.toUserMessage([opaqueValue])
+    expect(message).not.toContain('test-private-prefix-')
+    expect(message).toContain('[provider opaque content omitted]')
+    expect(message).toContain('Please replace it.')
+    // 兼容降级仍须读取未经改写的诊断原文。
+    expect(error.rawMessage).toBe(rawMessage)
+  })
+
   it('纯文本错误保留诊断信息，空正文仍显示状态码', async () => {
     const textError = await toUpstreamError(new Response('Gateway unavailable', { status: 502 }))
     expect(textError).toMatchObject({
@@ -151,6 +185,10 @@ describe('上游错误提示与诊断原文', () => {
       rawMessage: 'fetch failed（ECONNREFUSED: connect ECONNREFUSED 10.0.0.5:443）',
     })
     expect(networkError(new TypeError('terminated'), 'response').message).toBe(
+      '与上游服务的连接在响应过程中断开。',
+    )
+    expect(error.toUserMessage()).toBe('无法连接上游服务。')
+    expect(networkError(new TypeError('terminated'), 'response').toUserMessage()).toBe(
       '与上游服务的连接在响应过程中断开。',
     )
   })

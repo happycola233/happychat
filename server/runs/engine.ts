@@ -33,7 +33,10 @@ import {
   type ResponsesTerminalState,
 } from '../provider/responses-terminal'
 import type { UpstreamOutputItem, UpstreamResponse } from '../provider/upstream-types'
-import { collectProviderOpaqueStrings, redactProviderOpaqueContent } from './event-sanitize'
+import {
+  collectProviderOpaqueStrings,
+  redactProviderOpaqueContent,
+} from '../provider/opaque-content'
 import { reconcileFinalResponse } from './final-response'
 import type { FinalizeArgs } from './finalize'
 import { removeGeneratedImageAttachments, storeGeneratedImageAttachment } from './generated-images'
@@ -600,15 +603,13 @@ async function runResponseAttempt(
         ...collectProviderOpaqueStrings(response),
       ]
       recordError({ rawMessage: response?.error?.message }, sensitiveValues)
-      const terminalErrorMessage = redactProviderOpaqueContent(
-        friendlyUpstreamMessage({
-          type: terminal.errorType ?? undefined,
-          code: terminal.errorCode ?? undefined,
-          rawMessage: response?.error?.message,
-          status: 200,
-        }),
+      const terminalErrorMessage = friendlyUpstreamMessage({
+        type: terminal.errorType ?? undefined,
+        code: terminal.errorCode ?? undefined,
+        rawMessage: response?.error?.message,
+        status: 200,
         sensitiveValues,
-      )
+      })
       return { terminal, errorMessage: terminalErrorMessage }
     }
 
@@ -852,15 +853,13 @@ async function runResponseAttempt(
             ...collectProviderOpaqueStrings(ev.data),
           ]
           recordError({ rawMessage }, sensitiveValues)
-          errorMessage = redactProviderOpaqueContent(
-            friendlyUpstreamMessage({
-              type: errorType,
-              code: errorCode ?? undefined,
-              rawMessage,
-              status: 200,
-            }),
+          errorMessage = friendlyUpstreamMessage({
+            type: errorType,
+            code: errorCode ?? undefined,
+            rawMessage,
+            status: 200,
             sensitiveValues,
-          )
+          })
           break
         }
         default:
@@ -885,10 +884,11 @@ async function runResponseAttempt(
       const ue = e instanceof UpstreamError ? e : null
       recordError(ue, [...sensitiveProviderContent])
       state = 'failed'
-      errorMessage = redactProviderOpaqueContent(
-        ue?.message ?? (e instanceof Error ? e.message : '生成失败'),
-        [...sensitiveProviderContent],
-      )
+      errorMessage = ue
+        ? ue.toUserMessage([...sensitiveProviderContent])
+        : redactProviderOpaqueContent(e instanceof Error ? e.message : '生成失败', [
+            ...sensitiveProviderContent,
+          ])
       errorType = ue?.type
         ? redactProviderOpaqueContent(ue.type, [...sensitiveProviderContent])
         : null

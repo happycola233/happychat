@@ -1,4 +1,5 @@
 import { classifyRunError } from '@shared/util/runError'
+import { redactProviderOpaqueContent } from './opaque-content'
 
 /** 上游/网络错误的归一异常，携带友好中文 message 及原始 type/code 供日志记录。 */
 export class UpstreamError extends Error {
@@ -7,21 +8,36 @@ export class UpstreamError extends Error {
   readonly code?: string
   readonly rawMessage?: string
   readonly retryAfterMs: number
+  private readonly messageOverride?: string
   constructor(opts: {
-    message: string
+    message?: string
     status: number
     type?: string
     code?: string
     rawMessage?: string
     retryAfterMs?: number
   }) {
-    super(opts.message)
+    super(opts.message ?? friendlyUpstreamMessage(opts))
     this.name = 'UpstreamError'
     this.status = opts.status
     this.type = opts.type
     this.code = opts.code
     this.rawMessage = opts.rawMessage
     this.retryAfterMs = opts.retryAfterMs ?? 0
+    this.messageOverride = opts.message
+  }
+
+  /** 引擎掌握请求与流中的私有值后，从完整原文重建摘要，不能对已截断的 message 再脱敏。 */
+  toUserMessage(sensitiveValues: readonly string[] = []): string {
+    return this.messageOverride !== undefined
+      ? redactProviderOpaqueContent(this.messageOverride, sensitiveValues)
+      : friendlyUpstreamMessage({
+          type: this.type,
+          code: this.code,
+          status: this.status,
+          rawMessage: this.rawMessage,
+          sensitiveValues,
+        })
   }
 }
 
@@ -33,9 +49,12 @@ interface UpstreamErrorBody {
 const UPSTREAM_TEXT_EXCERPT_MAX = 300
 
 /** 网关可能返回或在 JSON 中包装整张 HTML 错误页；这类原文只用于诊断，不拼进用户提示。 */
-function upstreamTextExcerpt(rawMessage: string | undefined): string | null {
+function upstreamTextExcerpt(
+  rawMessage: string | undefined,
+  sensitiveValues: readonly string[],
+): string | null {
   if (!rawMessage || /<!doctype\s+html\b|<html\b/i.test(rawMessage)) return null
-  const text = rawMessage.replace(/\s+/g, ' ').trim()
+  const text = redactProviderOpaqueContent(rawMessage, sensitiveValues).replace(/\s+/g, ' ').trim()
   if (!text) return null
   return text.length > UPSTREAM_TEXT_EXCERPT_MAX
     ? `${text.slice(0, UPSTREAM_TEXT_EXCERPT_MAX)}…`
@@ -47,6 +66,7 @@ export interface UpstreamFailureInput {
   code?: string
   rawMessage?: string
   status: number
+  sensitiveValues?: readonly string[]
 }
 
 /**
@@ -59,6 +79,7 @@ export function friendlyUpstreamMessage({
   code,
   rawMessage,
   status,
+  sensitiveValues = [],
 }: UpstreamFailureInput): string {
   const kind = classifyRunError({
     errorType: type ?? null,
@@ -94,11 +115,11 @@ export function friendlyUpstreamMessage({
     case 'invalid_response':
       return '上游返回了无法识别的响应。'
     case 'invalid_request': {
-      const excerpt = upstreamTextExcerpt(rawMessage)
+      const excerpt = upstreamTextExcerpt(rawMessage, sensitiveValues)
       return excerpt ? `上游不接受本次请求：${excerpt}` : '上游不接受本次请求的参数。'
     }
     case 'other':
-      return upstreamTextExcerpt(rawMessage) ?? `上游请求失败${httpLabel}。`
+      return upstreamTextExcerpt(rawMessage, sensitiveValues) ?? `上游请求失败${httpLabel}。`
   }
 }
 
@@ -114,12 +135,6 @@ export async function toUpstreamError(res: Response): Promise<UpstreamError> {
   }
   const err = body?.error
   return new UpstreamError({
-    message: friendlyUpstreamMessage({
-      type: err?.type,
-      code: err?.code,
-      rawMessage,
-      status: res.status,
-    }),
     status: res.status,
     type: err?.type,
     code: err?.code,

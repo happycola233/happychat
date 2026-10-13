@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   collectProviderOpaqueStrings,
   redactProviderOpaqueContent,
-  sanitizeEventData,
-} from './event-sanitize'
+} from '../provider/opaque-content'
+import { sanitizeEventData } from './event-sanitize'
 
 describe('sanitizeEventData', () => {
   it.each(['response.output_item.added', 'response.output_item.done'])(

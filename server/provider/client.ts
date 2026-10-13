@@ -3,7 +3,7 @@ import type { AnthropicCatalogCapabilities } from '@shared/util/anthropic'
 import { joinAnthropicUrl, joinBaseUrl } from '@shared/util/url'
 import type { providers } from '../db/schema'
 import { type ChatStreamEvent, parseChatStream } from './chat'
-import { UpstreamError, friendlyUpstreamMessage, networkError, toUpstreamError } from './errors'
+import { UpstreamError, networkError, toUpstreamError } from './errors'
 import type { UpstreamResponseTimingObserver } from './response-timing'
 import { parseSSEStream, type StreamEvent } from './sse-parse'
 import type { UpstreamResponse } from './upstream-types'
@@ -226,12 +226,6 @@ export class ProviderClient {
       ?.error
     if (error)
       throw new UpstreamError({
-        message: friendlyUpstreamMessage({
-          type: error.type,
-          code: error.code,
-          rawMessage: error.message,
-          status: res.status,
-        }),
         status: res.status,
         type: error.type,
         code: error.code,

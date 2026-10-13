@@ -13,7 +13,10 @@ import { providerClientFromRow } from '../provider/client'
 import { UpstreamError } from '../provider/errors'
 import { isPlainObject } from '../provider/params'
 import type { AnthropicReplayContextV1 } from '../provider/reasoning-replay'
-import { collectProviderOpaqueStrings, redactProviderOpaqueContent } from './event-sanitize'
+import {
+  collectProviderOpaqueStrings,
+  redactProviderOpaqueContent,
+} from '../provider/opaque-content'
 import type { FinalizeArgs } from './finalize'
 import type { EngineContext } from './types'
 import { executeRun, type RunAttemptRuntime } from './execute-run'
@@ -291,10 +294,11 @@ async function runAnthropicAttempt(
       const upstreamError = error instanceof UpstreamError ? error : null
       recordError(upstreamError, [...sensitiveProviderContent])
       state = 'failed'
-      errorMessage = redactProviderOpaqueContent(
-        upstreamError?.message ?? (error instanceof Error ? error.message : '生成失败'),
-        [...sensitiveProviderContent],
-      )
+      errorMessage = upstreamError
+        ? upstreamError.toUserMessage([...sensitiveProviderContent])
+        : redactProviderOpaqueContent(error instanceof Error ? error.message : '生成失败', [
+            ...sensitiveProviderContent,
+          ])
       errorType = upstreamError?.type
         ? redactProviderOpaqueContent(upstreamError.type, [...sensitiveProviderContent])
         : error instanceof Error

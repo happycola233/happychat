@@ -1,7 +1,7 @@
 import { isPlainObject } from './params'
 import type { StreamEvent } from './sse-parse'
 import type { AnthropicContentBlock, AnthropicUsage } from './anthropic'
-import { friendlyUpstreamMessage, UpstreamError } from './errors'
+import { UpstreamError } from './errors'
 
 export type AnthropicStreamEffect =
   | { type: 'text'; index: number; delta: string }
@@ -211,7 +211,6 @@ export class AnthropicStreamAccumulator {
           typeof error.message === 'string' ? error.message : 'Anthropic 流式响应失败'
         const status = anthropicStreamErrorStatus(type)
         throw new UpstreamError({
-          message: friendlyUpstreamMessage({ type, rawMessage, status }),
           status,
           type,
           rawMessage,

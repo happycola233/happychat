@@ -1,6 +1,7 @@
 import type { ContentPart, ImageGenerationUsage, MessageUsage } from '@shared/types/domain'
 import { providerClientFromRow } from '../provider/client'
 import { UpstreamError } from '../provider/errors'
+import { collectProviderOpaqueStrings } from '../provider/opaque-content'
 import { parseImageGenerationUsage } from '../provider/image-usage'
 import { executeRun, type RunAttemptRuntime } from './execute-run'
 import type { FinalizeArgs } from './finalize'
@@ -105,7 +106,9 @@ async function runImageAttempt(
       const upstream = error instanceof UpstreamError ? error : null
       recordError(upstream)
       state = 'failed'
-      errorMessage = upstream?.message ?? (error instanceof Error ? error.message : '生成失败')
+      errorMessage =
+        upstream?.toUserMessage(collectProviderOpaqueStrings(ctx.body)) ??
+        (error instanceof Error ? error.message : '生成失败')
       errorType = upstream?.type ?? null
       errorCode = upstream?.code ?? null
       httpStatus = upstream?.status ?? null

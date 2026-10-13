@@ -969,6 +969,67 @@ describe('runEngine reasoning replay privacy and terminal handling', () => {
     ).toMatchObject({ rawMessage: 'upstream generation failed' })
   })
 
+  it.each(['http', 'error', 'response.failed'])(
+    '%s 错误摘要不会泄漏被截断的长推理密文前缀',
+    async (failureKind) => {
+      const opaqueContext = 'long-test-private-prefix-' + 'x'.repeat(600)
+      const fixture = await createEngineFixture([
+        { type: 'reasoning', id: 'rs-long-error', encrypted_content: opaqueContext },
+      ])
+      const failure = {
+        type: 'invalid_request_error',
+        code: 'invalid_value',
+        message: `Invalid field ${opaqueContext}. Please replace it.`,
+      }
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () =>
+          failureKind === 'http'
+            ? new Response(JSON.stringify({ error: failure }), { status: 400 })
+            : sseResponse([
+                failureKind === 'error'
+                  ? { ...failure, type: 'error' }
+                  : { type: 'response.failed', response: { status: 'failed', error: failure } },
+              ]),
+        ),
+      )
+
+      await engine.runEngine(fixture)
+
+      const storedMessage = dbClient.db
+        .select()
+        .from(schema.messages)
+        .where(eq(schema.messages.id, fixture.assistantMessage.id))
+        .get()
+      const storedRun = dbClient.db
+        .select()
+        .from(schema.runs)
+        .where(eq(schema.runs.id, fixture.run.id))
+        .get()
+      const storedErrors = dbClient.db
+        .select()
+        .from(schema.errorLogs)
+        .where(eq(schema.errorLogs.runId, fixture.run.id))
+        .all()
+      const storedEvents = dbClient.db
+        .select()
+        .from(schema.runEvents)
+        .where(eq(schema.runEvents.runId, fixture.run.id))
+        .all()
+      const usageLogs = dbClient.db
+        .select()
+        .from(schema.usageLogs)
+        .where(eq(schema.usageLogs.runId, fixture.run.id))
+        .all()
+      expect(
+        JSON.stringify({ storedMessage, storedRun, storedErrors, storedEvents, usageLogs }),
+      ).not.toContain('long-test-private-prefix-')
+      expect(storedMessage?.errorMessage).toContain('[provider opaque content omitted]')
+      expect(storedMessage?.errorMessage).toContain('Please replace it.')
+      expect(storedEvents.at(-1)?.data.message).toBe(storedMessage?.errorMessage)
+    },
+  )
+
   it('retries an invalid history only before streaming and redacts echoed ciphertext on failure', async () => {
     const historyCiphertext = 'history-request-ciphertext'
     const fixture = await createEngineFixture([
