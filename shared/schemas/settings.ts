@@ -12,6 +12,7 @@ export const modelPickerViewSchema = z.enum(MODEL_PICKER_VIEWS)
 export const userPreferencesPatchSchema = z
   .object({
     contextPolicy: contextPolicySchema,
+    compressUploadedImages: z.boolean(),
     autoScrollOnOpen: z.boolean(),
     showScrollToBottom: z.boolean(),
     showTimelineNav: z.boolean(),

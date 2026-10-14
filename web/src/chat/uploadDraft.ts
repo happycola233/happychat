@@ -72,6 +72,9 @@ export function finishUploadDraft(
 ): UploadDraftItem[] {
   return patchUploadDraft(items, localId, (item) => ({
     ...item,
+    filename: attachment.filename,
+    mime: attachment.mime,
+    byteSize: attachment.byteSize,
     status: 'done',
     progress: 1,
     attachment,

@@ -474,6 +474,8 @@ export interface UserPreferences {
   /** 新聊天的上下文默认值；已有聊天保存独立快照。 */
   contextPolicy: import('./context').ContextPolicy
   // —— 聊天行为 ——
+  /** 上传时压缩聊天图片，保留原始分辨率，默认开启。 */
+  compressUploadedImages: boolean
   /** 打开对话时自动滚动到最新消息 */
   autoScrollOnOpen: boolean
   /** 显示「滚动到底部」浮动按钮 */

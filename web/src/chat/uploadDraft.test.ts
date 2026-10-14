@@ -73,6 +73,18 @@ describe('上传状态流转', () => {
     expect(items[0]).toMatchObject({ status: 'done', progress: 1, attachment })
   })
 
+  it('压缩完成后使用实际附件的文件名、格式和大小，保留即时预览', () => {
+    const compressed = { ...attachment, filename: 'photo.webp', mime: 'image/webp', byteSize: 8 }
+    expect(finishUploadDraft(base, 'u1', compressed)[0]).toMatchObject({
+      filename: 'photo.webp',
+      mime: 'image/webp',
+      byteSize: 8,
+      previewUrl: 'blob:x',
+      status: 'done',
+      attachment: compressed,
+    })
+  })
+
   it('失败记录错误信息，重试回到 uploading 起点', () => {
     let items = failUploadDraft(base, 'u1', '网络错误')
     expect(items[0]).toMatchObject({ status: 'error', errorMessage: '网络错误' })

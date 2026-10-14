@@ -9,6 +9,7 @@ describe('mergePreferences', () => {
         uploads: { mode: 'all' },
         generatedImages: { mode: 'items', limit: 12 },
       },
+      compressUploadedImages: true,
       autoScrollOnOpen: true,
       showScrollToBottom: true,
       showTimelineNav: true,
@@ -31,6 +32,11 @@ describe('mergePreferences', () => {
   it('returns a complete copy of defaults for null/undefined', () => {
     expect(mergePreferences(null)).toEqual(DEFAULT_PREFERENCES)
     expect(mergePreferences(undefined)).toEqual(DEFAULT_PREFERENCES)
+  })
+
+  it('旧账号默认压缩新上传图片，并保留用户关闭的选择', () => {
+    expect(mergePreferences({ showMessageTime: false }).compressUploadedImages).toBe(true)
+    expect(mergePreferences({ compressUploadedImages: false }).compressUploadedImages).toBe(false)
   })
 
   it('旧偏好默认在右侧显示时间轴，并保留用户选择的左侧位置', () => {

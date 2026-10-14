@@ -339,6 +339,14 @@ function GeneralPanel() {
         />
       </SettingsSection>
 
+      <SettingsSection title="图片上传">
+        <PrefToggleRow
+          prefKey="compressUploadedImages"
+          title="压缩上传图片"
+          desc="保持原始分辨率，以轻微、通常难以察觉的有损压缩减小文件体积，降低请求过大导致发送失败的可能。仅对新上传的图片生效，关闭后上传原图。"
+        />
+      </SettingsSection>
+
       <SettingsSection title="滚动与导航">
         <PrefToggleRow
           prefKey="autoScrollOnOpen"

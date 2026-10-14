@@ -7,6 +7,8 @@ import { requireUser } from '../auth/middleware'
 import { newId } from '../lib/id'
 import { readUpload, removeUploadStrict, saveUpload, sha256 } from '../storage/files'
 import type { AppEnv } from '../http/types'
+import { getUserSettings } from '../services/settings'
+import { compressChatImage } from '../services/image-compression'
 
 export const attachmentRoutes = new Hono<AppEnv>()
 
@@ -20,9 +22,9 @@ attachmentRoutes.post('/', async (c) => {
     return c.json({ error: { message: '未收到文件', code: 'no_file' } }, 400)
   }
 
-  const filename = file.name || 'file'
-  const mime = uploadMime(filename, file.type)
-  if (!mime) {
+  const originalFilename = file.name || 'file'
+  const originalMime = uploadMime(originalFilename, file.type)
+  if (!originalMime) {
     return c.json(
       {
         error: {
@@ -34,14 +36,23 @@ attachmentRoutes.post('/', async (c) => {
     )
   }
 
-  const kind = isImageMime(mime) ? 'image' : 'file'
+  const kind = isImageMime(originalMime) ? 'image' : 'file'
   if (file.size === 0) {
     return c.json({ error: { message: '文件为空', code: 'empty' } }, 400)
   }
 
-  const buf = Buffer.from(await file.arrayBuffer())
+  const originalUpload = {
+    buffer: Buffer.from(await file.arrayBuffer()),
+    filename: originalFilename,
+    mime: originalMime,
+  }
+  const upload =
+    kind === 'image' && (await getUserSettings(user.id)).preferences.compressUploadedImages
+      ? await compressChatImage(originalUpload)
+      : originalUpload
+  const { buffer, filename, mime } = upload
   const id = newId()
-  const storagePath = saveUpload(user.id, id, filename, mime, buf)
+  const storagePath = saveUpload(user.id, id, filename, mime, buffer)
 
   try {
     await db.insert(attachments).values({
@@ -50,9 +61,9 @@ attachmentRoutes.post('/', async (c) => {
       kind,
       mime,
       filename,
-      byteSize: file.size,
+      byteSize: buffer.length,
       storagePath,
-      sha256: sha256(buf),
+      sha256: sha256(buffer),
     })
   } catch (error) {
     // 文件已先落盘；DB 写入失败时立即回滚，避免产生清理任务无法发现的裸磁盘文件。
@@ -65,7 +76,7 @@ attachmentRoutes.post('/', async (c) => {
     throw error
   }
 
-  return c.json({ attachment: { id, kind, mime, filename, byteSize: file.size } })
+  return c.json({ attachment: { id, kind, mime, filename, byteSize: buffer.length } })
 })
 
 attachmentRoutes.get('/:id', async (c) => {

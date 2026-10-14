@@ -22,6 +22,16 @@ describe('updateProfileSchema', () => {
 })
 
 describe('updateSettingsSchema', () => {
+  it('允许单独开关图片压缩，并拒绝非布尔值', () => {
+    for (const compressUploadedImages of [true, false]) {
+      expect(updateSettingsSchema.parse({ preferences: { compressUploadedImages } })).toEqual({
+        preferences: { compressUploadedImages },
+      })
+    }
+    expect(
+      updateSettingsSchema.safeParse({ preferences: { compressUploadedImages: 'false' } }).success,
+    ).toBe(false)
+  })
   it('接受左右导航位置，拒绝未知位置', () => {
     for (const timelineNavPosition of ['left', 'right']) {
       expect(updateSettingsSchema.safeParse({ preferences: { timelineNavPosition } }).success).toBe(
