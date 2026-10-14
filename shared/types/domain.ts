@@ -3,7 +3,7 @@
 export type UserRole = 'admin' | 'user'
 export type Role = 'user' | 'assistant' | 'system'
 
-/** 聊天消息用量行支持的成本展示币种；底层成本始终以 USD 保存。 */
+/** 模型定价、费用统计及金额额度使用的币种。 */
 export type CostCurrency = 'USD' | 'CNY'
 
 /** 上游原生协议；决定鉴权头、版本路径与模型目录的解析方式。 */
@@ -135,8 +135,8 @@ export interface ModelParams {
 /** 管理员硬参数：强制合并进上游请求，不暴露给普通用户（如 reasoning.summary='auto'、store=false、include） */
 export type ModelHardParams = Record<string, unknown>
 
-/** 按模型定价（USD / 每 100 万 token）；留空的项不计入成本估算。 */
-export interface ModelPricing {
+/** 按每 100 万 Token 报价；币种由所在价目表指定。 */
+export interface TokenPricing {
   /** 既未写入缓存、也未从缓存读取的普通输入 token 单价。 */
   input?: number
   /** 写入提示词缓存的输入 token 单价。未配置时新请求按 0 计费。 */
@@ -144,11 +144,50 @@ export interface ModelPricing {
   /** 从提示词缓存读取的输入 token 单价。未配置时成本估算回退到普通输入价。 */
   cachedInput?: number
   output?: number
+}
+
+export interface ContextPricingTier extends TokenPricing {
+  /** 严格超过此输入量才进入该档，整次调用按该档单价结算。 */
+  aboveInputTokens: number
+}
+
+export interface PricingTable extends TokenPricing {
   /** 仅供旧价格快照回算；新配置使用 imageGeneration。 */
   image?: number
   imageGeneration?: ImageGenerationPricing
+  contextTiers?: ContextPricingTier[]
+}
+
+export interface PricingPeriod {
+  id: string
+  label: string
+  /** ISO 星期：周一=1，周日=7；跨午夜时按开始日期归属。 */
+  weekdays: number[]
+  start: string
+  end: string
+  /** 独立价目表，不与基础价格叠加。 */
+  pricing: PricingTable
+}
+
+export interface PricingSchedule extends PricingTable {
+  currency?: CostCurrency
+  timezone?: string
+  periods?: PricingPeriod[]
+  /** 所列本地日期使用基础价，可用于节假日。 */
+  excludedDates?: string[]
+}
+
+export interface ExchangeRateSnapshot {
+  usdToCny: number
+  fetchedAt: number
+}
+
+export interface ModelPricing extends PricingSchedule {
   /** 引用同供应商的纯生图模型定价；请求开始时解析并冻结实际价格。 */
   imagePricingModelId?: string
+  /** 以下字段只写请求快照，管理端不能提交。 */
+  imagePricingSnapshot?: PricingSchedule
+  exchangeRate?: ExchangeRateSnapshot
 }
 
 export type ImageGenerationPricing =
@@ -168,6 +207,7 @@ export type ImageGenerationPricing =
 
 /** 每次生图的独立用量；null 表示上游未报告，不能当作免费。 */
 export interface ImageGenerationUsage {
+  startedAt?: number
   model: string | null
   imageCount: number
   size: string | null
@@ -183,8 +223,31 @@ export interface RequestCostBreakdown {
   chatUsd: number
   imageUsd: number
   totalUsd: number
+  totalCny?: number | null
+  exchangeRate?: ExchangeRateSnapshot
+  charges?: RequestCostCharge[]
   imageCount: number
   imageStatus: 'complete' | 'missing_usage' | 'missing_pricing'
+}
+
+export interface RequestCostCharge {
+  kind: 'chat' | 'image'
+  currency: CostCurrency
+  amount: number
+  period: string
+  aboveInputTokens?: number
+  inputTokens?: number
+  unitPrices?: TokenPricing
+  startedAt: number
+}
+
+/** 单次上游调用的用量；重试/续跑必须分别选取上下文档位。 */
+export interface BillingUsage {
+  inputTokens: number
+  cacheWriteTokens: number
+  cachedTokens: number
+  outputTokens: number
+  startedAt: number
 }
 
 export type ModelKind = 'responses' | 'chat' | 'anthropic' | 'image'
@@ -203,7 +266,7 @@ export type ModelAccessMode = 'all' | 'selected'
 /**
  * 限额计量口径。
  * - requests：成功请求次数（上游失败不计费，也不消耗用户额度）
- * - cost：预估消费金额，**恒为 USD**（用量成本只以 USD 落库，限额不做任何汇率换算）
+ * - cost：按规则币种累计已结算消费。
  */
 export type QuotaMetric = 'requests' | 'cost'
 
@@ -250,6 +313,7 @@ export type QuotaLimit = { kind: 'unlimited' } | { kind: 'amount'; value: number
  * 编辑策略时绝不能重新生成已有规则的 id。
  */
 export interface QuotaRule {
+  currency?: CostCurrency
   id: string
   /** 可选备注，用于管理端列表与用户端进度条标题 */
   label: string | null
@@ -377,6 +441,7 @@ export type ContentPart =
   | { type: 'image_result'; attachment_id: string; revised_prompt?: string }
 
 export interface MessageUsage {
+  billingSegments?: BillingUsage[]
   /** 最近一次上游请求的输入量；续跑/重试累计用量时保留，用于上下文提醒。旧消息可缺省。 */
   lastInputTokens?: number
   /** 上游报告的总输入 token，包含缓存写入与缓存读取 token。 */

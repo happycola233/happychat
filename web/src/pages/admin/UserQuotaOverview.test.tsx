@@ -64,7 +64,7 @@ const stat = (patch: Partial<UserStatDTO> = {}): UserStatDTO => ({
   reasoningTokens: 0,
   imageGenerations: 0,
   fileUploads: 0,
-  costUsd: 3.5,
+  cost: 3.5,
   errors: 0,
   successRate: 1,
   lastUsageAt: 1,
@@ -90,7 +90,7 @@ describe('UserQuotaOverview', () => {
             rules: [],
           }),
         ]}
-        stats={[stat(), stat({ userId: 'u2', username: 'bob', costUsd: 9, requests: 4 })]}
+        stats={[stat(), stat({ userId: 'u2', username: 'bob', cost: 9, requests: 4 })]}
         statsLoading={false}
         rangeKey="7d"
         onRangeKeyChange={vi.fn()}

@@ -1,7 +1,7 @@
+import { formatCurrency } from '../../lib/format'
 import { clsx } from 'clsx'
 import { X } from 'lucide-react'
 import type { AdminUserQuotaDTO, UserStatDTO } from '@shared/types/api'
-import { formatQuotaCostUsd } from '@shared/util/quota'
 import { cardSurface } from '../../components/ui/Card'
 import { SegmentedControl } from '../../components/ui/SegmentedControl'
 import { Spinner } from '../../components/ui/Spinner'
@@ -116,7 +116,7 @@ function UsageRow({
               {row.user.username}
             </span>
             <span className="shrink-0 text-sm font-semibold tabular-nums text-neutral-800 dark:text-neutral-100">
-              {formatQuotaCostUsd(row.costUsd)}
+              {formatCurrency(row.cost)}
             </span>
           </div>
           <div className="mt-0.5 flex items-center justify-between gap-3 text-[11px] text-neutral-400 dark:text-neutral-500">
@@ -306,7 +306,7 @@ export function UserQuotaOverview({
         />
         <Kpi
           label={`近 ${rangeLabel}消费`}
-          value={statsLoading && !stats ? '…' : formatQuotaCostUsd(summary.recentCostUsd)}
+          value={statsLoading && !stats ? '…' : formatCurrency(summary.recentCost)}
           hint={
             statsLoading && !stats
               ? '正在汇总对话用量'

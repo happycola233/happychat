@@ -9,9 +9,9 @@ const stats = {
       ts: Date.parse('2026-11-01T05:00:00Z'),
       requests: 2,
       totalTokens: 1234567,
-      costUsd: 0.000001234567,
+      cost: 0.000001234567,
     },
-    { ts: Date.parse('2026-11-01T06:00:00Z'), requests: 3, totalTokens: 543, costUsd: 0.23 },
+    { ts: Date.parse('2026-11-01T06:00:00Z'), requests: 3, totalTokens: 543, cost: 0.23 },
   ],
   byModel: [
     {
@@ -19,12 +19,12 @@ const stats = {
       modelLabel: '示例, "模型"\n历史版本',
       requests: 2,
       totalTokens: 1234567,
-      costUsd: 0.000001234567,
+      cost: 0.000001234567,
     },
   ],
   heatmap: [
-    { date: '2026-10-31', requests: 0, totalTokens: 0, costUsd: 0 },
-    { date: '2026-11-01', requests: 5, totalTokens: 1235110, costUsd: 0.230001234567 },
+    { date: '2026-10-31', requests: 0, totalTokens: 0, cost: 0 },
+    { date: '2026-11-01', requests: 5, totalTokens: 1235110, cost: 0.230001234567 },
   ],
 }
 

@@ -3,11 +3,11 @@ import { ArrowUpRight } from 'lucide-react'
 import type { UsageBreakdownDTO } from '@shared/types/api'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { Select } from '../../components/ui/Select'
-import { formatCompact, formatInt, formatPercent, formatUsd } from '../../lib/format'
+import { formatCompact, formatInt, formatPercent, formatCurrency } from '../../lib/format'
 import { DashboardPanel } from './DashboardPrimitives'
 
-type Metric = 'costUsd' | 'requests' | 'totalTokens'
-const FORMATS = { costUsd: formatUsd, requests: formatInt, totalTokens: formatCompact }
+type Metric = 'cost' | 'requests' | 'totalTokens'
+const FORMATS = { cost: formatCurrency, requests: formatInt, totalTokens: formatCompact }
 
 export function UsageRanking({
   title,
@@ -18,7 +18,7 @@ export function UsageRanking({
   rows: UsageBreakdownDTO[]
   onSelect: (id: string) => void
 }) {
-  const [metric, setMetric] = useState<Metric>('costUsd')
+  const [metric, setMetric] = useState<Metric>('cost')
   const [expanded, setExpanded] = useState(false)
   const sorted = [...rows].sort((a, b) => b[metric] - a[metric] || b.requests - a.requests)
   const total = rows.reduce((sum, row) => sum + row[metric], 0)
@@ -34,7 +34,7 @@ export function UsageRanking({
           value={metric}
           onChange={(event) => setMetric(event.target.value as Metric)}
           options={[
-            { value: 'costUsd', label: '按成本' },
+            { value: 'cost', label: '按成本' },
             { value: 'requests', label: '按请求' },
             { value: 'totalTokens', label: '按 Token' },
           ]}
@@ -69,7 +69,7 @@ export function UsageRanking({
                   )}
                   <span
                     title={
-                      metric === 'costUsd'
+                      metric === 'cost'
                         ? `$${row[metric].toLocaleString('en-US', { maximumFractionDigits: 6 })}`
                         : formatInt(row[metric])
                     }

@@ -204,7 +204,7 @@ export function QuotaRuleEditor({
               active={draft.metric === 'cost'}
               onClick={() => patch({ metric: 'cost' })}
             >
-              消费金额（$）
+              消费金额
             </SegmentButton>
             <SegmentButton
               active={draft.metric === 'requests'}
@@ -215,6 +215,25 @@ export function QuotaRuleEditor({
           </div>
         </div>
 
+        {draft.metric === 'cost' && (
+          <div>
+            <span className={FIELD_LABEL_CLASS}>额度币种</span>
+            <div className={SEGMENT_CLASS}>
+              <SegmentButton
+                active={draft.currency !== 'CNY'}
+                onClick={() => patch({ currency: 'USD' })}
+              >
+                美元（$）
+              </SegmentButton>
+              <SegmentButton
+                active={draft.currency === 'CNY'}
+                onClick={() => patch({ currency: 'CNY' })}
+              >
+                人民币（¥）
+              </SegmentButton>
+            </div>
+          </div>
+        )}
         {draft.scopeType !== 'all' && (
           <div className="sm:col-span-2">
             <div className="mb-1 flex items-end justify-between gap-3">
@@ -286,7 +305,7 @@ export function QuotaRuleEditor({
             <div className="relative">
               {draft.metric === 'cost' && (
                 <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-neutral-400">
-                  $
+                  {draft.currency === 'CNY' ? '¥' : '$'}
                 </span>
               )}
               <input

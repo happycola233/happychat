@@ -27,9 +27,6 @@ const PROTOCOL_LABEL = {
   anthropic: 'Messages',
   image: 'Images',
 }
-const priceText = (price: number | undefined) =>
-  price == null ? '—' : `$${price.toLocaleString('en-US', { maximumFractionDigits: 6 })}`
-
 export function ModelListHeader() {
   return (
     <div
@@ -41,7 +38,7 @@ export function ModelListHeader() {
       <span className="pl-7">模型 / ID</span>
       <span>供应商 / 接口</span>
       <span>能力 / 默认思考</span>
-      <span>定价 · USD</span>
+      <span>基础定价</span>
       <span>可用用户</span>
       <span>启用</span>
       <span className="text-right">操作</span>
@@ -86,6 +83,10 @@ export function ModelListRow({
     isDragging,
   } = useSortable({ id: model.id, disabled: !sortable })
   const pricing = normalizeModelPricing(model.pricing, model.kind)
+  const priceText = (price: number | undefined) =>
+    price == null
+      ? '—'
+      : `${pricing.currency === 'CNY' ? '¥' : '$'}${price.toLocaleString('en-US', { maximumFractionDigits: 6 })}`
   const imagePricing = pricing.imageGeneration
   const imagePriceLabel = pricing.imagePricingModelId
     ? '生图 · 引用定价'
@@ -220,8 +221,14 @@ export function ModelListRow({
         disabled={batchMode}
         onClick={() => onEdit('pricing')}
         aria-label={`配置 ${model.displayName} 的定价`}
+        title={[
+          '编辑定价',
+          pricing.periods?.length ? `${pricing.periods.length} 个定价时段` : null,
+          pricing.contextTiers?.length ? `${pricing.contextTiers.length} 个上下文档位` : null,
+        ]
+          .filter(Boolean)
+          .join(' · ')}
         className="col-start-2 row-start-2 min-w-0 rounded text-right text-xs leading-[18px] tabular-nums hover:text-sky-600 xl:col-auto xl:row-auto xl:text-left dark:hover:text-sky-400"
-        title="编辑定价"
       >
         <span className="block truncate text-neutral-800 dark:text-neutral-200">
           {model.kind === 'image'
@@ -236,6 +243,19 @@ export function ModelListRow({
             : (imagePriceLabel ??
               `缓存 ${pricing.cachedInput == null ? '随输入' : priceText(pricing.cachedInput)}`)}
         </span>
+        {pricing.periods?.length || pricing.contextTiers?.length ? (
+          <span className="block truncate text-[11px] text-sky-600 dark:text-sky-400">
+            {[
+              pricing.periods?.length ? '分时定价' : null,
+              pricing.contextTiers?.length ||
+              pricing.periods?.some((period) => period.pricing.contextTiers?.length)
+                ? '长上下文分档'
+                : null,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </span>
+        ) : null}
       </button>
       <button
         type="button"

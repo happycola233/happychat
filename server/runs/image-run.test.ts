@@ -153,12 +153,12 @@ describe('runImageEngine audit outcome', () => {
       .where(eq(schema.models.id, fixture.model.id))
       .run()
     const stats = await import('../services/stats')
-    expect((await stats.getOverview({ userId: fixture.user.id })).totals.costUsd).toBe(0.1)
+    expect((await stats.getOverview({ userId: fixture.user.id })).totals.cost).toBe(0.1)
     dbClient.db
       .delete(schema.conversations)
       .where(eq(schema.conversations.id, fixture.conversation.id))
       .run()
-    expect((await stats.listUsageEvents({ userId: fixture.user.id })).items[0]?.costUsd).toBe(0.1)
+    expect((await stats.listUsageEvents({ userId: fixture.user.id })).items[0]?.cost).toBe(0.1)
   })
 
   it.each(['per_image', 'tokens'] as const)(
@@ -278,6 +278,7 @@ describe('runImageEngine audit outcome', () => {
     expect(log.pricingSnapshot).toEqual({
       cacheWriteInput: 0,
       imageGeneration: { mode: 'per_image', price: 0.1 },
+      imagePricingSnapshot: { imageGeneration: { mode: 'per_image', price: 0.1 } },
     })
     expect(log.imageUsage?.[0]?.imageOutputTokens).toBeNull()
   })

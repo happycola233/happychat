@@ -1,4 +1,5 @@
 import type {
+  CostCurrency,
   EffectiveQuotaRule,
   QuotaLimit,
   QuotaMetric,
@@ -111,6 +112,7 @@ function normalizeQuotaRule(value: unknown): QuotaRule | null {
     label: normalizeLabel(value.label),
     scope,
     metric,
+    ...(metric === 'cost' && value.currency === 'CNY' ? { currency: 'CNY' as const } : {}),
     limit,
     window,
     priority: normalizePriority(value.priority),
@@ -241,34 +243,46 @@ export function evaluateQuotaLimit(args: {
   }
   const baseLimit = Math.max(0, args.limit.value)
   const effectiveLimit = baseLimit + granted
+  // 汇率换算和多笔相加可能留下几个浮点尾数，不能因此多放行一次请求。
+  const blocked = used >= effectiveLimit - Number.EPSILON * Math.max(used, effectiveLimit) * 8
   return {
     baseLimit,
     granted,
     effectiveLimit,
     used,
-    remaining: Math.max(0, effectiveLimit - used),
+    remaining: blocked ? 0 : effectiveLimit - used,
     percent: effectiveLimit > 0 ? used / effectiveLimit : 1,
-    blocked: used >= effectiveLimit,
+    blocked,
   }
 }
 
-/** 金额显示比聊天消息成本更精确：额度是钱，$0.5 不该显示成 `<$0.01` 之外的模糊值。 */
-export function formatQuotaCostUsd(value: number): string {
-  if (!Number.isFinite(value)) return '$0'
-  if (value === 0) return '$0'
-  if (value < 0.01) return `$${value.toFixed(4)}`
-  if (value < 1) return `$${value.toFixed(3)}`
-  return `$${value.toFixed(2)}`
+/** 额度保留小额精度，按规则币种显示。 */
+export function formatQuotaCost(value: number, currency: CostCurrency = 'USD'): string {
+  const symbol = currency === 'CNY' ? '¥' : '$'
+  if (!Number.isFinite(value) || value === 0) return `${symbol}0`
+  if (value < 0.01) return `${symbol}${value.toFixed(4)}`
+  if (value < 1) return `${symbol}${value.toFixed(3)}`
+  return `${symbol}${value.toFixed(2)}`
 }
 
-/** 按计量口径格式化一个数量（成本→美元，次数→「300 次」）。 */
-export function formatQuotaAmount(metric: QuotaMetric, value: number): string {
-  return metric === 'cost' ? formatQuotaCostUsd(value) : `${Math.round(value)} 次`
+/** 按规则币种显示金额；次数显示为「300 次」。 */
+export function formatQuotaAmount(
+  metric: QuotaMetric,
+  value: number,
+  currency: CostCurrency = 'USD',
+): string {
+  return metric === 'cost' ? formatQuotaCost(value, currency) : `${Math.round(value)} 次`
 }
 
 /** 上限文案；豁免显式显示为「豁免（不限额）」而不是一个大数字。 */
-export function formatQuotaLimit(metric: QuotaMetric, limit: QuotaLimit): string {
-  return limit.kind === 'unlimited' ? '豁免（不限额）' : formatQuotaAmount(metric, limit.value)
+export function formatQuotaLimit(
+  metric: QuotaMetric,
+  limit: QuotaLimit,
+  currency: CostCurrency = 'USD',
+): string {
+  return limit.kind === 'unlimited'
+    ? '豁免（不限额）'
+    : formatQuotaAmount(metric, limit.value, currency)
 }
 
 export const QUOTA_METRIC_LABELS: Record<QuotaMetric, string> = {
@@ -298,7 +312,7 @@ export function describeQuotaScope(scope: QuotaScope, names?: QuotaScopeNames): 
 /** 规则的一行中文摘要，如「每月 · 全部模型 · $30」；优先级非默认档时前置「优先 N」。豁免省略周期。 */
 export function describeQuotaRule(
   rule: Pick<QuotaRule, 'scope' | 'metric' | 'limit' | 'window'> &
-    Partial<Pick<QuotaRule, 'priority'>>,
+    Partial<Pick<QuotaRule, 'priority' | 'currency'>>,
   names?: QuotaScopeNames,
 ): string {
   // 豁免不计量也不重置，周期写进去只会让人以为它还在跑窗口。
@@ -306,7 +320,7 @@ export function describeQuotaRule(
     ...(rule.priority ? [`优先 ${rule.priority}`] : []),
     ...(rule.limit.kind === 'unlimited' ? [] : [describeQuotaWindow(rule.window)]),
     describeQuotaScope(rule.scope, names),
-    formatQuotaLimit(rule.metric, rule.limit),
+    formatQuotaLimit(rule.metric, rule.limit, rule.currency),
   ].join(' · ')
 }
 

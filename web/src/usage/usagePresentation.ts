@@ -1,9 +1,9 @@
 import type { UsageModelStatDTO } from '@shared/types/api'
 import type { UsageStatsView } from '@shared/types/domain'
-import { formatQuotaCostUsd } from '@shared/util/quota'
-import { formatCompact, formatInt } from '../lib/format'
+import { getBillingCurrency } from '../store/billingCurrency'
+import { formatCompact, formatInt, formatCurrency } from '../lib/format'
 
-export type UsageMetric = 'requests' | 'totalTokens' | 'costUsd'
+export type UsageMetric = 'requests' | 'totalTokens' | 'cost'
 
 export const USAGE_VIEWS: { value: UsageStatsView; label: string }[] = [
   { value: 'day', label: '今日' },
@@ -14,7 +14,7 @@ export const USAGE_VIEWS: { value: UsageStatsView; label: string }[] = [
 export const USAGE_METRICS: { value: UsageMetric; label: string }[] = [
   { value: 'requests', label: '请求' },
   { value: 'totalTokens', label: 'Token' },
-  { value: 'costUsd', label: '花费' },
+  { value: 'cost', label: '花费' },
 ]
 
 /** URL 是输入边界；未知窗口与没有选择时都使用本月。 */
@@ -23,10 +23,11 @@ export function readUsageView(value: string | null): UsageStatsView {
 }
 
 export function formatUsageMetric(value: number, metric: UsageMetric, exact = false): string {
-  if (metric === 'costUsd') {
+  if (metric === 'cost') {
     return exact
-      ? '$' + value.toLocaleString('en-US', { maximumFractionDigits: 12 })
-      : formatQuotaCostUsd(value)
+      ? (getBillingCurrency() === 'CNY' ? '¥' : '$') +
+          value.toLocaleString('en-US', { maximumFractionDigits: 12 })
+      : formatCurrency(value)
   }
   return exact || metric === 'requests' ? formatInt(value) : formatCompact(value)
 }

@@ -10,7 +10,7 @@ export interface HeatmapDay {
   date: string
   requests: number
   totalTokens: number
-  costUsd: number
+  cost: number
   /** 当前口径下的值 */
   value: number
   /** 0=无活动，1–4 按非零值分位数分级（与 GitHub 贡献图同思路） */
@@ -38,7 +38,7 @@ const MONTH_LABEL_MIN_GAP = 3
 
 function metricValue(cell: UsageHeatmapCellDTO, metric: HeatmapMetric): number {
   if (metric === 'tokens') return cell.totalTokens
-  if (metric === 'cost') return cell.costUsd
+  if (metric === 'cost') return cell.cost
   return cell.requests
 }
 
@@ -54,7 +54,8 @@ function weekdayOf(date: string): number {
  */
 function levelThresholds(values: number[]): [number, number, number] {
   const sorted = [...values].sort((a, b) => a - b)
-  const at = (ratio: number) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * ratio))] ?? 0
+  const at = (ratio: number) =>
+    sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * ratio))] ?? 0
   return [at(0.25), at(0.5), at(0.75)]
 }
 
@@ -79,13 +80,16 @@ export function buildHeatmapGrid(
   const metric = options.metric ?? 'requests'
   const weekStart = options.weekStart ?? 'mon'
   const offset = weekStart === 'mon' ? 1 : 0
-  const weekdayLabels = Array.from({ length: 7 }, (_, index) => WEEKDAY_NAMES[(index + offset) % 7]!)
+  const weekdayLabels = Array.from(
+    { length: 7 },
+    (_, index) => WEEKDAY_NAMES[(index + offset) % 7]!,
+  )
 
   const days: HeatmapDay[] = cells.map((cell) => ({
     date: cell.date,
     requests: cell.requests,
     totalTokens: cell.totalTokens,
-    costUsd: cell.costUsd,
+    cost: cell.cost,
     value: metricValue(cell, metric),
     level: 0,
   }))

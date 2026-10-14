@@ -1,3 +1,5 @@
+import { getBillingCurrency } from '../store/billingCurrency'
+import type { CostCurrency } from '@shared/types/domain'
 /** 紧凑数字：1234→1.2K、1_200_000→1.2M。 */
 export function formatCompact(n: number): string {
   const abs = Math.abs(n)
@@ -22,11 +24,18 @@ export function formatDuration(ms: number): string {
   return `${m}m ${String(s).padStart(2, '0')}s`
 }
 
-/** 美元成本：0→$0、极小→<$0.01、其余按量级保留 2-3 位。 */
-export function formatUsd(n: number): string {
-  if (!n) return '$0'
-  if (n < 0.01) return '<$0.01'
-  return '$' + n.toFixed(n < 1 ? 3 : 2)
+/** 统计金额已经由服务端换算；这里只负责币种符号与小额精度。 */
+export function formatCurrency(n: number, currency: CostCurrency = getBillingCurrency()): string {
+  const symbol = currency === 'CNY' ? '¥' : '$'
+  if (!n) return symbol + '0'
+  if (n < 0.000001) return '<' + symbol + '0.000001'
+  return (
+    symbol +
+    n.toLocaleString('zh-CN', {
+      minimumFractionDigits: n >= 1 ? 2 : 0,
+      maximumFractionDigits: n < 0.01 ? 6 : n < 1 ? 4 : 2,
+    })
+  )
 }
 
 export function formatPercent(n: number): string {

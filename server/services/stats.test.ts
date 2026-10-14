@@ -423,10 +423,10 @@ describe('cache-write cost integration', () => {
       stats.listUsageEvents(filter),
     ])
 
-    expect(overview.totals.costUsd).toBeCloseTo(7.2375, 6)
-    expect(analytics.series[0]?.costUsd).toBeCloseTo(7.2375, 6)
-    expect(userStats[0]?.costUsd).toBeCloseTo(7.2375, 6)
-    expect(events.items[0]?.costUsd).toBeCloseTo(7.2375, 6)
+    expect(overview.totals.cost).toBeCloseTo(7.2375, 6)
+    expect(analytics.series[0]?.cost).toBeCloseTo(7.2375, 6)
+    expect(userStats[0]?.cost).toBeCloseTo(7.2375, 6)
+    expect(events.items[0]?.cost).toBeCloseTo(7.2375, 6)
     expect(events.items[0]?.modelDisplayName).toBe('Cache Cost Model')
   })
 })
@@ -460,11 +460,11 @@ describe('historical cost snapshots', () => {
     const overview = await stats.getOverview(filter)
     const analytics = await stats.getAnalytics({ ...filter, bucket: 'hour' })
     const users = await stats.getUserStats(filter)
-    expect(overview.totals.costUsd).toBeCloseTo(6.1)
-    expect(analytics.series[0]?.costUsd).toBeCloseTo(6.1)
-    expect(analytics.models[0]?.costUsd).toBeCloseTo(6.1)
-    expect(analytics.providers[0]?.costUsd).toBeCloseTo(6.1)
-    expect(users[0]?.costUsd).toBeCloseTo(6.1)
+    expect(overview.totals.cost).toBeCloseTo(6.1)
+    expect(analytics.series[0]?.cost).toBeCloseTo(6.1)
+    expect(analytics.models[0]?.cost).toBeCloseTo(6.1)
+    expect(analytics.providers[0]?.cost).toBeCloseTo(6.1)
+    expect(users[0]?.cost).toBeCloseTo(6.1)
     expect(users[0]?.imageGenerations).toBe(1)
   })
   it('keeps past costs stable across price changes and model deletion', async () => {
@@ -527,10 +527,10 @@ describe('historical cost snapshots', () => {
       ])
 
     for (const cost of [
-      historicalOverview.totals.costUsd,
-      historicalAnalytics.series[0]?.costUsd,
-      historicalUsers[0]?.costUsd,
-      historicalEvents.items[0]?.costUsd,
+      historicalOverview.totals.cost,
+      historicalAnalytics.series[0]?.cost,
+      historicalUsers[0]?.cost,
+      historicalEvents.items[0]?.cost,
     ]) {
       expect(cost).toBeCloseTo(6, 6)
     }
@@ -550,21 +550,17 @@ describe('historical cost snapshots', () => {
       stats.listUsageEvents(fullFilter),
     ])
 
-    for (const cost of [
-      overview.totals.costUsd,
-      analytics.series[0]?.costUsd,
-      userStats[0]?.costUsd,
-    ]) {
+    for (const cost of [overview.totals.cost, analytics.series[0]?.cost, userStats[0]?.cost]) {
       expect(cost).toBeCloseTo(66, 6)
     }
-    expect(events.items[0]?.costUsd).toBeCloseTo(60, 6)
-    expect(events.items[1]?.costUsd).toBeCloseTo(6, 6)
+    expect(events.items[0]?.cost).toBeCloseTo(60, 6)
+    expect(events.items[1]?.cost).toBeCloseTo(6, 6)
     expect(userStats[0]?.topModels).toEqual([{ model: modelLabel, calls: 2 }])
     expect(analytics.models).toEqual([
-      expect.objectContaining({ id: null, label: 'Snapshot Cost Model', requests: 2, costUsd: 66 }),
+      expect.objectContaining({ id: null, label: 'Snapshot Cost Model', requests: 2, cost: 66 }),
     ])
     expect(analytics.providers).toEqual([
-      expect.objectContaining({ id: provider.id, requests: 2, costUsd: 66 }),
+      expect.objectContaining({ id: provider.id, requests: 2, cost: 66 }),
     ])
 
     const persistedLogs = await dbClient.db
@@ -609,7 +605,7 @@ describe('admin dashboard summaries', () => {
       from: start,
       to: start + HOUR_MS - 1,
     })
-    expect(result.previous).toEqual({ requests: 2, tokens: 125, costUsd: 0, activeUsers: 1 })
+    expect(result.previous).toEqual({ requests: 2, tokens: 125, cost: 0, activeUsers: 1 })
     expect(result.totals).toEqual(
       expect.objectContaining({
         requests: 2,
@@ -666,7 +662,7 @@ describe('admin dashboard summaries', () => {
       expect(rows[0]).toEqual(
         expect.objectContaining({ requests: 3, totalTokens: 450, failedRequests: 2 }),
       )
-      expect(rows[0]!.costUsd).toBeCloseTo(overview.totals.costUsd)
+      expect(rows[0]!.cost).toBeCloseTo(overview.totals.cost)
     }
   })
 })

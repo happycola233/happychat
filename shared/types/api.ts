@@ -420,6 +420,7 @@ export interface ActiveRequestsDTO extends Paginated<ActiveRequestDTO> {
 }
 
 export interface UsageLogDTO {
+  costDisplay?: MessageCostDisplayDTO
   costBreakdown?: RequestCostBreakdown | null
   retrySummary?: import('./retry').RunRetrySummary | null
   id: string
@@ -455,7 +456,7 @@ export interface UsageLogDTO {
   /** 旧额度/聚合兼容字段；请求事件状态不得再直接使用它。 */
   success: boolean
   errorType: string | null
-  costUsd: number
+  cost: number
   /** 该次请求保存的原始 reasoning_effort 值，不映射为模型配置的展示描述。 */
   reasoningEffort: string | null
   /** 从生成引擎开始到 run 终态的墙钟耗时；关联 run 不存在时为 null。 */
@@ -483,7 +484,7 @@ export interface Paginated<T> {
 export interface OverviewDTO {
   bucket: 'hour' | 'day'
   /** 紧邻所选区间的等长上一时段；全部时间不比较。 */
-  previous: { requests: number; tokens: number; costUsd: number; activeUsers: number } | null
+  previous: { requests: number; tokens: number; cost: number; activeUsers: number } | null
   outcomes: { result: UsageResult; count: number }[]
   totals: {
     requests: number
@@ -493,7 +494,7 @@ export interface OverviewDTO {
     cacheRate: number // cached / input，0-1
     rpm: number // 最近 60 分钟请求/分
     tpm: number // 最近 60 分钟 token/分
-    costUsd: number
+    cost: number
     users: number
     conversations: number
     messages: number
@@ -517,7 +518,7 @@ export interface AnalyticsSeriesPoint {
   cachedTokens: number
   outputTokens: number
   reasoningTokens: number
-  costUsd: number
+  cost: number
 }
 
 export interface AnalyticsDTO {
@@ -534,7 +535,7 @@ export interface UsageBreakdownDTO {
   label: string
   requests: number
   totalTokens: number
-  costUsd: number
+  cost: number
   failedRequests: number
 }
 
@@ -550,7 +551,7 @@ export interface UserStatDTO {
   reasoningTokens: number
   imageGenerations: number
   fileUploads: number
-  costUsd: number
+  cost: number
   errors: number
   /** legacy success=true 占比；截断与取消不算上游失败。 */
   successRate: number // 0-1
@@ -584,7 +585,7 @@ export interface AppConfigDTO {
   sharingEnabled: boolean
   /** 是否在助手消息用量明细中展示本次预估成本。 */
   showCost: boolean
-  /** 仅影响聊天消息用量行；成本存储与后台统计始终保持 USD。 */
+  /** 仅控制聊天消息用量行；统计显示币种和各条额度的币种分别配置。 */
   costCurrency: CostCurrency
   titleEnabled: boolean
   titleModelId: string | null
@@ -601,8 +602,9 @@ export interface AppConfigDTO {
 
 /** 聊天消息用量行的成本展示上下文。 */
 export interface MessageCostDisplayDTO {
+  legacyRateAt?: number
   currency: CostCurrency
-  /** 仅 currency=CNY 时可能存在；实时获取失败时为 null，前端回退显示原始 USD。 */
+  /** 无请求汇率快照的旧账使用首次取得的固定折算基准。 */
   usdToCnyRate: number | null
 }
 
@@ -628,6 +630,7 @@ export interface AdminQuotaPolicyDTO extends QuotaPolicyDTO {
 
 /** 一条仍然有效的临时额度（周期结束或到期后自动失效）。 */
 export interface QuotaGrantDTO {
+  currency?: CostCurrency
   id: string
   ruleId: string | null
   bucketKey: string | null
@@ -656,6 +659,7 @@ export interface QuotaAdjustmentDTO extends QuotaGrantDTO {
  * 数组顺序与策略 / 专属规则的展示顺序一致；前端按 ruleId 收拢后再渲染。
  */
 export interface QuotaBucketUsageDTO {
+  currency?: CostCurrency
   ruleId: string
   bucketKey: string | null
   /** 桶的展示名（模型显示名 / 分组名）；单桶规则为 null */
@@ -781,7 +785,7 @@ export interface UsageHeatmapCellDTO {
   date: string
   requests: number
   totalTokens: number
-  costUsd: number
+  cost: number
 }
 
 export interface UsageModelStatDTO {
@@ -790,14 +794,14 @@ export interface UsageModelStatDTO {
   modelLabel: string
   requests: number
   totalTokens: number
-  costUsd: number
+  cost: number
 }
 
 export interface UsageTrendPointDTO {
   ts: number
   requests: number
   totalTokens: number
-  costUsd: number
+  cost: number
 }
 
 /** 个人使用情况面板的一次性数据包。 */
@@ -817,7 +821,7 @@ export interface UsageStatsDTO {
     messages: number
     requests: number
     totalTokens: number
-    costUsd: number
+    cost: number
     imageGenerations: number
     /** 窗口内有请求的天数（本地日） */
     activeDays: number

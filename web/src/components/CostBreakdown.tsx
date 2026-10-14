@@ -2,7 +2,9 @@ import { useId, useLayoutEffect, useRef, useState, type CSSProperties, type Reac
 import { ChevronDown, CircleAlert, X } from 'lucide-react'
 import type { MessageCostDisplayDTO } from '@shared/types/api'
 import type { RequestCostBreakdown } from '@shared/types/domain'
-import { costDisplayCurrency, formatCostAmount } from '../lib/costDisplay'
+import { costDisplayCurrency, formatCostAmount, requestCostDisplay } from '../lib/costDisplay'
+import { getBillingCurrency } from '../store/billingCurrency'
+import { formatCurrency } from '../lib/format'
 
 /** 原生浮层脱离排版并进入顶层，避免撑高用量行或被后台表格裁切。 */
 export function CostBreakdown({
@@ -55,15 +57,24 @@ export function CostBreakdown({
 
   if (
     !breakdown ||
-    (breakdown.imageCount === 0 && breakdown.imageStatus === 'complete' && breakdown.imageUsd === 0)
+    (!breakdown.charges?.length &&
+      breakdown.imageCount === 0 &&
+      breakdown.imageStatus === 'complete' &&
+      breakdown.imageUsd === 0)
   )
     return <>{children}</>
   // 未配置价格的图片在用户端按免费展示，配置提醒只留在管理端。
   const incomplete =
     breakdown.imageStatus === 'missing_usage' ||
     (showUnpricedNotice && breakdown.imageStatus === 'missing_pricing')
-  const currency = costDisplayCurrency(display)
-  const amount = (usd: number) => formatCostAmount(usd, display)
+  const resolvedDisplay = requestCostDisplay(
+    display ?? { currency: getBillingCurrency(), usdToCnyRate: null },
+    breakdown,
+  )
+  const currency = costDisplayCurrency(resolvedDisplay)
+  const amount = (usd: number) => formatCostAmount(usd, resolvedDisplay)
+  const hasImages =
+    breakdown.imageCount > 0 || breakdown.imageUsd > 0 || breakdown.imageStatus !== 'complete'
   return (
     <>
       <button
@@ -129,24 +140,61 @@ export function CostBreakdown({
               {amount(breakdown.chatUsd)}
             </dd>
           </div>
-          <div className="flex items-baseline justify-between gap-4">
-            <dt>
-              图片生成
-              {incomplete && <span className="ml-1 text-[11px] text-neutral-400">（已统计）</span>}
-            </dt>
-            <dd className="font-medium tabular-nums text-neutral-900 dark:text-neutral-100">
-              {amount(breakdown.imageUsd)}
-            </dd>
-          </div>
-          <div className="flex items-baseline justify-between gap-4 text-neutral-400 dark:text-neutral-500">
-            <dt>计费图片</dt>
-            <dd className="tabular-nums">{breakdown.imageCount} 张</dd>
-          </div>
+          {hasImages && (
+            <>
+              <div className="flex items-baseline justify-between gap-4">
+                <dt>
+                  图片生成
+                  {incomplete && (
+                    <span className="ml-1 text-[11px] text-neutral-400">（已统计）</span>
+                  )}
+                </dt>
+                <dd className="font-medium tabular-nums text-neutral-900 dark:text-neutral-100">
+                  {amount(breakdown.imageUsd)}
+                </dd>
+              </div>
+              <div className="flex items-baseline justify-between gap-4 text-neutral-400 dark:text-neutral-500">
+                <dt>计费图片</dt>
+                <dd className="tabular-nums">{breakdown.imageCount} 张</dd>
+              </div>
+            </>
+          )}
           <div className="flex items-baseline justify-between gap-4 border-t border-neutral-100 pt-2 font-medium text-neutral-900 dark:border-neutral-800 dark:text-neutral-100">
             <dt>{incomplete ? '已统计合计' : '合计'}</dt>
             <dd className="tabular-nums">{amount(breakdown.totalUsd)}</dd>
           </div>
         </dl>
+        {!!breakdown.charges?.length && (
+          <div className="mt-3 space-y-3 border-t border-neutral-100 pt-3 dark:border-neutral-800">
+            {breakdown.charges.map((charge, index) => (
+              <div key={index}>
+                <div className="flex justify-between gap-2">
+                  <span>
+                    {charge.kind === 'chat' ? '聊天' : '生图'} · {charge.period}
+                  </span>
+                  <span className="tabular-nums">
+                    {formatCurrency(charge.amount, charge.currency)} {charge.currency}
+                  </span>
+                </div>
+                {charge.inputTokens !== undefined && (
+                  <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
+                    输入 {charge.inputTokens.toLocaleString()} Token
+                    {charge.aboveInputTokens !== undefined
+                      ? ` · 超过 ${charge.aboveInputTokens.toLocaleString()} 档`
+                      : ' · 基础上下文档'}
+                  </p>
+                )}
+                {charge.unitPrices && (
+                  <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
+                    每百万 Token：输入 {charge.unitPrices.input ?? 0} · 输出{' '}
+                    {charge.unitPrices.output ?? 0} · 缓存读取 {charge.unitPrices.cachedInput ?? 0}{' '}
+                    · 缓存写入 {charge.unitPrices.cacheWriteInput ?? 0} {charge.currency}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
         {incomplete && (
           <div className="mt-3 border-t border-neutral-100 pt-3 dark:border-neutral-800">
             <p className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
@@ -166,9 +214,11 @@ export function CostBreakdown({
             </p>
           </div>
         )}
-        {currency === 'CNY' && (
+        {(currency === 'CNY' || breakdown.exchangeRate) && (
           <p className="mt-3 text-[11px] text-neutral-400">
-            按当前汇率折算 · 原始合计 {formatCostAmount(breakdown.totalUsd)} USD
+            {breakdown.exchangeRate
+              ? `请求汇率：1 USD ≈ ${breakdown.exchangeRate.usdToCny} CNY · 获取于 ${new Date(breakdown.exchangeRate.fetchedAt).toLocaleString('zh-CN')}`
+              : `旧账按固定基准折算 · 美元合计 ${formatCostAmount(breakdown.totalUsd)}`}
           </p>
         )}
       </div>

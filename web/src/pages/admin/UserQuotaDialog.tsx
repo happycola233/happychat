@@ -183,8 +183,10 @@ function PreviewRow({
           </span>
         )}
         <span className="shrink-0 tabular-nums text-neutral-500 dark:text-neutral-400">
-          {formatQuotaAmount(rule.metric, rule.used)} /{' '}
-          {rule.effectiveLimit === null ? '∞' : formatQuotaAmount(rule.metric, rule.effectiveLimit)}
+          {formatQuotaAmount(rule.metric, rule.used, rule.currency)} /{' '}
+          {rule.effectiveLimit === null
+            ? '∞'
+            : formatQuotaAmount(rule.metric, rule.effectiveLimit, rule.currency)}
         </span>
         {onReset && (
           <button
@@ -495,7 +497,7 @@ export function UserQuotaDialog({
                             {rule.label || describeQuotaRule(rule)}
                           </div>
                           <div className="mt-0.5 text-[11px] text-neutral-400 dark:text-neutral-500">
-                            模板：{formatQuotaLimit(rule.metric, rule.limit)}
+                            模板：{formatQuotaLimit(rule.metric, rule.limit, rule.currency)}
                             {rule.limit.kind === 'unlimited'
                               ? ''
                               : ` · ${describeQuotaWindow(rule.window)}`}
@@ -715,7 +717,7 @@ export function UserQuotaDialog({
                   >
                     <Gift className="h-3.5 w-3.5 shrink-0" />
                     <span className="min-w-0 flex-1 truncate">
-                      +{formatQuotaAmount(grant.metric, grant.amount)}
+                      +{formatQuotaAmount(grant.metric, grant.amount, grant.currency)}
                       {grant.note ? ` · ${grant.note}` : ''}
                       {grant.expiresAt
                         ? ` · ${new Date(grant.expiresAt).toLocaleString('zh-CN', {
@@ -759,7 +761,7 @@ export function UserQuotaDialog({
                       value: rule.ruleId,
                       label: `${describeQuotaWindow(rule.window)}${
                         rule.metric === 'cost' ? '消费' : '请求'
-                      } · ${formatQuotaLimit(rule.metric, rule.limit)}`,
+                      } · ${formatQuotaLimit(rule.metric, rule.limit, rule.currency)}`,
                     }),
                   ),
                 ]}
@@ -771,7 +773,11 @@ export function UserQuotaDialog({
                   setGrantForm((current) => ({ ...current, amount: event.target.value }))
                 }
                 inputMode="decimal"
-                placeholder={grantRule?.metric === 'requests' ? '增加次数' : '增加金额（$）'}
+                placeholder={
+                  grantRule?.metric === 'requests'
+                    ? '增加次数'
+                    : `增加金额（${grantRule?.currency === 'CNY' ? '¥' : '$'}）`
+                }
                 className={`${inputClass} tabular-nums`}
               />
               <Button

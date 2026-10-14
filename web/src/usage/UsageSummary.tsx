@@ -24,12 +24,12 @@ export function UsageSummary({ stats }: { stats: UsageStatsDTO }) {
         : '输入与输出的总用量',
     },
     {
-      label: '预估花费 · USD',
+      label: '预估花费',
       icon: Coins,
-      value: formatUsageMetric(totals.costUsd, 'costUsd'),
-      exact: formatUsageMetric(totals.costUsd, 'costUsd', true) + ' USD',
+      value: formatUsageMetric(totals.cost, 'cost'),
+      exact: formatUsageMetric(totals.cost, 'cost', true),
       hint: totals.requests
-        ? '平均每次 ' + formatUsageMetric(totals.costUsd / totals.requests, 'costUsd')
+        ? '平均每次 ' + formatUsageMetric(totals.cost / totals.requests, 'cost')
         : '按请求时的模型价格估算',
     },
     {

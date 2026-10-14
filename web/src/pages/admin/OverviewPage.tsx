@@ -1,3 +1,5 @@
+import { useBillingCurrency } from '../../store/billingCurrency'
+import { BillingCurrencySelect } from '../../components/BillingCurrencySelect'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Activity, ArrowUpRight, Boxes, Gauge, Users } from 'lucide-react'
@@ -13,7 +15,7 @@ import {
   formatDuration,
   formatInt,
   formatPercent,
-  formatUsd,
+  formatCurrency,
 } from '../../lib/format'
 import {
   comparisonLabel,
@@ -47,11 +49,12 @@ const QUICK_LINKS = [
 ]
 
 export default function OverviewPage() {
+  const currency = useBillingCurrency((state) => state.currency)
   const [params, setParams] = useSearchParams()
   const { rangeKey } = readDashboardFilters(params)
   const query = useQuery({
-    queryKey: ['admin', 'overview', rangeKey],
-    queryFn: () => getOverview(rangeToFilter(rangeKey)),
+    queryKey: ['admin', 'overview', rangeKey, currency],
+    queryFn: () => getOverview({ ...rangeToFilter(rangeKey), currency }),
     refetchInterval: 60_000,
   })
   const overview = query.data
@@ -67,7 +70,7 @@ export default function OverviewPage() {
       )
     : []
   const eventHref = (result = '') => dashboardHref('request-events', { range: rangeKey, result })
-  const change = (key: 'requests' | 'tokens' | 'costUsd' | 'activeUsers') =>
+  const change = (key: 'requests' | 'tokens' | 'cost' | 'activeUsers') =>
     overview?.previous && totals
       ? comparisonLabel(totals[key], overview.previous[key])
       : '全部时间累计'
@@ -79,6 +82,7 @@ export default function OverviewPage() {
         description="用量、请求状态与站点运行一览。"
         actions={
           <>
+            <BillingCurrencySelect />
             <DateRangePicker
               value={rangeKey}
               onChange={(range) => setParams({ range }, { replace: true })}
@@ -103,9 +107,9 @@ export default function OverviewPage() {
                 hint: change('tokens'),
               },
               {
-                label: '预估成本 · USD',
-                value: formatUsd(totals.costUsd),
-                hint: change('costUsd'),
+                label: '预估成本',
+                value: formatCurrency(totals.cost),
+                hint: change('cost'),
               },
               {
                 label: '活跃用户',
@@ -217,7 +221,7 @@ export default function OverviewPage() {
                   ['缓存读取率', totals.requests ? formatPercent(totals.cacheRate) : '—'],
                   [
                     '平均单次成本',
-                    totals.requests ? formatUsd(totals.costUsd / totals.requests) : '—',
+                    totals.requests ? formatCurrency(totals.cost / totals.requests) : '—',
                   ],
                   [
                     'RPM · 近 60 分钟',

@@ -22,6 +22,7 @@ export interface QuotaRuleDraft {
   /** 指定模型 / 分组时的目标 id */
   targetIds: string[]
   mode: 'each' | 'shared'
+  currency?: 'USD' | 'CNY'
   metric: QuotaMetric
   unlimited: boolean
   limitInput: string
@@ -62,6 +63,7 @@ export function draftFromRule(rule: QuotaRule): QuotaRuleDraft {
           : [],
     mode: rule.scope.type === 'all' ? 'each' : rule.scope.mode,
     metric: rule.metric,
+    currency: rule.currency,
     unlimited: rule.limit.kind === 'unlimited',
     limitInput: rule.limit.kind === 'amount' ? String(rule.limit.value) : '',
     windowChoice:
@@ -127,6 +129,7 @@ export function ruleFromDraft(draft: QuotaRuleDraft): DraftResult {
             ? { type: 'models', modelIds: draft.targetIds, mode: draft.mode }
             : { type: 'groups', groupIds: draft.targetIds, mode: draft.mode },
       metric: draft.metric,
+      ...(draft.metric === 'cost' && draft.currency === 'CNY' ? { currency: 'CNY' as const } : {}),
       limit: draft.unlimited ? { kind: 'unlimited' } : { kind: 'amount', value: amount },
       window: windowFromDraft(draft, hours),
       priority,
@@ -182,10 +185,7 @@ function parseDraftPriority(input: string): number | null {
 }
 
 /** 草稿里的周期；豁免时只在合法时原样保留，非法小时改用永久占位以免写出坏数据。 */
-function windowFromDraft(
-  draft: QuotaRuleDraft,
-  hours: number,
-): QuotaRule['window'] {
+function windowFromDraft(draft: QuotaRuleDraft, hours: number): QuotaRule['window'] {
   if (draft.windowChoice === 'rolling' || draft.windowChoice === 'anchored') {
     if (Number.isInteger(hours) && hours >= 1 && hours <= QUOTA_HOURLY_WINDOW_MAX_HOURS) {
       return { type: draft.windowChoice, hours }
@@ -222,7 +222,7 @@ function describeDraftLimit(draft: QuotaRuleDraft): { text: string; incomplete: 
   if (draft.metric === 'requests' && !Number.isInteger(amount)) {
     return { text: '未设上限', incomplete: true }
   }
-  return { text: formatQuotaAmount(draft.metric, amount), incomplete: false }
+  return { text: formatQuotaAmount(draft.metric, amount, draft.currency), incomplete: false }
 }
 
 /**

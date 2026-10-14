@@ -1,3 +1,4 @@
+import { getBillingCurrency } from '../store/billingCurrency'
 import type { UsageStatsDTO } from '@shared/types/api'
 
 export type UsageExportKind = 'trend' | 'models' | 'activity'
@@ -17,14 +18,21 @@ export function buildUsageCsv(
   const table: (string | number)[][] =
     kind === 'trend'
       ? [
-          ['时间（UTC）', '本地时间', '时区', '请求数', 'Token', '预估花费（USD）'],
+          [
+            '时间（UTC）',
+            '本地时间',
+            '时区',
+            '请求数',
+            'Token',
+            `预估花费（${getBillingCurrency()}）`,
+          ],
           ...stats.trend.map((point) => [
             new Date(point.ts).toISOString(),
             new Date(point.ts).toLocaleString('sv-SE', { timeZone, hour12: false }),
             timeZone ?? '浏览器本地时区',
             point.requests,
             point.totalTokens,
-            point.costUsd,
+            point.cost,
           ]),
         ]
       : kind === 'models'
@@ -33,8 +41,8 @@ export function buildUsageCsv(
               '模型',
               '请求数',
               'Token',
-              '预估花费（USD）',
-              '每次平均花费（USD）',
+              `预估花费（${getBillingCurrency()}）`,
+              `每次平均花费（${getBillingCurrency()}）`,
               '周期开始（UTC）',
               '周期结束（UTC，不含）',
             ],
@@ -42,20 +50,20 @@ export function buildUsageCsv(
               row.modelLabel,
               row.requests,
               row.totalTokens,
-              row.costUsd,
-              row.requests ? row.costUsd / row.requests : 0,
+              row.cost,
+              row.requests ? row.cost / row.requests : 0,
               new Date(stats.windowStart).toISOString(),
               new Date(stats.windowEnd).toISOString(),
             ]),
           ]
         : [
-            ['日期', '时区', '请求数', 'Token', '预估花费（USD）'],
+            ['日期', '时区', '请求数', 'Token', `预估花费（${getBillingCurrency()}）`],
             ...stats.heatmap.map((day) => [
               day.date,
               timeZone ?? '浏览器本地时区',
               day.requests,
               day.totalTokens,
-              day.costUsd,
+              day.cost,
             ]),
           ]
   return '\uFEFF' + table.map((row) => row.map(csvCell).join(',')).join('\r\n')

@@ -312,9 +312,17 @@ export async function executeRun(
     }
     if (ctx.abortController.signal.aborted)
       result = { ...result, state: 'canceled', errorMessage: null }
+    result.usage.billingSegments ??= [
+      { ...result.usage, startedAt: attemptRequestStartedAt ?? attemptStartedAt.getTime() },
+    ]
     totalUsage = totalUsage ? addMessageUsage(totalUsage, result.usage) : result.usage
     totalImageTokens += result.imageTokens ?? 0
-    imageUsage.push(...(result.imageUsage ?? []))
+    imageUsage.push(
+      ...(result.imageUsage ?? []).map((usage) => ({
+        ...usage,
+        startedAt: attemptRequestStartedAt ?? attemptStartedAt.getTime(),
+      })),
+    )
     // 成功的空回答及明确拒绝也必须替换旧内容；普通失败且没有新输出时保留上次内容。
     if (
       result.state === 'completed' ||

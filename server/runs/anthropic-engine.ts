@@ -129,6 +129,7 @@ async function runAnthropicAttempt(
     let finalStopReason: string | null
 
     for (let continuation = 0; ; continuation++) {
+      const billingStartedAt = Date.now()
       const accumulator = new AnthropicStreamAccumulator()
       const textOffset = text.length
 
@@ -248,7 +249,11 @@ async function runAnthropicAttempt(
         }
       } finally {
         // 流内报错或断流时也保留已经上报的用量，重试不会抹去失败尝试的成本。
-        usage = addMessageUsage(usage, mapAnthropicUsage(accumulator.usage))
+        const segment = mapAnthropicUsage(accumulator.usage)
+        usage = addMessageUsage(usage, {
+          ...segment,
+          billingSegments: [{ ...segment, startedAt: billingStartedAt }],
+        })
         upstreamResponseId = accumulator.messageId ?? upstreamResponseId
         refusalObserved ||= accumulator.stopReason === 'refusal'
       }

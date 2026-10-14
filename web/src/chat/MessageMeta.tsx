@@ -115,7 +115,7 @@ export function MessageUsageStats({
   const rowRef = useRef<HTMLDivElement>(null)
   const [omitTokenUnits, setOmitTokenUnits] = useState(false)
   const tps = computeTps(usage.outputTokens, durationMs)
-  const formattedCost = formatMessageCost(costUsd, costDisplay)
+  const formattedCost = formatMessageCost(costUsd, costDisplay, costBreakdown)
   // 兼容功能上线前创建的公开分享快照，其 usage JSON 没有 cacheWriteTokens。
   const cacheWriteTokens = usage.cacheWriteTokens ?? 0
   const cacheDetails = [

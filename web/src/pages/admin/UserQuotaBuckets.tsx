@@ -136,9 +136,9 @@ function UsageCell({ rule, warnThreshold }: { rule: QuotaBucketUsageDTO; warnThr
           </span>
         ) : (
           <span className="truncate text-neutral-600 dark:text-neutral-300">
-            {formatQuotaAmount(rule.metric, rule.used)}
+            {formatQuotaAmount(rule.metric, rule.used, rule.currency)}
             <span className="text-neutral-300 dark:text-neutral-600"> / </span>
-            {formatQuotaAmount(rule.metric, rule.effectiveLimit ?? 0)}
+            {formatQuotaAmount(rule.metric, rule.effectiveLimit ?? 0, rule.currency)}
           </span>
         )}
         {!unlimited && (
@@ -158,7 +158,7 @@ function UsageCell({ rule, warnThreshold }: { rule: QuotaBucketUsageDTO; warnThr
       {rule.granted > 0 && (
         <div className="mt-1 inline-flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400">
           <Gift className="h-3 w-3" />
-          临时 +{formatQuotaAmount(rule.metric, rule.granted)}
+          临时 +{formatQuotaAmount(rule.metric, rule.granted, rule.currency)}
         </div>
       )}
     </div>
@@ -293,7 +293,7 @@ function IndependentQuotaGroup({
           </div>
         </div>
         <div role="cell" className="text-[11px] text-neutral-500 dark:text-neutral-400">
-          各自独立 · 每项 {formatQuotaLimit(first.metric, first.limit)}
+          各自独立 · 每项 {formatQuotaLimit(first.metric, first.limit, first.currency)}
         </div>
         {aligned ? <PeriodCell rule={first} timezone={timezone} /> : <div role="cell" />}
       </div>

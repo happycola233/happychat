@@ -83,8 +83,8 @@ describe('MessageUsageStats', () => {
     )
 
     expect(html).toContain('¥0.4851')
-    expect(html).toContain('原始成本：$0.0681 USD')
-    expect(html).toContain('汇率：1 USD ≈ 7.123456 CNY')
+    expect(html).toContain('美元费用：$0.0681 USD')
+    expect(html).toContain('旧账折算基准：1 USD ≈ 7.123456 CNY')
   })
 
   it('shows unpriced images as free without configuration notices for users', () => {

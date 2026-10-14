@@ -11,7 +11,9 @@ import type {
 } from '@shared/types/api'
 import type { ModelPricing, UsageLogKind, UsageResult } from '@shared/types/domain'
 import type { RetryAuditSummary } from '@shared/types/retry'
-import { costUsd } from '@shared/util/cost'
+import { getCostReader, type CostReader } from './cost-reader'
+import { legacyExchangeRate } from './exchange-rates'
+import type { CostCurrency } from '@shared/types/domain'
 import { requestedReasoningEffort } from '@shared/util/reasoning'
 import { resolveUsageResult } from '@shared/util/usageOutcome'
 import { db } from '../db/client'
@@ -35,6 +37,7 @@ import {
 } from './run-timing'
 
 export interface StatsFilter {
+  currency?: CostCurrency
   from?: number
   to?: number
   providerId?: string
@@ -108,22 +111,25 @@ function sumCost(
   rows: {
     pricingSnapshot: ModelPricing | null
     costUsd?: number | null
+    costCny?: number | null
     inputTokens: number
     cacheWriteTokens: number
     cachedTokens: number
     outputTokens: number
     imageTokens: number
   }[],
+  readCost: CostReader,
 ): number {
   let total = 0
   for (const r of rows) {
-    total += costUsd(r, r.pricingSnapshot)
+    total += readCost(r, r.pricingSnapshot)
   }
   return total
 }
 
 const TOKEN_SUMS = {
   costUsd: sql<number | null>`sum(${usageLogs.costUsd})`,
+  costCny: sql<number | null>`sum(${usageLogs.costCny})`,
   inputTokens: sql<number>`coalesce(sum(${usageLogs.inputTokens}),0)`,
   cacheWriteTokens: sql<number>`coalesce(sum(${usageLogs.cacheWriteTokens}),0)`,
   cachedTokens: sql<number>`coalesce(sum(${usageLogs.cachedTokens}),0)`,
@@ -134,6 +140,7 @@ const TOKEN_SUMS = {
 // ============================ 概览 ============================
 
 async function usageSummary(filter: StatsFilter) {
+  const readCost = await getCostReader(filter.currency)
   const conds = usageConds(filter)
   const [agg] = await db
     .select({
@@ -153,8 +160,12 @@ async function usageSummary(filter: StatsFilter) {
     .select({ pricingSnapshot: usageLogs.pricingSnapshot, ...TOKEN_SUMS })
     .from(usageLogs)
     .where(whereOf(conds))
-    .groupBy(usageLogs.pricingSnapshot, sql`${usageLogs.costUsd} is null`)
-  return { ...agg!, costUsd: sumCost(byPricing) }
+    .groupBy(
+      usageLogs.pricingSnapshot,
+      sql`${usageLogs.costUsd} is null`,
+      sql`${usageLogs.costCny} is null`,
+    )
+  return { ...agg!, cost: sumCost(byPricing, readCost) }
 }
 
 export async function getOverview(filter: StatsFilter): Promise<OverviewDTO> {
@@ -225,7 +236,7 @@ export async function getOverview(filter: StatsFilter): Promise<OverviewDTO> {
       ? {
           requests: previous.requests,
           tokens: previous.tokens,
-          costUsd: previous.costUsd,
+          cost: previous.cost,
           activeUsers: previous.activeUsers,
         }
       : null,
@@ -237,7 +248,7 @@ export async function getOverview(filter: StatsFilter): Promise<OverviewDTO> {
       cacheRate: agg?.input ? (agg.cached ?? 0) / agg.input : 0,
       rpm: (rate?.requests ?? 0) / 60,
       tpm: (rate?.tokens ?? 0) / 60,
-      costUsd: agg.costUsd,
+      cost: agg.cost,
       activeUsers: agg.activeUsers,
       failedRequests: requests - agg.successes,
       avgDurationMs: agg.avgDurationMs,
@@ -261,6 +272,7 @@ async function countRows(
 // ============================ 分析（时间序列）============================
 
 export async function getAnalytics(filter: StatsFilter): Promise<AnalyticsDTO> {
+  const readCost = await getCostReader(filter.currency)
   const bucket = autoBucket(filter)
   const size = bucketMs(bucket)
   const conds = usageConds(filter)
@@ -278,11 +290,17 @@ export async function getAnalytics(filter: StatsFilter): Promise<AnalyticsDTO> {
       outputTokens: TOKEN_SUMS.outputTokens,
       imageTokens: TOKEN_SUMS.imageTokens,
       costUsd: TOKEN_SUMS.costUsd,
+      costCny: TOKEN_SUMS.costCny,
       reasoningTokens: sql<number>`coalesce(sum(${usageLogs.reasoningTokens}),0)`,
     })
     .from(usageLogs)
     .where(whereOf(conds))
-    .groupBy(bucketExpr, usageLogs.pricingSnapshot, sql`${usageLogs.costUsd} is null`)
+    .groupBy(
+      bucketExpr,
+      usageLogs.pricingSnapshot,
+      sql`${usageLogs.costUsd} is null`,
+      sql`${usageLogs.costCny} is null`,
+    )
     .orderBy(asc(bucketExpr))
 
   const byTs = new Map<number, AnalyticsSeriesPoint>()
@@ -296,7 +314,7 @@ export async function getAnalytics(filter: StatsFilter): Promise<AnalyticsDTO> {
       cachedTokens: 0,
       outputTokens: 0,
       reasoningTokens: 0,
-      costUsd: 0,
+      cost: 0,
     }
     point.requests += r.requests
     point.totalTokens += r.totalTokens
@@ -305,7 +323,7 @@ export async function getAnalytics(filter: StatsFilter): Promise<AnalyticsDTO> {
     point.cachedTokens += r.cachedTokens
     point.outputTokens += r.outputTokens
     point.reasoningTokens += r.reasoningTokens
-    point.costUsd += costUsd(r, r.pricingSnapshot)
+    point.cost += readCost(r, r.pricingSnapshot)
     byTs.set(r.ts, point)
   }
 
@@ -316,6 +334,7 @@ export async function getAnalytics(filter: StatsFilter): Promise<AnalyticsDTO> {
 
 /** 按价格快照结算后再合并对象，改价或删除模型不会改变历史排行。 */
 async function usageBreakdown(filter: StatsFilter) {
+  const readCost = await getCostReader(filter.currency)
   const rows = await db
     .select({
       modelId: usageLogs.modelId,
@@ -339,11 +358,12 @@ async function usageBreakdown(filter: StatsFilter) {
       usageLogs.providerLabel,
       usageLogs.pricingSnapshot,
       sql`${usageLogs.costUsd} is null`,
+      sql`${usageLogs.costCny} is null`,
     )
   const modelRows = new Map<string, UsageBreakdownDTO>()
   const providerRows = new Map<string, UsageBreakdownDTO>()
   for (const row of rows) {
-    const cost = costUsd(row, row.pricingSnapshot)
+    const cost = readCost(row, row.pricingSnapshot)
     const identities = [
       {
         map: modelRows,
@@ -367,12 +387,12 @@ async function usageBreakdown(filter: StatsFilter) {
         label,
         requests: 0,
         totalTokens: 0,
-        costUsd: 0,
+        cost: 0,
         failedRequests: 0,
       }
       item.requests += row.requests
       item.totalTokens += row.totalTokens
-      item.costUsd += cost
+      item.cost += cost
       item.failedRequests += row.failedRequests
       map.set(key, item)
     }
@@ -383,6 +403,7 @@ async function usageBreakdown(filter: StatsFilter) {
 // ============================ 分用户统计 ============================
 
 export async function getUserStats(filter: StatsFilter): Promise<UserStatDTO[]> {
+  const readCost = await getCostReader(filter.currency)
   const conds = usageConds(filter)
 
   // 每用户基础聚合
@@ -414,6 +435,7 @@ export async function getUserStats(filter: StatsFilter): Promise<UserStatDTO[]> 
       outputTokens: TOKEN_SUMS.outputTokens,
       imageTokens: TOKEN_SUMS.imageTokens,
       costUsd: TOKEN_SUMS.costUsd,
+      costCny: TOKEN_SUMS.costCny,
     })
     .from(usageLogs)
     .where(whereOf(conds))
@@ -423,13 +445,14 @@ export async function getUserStats(filter: StatsFilter): Promise<UserStatDTO[]> 
       usageLogs.modelLabel,
       usageLogs.pricingSnapshot,
       sql`${usageLogs.costUsd} is null`,
+      sql`${usageLogs.costCny} is null`,
     )
 
   const costByUser = new Map<string, number>()
   const modelCallsByUser = new Map<string, Map<string, { model: string; calls: number }>>()
   for (const r of byUserModel) {
     if (!r.userId) continue
-    costByUser.set(r.userId, (costByUser.get(r.userId) ?? 0) + costUsd(r, r.pricingSnapshot))
+    costByUser.set(r.userId, (costByUser.get(r.userId) ?? 0) + readCost(r, r.pricingSnapshot))
     const modelLabel = r.modelLabel ?? '未知'
     const modelKey = `${r.modelId ?? ''}\u0000${modelLabel}`
     const callsByModel = modelCallsByUser.get(r.userId) ?? new Map()
@@ -488,7 +511,7 @@ export async function getUserStats(filter: StatsFilter): Promise<UserStatDTO[]> 
       reasoningTokens: b.reasoningTokens,
       imageGenerations: b.imageGenerations,
       fileUploads: fileMap.get(b.userId) ?? 0,
-      costUsd: costByUser.get(b.userId) ?? 0,
+      cost: costByUser.get(b.userId) ?? 0,
       errors: errMap.get(b.userId) ?? 0,
       successRate: b.requests ? b.successes / b.requests : 1,
       lastUsageAt: b.lastUsageAt,
@@ -501,6 +524,8 @@ export async function getUserStats(filter: StatsFilter): Promise<UserStatDTO[]> 
 // ============================ 请求事件（分页）============================
 
 export async function listUsageEvents(filter: StatsFilter): Promise<Paginated<UsageLogDTO>> {
+  const readCost = await getCostReader(filter.currency)
+  const legacyRate = legacyExchangeRate()
   const conds = usageConds(filter)
   const page = filter.page ?? 1
   const pageSize = filter.pageSize ?? 50
@@ -595,7 +620,12 @@ export async function listUsageEvents(filter: StatsFilter): Promise<Paginated<Us
         result: resolveUsageResult(log.outcome, log.terminalReason),
         success: log.success,
         errorType: log.errorType,
-        costUsd: costUsd(log, log.pricingSnapshot),
+        cost: readCost(log, log.pricingSnapshot),
+        costDisplay: {
+          currency: filter.currency ?? 'USD',
+          usdToCnyRate: log.pricingSnapshot?.exchangeRate?.usdToCny ?? legacyRate?.usdToCny ?? null,
+          legacyRateAt: legacyRate?.fetchedAt,
+        },
         costBreakdown: log.costBreakdown,
         reasoningEffort,
         durationMs,

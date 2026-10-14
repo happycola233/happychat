@@ -1,3 +1,5 @@
+import { useBillingCurrency } from '../store/billingCurrency'
+import { BillingCurrencySelect } from '../components/BillingCurrencySelect'
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
@@ -23,6 +25,7 @@ import { useDocumentTitle } from '../hooks/useDocumentTitle'
 /** 个人用量与额度各自沿用服务端时间口径；仅统计窗口跟随 URL 选择。 */
 export default function UsagePage() {
   useDocumentTitle('使用情况')
+  const currency = useBillingCurrency((state) => state.currency)
   const quotaQuery = useMyQuota()
   const quota = quotaQuery.data
   const [params, setParams] = useSearchParams()
@@ -30,12 +33,16 @@ export default function UsagePage() {
   const [exportOpen, setExportOpen] = useState(false)
   const timezone = getBrowserTimezone()
   const query = useQuery({
-    queryKey: ['usage', 'me', view, timezone],
+    queryKey: ['usage', 'me', view, timezone, currency],
     queryFn: () =>
-      getMyUsageStats({ timezone, tzOffsetMinutes: -new Date().getTimezoneOffset(), view }),
+      getMyUsageStats({
+        currency,
+        timezone,
+        tzOffsetMinutes: -new Date().getTimezoneOffset(),
+        view,
+      }),
     staleTime: 60_000,
     refetchInterval: 60_000,
-    placeholderData: (previousData) => previousData,
   })
   const stats = query.data
   const { refetch } = query
@@ -95,6 +102,7 @@ export default function UsagePage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <BillingCurrencySelect />
             <Button
               variant="ghost"
               onClick={refresh}

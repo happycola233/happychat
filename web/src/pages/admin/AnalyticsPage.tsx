@@ -1,3 +1,5 @@
+import { useBillingCurrency } from '../../store/billingCurrency'
+import { BillingCurrencySelect } from '../../components/BillingCurrencySelect'
 import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -16,7 +18,7 @@ import { EmptyState } from '../../components/ui/EmptyState'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { Select } from '../../components/ui/Select'
 import { rangeToFilter } from '../../lib/dateRange'
-import { formatCompact, formatInt, formatPercent, formatUsd } from '../../lib/format'
+import { formatCompact, formatInt, formatPercent, formatCurrency } from '../../lib/format'
 import { AnalyticsUsers } from './AnalyticsUsers'
 import {
   DashboardError,
@@ -50,13 +52,14 @@ const CHART_MODES = {
   },
   cost: {
     label: '成本',
-    series: [{ key: 'costUsd', name: '成本 · USD', color: '#10b981' }],
-    format: formatUsd,
+    series: [{ key: 'cost', name: '成本', color: '#10b981' }],
+    format: formatCurrency,
   },
 }
 type ChartMode = keyof typeof CHART_MODES
 
 export default function AnalyticsPage() {
+  const currency = useBillingCurrency((state) => state.currency)
   const [params, setParams] = useSearchParams()
   const { rangeKey, providerId, modelId, userId, kindSel } = readDashboardFilters(params)
   const [chartMode, setChartMode] = useState<ChartMode>('tokens')
@@ -78,6 +81,7 @@ export default function AnalyticsPage() {
   const users = useQuery({ queryKey: ['admin', 'users'], queryFn: listUsers })
   // 每次实际请求时重新计算相对窗口，手动刷新不会继续使用挂载时的起点。
   const buildQuery = () => ({
+    currency,
     ...rangeToFilter(rangeKey),
     providerId: providerId || undefined,
     modelId: modelId || undefined,
@@ -85,11 +89,20 @@ export default function AnalyticsPage() {
     kind: kindSel || undefined,
   })
   const analytics = useQuery({
-    queryKey: ['admin', 'analytics', rangeKey, providerId, modelId, userId, kindSel],
+    queryKey: ['admin', 'analytics', rangeKey, providerId, modelId, userId, kindSel, currency],
     queryFn: () => getAnalytics(buildQuery()),
   })
   const userStats = useQuery({
-    queryKey: ['admin', 'analytics-user-stats', rangeKey, providerId, modelId, userId, kindSel],
+    queryKey: [
+      'admin',
+      'analytics-user-stats',
+      rangeKey,
+      providerId,
+      modelId,
+      userId,
+      kindSel,
+      currency,
+    ],
     queryFn: () => getUserStats(buildQuery()),
   })
   const refresh = () => {
@@ -137,7 +150,7 @@ export default function AnalyticsPage() {
   const exportTrend = () => {
     // 此导出仅含数字与 ISO 时间，不包含用户名或聊天内容。
     const csv = [
-      '时间（UTC）,请求数,总Token,输入Token,输出Token,缓存写入Token,缓存读取Token,推理Token,预估成本（USD）',
+      `时间（UTC）,请求数,总Token,输入Token,输出Token,缓存写入Token,缓存读取Token,推理Token,预估成本（${currency}）`,
       ...series.map((point) =>
         [
           new Date(point.ts).toISOString(),
@@ -148,7 +161,7 @@ export default function AnalyticsPage() {
           point.cacheWriteTokens,
           point.cachedTokens,
           point.reasoningTokens,
-          point.costUsd,
+          point.cost,
         ].join(','),
       ),
     ].join('\r\n')
@@ -167,6 +180,7 @@ export default function AnalyticsPage() {
         description="追踪用量变化，了解成本花在哪里。"
         actions={
           <>
+            <BillingCurrencySelect />
             <DateRangePicker value={rangeKey} onChange={(range) => updateFilters({ range })} />
             <RefreshButton busy={analytics.isFetching || userStats.isFetching} onClick={refresh} />
           </>
@@ -272,13 +286,13 @@ export default function AnalyticsPage() {
                     : '暂无输入 Token',
                 },
                 {
-                  label: '预估成本 · USD',
-                  value: formatUsd(totals.costUsd),
+                  label: '预估成本',
+                  value: formatCurrency(totals.cost),
                   hint: '按请求时的模型价格估算',
                 },
                 {
                   label: '平均单次成本',
-                  value: totals.requests ? formatUsd(totals.costUsd / totals.requests) : '—',
+                  value: totals.requests ? formatCurrency(totals.cost / totals.requests) : '—',
                   hint: `${data.models.length} 个模型 · ${data.providers.length} 个供应商`,
                 },
               ]}

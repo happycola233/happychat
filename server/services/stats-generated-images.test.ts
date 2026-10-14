@@ -133,7 +133,7 @@ function auditMetrics(event: UsageLogDTO) {
     reasoningTokens: event.reasoningTokens,
     totalTokens: event.totalTokens,
     imageTokens: event.imageTokens,
-    costUsd: event.costUsd,
+    costUsd: event.cost,
   }
 }
 
@@ -153,7 +153,7 @@ describe('request event generated image statistics', () => {
       totalTokens: 1300,
       imageTokens: 400,
     })
-    expect(result.items[0]!.costUsd).toBeCloseTo(0.00605, 10)
+    expect(result.items[0]!.cost).toBeCloseTo(0.00605, 10)
   })
 
   it('keeps text and title requests at zero images without changing their request kind or accounting', async () => {
@@ -176,7 +176,7 @@ describe('request event generated image statistics', () => {
     const text = result.items.find((event) => event.id === fixture.eventId)!
     const title = result.items.find((event) => event.id === titleEventId)!
     expect(text).toMatchObject({ kind: 'chat', generatedImageCount: 0, totalTokens: 1300 })
-    expect(text.costUsd).toBeCloseTo(0.00445, 10)
+    expect(text.cost).toBeCloseTo(0.00445, 10)
     expect(title).toMatchObject({
       kind: 'title',
       generatedImageCount: 0,
@@ -185,7 +185,7 @@ describe('request event generated image statistics', () => {
       totalTokens: 15,
       imageTokens: 0,
     })
-    expect(title.costUsd).toBeCloseTo(0.00006, 10)
+    expect(title.cost).toBeCloseTo(0.00006, 10)
   })
 
   it('preserves image count, request kind, tokens and cost after deleting the source conversation', async () => {

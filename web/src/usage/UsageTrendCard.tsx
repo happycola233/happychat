@@ -58,7 +58,7 @@ export function UsageTrendCard({
         <span className="text-xs text-neutral-500 dark:text-neutral-400">
           {viewLabel}
           {label}
-          {metric === 'costUsd' ? ' · USD' : '总量'}
+          {metric === 'cost' ? '' : '总量'}
         </span>
       </div>
       {showTable ? (
@@ -73,7 +73,7 @@ export function UsageTrendCard({
             </caption>
             <thead className="sticky top-0 bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
               <tr>
-                {['时间', '请求', 'Token', '花费 · USD'].map((title) => (
+                {['时间', '请求', 'Token', '花费'].map((title) => (
                   <th
                     key={title}
                     scope="col"
@@ -96,7 +96,7 @@ export function UsageTrendCard({
                   </th>
                   <td className="px-2">{formatInt(point.requests)}</td>
                   <td className="px-2">{formatInt(point.totalTokens)}</td>
-                  <td className="px-2">{formatUsageMetric(point.costUsd, 'costUsd', true)}</td>
+                  <td className="px-2">{formatUsageMetric(point.cost, 'cost', true)}</td>
                 </tr>
               ))}
             </tbody>

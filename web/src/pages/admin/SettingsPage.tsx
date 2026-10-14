@@ -256,8 +256,7 @@ export default function SettingsPage() {
                     <div>
                       <div className="text-sm text-neutral-800 dark:text-neutral-100">展示币种</div>
                       <div className="mt-0.5 text-xs leading-5 text-neutral-400 dark:text-neutral-500">
-                        CNY 按实时 USD/CNY 汇率换算，仅影响聊天消息用量行；原始成本与其他统计仍为
-                        USD。
+                        选择聊天费用的显示币种。每笔请求按当时汇率结算，历史费用保持不变。
                       </div>
                     </div>
                     <Select

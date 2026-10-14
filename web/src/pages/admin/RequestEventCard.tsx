@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import { CostBreakdown } from '../../components/CostBreakdown'
 import type { UsageLogDTO } from '@shared/types/api'
-import { formatInt, formatUsd } from '../../lib/format'
+import { formatInt, formatCurrency } from '../../lib/format'
 import { CopyButton } from '../../components/ui/CopyButton'
 import { RequestKindBadge } from './RequestKindBadge'
 import { RequestOutcomeBadge } from './RequestOutcomeBadge'
@@ -56,7 +56,9 @@ export function RequestEventCard({ row }: { row: UsageLogDTO }) {
           {
             label: '成本',
             value: (
-              <CostBreakdown breakdown={row.costBreakdown}>{formatUsd(row.costUsd)}</CostBreakdown>
+              <CostBreakdown breakdown={row.costBreakdown} display={row.costDisplay}>
+                {formatCurrency(row.cost)}
+              </CostBreakdown>
             ),
           },
         ].map((metric) => (

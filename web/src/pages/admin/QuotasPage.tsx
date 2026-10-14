@@ -1,3 +1,5 @@
+import { useBillingCurrency } from '../../store/billingCurrency'
+import { BillingCurrencySelect } from '../../components/BillingCurrencySelect'
 import { LoadError } from '../../components/ui/LoadError'
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -62,6 +64,7 @@ type View = 'policies' | 'users'
  * 批量交互沿用模型页的语言（行首多选 + 底部悬浮条），降低学习成本。
  */
 export default function QuotasPage() {
+  const currency = useBillingCurrency((state) => state.currency)
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
   const [view, setView] = useState<View>(
@@ -119,8 +122,8 @@ export default function QuotasPage() {
   })
   // 用量排行必须用可比时间窗：无限额度用户的快照没有计量桶，不能拿额度 used 相加。
   const { data: userStats, isLoading: loadingUserStats } = useQuery({
-    queryKey: ['admin', 'quota', 'user-stats', usageRange],
-    queryFn: () => getUserStats({ ...rangeToFilter(usageRange), kind: 'chat' }),
+    queryKey: ['admin', 'quota', 'user-stats', usageRange, currency],
+    queryFn: () => getUserStats({ ...rangeToFilter(usageRange), kind: 'chat', currency }),
     enabled: view === 'users',
   })
 
@@ -296,7 +299,11 @@ export default function QuotasPage() {
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-5">
-      <PageHeader title="用户限额" description="设置额度策略，快速找到需要调整额度的用户。" />
+      <PageHeader
+        title="用户限额"
+        description="设置额度策略，快速找到需要调整额度的用户。"
+        actions={view === 'users' ? <BillingCurrencySelect /> : undefined}
+      />
 
       {configError && <LoadError hasData={Boolean(config)} onRetry={() => void refetchConfig()} />}
       {/* 总开关 + 周期口径：关闭时全站不做任何判定 */}

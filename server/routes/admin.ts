@@ -870,6 +870,7 @@ adminRoutes.get('/quota/users', async (c) => {
 adminRoutes.get('/quota/users/:id', async (c) => {
   const days = Number(c.req.query('days') ?? 30)
   const detail = await getAdminUserQuotaDetail(c.req.param('id'), {
+    currency: c.req.query('currency') === 'CNY' ? 'CNY' : 'USD',
     days: Number.isFinite(days) ? Math.max(1, Math.min(731, days)) : 30,
   })
   if (!detail) return c.json({ error: { message: '用户不存在', code: 'not_found' } }, 404)

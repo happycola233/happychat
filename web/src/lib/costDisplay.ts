@@ -1,4 +1,15 @@
 import type { MessageCostDisplayDTO } from '@shared/types/api'
+import type { RequestCostBreakdown } from '@shared/types/domain'
+
+/** 请求快照优先于旧账折算基准，历史消息绝不随最新汇率变价。 */
+export function requestCostDisplay(
+  display?: MessageCostDisplayDTO,
+  breakdown?: RequestCostBreakdown | null,
+): MessageCostDisplayDTO | undefined {
+  return breakdown?.exchangeRate
+    ? { currency: display?.currency ?? 'USD', usdToCnyRate: breakdown.exchangeRate.usdToCny }
+    : display
+}
 
 /** 美元成本：保留小额请求所需精度，非零但低于一百万分之一美元时使用下限文案。 */
 export function formatCostUsd(costUsd: number | null | undefined): string | null {
@@ -45,13 +56,15 @@ export function formatCostAmount(costUsd: number, display?: MessageCostDisplayDT
 }
 
 /**
- * 聊天消息成本展示：原始数据始终是 USD；仅在拿到有效实时汇率时换算为 CNY。
- * CNY 悬停说明保留原始 USD 与换算汇率，上游不可用时明确回退为 USD。
+ * 聊天金额使用请求结算汇率；没有汇率快照的旧消息使用固定旧账基准。
+ * CNY 悬停说明保留美元金额与换算依据；没有任何可用汇率时明确回退为 USD。
  */
 export function formatMessageCost(
   costUsd: number | null | undefined,
   display?: MessageCostDisplayDTO,
+  breakdown?: RequestCostBreakdown | null,
 ): FormattedMessageCost | null {
+  display = requestCostDisplay(display, breakdown)
   const originalUsd = formatCostUsd(costUsd)
   if (!originalUsd || typeof costUsd !== 'number') return null
   if (display?.currency !== 'CNY') {
@@ -62,7 +75,7 @@ export function formatMessageCost(
   if (costDisplayCurrency(display) !== 'CNY') {
     return {
       value: originalUsd,
-      title: `人民币实时汇率暂不可用，显示原始成本：${originalUsd} USD`,
+      title: `人民币汇率暂不可用，显示美元费用：${originalUsd} USD`,
     }
   }
 
@@ -73,6 +86,6 @@ export function formatMessageCost(
   })
   return {
     value: formatCostAmount(costUsd, display),
-    title: `本次预估成本（CNY）；原始成本：${originalUsd} USD；汇率：1 USD ≈ ${formattedRate} CNY`,
+    title: `本次预估成本（CNY）；美元费用：${originalUsd} USD；${breakdown?.exchangeRate ? '请求汇率' : '旧账折算基准'}：1 USD ≈ ${formattedRate} CNY`,
   }
 }

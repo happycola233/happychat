@@ -11,7 +11,8 @@ import type {
   UsageStatsView,
   UsageTrendGranularity,
 } from '@shared/types/domain'
-import { costUsd } from '@shared/util/cost'
+import { getCostReader, type CostReader } from './cost-reader'
+import type { CostCurrency } from '@shared/types/domain'
 import {
   canonicalizeIanaTimezone,
   zonedDateParts,
@@ -32,6 +33,7 @@ export const USAGE_STATS_MAX_DAYS = 731
 export const USAGE_TREND_DAYS = 30
 
 export interface UsageStatsOptions {
+  currency?: CostCurrency
   /** 用户浏览器报告的 IANA 时区；历史分桶会使用每个时刻各自的 DST 偏移。 */
   timezone?: string
   /** 旧客户端兼容：未提供有效 IANA 时区时使用的固定 UTC 偏移（东为正）。 */
@@ -308,6 +310,7 @@ interface AggregatedRow {
   modelLabel: string | null
   pricingSnapshot: ModelPricing | null
   costUsd: number | null
+  costCny: number | null
   requests: number
   inputTokens: number
   cacheWriteTokens: number
@@ -349,6 +352,7 @@ async function aggregate(
       modelLabel: sql<string | null>`coalesce(${models.displayName}, ${usageLogs.modelLabel})`,
       pricingSnapshot: usageLogs.pricingSnapshot,
       costUsd: sql<number | null>`sum(${usageLogs.costUsd})`,
+      costCny: sql<number | null>`sum(${usageLogs.costCny})`,
       requests: sql<number>`count(*)`,
       inputTokens: sql<number>`coalesce(sum(${usageLogs.inputTokens}),0)`,
       cacheWriteTokens: sql<number>`coalesce(sum(${usageLogs.cacheWriteTokens}),0)`,
@@ -369,6 +373,7 @@ async function aggregate(
       models.displayName,
       usageLogs.pricingSnapshot,
       sql`${usageLogs.costUsd} is null`,
+      sql`${usageLogs.costCny} is null`,
     )
   return rows as AggregatedRow[]
 }
@@ -410,16 +415,17 @@ function computeStreaks(
 export async function getUserModelUsage(
   userId: string,
   days: number,
+  currency: CostCurrency = 'USD',
 ): Promise<UsageModelStatDTO[]> {
   const now = Date.now()
   const since = days > 0 ? now - days * DAY_MS : 0
   const rows = await aggregate(userId, since, now + 1, [
     { startMs: since, endMs: now + 1, offsetMs: 0 },
   ])
-  return summarizeByModel(rows)
+  return summarizeByModel(rows, await getCostReader(currency))
 }
 
-function summarizeByModel(rows: AggregatedRow[]): UsageModelStatDTO[] {
+function summarizeByModel(rows: AggregatedRow[], readCost: CostReader): UsageModelStatDTO[] {
   const byModel = new Map<string, UsageModelStatDTO>()
   for (const row of rows) {
     const label = row.modelLabel ?? '未知模型'
@@ -430,11 +436,11 @@ function summarizeByModel(rows: AggregatedRow[]): UsageModelStatDTO[] {
       modelLabel: label,
       requests: 0,
       totalTokens: 0,
-      costUsd: 0,
+      cost: 0,
     }
     entry.requests += row.requests
     entry.totalTokens += row.totalTokens
-    entry.costUsd += costUsd(row, row.pricingSnapshot)
+    entry.cost += readCost(row, row.pricingSnapshot)
     byModel.set(key, entry)
   }
   return [...byModel.values()].sort((a, b) => b.requests - a.requests)
@@ -484,6 +490,7 @@ export async function getMyUsageStats(
   userId: string,
   options: UsageStatsOptions = {},
 ): Promise<UsageStatsDTO> {
+  const readCost = await getCostReader(options.currency)
   const clock = resolveUsageClock(options)
   const rangeDays = Math.max(
     7,
@@ -504,7 +511,7 @@ export async function getMyUsageStats(
   const byWeekday = Array.from({ length: 7 }, () => 0)
   const trendByBucket = new Map<number, UsageTrendPointDTO>()
   for (const bucket of trendBucketSeries(window, now, clock, offsetPeriods)) {
-    trendByBucket.set(bucket, { ts: bucket, requests: 0, totalTokens: 0, costUsd: 0 })
+    trendByBucket.set(bucket, { ts: bucket, requests: 0, totalTokens: 0, cost: 0 })
   }
   const windowRows: AggregatedRow[] = []
   const windowActiveDates = new Set<string>()
@@ -514,7 +521,7 @@ export async function getMyUsageStats(
   let imageGenerations = 0
 
   for (const row of rows) {
-    const cost = costUsd(row, row.pricingSnapshot)
+    const cost = readCost(row, row.pricingSnapshot)
     // bucket 已是「平移到 UTC 的本地小时起点」，因此直接按 UTC 读取即为本地时间。
     const bucketDate = new Date(row.bucket)
     const dateKey = bucketDate.toISOString().slice(0, 10)
@@ -523,11 +530,11 @@ export async function getMyUsageStats(
       date: dateKey,
       requests: 0,
       totalTokens: 0,
-      costUsd: 0,
+      cost: 0,
     }
     cell.requests += row.requests
     cell.totalTokens += row.totalTokens
-    cell.costUsd += cost
+    cell.cost += cost
     heatmapByDate.set(dateKey, cell)
 
     if (row.bucket < window.wallStart || row.bucket >= window.wallEnd) continue
@@ -559,17 +566,17 @@ export async function getMyUsageStats(
       ts: bucketStart,
       requests: 0,
       totalTokens: 0,
-      costUsd: 0,
+      cost: 0,
     }
     point.requests += row.requests
     point.totalTokens += row.totalTokens
-    point.costUsd += cost
+    point.cost += cost
     trendByBucket.set(bucketStart, point)
   }
 
   const dateKeys = dateKeySeries(now, clock, rangeDays)
   const heatmap: UsageHeatmapCellDTO[] = dateKeys.map(
-    (date) => heatmapByDate.get(date) ?? { date, requests: 0, totalTokens: 0, costUsd: 0 },
+    (date) => heatmapByDate.get(date) ?? { date, requests: 0, totalTokens: 0, cost: 0 },
   )
   // 连续活跃天数按近一年滚动计算：streak 本身就是滚动概念，跟随窗口反而会在月初归零。
   const activeKeys = new Set(
@@ -588,7 +595,7 @@ export async function getMyUsageStats(
     .from(usageLogs)
     .where(eq(usageLogs.userId, userId))
 
-  const byModel = summarizeByModel(windowRows)
+  const byModel = summarizeByModel(windowRows, readCost)
   const maxHourRequests = Math.max(...byHour)
   const maxWeekdayRequests = Math.max(...byWeekday)
 
@@ -603,7 +610,7 @@ export async function getMyUsageStats(
       messages: counts.messages,
       requests,
       totalTokens,
-      costUsd: totalCost,
+      cost: totalCost,
       imageGenerations,
       activeDays: windowActiveDates.size,
       currentStreak,

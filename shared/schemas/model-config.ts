@@ -1,4 +1,12 @@
 import { z } from 'zod'
+import {
+  contextTiersSchema,
+  tokenPricingShape,
+  timezoneSchema,
+  pricingTimeSchema,
+  pricingEndTimeSchema,
+  validatePricingPeriods,
+} from './pricing'
 import { defaultReasoningEffortDescription } from '../constants'
 import {
   MODEL_TAG_COLOR_PATTERN,
@@ -183,13 +191,41 @@ export const imageGenerationPricingSchema = z.discriminatedUnion('mode', [
   }),
 ])
 
-/** 聊天按 USD / 百万 Token，生图独立选择 Token 或按张计价。 */
+const pricingTableSchema = z.object({
+  ...tokenPricingShape,
+  imageGeneration: imageGenerationPricingSchema.optional(),
+  contextTiers: contextTiersSchema.optional(),
+})
+
+/** 所有单价使用所选币种；每个时段有独立价目表。 */
 export const pricingSchema = z
   .object({
-    input: z.number().min(0).optional(),
-    cacheWriteInput: z.number().min(0).optional(),
-    cachedInput: z.number().min(0).optional(),
-    output: z.number().min(0).optional(),
+    currency: z.enum(['USD', 'CNY']).optional(),
+    timezone: timezoneSchema.optional(),
+    contextTiers: contextTiersSchema.optional(),
+    excludedDates: z.array(z.iso.date('请选择有效日期')).max(366, '最多设置 366 个日期').optional(),
+    periods: z
+      .array(
+        z.object({
+          id: z.string().min(1),
+          label: z.string().trim().min(1, '请填写时段名称').max(40),
+          weekdays: z
+            .array(z.number().int().min(1).max(7))
+            .min(1, '请选择星期')
+            .refine((days) => new Set(days).size === days.length, '星期不能重复'),
+          start: pricingTimeSchema,
+          end: pricingEndTimeSchema,
+          pricing: pricingTableSchema,
+        }),
+      )
+      .max(20, '最多设置 20 个定价时段')
+      .refine(
+        (periods) => new Set(periods.map((period) => period.id)).size === periods.length,
+        '时段 id 不能重复',
+      )
+      .superRefine(validatePricingPeriods)
+      .optional(),
+    ...tokenPricingShape,
     image: z.number().min(0).optional(),
     imageGeneration: imageGenerationPricingSchema.optional(),
     imagePricingModelId: z.string().min(1).optional(),

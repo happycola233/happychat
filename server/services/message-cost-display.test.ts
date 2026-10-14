@@ -1,11 +1,33 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import {
-  getMessageCostDisplay,
-  getUsdToCnyRate,
-  resetMessageCostDisplayCacheForTests,
-} from './message-cost-display'
+import { afterAll, beforeAll, afterEach, describe, expect, it, vi } from 'vitest'
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
+let getMessageCostDisplay: typeof import('./message-cost-display').getMessageCostDisplay
+let getUsdToCnyRate: typeof import('./message-cost-display').getUsdToCnyRate
+let resetMessageCostDisplayCacheForTests: typeof import('./message-cost-display').resetMessageCostDisplayCacheForTests
+let client: typeof import('../db/client')
+let tables: typeof import('../db/schema')
+let tmpDir: string
+beforeAll(async () => {
+  mkdirSync('.tmp', { recursive: true })
+  tmpDir = mkdtempSync(join(process.cwd(), '.tmp', 'exchange-rate-'))
+  process.env.DATA_DIR = tmpDir
+  process.env.DATABASE_URL = join(tmpDir, 'test.db')
+  process.env.NODE_ENV = 'test'
+  vi.resetModules()
+  client = await import('../db/client')
+  tables = await import('../db/schema')
+  const migration = await import('../db/migrate')
+  migration.runMigrations()
+  ;({ getMessageCostDisplay, getUsdToCnyRate, resetMessageCostDisplayCacheForTests } =
+    await import('./message-cost-display'))
+})
+afterAll(() => {
+  client.sqlite.close()
+  rmSync(tmpDir, { recursive: true, force: true })
+})
 
 afterEach(() => {
+  client.db.delete(tables.exchangeRates).run()
   resetMessageCostDisplayCacheForTests()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
@@ -14,10 +36,9 @@ afterEach(() => {
 describe('聊天消息成本汇率', () => {
   it('从 Coinbase 读取 USD/CNY 汇率并在内存中复用', async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
-      new Response(
-        JSON.stringify({ data: { currency: 'USD', rates: { CNY: '7.123456' } } }),
-        { status: 200 },
-      ),
+      new Response(JSON.stringify({ data: { currency: 'USD', rates: { CNY: '7.123456' } } }), {
+        status: 200,
+      }),
     )
     vi.stubGlobal('fetch', fetchMock)
 
@@ -31,14 +52,16 @@ describe('聊天消息成本汇率', () => {
     vi.stubGlobal('fetch', fetchMock)
     vi.spyOn(console, 'warn').mockImplementation(() => undefined)
 
-    await expect(
-      getMessageCostDisplay({ showCost: true, costCurrency: 'USD' }),
-    ).resolves.toEqual({ currency: 'USD', usdToCnyRate: null })
+    await expect(getMessageCostDisplay({ showCost: true, costCurrency: 'USD' })).resolves.toEqual({
+      currency: 'USD',
+      usdToCnyRate: null,
+    })
     expect(fetchMock).not.toHaveBeenCalled()
 
-    await expect(
-      getMessageCostDisplay({ showCost: true, costCurrency: 'CNY' }),
-    ).resolves.toEqual({ currency: 'CNY', usdToCnyRate: null })
+    await expect(getMessageCostDisplay({ showCost: true, costCurrency: 'CNY' })).resolves.toEqual({
+      currency: 'CNY',
+      usdToCnyRate: null,
+    })
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 })

@@ -25,6 +25,7 @@ import { promptCacheKeyForConversation } from '../provider/promptCache'
 import type { AnthropicReplayContextV1, ProviderReplayContext } from '../provider/reasoning-replay'
 import { buildPath, getConversationMessages, getOwnedConversation } from '../services/conversations'
 import { getRunnableModel } from '../services/models'
+import { freezeModelPricing } from '../services/model-pricing'
 import {
   activateQuotaCyclesInTransaction,
   prepareQuotaAdmission,
@@ -598,6 +599,7 @@ export async function prepareRun(args: PrepareArgs): Promise<PrepareResult> {
   const { model, provider } = runnable
   const quotaAdmission = await prepareQuotaOrError(args.userId, model.id)
   if (!quotaAdmission.ok) return quotaAdmission
+  model.pricing = await freezeModelPricing(model)
   if (model.kind === 'image' && !args.text.trim()) {
     return {
       ok: false,
@@ -906,6 +908,7 @@ export async function prepareRegenerate(args: RegenerateArgs): Promise<PrepareRe
   const { model, provider } = runnable
   const quotaAdmission = await prepareQuotaOrError(args.userId, model.id)
   if (!quotaAdmission.ok) return quotaAdmission
+  model.pricing = await freezeModelPricing(model)
   const reasoningParams = normalizeReasoningParamsForModel(model, args.params)
   if (!reasoningParams.ok) return reasoningParams
   const normalizedParams = normalizeImageParamsForModel(model, reasoningParams.params)

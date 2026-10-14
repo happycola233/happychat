@@ -47,19 +47,16 @@ describe('formatCostUsd', () => {
 
 describe('formatMessageCost', () => {
   it('按实时汇率展示 CNY，并在提示中保留原始 USD 和汇率', () => {
-    expect(
-      formatMessageCost(0.0681, { currency: 'CNY', usdToCnyRate: 7.123456 }),
-    ).toEqual({
+    expect(formatMessageCost(0.0681, { currency: 'CNY', usdToCnyRate: 7.123456 })).toEqual({
       value: '¥0.4851',
-      title:
-        '本次预估成本（CNY）；原始成本：$0.0681 USD；汇率：1 USD ≈ 7.123456 CNY',
+      title: '本次预估成本（CNY）；美元费用：$0.0681 USD；旧账折算基准：1 USD ≈ 7.123456 CNY',
     })
   })
 
   it('CNY 汇率不可用时回退显示原始 USD', () => {
     expect(formatMessageCost(0.0681, { currency: 'CNY', usdToCnyRate: null })).toEqual({
       value: '$0.0681',
-      title: '人民币实时汇率暂不可用，显示原始成本：$0.0681 USD',
+      title: '人民币汇率暂不可用，显示美元费用：$0.0681 USD',
     })
   })
 })

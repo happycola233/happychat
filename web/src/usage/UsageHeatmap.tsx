@@ -25,7 +25,7 @@ function cellTitle(day: HeatmapDay): string {
     ' 次请求 · ' +
     formatInt(day.totalTokens) +
     ' Token · ' +
-    formatUsageMetric(day.costUsd, 'costUsd', true)
+    formatUsageMetric(day.cost, 'cost', true)
   )
 }
 
@@ -116,7 +116,7 @@ export function UsageHeatmap({
         <span className="sm:ml-auto">
           累计{' '}
           {metric === 'cost'
-            ? formatUsageMetric(grid.total, 'costUsd')
+            ? formatUsageMetric(grid.total, 'cost')
             : metric === 'tokens'
               ? formatUsageMetric(grid.total, 'totalTokens') + ' Token'
               : formatInt(grid.total) + ' 次请求'}
@@ -265,7 +265,7 @@ export function UsageHeatmap({
             {[
               ['请求', formatInt(inspected.requests)],
               ['Token', formatInt(inspected.totalTokens)],
-              ['花费 · USD', formatUsageMetric(inspected.costUsd, 'costUsd', true)],
+              ['花费', formatUsageMetric(inspected.cost, 'cost', true)],
             ].map(([label, value]) => (
               <div key={label}>
                 <dt className="mb-1 text-neutral-500 dark:text-neutral-400">{label}</dt>

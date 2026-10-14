@@ -1,3 +1,4 @@
+import { getExchangeRate, storedExchangeRate } from './exchange-rates'
 import { and, asc, eq, inArray, sql } from 'drizzle-orm'
 import type {
   AdminQuotaPolicyDTO,
@@ -460,6 +461,8 @@ export async function createQuotaGrant(
     return { ok: false, code: 'amount_not_integer' }
   }
 
+  const exchangeRate =
+    found.rule.metric === 'cost' && storedExchangeRate() ? await getExchangeRate() : null
   const now = new Date()
   const expiresAt = adjustmentExpiresAt(found.rule, found.bucket.periodEnd, now)
 
@@ -472,6 +475,8 @@ export async function createQuotaGrant(
         ruleId: found.rule.id,
         bucketKey: input.bucketKey ?? null,
         metric: found.rule.metric,
+        currency: found.rule.currency ?? 'USD',
+        usdToCnyRate: exchangeRate?.usdToCny,
         amount: input.amount,
         effectiveFrom: now,
         periodStart: new Date(found.bucket.periodStart),
@@ -490,6 +495,7 @@ export async function createQuotaGrant(
       ruleId: row.ruleId,
       bucketKey: row.bucketKey,
       metric: row.metric,
+      currency: row.currency,
       amount: row.amount ?? 0,
       note: row.note,
       expiresAt: row.expiresAt?.getTime() ?? null,
@@ -617,6 +623,7 @@ function toAdjustmentDTO(
     ruleId: row.ruleId,
     bucketKey: row.bucketKey,
     metric: row.metric,
+    currency: row.currency,
     amount: row.amount ?? 0,
     note: row.note,
     expiresAt: row.expiresAt,
@@ -688,7 +695,7 @@ export async function listAdminUserQuotas(): Promise<AdminUserQuotaDTO[]> {
 
 export async function getAdminUserQuotaDetail(
   userId: string,
-  options: { days?: number } = {},
+  options: { days?: number; currency?: 'USD' | 'CNY' } = {},
 ): Promise<AdminUserQuotaDetailDTO | null> {
   const [user] = await db
     .select({ id: users.id, username: users.username, displayName: users.displayName })
@@ -719,7 +726,7 @@ export async function getAdminUserQuotaDetail(
     effectiveRules: binding.rules,
     rules: snapshot.rules,
     adjustments: adjustments.map((row) => toAdjustmentDTO(row, snapshot.rules, now)),
-    byModel: await getUserModelUsage(userId, options.days ?? 30),
+    byModel: await getUserModelUsage(userId, options.days ?? 30, options.currency),
   }
 }
 

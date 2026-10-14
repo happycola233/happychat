@@ -11,12 +11,14 @@ export const getMyQuota = () =>
  * 尚不认识 `timezone` 的旧服务端。
  */
 export const getMyUsageStats = (params: {
+  currency?: 'USD' | 'CNY'
   timezone?: string
   tzOffsetMinutes?: number
   days?: number
   view?: UsageStatsView
 }) => {
   const search = new URLSearchParams()
+  if (params.currency) search.set('currency', params.currency)
   if (params.timezone) search.set('timezone', params.timezone)
   if (params.tzOffsetMinutes !== undefined) {
     search.set('tzOffsetMinutes', String(params.tzOffsetMinutes))

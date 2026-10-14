@@ -9,9 +9,9 @@ import {
 } from './usagePresentation'
 
 const rows: UsageModelStatDTO[] = [
-  { modelId: 'a', modelLabel: 'GPT Alpha', requests: 12, totalTokens: 14000, costUsd: 0.03 },
-  { modelId: 'b', modelLabel: 'Claude Beta', requests: 7, totalTokens: 16000, costUsd: 0.3 },
-  { modelId: null, modelLabel: 'GPT 历史模型', requests: 2, totalTokens: 500, costUsd: 0.04 },
+  { modelId: 'a', modelLabel: 'GPT Alpha', requests: 12, totalTokens: 14000, cost: 0.03 },
+  { modelId: 'b', modelLabel: 'Claude Beta', requests: 7, totalTokens: 16000, cost: 0.3 },
+  { modelId: null, modelLabel: 'GPT 历史模型', requests: 2, totalTokens: 500, cost: 0.04 },
 ]
 
 describe('个人用量展示', () => {
@@ -26,7 +26,7 @@ describe('个人用量展示', () => {
       'a',
       null,
     ])
-    expect(filterAndSortModels(rows, '  gPt  ', 'costUsd').map((row) => row.modelId)).toEqual([
+    expect(filterAndSortModels(rows, '  gPt  ', 'cost').map((row) => row.modelId)).toEqual([
       null,
       'a',
     ])
@@ -43,8 +43,8 @@ describe('个人用量展示', () => {
   it('缩写与完整数值分离，微小花费仍可查看精度', () => {
     expect(formatUsageMetric(1234567, 'totalTokens')).toBe('1.2M')
     expect(formatUsageMetric(1234567, 'totalTokens', true)).toBe('1,234,567')
-    expect(formatUsageMetric(0.000125, 'costUsd', true)).toBe('$0.000125')
-    expect(formatUsageMetric(0.000000125, 'costUsd', true)).toBe('$0.000000125')
+    expect(formatUsageMetric(0.000125, 'cost', true)).toBe('$0.000125')
+    expect(formatUsageMetric(0.000000125, 'cost', true)).toBe('$0.000000125')
   })
   it('日期范围按统计时区显示，单日不重复日期', () => {
     const at = Date.parse('2026-09-15T18:00:00Z')

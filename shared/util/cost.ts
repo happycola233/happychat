@@ -4,9 +4,14 @@ import type {
   ModelKind,
   ModelPricing,
   RequestCostBreakdown,
+  BillingUsage,
+  RequestCostCharge,
 } from '../types/domain'
+import { selectPricingTable, selectTokenPricing } from './pricing'
 
 export interface CostTokens {
+  costCny?: number | null
+  billingSegments?: BillingUsage[]
   /** 已结算的新请求优先使用冻结成本；旧记录仍由价格快照回算。 */
   costUsd?: number | null
   inputTokens: number
@@ -14,6 +19,16 @@ export interface CostTokens {
   cachedTokens: number
   outputTokens: number
   imageTokens: number
+}
+
+export function costCny(
+  tokens: CostTokens,
+  pricing: ModelPricing | null | undefined,
+  legacyRate: number,
+): number {
+  return (
+    tokens.costCny ?? costUsd(tokens, pricing) * (pricing?.exchangeRate?.usdToCny ?? legacyRate)
+  )
 }
 
 const PER_MILLION = 1_000_000
@@ -73,14 +88,26 @@ export function normalizeModelPricing(
           }
         : { mode: 'tokens', imageOutput: image }
   }
-  if (kind === 'image') return { imageGeneration: current.imageGeneration }
-  if (kind !== 'responses')
-    return {
-      input: current.input,
-      output: current.output,
-      cachedInput: current.cachedInput,
-      cacheWriteInput: current.cacheWriteInput,
-    }
+  if (kind === 'image') {
+    const {
+      input: _input,
+      output: _output,
+      cachedInput: _cached,
+      cacheWriteInput: _write,
+      contextTiers: _tiers,
+      ...imagePricing
+    } = current
+    return imagePricing
+  }
+  if (kind !== 'responses') {
+    const {
+      imageGeneration: _image,
+      imagePricingModelId: _source,
+      imagePricingSnapshot: _snapshot,
+      ...chatPricing
+    } = current
+    return chatPricing
+  }
   return current
 }
 
@@ -116,7 +143,7 @@ function imageUnitPrice(
   return { price, status: price == null ? 'missing_pricing' : 'complete' }
 }
 
-export function calculateRequestCost(
+function calculateBaseRequestCost(
   tokens: CostTokens,
   pricing: ModelPricing | null | undefined,
   kind: ModelKind,
@@ -166,5 +193,100 @@ export function calculateRequestCost(
     }
   }
   result.totalUsd += result.imageUsd
+  return result
+}
+
+/** 逐次上游调用选时段、选上下文档位，再换算；绝不使用重试累加后的输入量选档。 */
+export function calculateRequestCost(
+  tokens: CostTokens,
+  pricing: ModelPricing | null | undefined,
+  kind: ModelKind,
+  images: ImageGenerationUsage[],
+  startedAt = 0,
+): RequestCostBreakdown {
+  const current = createRequestPricingSnapshot(pricing, kind)
+  // 没有新计费配置的旧调用保持原有返回结构与历史语义。
+  if (
+    !current.currency &&
+    !current.periods?.length &&
+    !current.contextTiers?.length &&
+    !current.exchangeRate &&
+    !current.imagePricingSnapshot
+  )
+    return calculateBaseRequestCost(tokens, current, kind, images)
+  const charges: RequestCostCharge[] = []
+  const result: RequestCostBreakdown = {
+    chatUsd: 0,
+    imageUsd: 0,
+    totalUsd: 0,
+    totalCny: 0,
+    imageCount: 0,
+    imageStatus: 'complete',
+    charges,
+    exchangeRate: current.exchangeRate,
+  }
+  const rate = current.exchangeRate?.usdToCny
+  const add = (charge: RequestCostCharge) => {
+    charges.push(charge)
+    if (charge.currency === 'CNY' && !rate) throw new Error('人民币费用结算缺少汇率快照')
+    const usd = charge.currency === 'USD' ? charge.amount : charge.amount / rate!
+    result[charge.kind === 'chat' ? 'chatUsd' : 'imageUsd'] += usd
+    result.totalUsd += usd
+    if (result.totalCny !== null) {
+      if (charge.currency === 'CNY') result.totalCny! += charge.amount
+      else if (rate) result.totalCny! += charge.amount * rate
+      else if (charge.amount > 0) result.totalCny = null
+    }
+  }
+  if (kind !== 'image') {
+    const segments = tokens.billingSegments ?? [{ ...tokens, startedAt }]
+    for (const segment of segments) {
+      const { table, period } = selectPricingTable(current, segment.startedAt)
+      const { prices, aboveInputTokens } = selectTokenPricing(table, segment.inputTokens)
+      const amount = costUsd(
+        { ...segment, imageTokens: 0 },
+        { ...prices, cacheWriteInput: prices.cacheWriteInput ?? 0 },
+      )
+      add({
+        kind: 'chat',
+        currency: current.currency ?? 'USD',
+        amount,
+        period,
+        aboveInputTokens,
+        inputTokens: segment.inputTokens,
+        unitPrices: {
+          input: prices.input,
+          output: prices.output,
+          cachedInput: prices.cachedInput ?? prices.input,
+          cacheWriteInput: prices.cacheWriteInput ?? 0,
+        },
+        startedAt: segment.startedAt,
+      })
+    }
+  }
+  const imageSchedule = current.imagePricingSnapshot ?? current
+  for (const image of images) {
+    const at = image.startedAt ?? startedAt
+    const { table, period } = selectPricingTable(imageSchedule, at)
+    const cost = calculateBaseRequestCost(
+      tokens,
+      { imageGeneration: table.imageGeneration },
+      'image',
+      [image],
+    )
+    result.imageCount += cost.imageCount
+    if (
+      cost.imageStatus === 'missing_usage' ||
+      (cost.imageStatus === 'missing_pricing' && result.imageStatus === 'complete')
+    )
+      result.imageStatus = cost.imageStatus
+    add({
+      kind: 'image',
+      currency: imageSchedule.currency ?? 'USD',
+      amount: cost.imageUsd,
+      period,
+      startedAt: at,
+    })
+  }
   return result
 }

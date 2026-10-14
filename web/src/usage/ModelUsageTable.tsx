@@ -136,10 +136,10 @@ export function ModelUsageTable({
                   </th>
                   <th
                     scope="col"
-                    aria-sort={metric === 'costUsd' ? 'descending' : 'none'}
+                    aria-sort={metric === 'cost' ? 'descending' : 'none'}
                     className="rounded-r-lg px-3 py-2.5 font-medium"
                   >
-                    花费 · USD
+                    花费
                   </th>
                 </tr>
               </thead>
@@ -155,12 +155,10 @@ export function ModelUsageTable({
                     <td className="px-3 py-3.5">{number(row, 'requests')}</td>
                     <td className="px-3 py-3.5">{number(row, 'totalTokens')}</td>
                     <td className="px-3 py-3.5">
-                      {number(row, 'costUsd')}
+                      {number(row, 'cost')}
                       <div className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-                        {row.requests
-                          ? formatUsageMetric(row.costUsd / row.requests, 'costUsd')
-                          : '$0'}{' '}
-                        / 次
+                        {row.requests ? formatUsageMetric(row.cost / row.requests, 'cost') : '$0'} /
+                        次
                       </div>
                     </td>
                   </tr>
@@ -177,7 +175,7 @@ export function ModelUsageTable({
                     <div key={item.value}>
                       <dt className="mb-1.5 text-neutral-500 dark:text-neutral-400">
                         {item.label}
-                        {item.value === 'costUsd' ? ' · USD' : ''}
+                        {item.value === 'cost' ? '' : ''}
                       </dt>
                       <dd className="font-medium">{number(row, item.value)}</dd>
                     </div>

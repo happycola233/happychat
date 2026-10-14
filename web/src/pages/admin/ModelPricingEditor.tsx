@@ -2,50 +2,13 @@ import { useId, useState } from 'react'
 import type { AdminModelDTO } from '@shared/types/api'
 import type { ImageGenerationPricing, ModelKind, ModelPricing } from '@shared/types/domain'
 import { normalizeModelPricing } from '@shared/util/cost'
+import { PriceInput, TokenPriceFields, ContextPricingEditor } from './PricingFields'
+import { PricingScheduleEditor } from './PricingScheduleEditor'
 import { inputClass } from '../../components/ui/controlStyles'
 import { SegmentedControl } from '../../components/ui/SegmentedControl'
 import { Select, type SelectOption } from '../../components/ui/Select'
 
 const pricingLabelClass = 'mb-1.5 block text-xs leading-4 text-neutral-500 dark:text-neutral-400'
-
-function PriceInput({
-  label,
-  value,
-  onChange,
-  placeholder = '未设置',
-  hint,
-}: {
-  label: string
-  value: number | undefined
-  onChange: (value: number | undefined) => void
-  placeholder?: string
-  hint?: string
-}) {
-  const id = useId()
-  return (
-    <div className="min-w-0">
-      <label className={pricingLabelClass} htmlFor={id}>
-        {label}
-      </label>
-      <input
-        id={id}
-        aria-describedby={hint ? `${id}-hint` : undefined}
-        className={`${inputClass} tabular-nums`}
-        type="number"
-        min="0"
-        step="any"
-        value={value ?? ''}
-        onChange={(e) => onChange(e.target.value === '' ? undefined : Number(e.target.value))}
-        placeholder={placeholder}
-      />
-      {hint && (
-        <p id={`${id}-hint`} className={`mt-1 ${hintClass}`}>
-          {hint}
-        </p>
-      )}
-    </div>
-  )
-}
 
 const gridClass = 'grid grid-cols-1 items-end gap-4 sm:grid-cols-2'
 const hintClass = 'text-xs leading-5 text-neutral-500 dark:text-neutral-400'
@@ -123,18 +86,22 @@ function PricingCondition({
   )
 }
 
-export function ModelPricingEditor({
+function PricingTableEditor({
   kind,
   pricing,
   onChange,
   providerId,
   models,
+  hideImage = false,
+  allowSource = true,
 }: {
   kind: ModelKind
   pricing: ModelPricing
   onChange: (pricing: ModelPricing) => void
   providerId: string
   models: AdminModelDTO[]
+  hideImage?: boolean
+  allowSource?: boolean
 }) {
   const sources = models.filter(
     (model) => model.providerId === providerId && model.kind === 'image',
@@ -154,30 +121,21 @@ export function ModelPricingEditor({
         <section aria-label="聊天费用" className="space-y-3">
           <div>
             <h3 className="text-sm font-semibold">聊天费用</h3>
-            <p className={hintClass}>USD / 百万 Token · 输出包含思考用量</p>
+            <p className={hintClass}>{pricing.currency ?? 'USD'} / 百万 Token · 输出包含思考用量</p>
           </div>
-          <div className={gridClass}>
-            {(
-              [
-                ['input', '普通输入', '未设置'],
-                ['output', '输出', '未设置'],
-                ['cachedInput', '缓存读取', '沿用普通输入价格'],
-                ['cacheWriteInput', '缓存写入', '0'],
-              ] as const
-            ).map(([key, label, placeholder]) => (
-              <PriceInput
-                key={key}
-                label={label}
-                value={pricing[key]}
-                placeholder={placeholder}
-                onChange={(value) => onChange({ ...pricing, [key]: value })}
-              />
-            ))}
-          </div>
+          <TokenPriceFields
+            prices={pricing}
+            onChange={(prices) => onChange({ ...pricing, ...prices })}
+          />
+          <ContextPricingEditor
+            tiers={pricing.contextTiers}
+            prices={pricing}
+            onChange={(contextTiers) => onChange({ ...pricing, contextTiers })}
+          />
         </section>
       )}
 
-      {(kind === 'image' || kind === 'responses') && (
+      {!hideImage && (kind === 'image' || kind === 'responses') && (
         <section
           aria-label="图片生成费用"
           className="space-y-4 border-t border-neutral-200 pt-5 first:border-0 first:pt-0 dark:border-neutral-800"
@@ -201,7 +159,7 @@ export function ModelPricingEditor({
           ) : (
             <>
               <div className={gridClass}>
-                {kind === 'responses' && (
+                {allowSource && kind === 'responses' && (
                   <Select
                     label="生图定价来源"
                     className="w-full"
@@ -253,7 +211,7 @@ export function ModelPricingEditor({
                   {source ? (
                     <>
                       <p>
-                        {source.displayName} ·{' '}
+                        {source.displayName} · {source.pricing?.currency ?? 'USD'} ·{' '}
                         {imagePricing?.mode === 'per_image' ? '按张计价' : '按 Token 计价'}
                       </p>
                       <p className={`mt-1 ${hintClass}`}>
@@ -270,7 +228,7 @@ export function ModelPricingEditor({
                     <>
                       <div className={gridClass}>
                         <PriceInput
-                          label="默认每张价格（USD / 张）"
+                          label={`默认每张价格（${pricing.currency ?? 'USD'} / 张）`}
                           value={imagePricing.price}
                           onChange={(price) => setImage({ ...imagePricing, price })}
                         />
@@ -319,7 +277,7 @@ export function ModelPricingEditor({
                                   hint="填写供应商使用的质量名称，需与返回值一致。"
                                 />
                                 <PriceInput
-                                  label="每张价格（USD）"
+                                  label={`每张价格（${pricing.currency ?? 'USD'}）`}
                                   value={tier.price}
                                   placeholder="例如 0.05"
                                   hint="按供应商报价填写，0 表示免费。"
@@ -377,7 +335,9 @@ export function ModelPricingEditor({
                     </>
                   ) : (
                     <>
-                      <p className={hintClass}>USD / 百万 Token · 使用生图模型独立返回的用量</p>
+                      <p className={hintClass}>
+                        {pricing.currency ?? 'USD'} / 百万 Token · 使用生图模型独立返回的用量
+                      </p>
                       <div className={gridClass}>
                         {(
                           [
@@ -428,6 +388,51 @@ export function ModelPricingEditor({
           )}
         </section>
       )}
+    </div>
+  )
+}
+
+export function ModelPricingEditor(props: {
+  kind: ModelKind
+  pricing: ModelPricing
+  onChange: (pricing: ModelPricing) => void
+  providerId: string
+  models: AdminModelDTO[]
+}) {
+  const { pricing, onChange } = props
+  return (
+    <div className="space-y-6">
+      <Select
+        label="计价币种"
+        value={pricing.currency ?? 'USD'}
+        options={[
+          { value: 'USD', label: '美元（USD）' },
+          { value: 'CNY', label: '人民币（CNY）' },
+        ]}
+        onChange={(event) =>
+          onChange({ ...pricing, currency: event.target.value as 'USD' | 'CNY' })
+        }
+      />
+      <section aria-label="基础价格" className="space-y-4">
+        <div>
+          <h2 className="text-sm font-semibold">基础价格</h2>
+          <p className={hintClass}>其他时段使用此价格。单价按供应商报价填写，0 表示免费。</p>
+        </div>
+        <PricingTableEditor {...props} />
+      </section>
+      <PricingScheduleEditor
+        pricing={pricing}
+        onChange={onChange}
+        renderTable={(table, update) => (
+          <PricingTableEditor
+            {...props}
+            pricing={{ ...table, currency: pricing.currency }}
+            allowSource={false}
+            hideImage={Boolean(pricing.imagePricingModelId)}
+            onChange={({ currency: _currency, ...value }) => update(value)}
+          />
+        )}
+      />
     </div>
   )
 }

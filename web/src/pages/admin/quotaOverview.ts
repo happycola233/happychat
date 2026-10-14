@@ -108,7 +108,7 @@ export interface UserQuotaFleetSummary {
   /** 受限额用户（含已暂停）最紧规则占用的算术平均；没有可计量规则时为 null。 */
   averageTightness: number | null
   policies: UserQuotaPolicyShare[]
-  recentCostUsd: number
+  recentCost: number
   recentRequests: number
 }
 
@@ -163,7 +163,7 @@ export function summarizeUserQuotaFleet(
     policies: [...policyById.values()].sort(
       (left, right) => right.count - left.count || left.name.localeCompare(right.name, 'zh-CN'),
     ),
-    recentCostUsd: stats.reduce((sum, row) => sum + row.costUsd, 0),
+    recentCost: stats.reduce((sum, row) => sum + row.cost, 0),
     recentRequests: stats.reduce((sum, row) => sum + row.requests, 0),
   }
 }
@@ -189,7 +189,7 @@ export function describeQuotaOverviewFilterWithName(
 export interface UserQuotaUsageRankRow {
   user: AdminUserQuotaDTO
   status: UserQuotaFleetStatus
-  costUsd: number
+  cost: number
   requests: number
   share: number
 }
@@ -208,26 +208,26 @@ export function rankUsersByRecentUsage(
   const ranked = stats
     .flatMap((stat) => {
       const user = userById.get(stat.userId)
-      if (!user || (stat.costUsd <= 0 && stat.requests <= 0)) return []
+      if (!user || (stat.cost <= 0 && stat.requests <= 0)) return []
       return [{ user, stat }]
     })
     .sort(
       (left, right) =>
-        right.stat.costUsd - left.stat.costUsd ||
+        right.stat.cost - left.stat.cost ||
         right.stat.requests - left.stat.requests ||
         left.user.username.localeCompare(right.user.username, 'zh-CN'),
     )
     .slice(0, limit)
 
-  const maxCost = Math.max(0, ...ranked.map((row) => row.stat.costUsd))
+  const maxCost = Math.max(0, ...ranked.map((row) => row.stat.cost))
   const maxRequests = Math.max(0, ...ranked.map((row) => row.stat.requests))
 
   return ranked.map(({ user, stat }) => ({
     user,
     status: classifyUserQuotaStatus(user, warnThreshold),
-    costUsd: stat.costUsd,
+    cost: stat.cost,
     requests: stat.requests,
-    share: maxCost > 0 ? stat.costUsd / maxCost : maxRequests > 0 ? stat.requests / maxRequests : 0,
+    share: maxCost > 0 ? stat.cost / maxCost : maxRequests > 0 ? stat.requests / maxRequests : 0,
   }))
 }
 
@@ -257,7 +257,7 @@ export function rankUsersByQuotaPressure(
           status: classifyUserQuotaStatus(user, warnThreshold),
           tightest,
           title: describeQuotaRuleGroupTitle([tightest]),
-          detail: `${describeQuotaWindow(tightest.window)} · ${formatQuotaAmount(tightest.metric, tightest.used)} / ${formatQuotaAmount(tightest.metric, tightest.effectiveLimit ?? 0)}`,
+          detail: `${describeQuotaWindow(tightest.window)} · ${formatQuotaAmount(tightest.metric, tightest.used, tightest.currency)} / ${formatQuotaAmount(tightest.metric, tightest.effectiveLimit ?? 0, tightest.currency)}`,
         },
       ]
     })

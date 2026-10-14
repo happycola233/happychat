@@ -6,10 +6,15 @@ import { getAppConfig } from '../services/appConfig'
 import { getMyQuota } from '../services/quota'
 import { USAGE_STATS_MAX_DAYS, getMyUsageStats } from '../services/usage-stats'
 import type { AppEnv } from '../http/types'
+import { getExchangeRate, legacyExchangeRate } from '../services/exchange-rates'
 
 export const quotaRoutes = new Hono<AppEnv>()
 
 quotaRoutes.use('*', requireUser)
+
+quotaRoutes.get('/exchange-rate', async (c) =>
+  c.json({ current: await getExchangeRate(), legacy: legacyExchangeRate() ?? null }),
+)
 
 /**
  * 当前用户的额度视图。全局关闭限额时只返回 `enabled:false`，
@@ -20,6 +25,7 @@ quotaRoutes.get('/me', async (c) => {
 })
 
 const usageQuerySchema = z.object({
+  currency: z.enum(['USD', 'CNY']).optional(),
   // 新客户端传 IANA 时区，服务端才能按每条历史记录发生时的 DST 偏移分桶。
   timezone: timezoneSchema.optional(),
   // 兼容旧客户端；没有 IANA 时区时才退回这个固定偏移。
@@ -38,6 +44,7 @@ quotaRoutes.get('/usage', async (c) => {
   // 「本周」的起点沿用站点限额配置，让个人面板与额度周期是同一个周一/周日。
   const config = await getAppConfig()
   const stats = await getMyUsageStats(c.get('user').id, {
+    currency: parsed.data.currency,
     timezone: parsed.data.timezone,
     tzOffsetMinutes: parsed.data.tzOffsetMinutes,
     days: parsed.data.days,

@@ -53,7 +53,7 @@ export const EMPTY_ANALYTICS_POINT: Omit<AnalyticsSeriesPoint, 'ts'> = {
   cacheWriteTokens: 0,
   cachedTokens: 0,
   reasoningTokens: 0,
-  costUsd: 0,
+  cost: 0,
 }
 
 export function summarizeAnalytics(series: AnalyticsSeriesPoint[]) {
@@ -66,7 +66,7 @@ export function summarizeAnalytics(series: AnalyticsSeriesPoint[]) {
       cacheWriteTokens: sum.cacheWriteTokens + point.cacheWriteTokens,
       cachedTokens: sum.cachedTokens + point.cachedTokens,
       reasoningTokens: sum.reasoningTokens + point.reasoningTokens,
-      costUsd: sum.costUsd + point.costUsd,
+      cost: sum.cost + point.cost,
     }),
     { ...EMPTY_ANALYTICS_POINT },
   )

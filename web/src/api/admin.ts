@@ -1,3 +1,4 @@
+import { getBillingCurrency } from '../store/billingCurrency'
 import type {
   AdminPasswordResetResult,
   ActiveRequestsDTO,
@@ -66,6 +67,7 @@ export const previewModelRequest = (input: RequestPreviewInput) =>
 
 /** 统计/事件查询参数（与后端 statsFilterSchema 对应）。 */
 export interface StatsQuery {
+  currency?: 'USD' | 'CNY'
   from?: number
   to?: number
   providerId?: string
@@ -85,7 +87,7 @@ export interface StatsQuery {
 
 function qs(query: StatsQuery = {}): string {
   const p = new URLSearchParams()
-  for (const [k, v] of Object.entries(query)) {
+  for (const [k, v] of Object.entries({ currency: getBillingCurrency(), ...query })) {
     if (v !== undefined && v !== null && v !== '') p.set(k, String(v))
   }
   const s = p.toString()
@@ -205,9 +207,13 @@ export const reorderQuotaPolicies = (input: QuotaPolicyReorderInput) =>
 
 export const listUserQuotas = () =>
   apiGet<{ users: AdminUserQuotaDTO[] }>('/admin/quota/users').then((r) => r.users)
-export const getUserQuotaDetail = (userId: string, days?: number) =>
+export const getUserQuotaDetail = (
+  userId: string,
+  days?: number,
+  currency = getBillingCurrency(),
+) =>
   apiGet<{ detail: AdminUserQuotaDetailDTO }>(
-    `/admin/quota/users/${userId}${days ? `?days=${days}` : ''}`,
+    `/admin/quota/users/${userId}?currency=${currency}${days ? `&days=${days}` : ''}`,
   ).then((r) => r.detail)
 export const updateUserQuota = (userId: string, input: UserQuotaUpdateInput) =>
   apiPut<{ ok: true }>(`/admin/quota/users/${userId}`, input)

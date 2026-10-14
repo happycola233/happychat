@@ -72,7 +72,7 @@ const stat = (patch: Partial<UserStatDTO> = {}): UserStatDTO => ({
   reasoningTokens: 0,
   imageGenerations: 0,
   fileUploads: 0,
-  costUsd: 1.25,
+  cost: 1.25,
   errors: 0,
   successRate: 1,
   lastUsageAt: 1,
@@ -142,8 +142,8 @@ describe('用户限额总览聚合', () => {
       }),
     ]
     const summary = summarizeUserQuotaFleet(rows, 0.8, [
-      stat({ userId: 'a', costUsd: 4, requests: 8 }),
-      stat({ userId: 'b', costUsd: 2, requests: 3 }),
+      stat({ userId: 'a', cost: 4, requests: 8 }),
+      stat({ userId: 'b', cost: 2, requests: 3 }),
     ])
 
     expect(summary.total).toBe(5)
@@ -157,7 +157,7 @@ describe('用户限额总览聚合', () => {
       unlimited: 1,
     })
     expect(summary.averageTightness).toBeCloseTo((1 + 0.9 + 0.2 + 0.5) / 4)
-    expect(summary.recentCostUsd).toBe(6)
+    expect(summary.recentCost).toBe(6)
     expect(summary.recentRequests).toBe(11)
     expect(summary.policies).toEqual([
       { policyId: 'plus', name: 'Plus', count: 4, usingDefault: true },
@@ -185,10 +185,10 @@ describe('用户限额总览聚合', () => {
     const byCost = rankUsersByRecentUsage(
       users,
       [
-        stat({ userId: 'b', username: 'bob', costUsd: 8, requests: 2 }),
-        stat({ userId: 'a', username: 'alice', costUsd: 4, requests: 20 }),
-        stat({ userId: 'missing', costUsd: 99, requests: 99 }),
-        stat({ userId: 'c', username: 'cara', costUsd: 0, requests: 0 }),
+        stat({ userId: 'b', username: 'bob', cost: 8, requests: 2 }),
+        stat({ userId: 'a', username: 'alice', cost: 4, requests: 20 }),
+        stat({ userId: 'missing', cost: 99, requests: 99 }),
+        stat({ userId: 'c', username: 'cara', cost: 0, requests: 0 }),
       ],
       0.8,
     )
@@ -200,8 +200,8 @@ describe('用户限额总览聚合', () => {
     const byRequests = rankUsersByRecentUsage(
       users,
       [
-        stat({ userId: 'a', costUsd: 0, requests: 10 }),
-        stat({ userId: 'c', username: 'cara', costUsd: 0, requests: 4 }),
+        stat({ userId: 'a', cost: 0, requests: 10 }),
+        stat({ userId: 'c', username: 'cara', cost: 0, requests: 4 }),
       ],
       0.8,
     )

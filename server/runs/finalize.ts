@@ -84,6 +84,7 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
   const imageUsage = a.imageUsage ?? []
   const costBreakdown = calculateRequestCost(
     {
+      billingSegments: a.usage.billingSegments,
       inputTokens: a.usage.inputTokens,
       cacheWriteTokens: a.usage.cacheWriteTokens,
       cachedTokens: a.usage.cachedTokens,
@@ -93,6 +94,7 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
     a.model.pricing,
     a.model.kind,
     imageUsage,
+    a.startedAt?.getTime() ?? a.run.createdAt.getTime(),
   )
   const messageCostUsd = costBreakdown.totalUsd
   const terminalReason = terminalReasonForUsage(a.state, {
@@ -149,6 +151,7 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
         reasoningTokens: a.usage.reasoningTokens,
         totalTokens: a.usage.totalTokens,
         costUsd: messageCostUsd,
+        costCny: costBreakdown.totalCny,
         costBreakdown,
         // 仅写消息私有列；run.done、日志与面向浏览器的 DTO 都不携带该信封。
         providerReplayContext:
@@ -183,6 +186,7 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
         providerLabel: a.provider.name,
         pricingSnapshot: a.model.pricing,
         costUsd: messageCostUsd,
+        costCny: costBreakdown.totalCny,
         costBreakdown,
         imageUsage,
         conversationId: a.conversation.id,

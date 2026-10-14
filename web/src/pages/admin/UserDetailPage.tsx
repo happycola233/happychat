@@ -1,9 +1,10 @@
+import { useBillingCurrency } from '../../store/billingCurrency'
+import { BillingCurrencySelect } from '../../components/BillingCurrencySelect'
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, Gauge, PauseCircle } from 'lucide-react'
 import type { AdminUserQuotaDetailDTO, UsageLogDTO, UserStatDTO } from '@shared/types/api'
-import { formatQuotaCostUsd } from '@shared/util/quota'
 import { CostBreakdown } from '../../components/CostBreakdown'
 import { getUsageEvents, getUserQuotaDetail, getUserStats } from '../../api/admin'
 import { StatCard } from '../../components/ui/StatCard'
@@ -26,7 +27,7 @@ import {
   formatInt,
   formatPercent,
   formatRelative,
-  formatUsd,
+  formatCurrency,
 } from '../../lib/format'
 import { resolveQuotaRulesRefetchInterval } from '../../lib/quotaRefetch'
 import { UserQuotaBuckets } from './UserQuotaBuckets'
@@ -67,9 +68,10 @@ export function UserDetailQuotaCard({ detail }: { detail: AdminUserQuotaDetailDT
 }
 
 function UserQuotaSection({ userId }: { userId: string }) {
+  const currency = useBillingCurrency((state) => state.currency)
   const { data: detail } = useQuery({
-    queryKey: ['admin', 'quota', 'user', userId],
-    queryFn: () => getUserQuotaDetail(userId),
+    queryKey: ['admin', 'quota', 'user', userId, currency],
+    queryFn: () => getUserQuotaDetail(userId, undefined, currency),
     refetchInterval: (query) => {
       const snapshot = query.state.data
       if (!snapshot) return false
@@ -105,7 +107,7 @@ function UserQuotaSection({ userId }: { userId: string }) {
         ) : (
           <div className="space-y-2">
             {detail.byModel.map((row) => {
-              const max = Math.max(...detail.byModel.map((item) => item.costUsd), 0.000001)
+              const max = Math.max(...detail.byModel.map((item) => item.cost), 0.000001)
               return (
                 <div key={`${row.modelId ?? ''}:${row.modelLabel}`}>
                   <div className="flex items-baseline justify-between gap-2 text-xs">
@@ -113,14 +115,14 @@ function UserQuotaSection({ userId }: { userId: string }) {
                       {row.modelLabel}
                     </span>
                     <span className="shrink-0 tabular-nums text-neutral-500 dark:text-neutral-400">
-                      {formatQuotaCostUsd(row.costUsd)} · {formatInt(row.requests)} 次 ·{' '}
+                      {formatCurrency(row.cost)} · {formatInt(row.requests)} 次 ·{' '}
                       {formatCompact(row.totalTokens)} tokens
                     </span>
                   </div>
                   <div className="mt-1 h-1 overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
                     <div
                       className="h-full rounded-full bg-sky-500/70 dark:bg-sky-400/70"
-                      style={{ width: `${Math.max(2, (row.costUsd / max) * 100)}%` }}
+                      style={{ width: `${Math.max(2, (row.cost / max) * 100)}%` }}
                     />
                   </div>
                 </div>
@@ -134,19 +136,20 @@ function UserQuotaSection({ userId }: { userId: string }) {
 }
 
 export default function UserDetailPage() {
+  const currency = useBillingCurrency((state) => state.currency)
   const { id } = useParams()
   const navigate = useNavigate()
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(50)
 
   const statsQuery = useQuery({
-    queryKey: ['admin', 'user-stats', id],
-    queryFn: () => getUserStats({ userId: id }),
+    queryKey: ['admin', 'user-stats', id, currency],
+    queryFn: () => getUserStats({ userId: id, currency }),
     enabled: !!id,
   })
   const usageQuery = useQuery({
-    queryKey: ['admin', 'user-usage', id, page, pageSize],
-    queryFn: () => getUsageEvents({ userId: id, page, pageSize }),
+    queryKey: ['admin', 'user-usage', id, page, pageSize, currency],
+    queryFn: () => getUsageEvents({ userId: id, page, pageSize, currency }),
     enabled: !!id,
   })
 
@@ -184,6 +187,7 @@ export default function UserDetailPage() {
           <h1 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">用户详情</h1>
         )}
         <div className="flex flex-wrap items-center gap-2">
+          <BillingCurrencySelect />
           <Link
             to={`/admin/quotas?userId=${encodeURIComponent(id)}`}
             className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-sky-50 px-3 text-[13px] font-medium text-sky-700 dark:bg-sky-500/10 dark:text-sky-300"
@@ -205,7 +209,7 @@ export default function UserDetailPage() {
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
             <StatCard label="请求" value={formatInt(stat.requests)} />
             <StatCard label="Token" value={formatCompact(stat.totalTokens)} />
-            <StatCard label="成本" value={formatUsd(stat.costUsd)} />
+            <StatCard label="成本" value={formatCurrency(stat.cost)} />
             <StatCard label="错误日志总数" value={formatInt(stat.errors)} />
             <StatCard
               label="非失败率"
@@ -318,8 +322,8 @@ export default function UserDetailPage() {
                           {formatInt(e.totalTokens)}
                         </td>
                         <td className={`${td} tabular-nums text-neutral-600 dark:text-neutral-300`}>
-                          <CostBreakdown breakdown={e.costBreakdown}>
-                            {formatUsd(e.costUsd)}
+                          <CostBreakdown breakdown={e.costBreakdown} display={e.costDisplay}>
+                            {formatCurrency(e.cost)}
                           </CostBreakdown>
                         </td>
                         <td className={td}>

@@ -1,3 +1,5 @@
+import { useBillingCurrency } from '../../store/billingCurrency'
+import { BillingCurrencySelect } from '../../components/BillingCurrencySelect'
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
@@ -40,7 +42,7 @@ import {
   td,
   th,
 } from '../../components/ui/tableStyles'
-import { formatInt, formatUsd } from '../../lib/format'
+import { formatInt, formatCurrency } from '../../lib/format'
 import {
   formatCacheRate,
   formatGenerationSpeed,
@@ -76,6 +78,7 @@ const secondaryValue =
   'whitespace-nowrap text-[10px] leading-[14px] text-neutral-400 tabular-nums dark:text-neutral-500'
 
 export default function RequestEventsPage() {
+  const currency = useBillingCurrency((state) => state.currency)
   const [searchParams, setSearchParams] = useSearchParams()
   const { rangeKey, providerId, modelId, userId, resultSel, kindSel } =
     readDashboardFilters(searchParams)
@@ -154,9 +157,9 @@ export default function RequestEventsPage() {
   }
 
   const { data, isLoading, isError, isFetching, refetch } = useQuery({
-    queryKey: [...usageEventsQueryKey(filters), 'monitor', activePage],
+    queryKey: [...usageEventsQueryKey(filters), 'monitor', activePage, currency],
     queryFn: async () => {
-      const query = buildUsageEventsQuery(filters)
+      const query = { ...buildUsageEventsQuery(filters), currency }
       const [history, active] = await Promise.all([
         getUsageEvents(query),
         getActiveRequests({ ...query, page: activePage, pageSize: 10 }),
@@ -173,6 +176,7 @@ export default function RequestEventsPage() {
         description="跟踪进行中的对话、等待与重试，查看已结束请求的结果、用量与成本。"
         actions={
           <>
+            <BillingCurrencySelect />
             <Button
               variant="ghost"
               aria-pressed={live}
@@ -407,8 +411,8 @@ export default function RequestEventsPage() {
                         </td>
                         <td className={requestCell}>
                           <div className={primaryValue}>
-                            <CostBreakdown breakdown={row.costBreakdown}>
-                              {formatUsd(row.costUsd)}
+                            <CostBreakdown breakdown={row.costBreakdown} display={row.costDisplay}>
+                              {formatCurrency(row.cost)}
                             </CostBreakdown>
                           </div>
                         </td>

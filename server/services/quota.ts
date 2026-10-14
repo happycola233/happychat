@@ -12,7 +12,9 @@ import type {
   QuotaMetric,
   UserQuotaOverrides,
 } from '@shared/types/domain'
-import { costUsd } from '@shared/util/cost'
+import { costUsd, costCny } from '@shared/util/cost'
+import type { CostCurrency } from '@shared/types/domain'
+import { legacyExchangeRate, requireExchangeRate } from './exchange-rates'
 import {
   evaluateQuotaLimit,
   formatQuotaAmount,
@@ -66,6 +68,8 @@ export interface UserQuotaBinding {
 
 /** 周期调整记录（临时额度 / 手动重置）的服务层行形态。 */
 export interface QuotaAdjustmentRow {
+  currency?: CostCurrency
+  usdToCnyRate?: number | null
   id: string
   kind: QuotaAdjustmentKind
   ruleId: string | null
@@ -212,7 +216,11 @@ async function listQuotaCycles(userId: string, ruleIds: string[]): Promise<Quota
  * - 队列中/生成中的 run 补计入「请求次数」——`usage_logs` 要等 finalize 才写行，
  *   不补这一段的话并发连发能在计数追上之前突破次数上限。
  */
-async function aggregateUsageSince(userId: string, startMs: number): Promise<UsageAggregate> {
+async function aggregateUsageSince(
+  userId: string,
+  startMs: number,
+  currency: CostCurrency,
+): Promise<UsageAggregate> {
   const conditions: SQL[] = [
     eq(usageLogs.userId, userId),
     eq(usageLogs.kind, 'chat'),
@@ -234,6 +242,7 @@ async function aggregateUsageSince(userId: string, startMs: number): Promise<Usa
       modelId: usageLogs.modelId,
       pricingSnapshot: usageLogs.pricingSnapshot,
       costUsd: sql<number | null>`sum(${usageLogs.costUsd})`,
+      costCny: sql<number | null>`sum(${usageLogs.costCny})`,
       requests: sql<number>`count(*)`,
       inputTokens: sql<number>`coalesce(sum(${usageLogs.inputTokens}),0)`,
       cacheWriteTokens: sql<number>`coalesce(sum(${usageLogs.cacheWriteTokens}),0)`,
@@ -243,7 +252,12 @@ async function aggregateUsageSince(userId: string, startMs: number): Promise<Usa
     })
     .from(usageLogs)
     .where(and(...conditions))
-    .groupBy(usageLogs.modelId, usageLogs.pricingSnapshot, sql`${usageLogs.costUsd} is null`)
+    .groupBy(
+      usageLogs.modelId,
+      usageLogs.pricingSnapshot,
+      sql`${usageLogs.costUsd} is null`,
+      sql`${usageLogs.costCny} is null`,
+    )
 
   const aggregate: UsageAggregate = {
     totalRequests: 0,
@@ -254,8 +268,12 @@ async function aggregateUsageSince(userId: string, startMs: number): Promise<Usa
   const add = (map: Map<string, number>, key: string, value: number) =>
     map.set(key, (map.get(key) ?? 0) + value)
 
+  const legacyRate = currency === 'CNY' ? legacyExchangeRate()!.usdToCny : 0
   for (const row of rows) {
-    const cost = costUsd(row, row.pricingSnapshot as ModelPricing | null)
+    const cost =
+      currency === 'CNY'
+        ? costCny(row, row.pricingSnapshot as ModelPricing | null, legacyRate)
+        : costUsd(row, row.pricingSnapshot as ModelPricing | null)
     const key = modelKey(row.modelId)
     aggregate.totalRequests += row.requests
     aggregate.totalCost += cost
@@ -483,6 +501,7 @@ function toGrantDTO(row: QuotaAdjustmentRow): QuotaGrantDTO {
     ruleId: row.ruleId,
     bucketKey: row.bucketKey,
     metric: row.metric,
+    currency: row.currency,
     amount: row.amount ?? 0,
     note: row.note,
     expiresAt: row.expiresAt,
@@ -524,6 +543,8 @@ export async function listQuotaAdjustments(userId: string): Promise<QuotaAdjustm
       ruleId: quotaAdjustments.ruleId,
       bucketKey: quotaAdjustments.bucketKey,
       metric: quotaAdjustments.metric,
+      currency: quotaAdjustments.currency,
+      usdToCnyRate: quotaAdjustments.usdToCnyRate,
       amount: quotaAdjustments.amount,
       effectiveFrom: quotaAdjustments.effectiveFrom,
       periodStart: quotaAdjustments.periodStart,
@@ -559,6 +580,13 @@ export async function getQuotaSnapshot(
   const config = options.config ?? (await getQuotaConfig())
   const binding = options.binding ?? (await getUserQuotaBinding(userId))
   const rules = options.rulesOverride ?? binding.rules
+  if (
+    rules.some(
+      (rule) =>
+        rule.metric === 'cost' && rule.currency === 'CNY' && rule.limit.kind !== 'unlimited',
+    )
+  )
+    await requireExchangeRate()
   const paused = options.pausedOverride ?? binding.enforcementPaused
 
   if (rules.length === 0) {
@@ -660,19 +688,29 @@ export async function getQuotaSnapshot(
     }
   }
 
-  // 2) 按统计起点去重聚合：同一起点的所有桶共用一次查询
-  const aggregates = new Map<number, UsageAggregate>()
-  for (const start of new Set(
-    buckets.filter((bucket) => bucket.periodActive).map((bucket) => bucket.usageStart),
+  // 2) 按统计起点与币种去重聚合，避免混合币种被直接相加
+  const aggregates = new Map<string, UsageAggregate>()
+  const aggregateKey = (bucket: QuotaBucket) =>
+    `${bucket.usageStart}:${bucket.rule.currency ?? 'USD'}`
+  for (const bucket of buckets.filter(
+    (item) => item.periodActive && item.rule.limit.kind !== 'unlimited',
   )) {
-    aggregates.set(start, await aggregateUsageSince(userId, start))
+    const key = aggregateKey(bucket)
+    if (!aggregates.has(key))
+      aggregates.set(
+        key,
+        await aggregateUsageSince(userId, bucket.usageStart, bucket.rule.currency ?? 'USD'),
+      )
   }
 
   // 3) 叠加当前周期内仍有效的临时额度并评估
   const usageRules: QuotaBucketUsageDTO[] = buckets.map((bucket) => {
-    const aggregate = bucket.periodActive ? aggregates.get(bucket.usageStart)! : null
+    const aggregate = bucket.periodActive ? aggregates.get(aggregateKey(bucket)) : null
     const used =
-      !bucket.periodActive || bucket.invalid || bucket.shadowed
+      !bucket.periodActive ||
+      bucket.invalid ||
+      bucket.shadowed ||
+      bucket.rule.limit.kind === 'unlimited'
         ? 0
         : sumUsage(aggregate!, bucket.modelIds, bucket.rule.metric)
     const grantRows = bucket.periodActive
@@ -684,7 +722,19 @@ export async function getQuotaSnapshot(
             adjustmentApplies(row, targetOfBucket(bucket)),
         )
       : []
-    const granted = grantRows.reduce((sum, row) => sum + (row.amount ?? 0), 0)
+    const granted =
+      bucket.rule.limit.kind === 'unlimited'
+        ? 0
+        : grantRows.reduce((sum, row) => {
+            const amount = row.amount ?? 0
+            if (
+              row.metric !== 'cost' ||
+              (row.currency ?? 'USD') === (bucket.rule.currency ?? 'USD')
+            )
+              return sum + amount
+            const rate = row.usdToCnyRate ?? legacyExchangeRate()!.usdToCny
+            return sum + (bucket.rule.currency === 'CNY' ? amount * rate : amount / rate)
+          }, 0)
     const evaluation = evaluateQuotaLimit({ limit: bucket.rule.limit, used, granted })
     return {
       ruleId: bucket.rule.id,
@@ -696,6 +746,7 @@ export async function getQuotaSnapshot(
       source: bucket.rule.source,
       scope: bucket.rule.scope,
       metric: bucket.rule.metric,
+      currency: bucket.rule.currency,
       window: bucket.rule.window,
       limit: bucket.rule.limit,
       priority: bucket.rule.priority,
@@ -803,8 +854,8 @@ export function formatQuotaResetTime(periodEnd: number | null, timezone: string)
 export function describeQuotaBlock(bucket: QuotaBucketUsageDTO, timezone: string): string {
   const target = bucket.bucketLabel ? `${bucket.bucketLabel} 的` : ''
   const metricLabel = bucket.metric === 'cost' ? '消费额度' : '请求次数'
-  const used = formatQuotaAmount(bucket.metric, bucket.used)
-  const limit = formatQuotaAmount(bucket.metric, bucket.effectiveLimit ?? 0)
+  const used = formatQuotaAmount(bucket.metric, bucket.used, bucket.currency)
+  const limit = formatQuotaAmount(bucket.metric, bucket.effectiveLimit ?? 0, bucket.currency)
   const reset = formatQuotaResetTime(bucket.periodEnd, timezone)
   const tail = reset
     ? `，将于 ${reset} 重置`

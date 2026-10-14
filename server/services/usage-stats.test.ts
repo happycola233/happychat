@@ -72,18 +72,16 @@ describe('个人使用情况统计', () => {
     const userId = await createUser()
     const now = new Date()
     await logUsage(userId, { at: now, tokens: 1 })
-    await dbClient.db
-      .insert(schema.usageLogs)
-      .values({
-        userId,
-        modelLabel: 'gpt-test',
-        pricingSnapshot: PRICING,
-        costUsd: 0.1,
-        generatedImageCount: 2,
-        createdAt: now,
-      })
+    await dbClient.db.insert(schema.usageLogs).values({
+      userId,
+      modelLabel: 'gpt-test',
+      pricingSnapshot: PRICING,
+      costUsd: 0.1,
+      generatedImageCount: 2,
+      createdAt: now,
+    })
     const models = await usageStats.getUserModelUsage(userId, 0)
-    expect(models[0]?.costUsd).toBeCloseTo(1.1)
+    expect(models[0]?.cost).toBeCloseTo(1.1)
   })
   it('按当前外显名称汇总同一模型的历史 ID 与旧名称，停用模型也可识别', async () => {
     const userId = await createUser()
@@ -114,7 +112,7 @@ describe('个人使用情况统计', () => {
     await logUsage(userId, { at: new Date(), modelId, modelLabel: '模型旧名称', tokens: 3 })
     const stats = await usageStats.getMyUsageStats(userId)
     expect(stats.byModel).toEqual([
-      { modelId, modelLabel: '模型外显名称', requests: 2, totalTokens: 5, costUsd: 5 },
+      { modelId, modelLabel: '模型外显名称', requests: 2, totalTokens: 5, cost: 5 },
     ])
     expect(stats.topModel?.modelLabel).toBe('模型外显名称')
     expect(await usageStats.getUserModelUsage(userId, 30)).toEqual(stats.byModel)
@@ -148,7 +146,7 @@ describe('个人使用情况统计', () => {
     await dbClient.db.delete(schema.models).where(eq(schema.models.id, modelId))
     const stats = await usageStats.getMyUsageStats(userId)
     expect(stats.byModel).toEqual([
-      { modelId: null, modelLabel: '历史模型', requests: 1, totalTokens: 7, costUsd: 7 },
+      { modelId: null, modelLabel: '历史模型', requests: 1, totalTokens: 7, cost: 7 },
     ])
   })
 
@@ -202,7 +200,7 @@ describe('个人使用情况统计', () => {
     expect(stats.totals.requests).toBe(3)
     expect(stats.totals.totalTokens).toBe(15)
     // 价格快照为 $1/token，因此成本恰好等于 token 数
-    expect(stats.totals.costUsd).toBeCloseTo(15)
+    expect(stats.totals.cost).toBeCloseTo(15)
     expect(stats.topModel?.modelLabel).toBe('model-a')
     expect(stats.topModel?.requests).toBe(2)
     expect(stats.byModel).toHaveLength(2)

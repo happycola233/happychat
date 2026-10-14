@@ -139,6 +139,15 @@ export const userSettings = sqliteTable('user_settings', {
 })
 
 /** 全局应用设置（单例：始终只维护一行）。 */
+/** 最新参考汇率与旧账折算基准；legacyRate 首次取得后永不随刷新变更。 */
+export const exchangeRates = sqliteTable('exchange_rates', {
+  id: integer('id').primaryKey(),
+  usdToCny: real('usd_to_cny').notNull(),
+  fetchedAt: ts('fetched_at').notNull(),
+  legacyRate: real('legacy_rate').notNull(),
+  legacyAt: ts('legacy_at').notNull(),
+})
+
 export const appSettings = sqliteTable('app_settings', {
   id: pk(),
   // 是否要求新用户注册时填写邀请码；首位管理员始终例外
@@ -151,7 +160,7 @@ export const appSettings = sqliteTable('app_settings', {
   sharingEnabled: integer('sharing_enabled', { mode: 'boolean' }).notNull().default(true),
   // 是否在助手消息用量明细中展示本次预估成本
   showCost: integer('show_cost', { mode: 'boolean' }).notNull().default(true),
-  // 仅控制聊天消息用量行的展示币种；成本与汇率不以 CNY 形式落库
+  // 控制聊天消息用量行的展示币种；核价币种与报表显示币种分别配置
   costCurrency: text('cost_currency').$type<CostCurrency>().notNull().default('USD'),
   // 标题自动总结
   titleEnabled: integer('title_enabled', { mode: 'boolean' }).notNull().default(true),
@@ -457,7 +466,9 @@ export const quotaAdjustments = sqliteTable(
     // 「各自独立」规则的具体桶（模型 DB id / 分组 id）；null=整条规则的单一桶。
     bucketKey: text('bucket_key'),
     metric: text('metric').$type<QuotaMetric>().notNull(),
-    // grant 的额度增量（cost=USD，requests=次数）；reset 为 null。
+    currency: text('currency').$type<CostCurrency>().notNull().default('USD'),
+    usdToCnyRate: real('usd_to_cny_rate'),
+    // grant 的额度增量（cost 使用 currency，requests=次数）；reset 为 null。
     amount: real('amount'),
     effectiveFrom: ts('effective_from').notNull(),
     periodStart: ts('period_start').notNull(),
@@ -587,6 +598,7 @@ export const messages = sqliteTable(
     totalTokens: integer('total_tokens'),
     // 按请求时模型价格快照计算的展示成本；独立分支复制该值，不依赖用量审计记录。
     costUsd: real('cost_usd'),
+    costCny: real('cost_cny'),
     costBreakdown: text('cost_breakdown', { mode: 'json' }).$type<RequestCostBreakdown>(),
     errorMessage: text('error_message'),
     // 失败原因的结构化标识；与 error_message 同时写入，独立分支随消息一并复制。
@@ -722,6 +734,7 @@ export const usageLogs = sqliteTable(
     // 请求发起时的价格快照；后续改价或删除模型不得改写历史成本。
     pricingSnapshot: text('pricing_snapshot', { mode: 'json' }).$type<ModelPricing>(),
     costUsd: real('cost_usd'),
+    costCny: real('cost_cny'),
     costBreakdown: text('cost_breakdown', { mode: 'json' }).$type<RequestCostBreakdown>(),
     imageUsage: text('image_usage', { mode: 'json' }).$type<ImageGenerationUsage[]>(),
     conversationId: text('conversation_id'),

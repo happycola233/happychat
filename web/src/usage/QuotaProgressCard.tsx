@@ -70,9 +70,9 @@ function QuotaBar({ rule, warnThreshold }: { rule: QuotaBucketUsageDTO; warnThre
       aria-valuemax={100}
       aria-valuenow={percent}
       aria-valuetext={
-        formatQuotaAmount(rule.metric, rule.used) +
+        formatQuotaAmount(rule.metric, rule.used, rule.currency) +
         ' / ' +
-        formatQuotaAmount(rule.metric, rule.effectiveLimit ?? 0)
+        formatQuotaAmount(rule.metric, rule.effectiveLimit ?? 0, rule.currency)
       }
       className="h-1.5 overflow-hidden rounded-full bg-neutral-200/70 dark:bg-neutral-800"
     >
@@ -97,9 +97,9 @@ function UsageFigure({ rule }: { rule: QuotaBucketUsageDTO }) {
   }
   return (
     <>
-      {formatQuotaAmount(rule.metric, rule.used)}
+      {formatQuotaAmount(rule.metric, rule.used, rule.currency)}
       <span className="text-neutral-300 dark:text-neutral-600"> / </span>
-      {formatQuotaAmount(rule.metric, rule.effectiveLimit ?? 0)}
+      {formatQuotaAmount(rule.metric, rule.effectiveLimit ?? 0, rule.currency)}
     </>
   )
 }
@@ -136,7 +136,7 @@ function QuotaFootnotes({
         >
           {rule.blocked
             ? '额度已用尽'
-            : '剩余 ' + formatQuotaAmount(rule.metric, rule.remaining ?? 0)}
+            : '剩余 ' + formatQuotaAmount(rule.metric, rule.remaining ?? 0, rule.currency)}
         </span>
       )}
       {extras?.filter(Boolean).map((item) => (
@@ -151,7 +151,7 @@ function QuotaFootnotes({
       {rule.granted > 0 && (
         <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
           <Gift className="h-3 w-3" />
-          含临时额度 {formatQuotaAmount(rule.metric, rule.granted)}
+          含临时额度 {formatQuotaAmount(rule.metric, rule.granted, rule.currency)}
           {rule.grants[0]?.expiresAt
             ? `（${new Date(rule.grants[0].expiresAt).toLocaleDateString('zh-CN', {
                 month: 'numeric',

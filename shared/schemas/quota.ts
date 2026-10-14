@@ -72,6 +72,7 @@ export const quotaRuleSchema = z
     label: z.string().trim().max(QUOTA_RULE_LABEL_MAX_LENGTH).nullish(),
     scope: quotaScopeSchema,
     metric: quotaMetricSchema,
+    currency: z.enum(['USD', 'CNY']).optional(),
     limit: quotaLimitSchema,
     window: quotaWindowSchema,
     /** 数字越大越优先；只有优先级最高的那一档规则对某个模型生效。默认 0。 */
@@ -90,7 +91,11 @@ export const quotaRuleSchema = z
       Number.isInteger(rule.limit.value),
     { message: '请求次数上限必须是整数', path: ['limit'] },
   )
-  .transform((rule) => ({ ...rule, label: rule.label?.trim() || null }))
+  .transform(({ currency, ...rule }) => ({
+    ...rule,
+    ...(rule.metric === 'cost' && currency ? { currency } : {}),
+    label: rule.label?.trim() || null,
+  }))
 
 export const quotaRulesSchema = z
   .array(quotaRuleSchema)

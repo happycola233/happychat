@@ -3,13 +3,17 @@ import type { UsageHeatmapCellDTO } from '@shared/types/api'
 import { buildHeatmapGrid } from './heatmapGrid'
 
 /** 生成从 start 起 count 天的连续序列；requests 由回调决定。 */
-function series(start: string, count: number, requests: (index: number) => number): UsageHeatmapCellDTO[] {
+function series(
+  start: string,
+  count: number,
+  requests: (index: number) => number,
+): UsageHeatmapCellDTO[] {
   const [year, month, day] = start.split('-').map(Number)
   const base = Date.UTC(year!, month! - 1, day!)
   return Array.from({ length: count }, (_, index) => {
     const date = new Date(base + index * 86_400_000).toISOString().slice(0, 10)
     const value = requests(index)
-    return { date, requests: value, totalTokens: value * 100, costUsd: value * 0.5 }
+    return { date, requests: value, totalTokens: value * 100, cost: value * 0.5 }
   })
 }
 
@@ -29,7 +33,10 @@ describe('buildHeatmapGrid', () => {
   })
 
   it('支持周日起始（行标签与行索引同步旋转）', () => {
-    const grid = buildHeatmapGrid(series('2026-03-04', 9, () => 1), { weekStart: 'sun' })
+    const grid = buildHeatmapGrid(
+      series('2026-03-04', 9, () => 1),
+      { weekStart: 'sun' },
+    )
     expect(grid.weekdayLabels[0]).toBe('周日')
     expect(grid.weeks[0]?.[3]?.date).toBe('2026-03-04') // 周三在索引 3
     expect(grid.weeks[1]?.[0]?.date).toBe('2026-03-08') // 周日另起一列
@@ -66,14 +73,16 @@ describe('buildHeatmapGrid', () => {
     const day = requests.weeks.flat().find((item) => item !== null)!
     expect(day.requests).toBe(2)
     expect(day.totalTokens).toBe(200)
-    expect(day.costUsd).toBeCloseTo(1)
+    expect(day.cost).toBeCloseTo(1)
   })
 
   it('月份刻度稀疏放置，相邻过近的标签会被跳过', () => {
     const grid = buildHeatmapGrid(series('2026-01-01', 120, () => 1))
     expect(grid.monthLabels.length).toBeGreaterThanOrEqual(3)
     for (let index = 1; index < grid.monthLabels.length; index++) {
-      expect(grid.monthLabels[index]!.weekIndex - grid.monthLabels[index - 1]!.weekIndex).toBeGreaterThanOrEqual(3)
+      expect(
+        grid.monthLabels[index]!.weekIndex - grid.monthLabels[index - 1]!.weekIndex,
+      ).toBeGreaterThanOrEqual(3)
     }
     expect(grid.monthLabels[0]?.label).toMatch(/月$/)
   })

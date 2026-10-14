@@ -2,7 +2,8 @@ import { and, desc, eq } from 'drizzle-orm'
 import { DEFAULT_TITLE_PROMPT } from '@shared/constants'
 import type { MessageUsage, UsageOutcome } from '@shared/types/domain'
 import { textFromContent } from '@shared/util/contentText'
-import { createRequestPricingSnapshot } from '@shared/util/cost'
+import { calculateRequestCost, createRequestPricingSnapshot } from '@shared/util/cost'
+import { freezeModelPricing } from './model-pricing'
 import { anthropicModelProfile } from '@shared/util/anthropic'
 import { titleLocaleFromBrowser } from '@shared/util/titleLocale'
 import { db } from '../db/client'
@@ -180,8 +181,19 @@ async function logTitleUsage(
   terminalReason: string | null,
   upstreamResponseLatencyMs: number | null,
   durationMs: number | null,
+  requestStartedAt: number,
 ): Promise<void> {
+  const costBreakdown = calculateRequestCost(
+    { ...usage, imageTokens: 0 },
+    model.pricing,
+    model.kind,
+    [],
+    requestStartedAt,
+  )
   await db.insert(usageLogs).values({
+    costUsd: costBreakdown.totalUsd,
+    costCny: costBreakdown.totalCny,
+    costBreakdown,
     userId,
     modelId: model.id,
     providerId: provider.id,
@@ -280,6 +292,7 @@ export async function maybeGenerateTitle(conversationId: string, runId?: string)
       .replaceAll('{content}', content)
     const upstreamResponseTiming = new UpstreamResponseLatencyTracker()
     const titleStartedAt = new Date()
+    resolved.model.pricing = await freezeModelPricing(resolved.model)
     let result: TitleModelResult
     try {
       result = await callTitleModel(
@@ -312,6 +325,7 @@ export async function maybeGenerateTitle(conversationId: string, runId?: string)
       result.terminalReason,
       upstreamResponseTiming.latencyMs,
       computeGenerationDurationMs(titleStartedAt, new Date()),
+      titleStartedAt.getTime(),
     )
     const title = (result.success ? cleanTitle(result.text) : '') || fallback
     const updatedAt = new Date()

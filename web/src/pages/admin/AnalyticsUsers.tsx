@@ -20,10 +20,10 @@ import {
   formatInt,
   formatPercent,
   formatRelative,
-  formatUsd,
+  formatCurrency,
 } from '../../lib/format'
 
-type SortKey = 'requests' | 'costUsd' | 'totalTokens'
+type SortKey = 'requests' | 'cost' | 'totalTokens'
 
 export function AnalyticsUsers({ rows }: { rows: UserStatDTO[] }) {
   const [search, setSearch] = useState('')
@@ -62,7 +62,7 @@ export function AnalyticsUsers({ rows }: { rows: UserStatDTO[] }) {
             className="w-36 shrink-0"
             options={[
               { value: 'requests', label: '按请求排序' },
-              { value: 'costUsd', label: '按成本排序' },
+              { value: 'cost', label: '按成本排序' },
               { value: 'totalTokens', label: '按 Token 排序' },
             ]}
             value={sort}
@@ -108,7 +108,7 @@ export function AnalyticsUsers({ rows }: { rows: UserStatDTO[] }) {
                       {formatCompact(row.totalTokens)}
                     </td>
                     <td className={`${td} text-xs font-medium tabular-nums`}>
-                      {formatUsd(row.costUsd)}
+                      {formatCurrency(row.cost)}
                     </td>
                     <td className={`${td} text-xs tabular-nums`}>
                       {formatPercent(row.successRate)}
@@ -140,7 +140,7 @@ export function AnalyticsUsers({ rows }: { rows: UserStatDTO[] }) {
                     {row.displayName || row.username}
                   </span>
                   <span className="text-sm font-semibold tabular-nums">
-                    {formatUsd(row.costUsd)}
+                    {formatCurrency(row.cost)}
                   </span>
                   <ArrowUpRight className="h-3.5 w-3.5 text-neutral-400" />
                 </div>

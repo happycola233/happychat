@@ -15,6 +15,7 @@ export const userUpdateSchema = z.object({
 
 /** 统计/事件查询的通用筛选（全部来自 query string，故先 coerce 再校验）。 */
 export const statsFilterSchema = z.object({
+  currency: z.enum(['USD', 'CNY']).optional(),
   from: z.coerce.number().int().nonnegative().optional(),
   to: z.coerce.number().int().nonnegative().optional(),
   providerId: z.string().min(1).optional(),

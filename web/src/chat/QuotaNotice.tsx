@@ -58,8 +58,8 @@ function windowPhrase(rule: QuotaBucketUsageDTO): string {
 
 function usageFigures(rule: QuotaBucketUsageDTO): { used: string; limit: string } {
   return {
-    used: formatQuotaAmount(rule.metric, rule.used),
-    limit: formatQuotaAmount(rule.metric, rule.effectiveLimit ?? 0),
+    used: formatQuotaAmount(rule.metric, rule.used, rule.currency),
+    limit: formatQuotaAmount(rule.metric, rule.effectiveLimit ?? 0, rule.currency),
   }
 }
 
