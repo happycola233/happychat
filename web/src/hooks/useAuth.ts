@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { PublicUser } from '@shared/types/api'
 import { ApiRequestError } from '../api/client'
 import * as authApi from '../api/auth'
+import { useMessageQueue } from '../store/messageQueue'
 
 export function useMe() {
   return useQuery<PublicUser | null>({
@@ -51,6 +52,7 @@ export function useLogout() {
   return useMutation({
     mutationFn: authApi.logout,
     onSuccess: () => {
+      useMessageQueue.getState().clear()
       qc.setQueryData(['me'], null)
       qc.removeQueries()
     },

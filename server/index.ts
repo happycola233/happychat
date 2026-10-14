@@ -14,6 +14,8 @@ import { folderRoutes } from './routes/folders'
 import { emojiDataRoutes } from './routes/emoji-data'
 import { modelIconRoutes } from './routes/model-icons'
 import { runRoutes } from './routes/runs'
+import { messageQueueRoutes } from './routes/message-queues'
+import { recoverMessageQueues, startMessageQueueRunner } from './services/message-queue'
 import { attachmentRoutes } from './routes/attachments'
 import { shareRoutes } from './routes/shares'
 import { announcementRoutes } from './routes/announcements'
@@ -35,7 +37,9 @@ const sanitizedRunEventCount = sanitizePersistedRunEvents()
 if (sanitizedRunEventCount > 0) {
   console.log(`已净化 ${sanitizedRunEventCount} 条历史 run_events 推理密文`)
 }
-void recoverInterruptedRuns()
+await recoverInterruptedRuns()
+const stopMessageQueues = startMessageQueueRunner()
+await recoverMessageQueues()
 const stopAttachmentCleanup = startOrphanAttachmentCleanupScheduler()
 
 const app = new Hono<AppEnv>()
@@ -53,6 +57,7 @@ app.route('/api/folders', folderRoutes)
 app.route('/api/emoji-data', emojiDataRoutes)
 app.route('/api/model-icons', modelIconRoutes)
 app.route('/api/runs', runRoutes)
+app.route('/api/message-queues', messageQueueRoutes)
 app.route('/api/attachments', attachmentRoutes)
 app.route('/api/shares', shareRoutes)
 app.route('/api/announcements/images', announcementImageRoutes)
@@ -112,3 +117,4 @@ const server = serve({ fetch: app.fetch, port: env.PORT }, (info) => {
   console.log(`happychat 后端已启动： http://localhost:${info.port}`)
 })
 server.once('close', stopAttachmentCleanup)
+server.once('close', stopMessageQueues)

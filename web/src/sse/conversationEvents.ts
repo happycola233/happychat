@@ -9,6 +9,8 @@ import {
 import { getConversation } from '../api/chat'
 import { useConversationActivityStore } from '../store/conversationActivity'
 import { useTitleTypingStore } from '../store/titleTyping'
+import type { MessageQueueDTO } from '@shared/schemas/message-queue'
+import { useMessageQueue } from '../store/messageQueue'
 
 function isTitleUpdatedData(data: unknown): data is ConversationTitleUpdatedData {
   if (!data || typeof data !== 'object') return false
@@ -126,10 +128,18 @@ export function useConversationEvents(): void {
       } catch {
         return
       }
-      if (
-        wire.type !== CONVERSATION_EVENT_TYPE.titleUpdated ||
-        !isTitleUpdatedData(wire.data)
-      ) {
+      if (wire.type === CONVERSATION_EVENT_TYPE.ready) {
+        void queryClient.invalidateQueries({ queryKey: ['message-queues'] })
+        return
+      }
+      if (wire.type === CONVERSATION_EVENT_TYPE.queueUpdated) {
+        const queue = wire.data.queue as MessageQueueDTO
+        useMessageQueue.getState().apply([queue])
+        void queryClient.invalidateQueries({ queryKey: ['conversation', queue.conversationId] })
+        void queryClient.invalidateQueries({ queryKey: ['conversations'] })
+        return
+      }
+      if (wire.type !== CONVERSATION_EVENT_TYPE.titleUpdated || !isTitleUpdatedData(wire.data)) {
         return
       }
 

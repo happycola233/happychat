@@ -31,6 +31,7 @@ export const RUN_EVENT_TYPE = {
 export const CONVERSATION_EVENT_TYPE = {
   ready: 'conversation.events.ready',
   titleUpdated: 'conversation.title.updated',
+  queueUpdated: 'conversation.queue.updated',
 } as const
 
 export const TERMINAL_EVENT_TYPES: readonly string[] = [

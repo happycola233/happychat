@@ -9,6 +9,7 @@ import {
 } from 'drizzle-orm/sqlite-core'
 import { newId } from '../lib/id'
 import type { RetryPolicy } from '../../shared/schemas/retry'
+import type { QueuedMessage } from '../../shared/schemas/message-queue'
 import type { RunRetrySummary } from '../../shared/types/retry'
 import type { RunProgress } from '../../shared/types/run-progress'
 import type { ContextOptimizationSuggestion } from '../../shared/schemas/user-notices'
@@ -556,6 +557,29 @@ export const conversations = sqliteTable(
     index('conversations_user_pinned_idx').on(t.userId, t.pinnedAt),
     index('conversations_folder_idx').on(t.folderId),
   ],
+)
+
+/** 待发内容与调度游标一起持久化；随会话/账号删除，绝不放入用户偏好。 */
+export const messageQueues = sqliteTable(
+  'message_queues',
+  {
+    conversationId: text('conversation_id')
+      .primaryKey()
+      .references(() => conversations.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    items: text('items', { mode: 'json' }).$type<QueuedMessage[]>().notNull(),
+    parentId: text('parent_id'),
+    waitingRunId: text('waiting_run_id'),
+    sendingId: text('sending_id'),
+    preparingMessageId: text('preparing_message_id'),
+    paused: integer('paused', { mode: 'boolean' }).notNull().default(false),
+    error: text('error'),
+    revision: integer('revision').notNull().default(0),
+    reorderUntil: integer('reorder_until'),
+  },
+  (t) => [index('message_queues_user_idx').on(t.userId)],
 )
 
 export const messages = sqliteTable(

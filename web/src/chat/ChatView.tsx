@@ -46,7 +46,7 @@ import { pollConversationTitleAfterRun } from '../sse/conversationEvents'
 import { startStream } from '../sse/streamManager'
 import { toast } from '../store/toast'
 import { buildPath, getSiblings } from './buildPath'
-import { Composer, type ComposerMetrics } from './Composer'
+import { Composer, type ComposerHandle, type ComposerMetrics } from './Composer'
 import { ContextSettings } from './ContextSettings'
 import { useContextSelection } from '../store/contextSelection'
 import { ConversationMenu } from './ConversationMenu'
@@ -76,16 +76,17 @@ import {
 } from './scrollAnchor'
 import { resolveAutoFollowAfterScroll, type ScrollMetrics } from './scrollFollow'
 import { getConversationRunPrefs } from './runPrefs'
+import { cacheRunResult, type RunResult } from './runCache'
+import { MessageQueue } from './MessageQueue'
+import { useMessageQueueSync } from './messageQueueSync'
+import { changeMessageQueue } from '../api/messageQueues'
+import type { MessageQueueAction } from '@shared/schemas/message-queue'
+import { useMessageQueue } from '../store/messageQueue'
+import { createRandomUuid } from '../lib/randomUuid'
+import type { SendMessageInput } from '@shared/schemas/chat'
 import { ActiveRunRecoveryGate } from './activeRunRecovery'
 import { beginBranchCreationCooldown } from './branchCreationGuard'
 import { textFromContent } from './contentText'
-
-interface RunResult {
-  runId: string
-  conversation: ConversationDTO
-  assistantMessage: MessageDTO
-  userMessage?: MessageDTO
-}
 
 const SCROLL_BUTTON_IDLE_MS = 2400
 const PROGRAMMATIC_SCROLL_RESET_MS = 1200
@@ -146,6 +147,10 @@ export default function ChatView() {
   const modelQuotaExhausted = Boolean(model && quota?.blockedModelIds.includes(model.id))
   const { data: detail } = useConversation(id)
   const stream = useStreamStore((s) => (id ? s.byConversation[id] : undefined))
+  const messageQueue = useMessageQueue((s) => (id ? s.byConversation[id] : undefined))
+  const sendRequestInFlightRef = useRef(false)
+  const queuedSubmissionRef = useRef<{ fingerprint: string; id: string } | null>(null)
+  const composerRef = useRef<ComposerHandle>(null)
   const clearStream = useStreamStore((s) => s.clear)
   const markConversationViewed = useConversationActivityStore((s) => s.markViewed)
   const [optimisticUser, setOptimisticUser] = useState<string | null>(null)
@@ -227,39 +232,6 @@ export default function ChatView() {
   const invalidateDetail = useCallback(
     (convId: string) => qc.invalidateQueries({ queryKey: ['conversation', convId] }),
     [qc],
-  )
-
-  const handleRunTerminal = useCallback(
-    (convId: string, runId: string) => {
-      const terminalStream = useStreamStore.getState().byConversation[convId]
-      if (terminalStream?.runId === runId) {
-        useContextSelection
-          .getState()
-          .finish(runId, ['failed', 'interrupted', 'canceled'].includes(terminalStream.status))
-      }
-      if (
-        terminalStream &&
-        shouldRecordBackgroundCompletion({
-          currentConversationId: currentConversationIdRef.current,
-          conversationId: convId,
-          runId,
-          stream: terminalStream,
-        })
-      ) {
-        useConversationActivityStore.getState().recordBackgroundCompletion({
-          id: runId,
-          runId,
-          conversationId: convId,
-          title: completionNoticeTitle(qc, convId),
-          message: completionPreviewFromStream(terminalStream),
-        })
-      }
-      void invalidateDetail(convId)
-      pollConversationTitleAfterRun(qc, convId)
-      // 用量在 finalize 时才落库，生成结束正是额度进度唯一需要刷新的时刻。
-      invalidateMyQuota(qc)
-    },
-    [invalidateDetail, qc],
   )
 
   const clearScrollButtonIdleTimer = useCallback(() => {
@@ -406,6 +378,60 @@ export default function ChatView() {
     )
   }, [])
 
+  const captureConversationTerminal = useCallback(
+    (conversationId: string) => {
+      if (mountedRef.current && currentConversationIdRef.current === conversationId)
+        captureTerminalScroll()
+    },
+    [captureTerminalScroll],
+  )
+
+  const handleRunTerminal = useCallback(
+    function onTerminal(convId: string, runId: string) {
+      const terminalStream = useStreamStore.getState().byConversation[convId]
+      if (terminalStream?.runId !== runId) return
+      useContextSelection
+        .getState()
+        .finish(runId, ['failed', 'interrupted', 'canceled'].includes(terminalStream.status))
+      if (
+        shouldRecordBackgroundCompletion({
+          currentConversationId: currentConversationIdRef.current,
+          conversationId: convId,
+          runId,
+          stream: terminalStream,
+        })
+      ) {
+        useConversationActivityStore.getState().recordBackgroundCompletion({
+          id: runId,
+          runId,
+          conversationId: convId,
+          title: completionNoticeTitle(qc, convId),
+          message: completionPreviewFromStream(terminalStream),
+        })
+      }
+      void invalidateDetail(convId)
+      pollConversationTitleAfterRun(qc, convId)
+      invalidateMyQuota(qc)
+      void qc.invalidateQueries({ queryKey: ['message-queues'] })
+    },
+    [invalidateDetail, qc],
+  )
+
+  const queueQuery = useMessageQueueSync({
+    onBeforeTerminal: captureConversationTerminal,
+    onTerminal: handleRunTerminal,
+  })
+
+  const changeQueue = async (conversationId: string, action: MessageQueueAction) => {
+    try {
+      return await changeMessageQueue(conversationId, action)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '队列更新失败，请稍后重试')
+      void qc.invalidateQueries({ queryKey: ['message-queues'] })
+      return null
+    }
+  }
+
   // 终态正文替换与滚动补偿在同一次绘制前完成，用户看不到中间位置或空白帧。
   useLayoutEffect(() => {
     if (!stream || stream.status === 'streaming') return
@@ -484,27 +510,7 @@ export default function ChatView() {
     activeRunRecoveryGateRef.current.reset()
     const runModel = models?.find((m) => m.id === res.assistantMessage.modelId)
     const lastParams = getConversationRunPrefs(runModel, requestParams)
-    qc.setQueryData<ConversationDetail>(['conversation', convId], (old) => {
-      const base: ConversationDetail = old ?? {
-        conversation: res.conversation,
-        messages: [],
-        lastModelId: res.assistantMessage.modelId,
-        lastParams,
-        messageCostDisplay: { currency: 'USD', usdToCnyRate: null },
-      }
-      const ids = new Set(base.messages.map((m) => m.id))
-      const toAdd = [res.userMessage, res.assistantMessage].filter(
-        (m): m is MessageDTO => Boolean(m) && !ids.has((m as MessageDTO).id),
-      )
-      return {
-        ...base,
-        conversation: res.conversation,
-        messages: [...base.messages, ...toAdd],
-        lastModelId: res.assistantMessage.modelId,
-        lastParams,
-      }
-    })
-    qc.invalidateQueries({ queryKey: ['conversations'] })
+    cacheRunResult(qc, res, lastParams)
     startStream({
       runId: res.runId,
       conversationId: convId,
@@ -646,6 +652,9 @@ export default function ChatView() {
       setOptimisticUser(null)
       handleRunError(e, '发送失败')
     },
+    onSettled: () => {
+      sendRequestInFlightRef.current = false
+    },
   })
 
   useEffect(() => {
@@ -718,35 +727,32 @@ export default function ChatView() {
     return p
   }
 
-  const onSend = (
+  const onSend = async (
     text: string,
     attachments: AttachmentDTO[],
     selectedImageSources: ImageEditSource[],
-  ) => {
+  ): Promise<boolean> => {
     if (!model) {
-      return toast.error(
-        models ? '当前账号暂无可用模型，请联系管理员' : '模型列表加载中，请稍后再试',
-      )
+      toast.error(models ? '当前账号暂无可用模型，请联系管理员' : '模型列表加载中，请稍后再试')
+      return false
     }
-    if (reasoningSelectionError) return toast.error(reasoningSelectionError)
+    if (reasoningSelectionError) {
+      toast.error(reasoningSelectionError)
+      return false
+    }
     if (selectedImageSources.length > 0 && model.kind !== 'image') {
-      return toast.error('请使用图片模型编辑图片')
+      toast.error('请使用图片模型编辑图片')
+      return false
     }
-    if (modelQuotaExhausted) return toast.error(QUOTA_BLOCKED_HINT)
-    // 从居中态发出首条消息：为接下来的「落底」变化临时开启平移动画。
-    if (heroComposer) {
-      setDockAnimated(true)
-      if (dockAnimationTimerRef.current !== null) {
-        window.clearTimeout(dockAnimationTimerRef.current)
-      }
-      dockAnimationTimerRef.current = window.setTimeout(() => {
-        dockAnimationTimerRef.current = null
-        setDockAnimated(false)
-      }, DOCK_ANIMATION_SETTLE_MS)
+    if (model.kind === 'image' && !text.trim()) {
+      toast.error('请输入图片生成或编辑提示词')
+      return false
     }
-    shouldAutoFollowRef.current = true
-    setOptimisticUser(text || null)
-    sendMut.mutate({
+    if (modelQuotaExhausted) {
+      toast.error(QUOTA_BLOCKED_HINT)
+      return false
+    }
+    const input: SendMessageInput = {
       conversationId: id,
       contextPolicy: id ? undefined : useSettings.getState().preferences.contextPolicy,
       contextAttachments: id ? useContextSelection.getState().byConversation[id] : undefined,
@@ -761,7 +767,65 @@ export default function ChatView() {
         filename: a.filename,
       })),
       imageSources: selectedImageSources.map((source) => ({ attachmentId: source.attachmentId })),
-    })
+    }
+    const currentStream = id ? useStreamStore.getState().byConversation[id] : undefined
+    const currentQueue = id ? useMessageQueue.getState().byConversation[id] : undefined
+    if (
+      id &&
+      (currentStream?.status === 'streaming' ||
+        currentQueue?.items.length ||
+        currentQueue?.sendingId ||
+        currentQueue?.waitingRunId ||
+        queuedSubmissionRef.current)
+    ) {
+      const runPrefs = getConversationRunPrefs(model, input.params)
+      input.params = { ...input.params, ...runPrefs }
+      const fingerprint = JSON.stringify({ input, attachments, selectedImageSources })
+      if (queuedSubmissionRef.current?.fingerprint !== fingerprint) {
+        queuedSubmissionRef.current = { fingerprint, id: createRandomUuid() }
+      }
+      const saved = await changeQueue(id, {
+        type: 'enqueue',
+        message: {
+          id: queuedSubmissionRef.current.id,
+          input,
+          attachments,
+          imageSources: selectedImageSources,
+          modelName: model.displayName,
+          runPrefs,
+          reasoningEnabled: isReasoningEnabled(model, input.params),
+        },
+        parentId:
+          currentQueue?.parentId ??
+          currentStream?.assistantMessageId ??
+          detail?.conversation.activeLeafId ??
+          null,
+      })
+      if (!saved) return false
+      queuedSubmissionRef.current = null
+      // 加入队列即转交这一次选择，下一条草稿不能再次自动携带；失败时仍保留在队列项中。
+      if (input.contextAttachments)
+        useContextSelection.getState().set(id, { include: [], exclude: [] })
+      setImageSources([])
+      return true
+    }
+    if (sendRequestInFlightRef.current) return false
+    sendRequestInFlightRef.current = true
+    // 从居中态发出首条消息：为接下来的「落底」变化临时开启平移动画。
+    if (heroComposer) {
+      setDockAnimated(true)
+      if (dockAnimationTimerRef.current !== null) {
+        window.clearTimeout(dockAnimationTimerRef.current)
+      }
+      dockAnimationTimerRef.current = window.setTimeout(() => {
+        dockAnimationTimerRef.current = null
+        setDockAnimated(false)
+      }, DOCK_ANIMATION_SETTLE_MS)
+    }
+    shouldAutoFollowRef.current = true
+    setOptimisticUser(text || null)
+    sendMut.mutate(input)
+    return true
   }
 
   const onUseImageSource = (source: ImageEditSource) => {
@@ -774,7 +838,48 @@ export default function ChatView() {
     setImageSources([source])
   }
 
+  const restoreQueuedMessage = async (messageId: string, sourceRect: DOMRect) => {
+    if (!id) return
+    const queue = useMessageQueue.getState().byConversation[id]
+    const message = queue?.items.find((item) => item.id === messageId)
+    if (!queue || !message || queue.sendingId === messageId) return
+    try {
+      const restored = await composerRef.current!.restoreDraft(
+        message.input.text,
+        message.attachments,
+        sourceRect,
+        async () => {
+          await changeMessageQueue(id, { type: 'take', messageId })
+        },
+      )
+      if (!restored) return
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '暂时无法编辑，请稍后重试')
+      return
+    }
+    setImageSources(message.imageSources)
+    if (message.input.contextAttachments)
+      useContextSelection.getState().set(id, message.input.contextAttachments)
+    resetActive({
+      modelId: message.input.modelId,
+      webSearch: message.input.params?.web_search,
+      xSearch: message.input.params?.x_search,
+      effort: message.input.params?.reasoning_effort,
+    })
+    if (message.input.params?.image) {
+      const prefs = useChatPrefs.getState()
+      prefs.setImageSize(message.input.params.image.size ?? 'auto')
+      prefs.setImageQuality(message.input.params.image.quality ?? 'auto')
+    }
+  }
+
   const onEdit = (msg: MessageDTO, input: MessageEditSubmit): boolean => {
+    if (
+      id &&
+      (useStreamStore.getState().byConversation[id]?.status === 'streaming' ||
+        useMessageQueue.getState().byConversation[id]?.sendingId)
+    )
+      return false
     if (!model) {
       toast.error(models ? '当前账号暂无可用模型，请联系管理员' : '模型列表加载中，请稍后再试')
       return false
@@ -791,6 +896,7 @@ export default function ChatView() {
       toast.error(QUOTA_BLOCKED_HINT)
       return false
     }
+    // 用户主动编辑历史时先暂停队列，避免下一条消息抢在新分支创建前发送。
     shouldAutoFollowRef.current = true
     sendMut.mutate({
       conversationId: id,
@@ -807,6 +913,12 @@ export default function ChatView() {
   }
 
   const onRegenerate = (assistantMessageId: string) => {
+    if (
+      id &&
+      (useStreamStore.getState().byConversation[id]?.status === 'streaming' ||
+        useMessageQueue.getState().byConversation[id]?.sendingId)
+    )
+      return
     if (!model) {
       toast.error(models ? '当前账号暂无可用模型，请联系管理员' : '模型列表加载中，请稍后再试')
       return
@@ -842,7 +954,7 @@ export default function ChatView() {
   }
 
   const onStop = () => {
-    if (stream) void abortRun(stream.runId).catch(() => undefined)
+    if (stream) void abortRun(stream.runId).catch(() => toast.error('停止失败，请重试'))
   }
 
   const isEmpty = !optimisticUser && messages.length === 0
@@ -971,7 +1083,13 @@ export default function ChatView() {
                         costDisplay={detail?.messageCostDisplay}
                         live={stream && m.id === stream.assistantMessageId ? stream : undefined}
                         branch={branch}
-                        busy={streaming || branchMut.isPending}
+                        busy={
+                          streaming ||
+                          Boolean(messageQueue?.sendingId) ||
+                          sendMut.isPending ||
+                          regenMut.isPending ||
+                          branchMut.isPending
+                        }
                         editAttachmentSupport={{
                           canImage: model?.capabilities.vision,
                           canFile: model?.capabilities.file_input,
@@ -1088,17 +1206,52 @@ export default function ChatView() {
             </h2>
           </div>
           <Composer
+            ref={composerRef}
             onSend={onSend}
+            queueing={streaming || Boolean(messageQueue?.items.length)}
+            queue={
+              id &&
+              messageQueue && (
+                <MessageQueue
+                  key={id}
+                  queue={messageQueue}
+                  onEdit={restoreQueuedMessage}
+                  onRemove={(messageId) => {
+                    void changeQueue(id, { type: 'remove', messageId })
+                  }}
+                  onReorderStart={() => {
+                    void changeQueue(id, { type: 'hold' })
+                  }}
+                  onReorderEnd={(messageId, targetId) => {
+                    void changeQueue(id, { type: 'reorder', messageId, targetId })
+                  }}
+                  onResume={() => {
+                    void changeQueue(id, { type: 'resume' })
+                  }}
+                />
+              )
+            }
             hasContextAttachments={hasContextAttachments && model?.kind !== 'image'}
             notice={
               <>
                 {model && <ModelUsageNotice key={`${id ?? 'new'}:${model.id}`} model={model} />}
                 <QuotaNotice />
+                {queueQuery.isError && (
+                  <button
+                    type="button"
+                    onClick={() => void queueQuery.refetch()}
+                    className="mb-2 text-sm text-neutral-500"
+                  >
+                    队列加载失败，点击重试
+                  </button>
+                )}
               </>
             }
             disabled={
+              queueQuery.isPending ||
+              queueQuery.isError ||
               sendMut.isPending ||
-              streaming ||
+              regenMut.isPending ||
               !model ||
               modelQuotaExhausted ||
               !!reasoningSelectionError

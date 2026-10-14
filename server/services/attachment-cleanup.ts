@@ -2,7 +2,7 @@ import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
 import { and, asc, eq, gt, inArray, isNull, lte, or } from 'drizzle-orm'
 import type { ContentPart } from '@shared/types/domain'
 import { db } from '../db/client'
-import { attachments, conversations, messages } from '../db/schema'
+import { attachments, conversations, messageQueues, messages } from '../db/schema'
 import { removeUploadStrict } from '../storage/files'
 import { cleanupUnusedAnnouncementImages } from './announcement-images'
 
@@ -312,6 +312,19 @@ export async function cleanupExpiredOrphanAttachments(
         try {
           const deleted = db.transaction(
             (tx) => {
+              // 暂停的云端队列可能长期保存未发送附件；在删除事务中再次检查最新引用。
+              const queued = tx.select({ items: messageQueues.items }).from(messageQueues).all()
+              if (
+                queued.some(({ items }) =>
+                  items.some(
+                    ({ input }) =>
+                      input.attachments?.some((a) => a.attachmentId === candidate.id) ||
+                      input.imageSources?.some((a) => a.attachmentId === candidate.id) ||
+                      input.contextAttachments?.include.includes(candidate.id),
+                  ),
+                )
+              )
+                return false
               // 审计后附件可能已被发送绑定；删除时必须再次核验全部 TTL 条件。
               const claimed = tx
                 .delete(attachments)

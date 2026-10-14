@@ -11,7 +11,7 @@ import {
 } from '@shared/types/events'
 import { isReasoningEnabled } from '@shared/util/reasoning'
 import { db } from '../db/client'
-import { models, runEvents, runs, usageLogs } from '../db/schema'
+import { messages, models, runEvents, runs, usageLogs } from '../db/schema'
 import { requireUser } from '../auth/middleware'
 import { jsonValidator } from '../http/validator'
 import { must } from '../lib/assert'
@@ -19,6 +19,12 @@ import { getOwnedConversation, toConversationDTO, toMessageDTO } from '../servic
 import { getReasoningTimingSnapshot } from '../services/run-timing-snapshot'
 import { prepareRegenerate, prepareRun } from '../runs/prepare'
 import { runManager } from '../runs/manager'
+import { withConversationSubmission } from '../runs/submission-lock'
+import {
+  activeConversationRun,
+  pauseMessageQueue,
+  waitMessageQueueForRun,
+} from '../services/message-queue'
 import { runEmitter, type RunEvent } from '../runs/emitter'
 import { compactRunEventsForReplay } from '../runs/replay'
 import type { AppEnv } from '../http/types'
@@ -78,70 +84,94 @@ async function getOwnedRun(userId: string, id: string) {
 runRoutes.post('/', jsonValidator(sendMessageSchema), async (c) => {
   const user = c.get('user')
   const input = c.req.valid('json')
-  const prepared = await prepareRun({
-    userId: user.id,
-    conversationId: input.conversationId,
-    contextPolicy: input.contextPolicy,
-    contextAttachments: input.contextAttachments,
-    modelId: input.modelId,
-    text: input.text,
-    params: input.params,
-    clientLocale: input.clientLocale,
-    clientTimezone: input.clientTimezone,
-    idempotencyKey: input.idempotencyKey,
-    parentId: input.parentId,
-    attachments: input.attachments,
-    imageSources: input.imageSources,
-  })
-  if (!prepared.ok) {
-    return c.json({ error: { message: prepared.message, code: prepared.code } }, prepared.status)
+  const submit = async () => {
+    if (input.conversationId) {
+      if (!(await getOwnedConversation(user.id, input.conversationId)))
+        return c.json({ error: { message: '会话不存在', code: 'not_found' } }, 404)
+      if (activeConversationRun(input.conversationId))
+        return c.json({ error: { message: '正在回复，请将消息加入队列', code: 'run_active' } }, 409)
+      pauseMessageQueue(input.conversationId)
+    }
+    const prepared = await prepareRun({
+      userId: user.id,
+      conversationId: input.conversationId,
+      contextPolicy: input.contextPolicy,
+      contextAttachments: input.contextAttachments,
+      modelId: input.modelId,
+      text: input.text,
+      params: input.params,
+      clientLocale: input.clientLocale,
+      clientTimezone: input.clientTimezone,
+      idempotencyKey: input.idempotencyKey,
+      parentId: input.parentId,
+      attachments: input.attachments,
+      imageSources: input.imageSources,
+    })
+    if (!prepared.ok) {
+      return c.json({ error: { message: prepared.message, code: prepared.code } }, prepared.status)
+    }
+    waitMessageQueueForRun(prepared.conversation.id, prepared.run.id, prepared.assistantMessage.id)
+    runManager.start({
+      run: prepared.run,
+      assistantMessage: prepared.assistantMessage,
+      conversation: prepared.conversation,
+      model: prepared.model,
+      provider: prepared.provider,
+      body: prepared.body,
+      imageOperation: prepared.imageOperation,
+    })
+    return c.json({
+      runId: prepared.run.id,
+      conversation: toConversationDTO(prepared.conversation),
+      userMessage: toMessageDTO(must(prepared.userMessage)),
+      assistantMessage: toMessageDTO(prepared.assistantMessage),
+    })
   }
-  runManager.start({
-    run: prepared.run,
-    assistantMessage: prepared.assistantMessage,
-    conversation: prepared.conversation,
-    model: prepared.model,
-    provider: prepared.provider,
-    body: prepared.body,
-    imageOperation: prepared.imageOperation,
-  })
-  return c.json({
-    runId: prepared.run.id,
-    conversation: toConversationDTO(prepared.conversation),
-    userMessage: toMessageDTO(must(prepared.userMessage)),
-    assistantMessage: toMessageDTO(prepared.assistantMessage),
-  })
+  return input.conversationId ? withConversationSubmission(input.conversationId, submit) : submit()
 })
 
 /** 重新生成：在原用户消息下新增兄弟助手分支并流式生成。 */
 runRoutes.post('/regenerate', jsonValidator(regenerateSchema), async (c) => {
   const user = c.get('user')
   const input = c.req.valid('json')
-  const prepared = await prepareRegenerate({
-    userId: user.id,
-    assistantMessageId: input.assistantMessageId,
-    contextAttachments: input.contextAttachments,
-    modelId: input.modelId,
-    params: input.params,
-    clientLocale: input.clientLocale,
-    idempotencyKey: input.idempotencyKey,
-  })
-  if (!prepared.ok) {
-    return c.json({ error: { message: prepared.message, code: prepared.code } }, prepared.status)
-  }
-  runManager.start({
-    run: prepared.run,
-    assistantMessage: prepared.assistantMessage,
-    conversation: prepared.conversation,
-    model: prepared.model,
-    provider: prepared.provider,
-    body: prepared.body,
-    imageOperation: prepared.imageOperation,
-  })
-  return c.json({
-    runId: prepared.run.id,
-    conversation: toConversationDTO(prepared.conversation),
-    assistantMessage: toMessageDTO(prepared.assistantMessage),
+  const target = db
+    .select({ conversationId: messages.conversationId })
+    .from(messages)
+    .where(eq(messages.id, input.assistantMessageId))
+    .get()
+  if (!target || !(await getOwnedConversation(user.id, target.conversationId)))
+    return c.json({ error: { message: '消息不存在', code: 'not_found' } }, 404)
+  return withConversationSubmission(target.conversationId, async () => {
+    if (activeConversationRun(target.conversationId))
+      return c.json({ error: { message: '请先停止当前回复', code: 'run_active' } }, 409)
+    pauseMessageQueue(target.conversationId)
+    const prepared = await prepareRegenerate({
+      userId: user.id,
+      assistantMessageId: input.assistantMessageId,
+      contextAttachments: input.contextAttachments,
+      modelId: input.modelId,
+      params: input.params,
+      clientLocale: input.clientLocale,
+      idempotencyKey: input.idempotencyKey,
+    })
+    if (!prepared.ok) {
+      return c.json({ error: { message: prepared.message, code: prepared.code } }, prepared.status)
+    }
+    waitMessageQueueForRun(prepared.conversation.id, prepared.run.id, prepared.assistantMessage.id)
+    runManager.start({
+      run: prepared.run,
+      assistantMessage: prepared.assistantMessage,
+      conversation: prepared.conversation,
+      model: prepared.model,
+      provider: prepared.provider,
+      body: prepared.body,
+      imageOperation: prepared.imageOperation,
+    })
+    return c.json({
+      runId: prepared.run.id,
+      conversation: toConversationDTO(prepared.conversation),
+      assistantMessage: toMessageDTO(prepared.assistantMessage),
+    })
   })
 })
 
@@ -189,7 +219,9 @@ runRoutes.get('/active', async (c) => {
 runRoutes.delete('/:id', async (c) => {
   const run = await getOwnedRun(c.get('user').id, c.req.param('id'))
   if (!run) return c.json({ error: { message: '任务不存在', code: 'not_found' } }, 404)
-  runManager.abort(run.id)
+  pauseMessageQueue(run.conversationId)
+  const active = activeConversationRun(run.conversationId)
+  runManager.abort(active?.id ?? run.id)
   return c.json({ ok: true })
 })
 

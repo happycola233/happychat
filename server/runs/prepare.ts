@@ -14,7 +14,7 @@ import { processStepsOf } from '@shared/util/processTrack'
 import { isReasoningEffortAllowed, reasoningEffortSelectionError } from '@shared/util/reasoning'
 import { normalizeSearchParamsForModelKind } from '@shared/util/searchTools'
 import { db } from '../db/client'
-import { attachments, conversations, messages, runs, users } from '../db/schema'
+import { attachments, conversations, messageQueues, messages, runs, users } from '../db/schema'
 import { buildPromptVars } from './promptVars'
 import { must } from '../lib/assert'
 import { buildChatBody, buildChatMessages } from '../provider/chat'
@@ -362,6 +362,7 @@ async function createAssistantAndRun(opts: {
   clientLocale?: string
   idempotencyKey?: string
   quotaCycleClaims: QuotaCycleClaim[]
+  queuedMessageId?: string
 }): Promise<{
   conversation: ConvRow
   assistantMessage: MsgRow
@@ -544,6 +545,32 @@ async function createAssistantAndRun(opts: {
           .returning()
           .get(),
       )
+      if (opts.queuedMessageId) {
+        const queue = must(
+          tx
+            .select()
+            .from(messageQueues)
+            .where(
+              and(
+                eq(messageQueues.conversationId, conv.id),
+                eq(messageQueues.sendingId, opts.queuedMessageId),
+              ),
+            )
+            .get(),
+        )
+        // run 与出队必须同一事务提交，重启不能把已经发起的消息再次发送。
+        tx.update(messageQueues)
+          .set({
+            items: queue.items.filter((item) => item.id !== opts.queuedMessageId),
+            sendingId: null,
+            preparingMessageId: null,
+            waitingRunId: run.id,
+            parentId: assistantMessage.id,
+            revision: queue.revision + 1,
+          })
+          .where(eq(messageQueues.conversationId, conv.id))
+          .run()
+      }
       return { assistantMessage, run, updatedConversation }
     },
     { behavior: 'immediate' },
@@ -572,6 +599,8 @@ export interface PrepareArgs {
   parentId?: string | null
   attachments?: AttachmentRef[]
   imageSources?: ImageSourceRef[]
+  /** 仅服务端队列调度使用，不接受公共请求传入。 */
+  queuedMessageId?: string
 }
 
 /**
@@ -810,6 +839,13 @@ export async function prepareRun(args: PrepareArgs): Promise<PrepareResult> {
           .get(),
       )
 
+      if (args.queuedMessageId) {
+        tx.update(messageQueues)
+          .set({ preparingMessageId: userMessage.id })
+          .where(eq(messageQueues.conversationId, transactionConversation.id))
+          .run()
+      }
+
       const refIds = [...new Set(refs.map((ref) => ref.attachmentId))]
       if (refIds.length > 0) {
         // 编辑重发允许复用已绑定附件，沿用原行为把归属移动到新的用户消息。
@@ -862,6 +898,7 @@ export async function prepareRun(args: PrepareArgs): Promise<PrepareResult> {
       clientLocale: args.clientLocale,
       idempotencyKey: args.idempotencyKey,
       quotaCycleClaims: quotaAdmission.cycleClaims,
+      queuedMessageId: args.queuedMessageId,
     },
   )
 

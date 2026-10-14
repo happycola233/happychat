@@ -44,6 +44,22 @@ export function createUploadDraft(input: {
   }
 }
 
+/** 队列撤回的是已上传的附件；直接恢复就绪项，不再读取本地 File 或重复上传。 */
+export function uploadDraftFromAttachment(attachment: AttachmentDTO): UploadDraftItem {
+  return {
+    localId: attachment.id,
+    kind: attachment.kind,
+    filename: attachment.filename,
+    byteSize: attachment.byteSize,
+    mime: attachment.mime,
+    previewUrl: null,
+    status: 'done',
+    progress: 1,
+    attachment,
+    errorMessage: null,
+  }
+}
+
 function patchUploadDraft(
   items: UploadDraftItem[],
   localId: string,

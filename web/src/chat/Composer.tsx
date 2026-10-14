@@ -1,5 +1,12 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { ChangeEvent, ClipboardEvent, KeyboardEvent, ReactNode } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react'
+import type { ChangeEvent, ClipboardEvent, KeyboardEvent, ReactNode, Ref } from 'react'
 import { clsx } from 'clsx'
 import { Plus, Square, X } from 'lucide-react'
 import type { AttachmentDTO } from '@shared/types/api'
@@ -8,7 +15,7 @@ import { attachmentUrl } from '../api/attachments'
 import { useSettings } from '../store/settings'
 import { useIsMobile } from '../store/sidebar'
 import type { ImageEditSource } from './imageSource'
-import { ArrowUpIcon, AttachmentIcon, UploadImageIcon } from './icons'
+import { ArrowUpIcon, AttachmentIcon, QueueIcon, UploadImageIcon } from './icons'
 import { ImagePreviewTrigger } from './ImagePreview'
 import { AttachmentDraftList } from './AttachmentDraftList'
 import { completedUploadAttachments } from './uploadDraft'
@@ -35,10 +42,26 @@ export interface ComposerMetrics {
   boxCenterFromBottom: number
 }
 
+export interface ComposerHandle {
+  restoreDraft: (
+    text: string,
+    attachments: AttachmentDTO[],
+    sourceRect: DOMRect,
+    take: () => Promise<void>,
+  ) => Promise<boolean>
+}
+
 interface Props extends AttachmentInputSupport {
-  onSend: (text: string, attachments: AttachmentDTO[], imageSources: ImageEditSource[]) => void
+  ref?: Ref<ComposerHandle>
+  onSend: (
+    text: string,
+    attachments: AttachmentDTO[],
+    imageSources: ImageEditSource[],
+  ) => boolean | Promise<boolean>
   disabled?: boolean
   streaming?: boolean
+  queueing?: boolean
+  queue?: ReactNode
   onStop?: () => void
   /** 聚合模型选择器，渲染在发送按钮左侧（移动端为 undefined，由顶栏承载）。 */
   modelControl?: ReactNode
@@ -154,9 +177,12 @@ function ComposerPlusMenu({
 }
 
 export function Composer({
+  ref: composerRef,
   onSend,
   disabled,
   streaming,
+  queueing = false,
+  queue,
   onStop,
   modelControl,
   notice,
@@ -178,6 +204,8 @@ export function Composer({
     isMobile ? s.preferences.sendOnEnterMobile : s.preferences.sendOnEnterDesktop,
   )
   const [text, setText] = useState('')
+  const [draftBusy, setDraftBusy] = useState(false)
+  const draftOperationRef = useRef(false)
   const [dragActive, setDragActive] = useState(false)
   // 多行态：正文超过单行宽度或有附件预览时，输入区独占首行、控件退到次行。
   const [multiline, setMultiline] = useState(false)
@@ -192,17 +220,51 @@ export function Composer({
   const imageInput = useRef<HTMLInputElement>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const dragDepth = useRef(0)
+  const returningDraftOriginRef = useRef<DOMRect | null>(null)
 
   const showPlusMenu = Boolean(canImage || canFile)
 
   // 附件选中即上屏（uploads 含上传中/失败/完成三态），发送时只取完成项。
-  const { uploads, uploadFiles, removeUpload, retryUpload, clearUploads, uploading, hasFailed } =
-    useAttachmentUpload({ canImage, canFile, modelKind })
+  const {
+    uploads,
+    uploadFiles,
+    removeUpload,
+    retryUpload,
+    clearUploads,
+    restoreAttachments,
+    uploading,
+    hasFailed,
+  } = useAttachmentUpload({ canImage, canFile, modelKind })
   const hasPreviews = imageSources.length > 0 || uploads.length > 0
 
   // 有无草稿上报给父层：ChatView 在桌面端新对话据此决定何时把输入框悬浮层预热为合成层
   //（详见 composerLayerWarm）——用户一动笔就预热，静止阅读问候语时不占 GPU 层。
   const hasDraft = Boolean(text) || hasPreviews
+  useImperativeHandle(
+    composerRef,
+    () => ({
+      restoreDraft: async (restoredText, attachments, sourceRect, take) => {
+        if (hasDraft || hasContextAttachments || draftOperationRef.current) {
+          toast.error('请先发送或清空输入框中的内容')
+          return false
+        }
+        draftOperationRef.current = true
+        setDraftBusy(true)
+        try {
+          // 云端撤回成功后才交回草稿；等待期间锁住输入，避免覆盖新输入的内容。
+          await take()
+          returningDraftOriginRef.current = sourceRect
+          setText(restoredText)
+          restoreAttachments(attachments)
+          return true
+        } finally {
+          draftOperationRef.current = false
+          setDraftBusy(false)
+        }
+      },
+    }),
+    [hasDraft, hasContextAttachments, restoreAttachments],
+  )
   useEffect(() => {
     onDraftPresenceChange?.(hasDraft)
   }, [hasDraft, onDraftPresenceChange])
@@ -289,6 +351,30 @@ export function Composer({
     updateScrollFade()
   }, [text, multiline, updateScrollFade])
 
+  useLayoutEffect(() => {
+    const origin = returningDraftOriginRef.current
+    if (!origin) return
+    // 等正文与附件完成布局后，再从原队列行的方向滑入输入框。
+    const frame = requestAnimationFrame(() => {
+      returningDraftOriginRef.current = null
+      const input = ref.current!
+      const grid = gridRef.current!
+      if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        const offset = Math.max(-48, Math.min(-12, origin.top - input.getBoundingClientRect().top))
+        grid.animate(
+          [
+            { opacity: 0, transform: `translateY(${offset}px)` },
+            { opacity: 1, transform: 'translateY(0)' },
+          ],
+          { duration: 240, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' },
+        )
+      }
+      input.focus({ preventScroll: true })
+      input.setSelectionRange(input.value.length, input.value.length)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [text, uploads, multiline])
+
   /**
    * 行扩展动画：网格内容（行数/布局）先瞬时排好版，外层容器高度再过渡到网格实测高度，
    * 于是任何“行数变化”（1⇄2、2⇄3……以及单行⇄多行布局切换）都表现为盒子高度的平滑生长。
@@ -334,13 +420,17 @@ export function Composer({
   // 上传中或有失败项时不可发送：失败项须重试或移除，避免静默丢附件。
   const readyAttachments: AttachmentDTO[] = completedUploadAttachments(uploads)
   const canSubmit =
-    (text.trim().length > 0 || readyAttachments.length > 0 || hasContextAttachments) &&
+    (text.trim().length > 0 ||
+      readyAttachments.length > 0 ||
+      imageSources.length > 0 ||
+      hasContextAttachments) &&
     !disabled &&
+    !draftBusy &&
     !uploading &&
     !hasFailed
 
-  const submit = () => {
-    if (!canSubmit) return
+  const submit = async () => {
+    if (!canSubmit || draftOperationRef.current) return
     for (const attachment of readyAttachments) {
       const error = attachmentInputError(attachment, { canImage, canFile, modelKind })
       if (error) {
@@ -348,13 +438,21 @@ export function Composer({
         return
       }
     }
-    onSend(text, readyAttachments, imageSources)
-    setText('')
-    clearUploads()
+    draftOperationRef.current = true
+    setDraftBusy(true)
+    try {
+      if (!(await onSend(text, readyAttachments, imageSources))) return
+      setText('')
+      clearUploads()
+    } finally {
+      draftOperationRef.current = false
+      setDraftBusy(false)
+      requestAnimationFrame(() => ref.current?.focus())
+    }
   }
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key !== 'Enter') return
+    if (e.key !== 'Enter' || e.nativeEvent.isComposing || e.keyCode === 229) return
     if (sendOnEnter) {
       // Enter 发送、Shift+Enter 换行
       if (!e.shiftKey) {
@@ -467,6 +565,7 @@ export function Composer({
       >
         {/* 提示条与输入框共用同一条限宽基线，左右边界严格对齐。 */}
         {notice && <div className="mx-auto max-w-3xl">{notice}</div>}
+        {queue}
         {/* 视觉盒：浅色用低对比 hairline 描边 + 柔和弥散阴影撑起体积感，
             避免生硬的灰色描边压过居中态光晕；深色以描边为主要轮廓，维持原对比。 */}
         <div
@@ -543,6 +642,7 @@ export function Composer({
           <div ref={expandRef} className="hc-composer-expand">
             <div
               ref={gridRef}
+              inert={draftBusy || undefined}
               className={clsx('hc-composer-grid', multiline && 'hc-composer-multiline')}
             >
               <div ref={leadingRef} className="hc-composer-leading flex items-center">
@@ -570,7 +670,7 @@ export function Composer({
 
               <div ref={trailingRef} className="hc-composer-trailing flex items-center gap-1">
                 {modelControl}
-                {streaming ? (
+                {streaming && (
                   <button
                     onClick={onStop}
                     data-testid="stop-btn"
@@ -580,14 +680,20 @@ export function Composer({
                   >
                     <Square className="h-3.5 w-3.5 fill-current" />
                   </button>
-                ) : (
+                )}
+                {(!streaming || text.trim() || hasPreviews || hasContextAttachments) && (
                   <button
                     onClick={submit}
                     disabled={!canSubmit}
                     className="hc-send-button flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition disabled:bg-neutral-200 disabled:text-white disabled:opacity-100 dark:disabled:bg-neutral-700"
-                    aria-label="发送"
+                    aria-label={queueing ? '加入队列' : '发送'}
+                    title={queueing ? '加入队列' : '发送'}
                   >
-                    <ArrowUpIcon className="h-5 w-5" />
+                    {queueing ? (
+                      <QueueIcon className="h-5 w-5" />
+                    ) : (
+                      <ArrowUpIcon className="h-5 w-5" />
+                    )}
                   </button>
                 )}
               </div>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { AttachmentDTO } from '@shared/types/api'
 import { isImageMime, uploadMime } from '@shared/util/fileTypes'
 import { isUploadAbortError, uploadAttachment } from '../api/attachments'
 import { createRandomUuid } from '../lib/randomUuid'
@@ -13,6 +14,7 @@ import {
   removeUploadDraft,
   restartUploadDraft,
   setUploadDraftProgress,
+  uploadDraftFromAttachment,
   type UploadDraftItem,
 } from './uploadDraft'
 
@@ -90,6 +92,10 @@ export function useAttachmentUpload({ canImage, canFile, modelKind }: Attachment
     setUploads((items) => removeUploadDraft(items, localId))
   }, [])
 
+  const restoreAttachments = useCallback((attachments: AttachmentDTO[]) => {
+    setUploads(attachments.map(uploadDraftFromAttachment))
+  }, [])
+
   const retryUpload = useCallback(
     (localId: string) => {
       const task = tasksRef.current.get(localId)
@@ -136,6 +142,7 @@ export function useAttachmentUpload({ canImage, canFile, modelKind }: Attachment
     removeUpload,
     retryUpload,
     clearUploads,
+    restoreAttachments,
     uploading: hasActiveUpload(uploads),
     hasFailed: hasFailedUpload(uploads),
   }

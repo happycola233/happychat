@@ -19,6 +19,14 @@ import { saveRunErrorAudit } from './error-audit'
 /** 进程内 run 管理器单例：保活生成（客户端断开不影响），支持中止。 */
 class RunManager {
   private active = new Map<string, AbortController>()
+  private settledListeners = new Set<(conversationId: string) => void>()
+
+  onSettled(listener: (conversationId: string) => void): () => void {
+    this.settledListeners.add(listener)
+    return () => {
+      this.settledListeners.delete(listener)
+    }
+  }
 
   start(ctx: Omit<EngineContext, 'abortController'>): void {
     const ac = new AbortController()
@@ -33,7 +41,10 @@ class RunManager {
             : runEngine
     void engine({ ...ctx, abortController: ac })
       .catch((e) => console.error('run engine 未捕获错误:', e))
-      .finally(() => this.active.delete(ctx.run.id))
+      .finally(() => {
+        this.active.delete(ctx.run.id)
+        this.settledListeners.forEach((listener) => listener(ctx.conversation.id))
+      })
   }
 
   abort(runId: string): boolean {

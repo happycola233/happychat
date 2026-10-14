@@ -12,6 +12,7 @@ import {
   removeUploadDraft,
   restartUploadDraft,
   setUploadDraftProgress,
+  uploadDraftFromAttachment,
 } from './uploadDraft'
 
 const imageFile = new File([new Uint8Array(16)], 'photo.png', { type: 'image/png' })
@@ -57,6 +58,14 @@ describe('createUploadDraft', () => {
 
 describe('上传状态流转', () => {
   const base = [createUploadDraft({ localId: 'u1', file: imageFile, previewUrl: 'blob:x' })]
+
+  it('队列附件撤回后直接可发送，保留服务端文件名、大小和 ID，无在途上传', () => {
+    const items = [uploadDraftFromAttachment(attachment)]
+    expect(hasActiveUpload(items)).toBe(false)
+    expect(hasFailedUpload(items)).toBe(false)
+    expect(completedUploadAttachments(items)).toEqual([attachment])
+    expect(items[0]).toMatchObject({ filename: 'photo.png', byteSize: 16, previewUrl: null })
+  })
 
   it('进度单调递增并封顶到 1', () => {
     let items = setUploadDraftProgress(base, 'u1', 0.4)

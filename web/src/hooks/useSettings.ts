@@ -5,6 +5,7 @@ import * as settingsApi from '../api/settings'
 import { clearAllConversations } from '../api/chat'
 import { useSettings } from '../store/settings'
 import { useMe } from './useAuth'
+import { useMessageQueue } from '../store/messageQueue'
 
 /**
  * 登录后拉取服务端设置真值并 hydrate 到 settings store（覆盖本地缓存）。
@@ -58,6 +59,7 @@ export function useDeleteAccount() {
   return useMutation({
     mutationFn: settingsApi.deleteAccount,
     onSuccess: () => {
+      useMessageQueue.getState().clear()
       qc.setQueryData(['me'], null)
       qc.removeQueries()
     },
@@ -68,6 +70,9 @@ export function useClearConversations() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: clearAllConversations,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['conversations'] }),
+    onSuccess: () => {
+      useMessageQueue.getState().clear()
+      return qc.invalidateQueries({ queryKey: ['conversations'] })
+    },
   })
 }

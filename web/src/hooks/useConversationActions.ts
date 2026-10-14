@@ -12,6 +12,7 @@ import { askConfirm } from '../store/confirm'
 import { useTitleTypingStore } from '../store/titleTyping'
 import { toast } from '../store/toast'
 import { conversationDeleteConfirmationTitle } from './conversationDeleteConfirmation'
+import { useMessageQueue } from '../store/messageQueue'
 
 type ConversationDeleteTarget = Pick<ConversationDTO, 'id' | 'title'>
 
@@ -24,6 +25,7 @@ export function useConversationActions() {
   const remove = useMutation({
     mutationFn: deleteConversation,
     onSuccess: (_r, deletedId) => {
+      useMessageQueue.getState().clear(deletedId)
       useTitleTypingStore.getState().clear(deletedId)
       qc.invalidateQueries({ queryKey: ['conversations'] })
       if (deletedId === activeId) navigate('/')
@@ -34,6 +36,7 @@ export function useConversationActions() {
   const batchRemove = useMutation({
     mutationFn: ({ ids }: { ids: string[]; onDone?: () => void }) => batchDeleteConversations(ids),
     onSuccess: (deletedCount, { ids, onDone }) => {
+      ids.forEach((conversationId) => useMessageQueue.getState().clear(conversationId))
       ids.forEach((conversationId) => useTitleTypingStore.getState().clear(conversationId))
       qc.invalidateQueries({ queryKey: ['conversations'] })
       toast.success(`已删除 ${deletedCount} 个聊天`)

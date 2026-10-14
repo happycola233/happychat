@@ -67,7 +67,10 @@ export function startStream(opts: StartOptions): void {
     const batch = pendingEvents
     pendingEvents = []
     const cur = useStreamStore.getState().byConversation[opts.conversationId]
-    if (!cur || cur.runId !== opts.runId) return
+    if (!cur || cur.runId !== opts.runId) {
+      finish()
+      return
+    }
 
     const terminal = batch.find((wire) => isTerminalEventType(wire.type))
     if (terminal) opts.onBeforeTerminal?.()
@@ -115,6 +118,10 @@ export function startStream(opts: StartOptions): void {
       es.close()
       open.delete(opts.runId)
       if (stopped) return
+      if (useStreamStore.getState().byConversation[opts.conversationId]?.runId !== opts.runId) {
+        finish()
+        return
+      }
       attempt += 1
       if (attempt > MAX_ATTEMPTS) {
         useStreamStore.getState().patch(opts.conversationId, { status: 'interrupted' })
