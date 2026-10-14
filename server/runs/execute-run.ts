@@ -2,6 +2,7 @@ import { and, eq, inArray } from 'drizzle-orm'
 import type { ModelParams } from '@shared/types/domain'
 import { RUN_EVENT_TYPE, type RetryFailureNotice, type RunRetryData } from '@shared/types/events'
 import type { RetryAttemptFailure, RetryFailureStage } from '@shared/types/retry'
+import type { RunProgress } from '@shared/types/run-progress'
 import { isReasoningEnabled } from '@shared/util/reasoning'
 import { db } from '../db/client'
 import { runEvents, runs } from '../db/schema'
@@ -23,6 +24,7 @@ import { sanitizeEventData } from './event-sanitize'
 import { finalizeRun, type FinalizeArgs } from './finalize'
 import { removeGeneratedImageAttachments } from './generated-images'
 import type { EngineContext } from './types'
+import { saveRunErrorAudit } from './error-audit'
 
 export interface RunAttemptRuntime {
   startedAt: Date
@@ -126,9 +128,39 @@ export async function executeRun(
   let totalImageTokens = 0
   const imageUsage: NonNullable<FinalizeArgs['imageUsage']> = []
   let result: FinalizeArgs
+  let progress: RunProgress = {
+    phase: 'connecting',
+    attempt: 1,
+    maxAttempts: policy.enabled ? policy.maxRetries + 1 : 1,
+    requestStartedAt: null,
+    updatedAt: startedAt.getTime(),
+    nextRetryAt: null,
+    upstreamResponseLatencyMs: null,
+    modelLabel: ctx.model.modelId,
+    modelDisplayName: ctx.model.displayName,
+    providerId: ctx.provider.id,
+    providerLabel: ctx.provider.name,
+  }
+  // 只在阶段切换时写轻量快照；管理端轮询无需扫描正文事件，也不为每个 delta 增加写入。
+  const saveProgress = (patch: Partial<RunProgress>) => {
+    progress = { ...progress, ...patch, updatedAt: Date.now() }
+    db.update(runs).set({ progress }).where(eq(runs.id, ctx.run.id)).run()
+  }
+  const saveRunningError = () =>
+    saveRunErrorAudit(db, ctx.run.id, ctx.run.userId, {
+      attempts: attempt,
+      outcome: 'running',
+      failures,
+    })
 
   for (;;) {
     const attemptStartedAt = new Date()
+    saveProgress({
+      phase: 'connecting',
+      attempt,
+      requestStartedAt: null,
+      nextRetryAt: null,
+    })
     const controller = new AbortController()
     const cancel = () => controller.abort(ctx.abortController.signal.reason)
     if (ctx.abortController.signal.aborted) cancel()
@@ -139,7 +171,7 @@ export async function executeRun(
     let responseHttpStatus: number | null = null
     let outputObserved = false
     let committed = attempt === 1
-    let requestStarted = false
+    let attemptRequestStartedAt: number | null = null
     let retryAfter = 0
     let rawErrorMessage: string | undefined
     const pending: PendingEvent[] = []
@@ -205,6 +237,7 @@ export async function executeRun(
       if (isOutput(type, data)) {
         const firstOutput = !outputObserved
         outputObserved = true
+        if (firstOutput) saveProgress({ phase: 'streaming' })
         armTimeout()
         commit()
         if (attempt > 1 && firstOutput)
@@ -236,8 +269,13 @@ export async function executeRun(
           upstreamResponseTiming: {
             onRequestStart(at) {
               timing.onRequestStart(at)
-              if (!requestStarted) {
-                requestStarted = true
+              if (attemptRequestStartedAt === null) {
+                attemptRequestStartedAt = at
+                saveProgress({ requestStartedAt: at })
+                if (previousFailure) {
+                  previousFailure.retriedAt = at
+                  saveRunningError()
+                }
                 armTimeout()
               }
             },
@@ -245,6 +283,10 @@ export async function executeRun(
               receivedHeaders = sample.ok
               responseHttpStatus = sample.status ?? null
               timing.onResponseHeaders(sample)
+              saveProgress({
+                phase: outputObserved ? 'streaming' : sample.ok ? 'waiting_output' : 'connecting',
+                upstreamResponseLatencyMs: timing.latencyMs,
+              })
             },
             get latencyMs() {
               return timing.latencyMs
@@ -306,6 +348,7 @@ export async function executeRun(
     const failure: RetryAttemptFailure = {
       attempt,
       stage,
+      requestStartedAt: attemptRequestStartedAt,
       failedAt: Date.now(),
       errorType: result.errorType ?? null,
       errorCode: result.errorCode ?? null,
@@ -325,7 +368,9 @@ export async function executeRun(
       stopReason,
     }
     failures.push(failure)
+    saveRunningError()
     if (stopReason) break
+    saveProgress({ phase: 'retry_wait', nextRetryAt: failure.nextRetryAt })
     emit(RUN_EVENT_TYPE.retry, {
       phase: 'waiting',
       attempt: attempt + 1,

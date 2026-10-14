@@ -4,7 +4,13 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { SlidersHorizontal } from 'lucide-react'
 import type { UsageResult } from '@shared/types/domain'
 import { CostBreakdown } from '../../components/CostBreakdown'
-import { getUsageEvents, listAdminModels, listProviders, listUsers } from '../../api/admin'
+import {
+  getActiveRequests,
+  getUsageEvents,
+  listAdminModels,
+  listProviders,
+  listUsers,
+} from '../../api/admin'
 import { DateRangePicker } from '../../components/ui/DateRangePicker'
 import { CopyButton } from '../../components/ui/CopyButton'
 import { EmptyState } from '../../components/ui/EmptyState'
@@ -16,6 +22,7 @@ import { Spinner } from '../../components/ui/Spinner'
 import { Button } from '../../components/ui/Button'
 import { LoadError } from '../../components/ui/LoadError'
 import { RefreshButton } from './DashboardPrimitives'
+import { ActiveRequestsPanel } from './ActiveRequestsPanel'
 import { RequestEventCard } from './RequestEventCard'
 import { RequestGeneratedImagesBadge } from './RequestGeneratedImagesBadge'
 import { buildUsageEventsQuery, usageEventsQueryKey } from './eventFilters'
@@ -73,7 +80,10 @@ export default function RequestEventsPage() {
   const { rangeKey, providerId, modelId, userId, resultSel, kindSel } =
     readDashboardFilters(searchParams)
   const [filtersOpen, setFiltersOpen] = useState(false)
-  const updateFilter = (key: string, value: string) =>
+  const [live, setLive] = useState(true)
+  const [activePage, setActivePage] = useState(1)
+  const updateFilter = (key: string, value: string) => {
+    setActivePage(1)
     setSearchParams(
       (current) => {
         const next = new URLSearchParams(current)
@@ -84,6 +94,7 @@ export default function RequestEventsPage() {
       },
       { replace: true },
     )
+  }
   const setRangeKey = (value: RangeKey) => updateFilter('range', value)
   const setProviderId = (value: string) => updateFilter('providerId', value)
   const setModelId = (value: string) => updateFilter('modelId', value)
@@ -143,16 +154,35 @@ export default function RequestEventsPage() {
   }
 
   const { data, isLoading, isError, isFetching, refetch } = useQuery({
-    queryKey: usageEventsQueryKey(filters),
-    queryFn: () => getUsageEvents(buildUsageEventsQuery(filters)),
+    queryKey: [...usageEventsQueryKey(filters), 'monitor', activePage],
+    queryFn: async () => {
+      const query = buildUsageEventsQuery(filters)
+      const [history, active] = await Promise.all([
+        getUsageEvents(query),
+        getActiveRequests({ ...query, page: activePage, pageSize: 10 }),
+      ])
+      return { ...history, active }
+    },
+    refetchInterval: live ? 2000 : false,
   })
 
   return (
     <div className="space-y-5">
       <PageHeader
         title="请求事件"
-        description="查看每次已结算上游调用的结果、总耗时、上游首响应、生成速度、Token、缓存与成本。"
-        actions={<RefreshButton busy={isFetching} onClick={() => void refetch()} />}
+        description="跟踪进行中的对话、等待与重试，查看已结束请求的结果、用量与成本。"
+        actions={
+          <>
+            <Button
+              variant="ghost"
+              aria-pressed={live}
+              onClick={() => setLive((current) => !current)}
+            >
+              {live ? '自动刷新中' : '已暂停刷新'}
+            </Button>
+            <RefreshButton busy={isFetching} onClick={() => void refetch()} />
+          </>
+        }
       />
 
       <div className="flex flex-wrap items-end gap-3">
@@ -232,6 +262,7 @@ export default function RequestEventsPage() {
             onClick={() => {
               setSearchParams({ range: rangeKey }, { replace: true })
               setPage(1)
+              setActivePage(1)
             }}
           >
             清除筛选
@@ -240,12 +271,21 @@ export default function RequestEventsPage() {
       </div>
       {isError && <LoadError hasData={Boolean(data)} onRetry={() => void refetch()} />}
 
+      {data && data.active.total > 0 && !resultSel && kindSel !== 'title' && (
+        <>
+          <ActiveRequestsPanel data={data.active} onPage={setActivePage} />
+          <h2 className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">
+            已结束的请求
+          </h2>
+        </>
+      )}
+
       {isLoading ? (
         <div className="py-16 text-center">
           <Spinner className="h-6 w-6 text-neutral-400" />
         </div>
       ) : isError && !data ? null : !data?.items.length ? (
-        <EmptyState title="暂无请求事件" />
+        <EmptyState title="暂无已结束的请求" />
       ) : (
         <div className="space-y-4">
           <Pagination

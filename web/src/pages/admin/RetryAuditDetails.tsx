@@ -1,7 +1,8 @@
-import type { RunRetrySummary, RetryFailureStage, RetryStopReason } from '@shared/types/retry'
+import type { RetryAuditSummary, RetryFailureStage, RetryStopReason } from '@shared/types/retry'
 import { Badge } from '../../components/ui/Badge'
 import { formatDateTime } from '../../lib/format'
-import { retrySummaryLabel } from './retryAudit'
+import { retryFailureDurationLabel, retrySummaryLabel } from './retryAudit'
+import { formatRequestLatency } from './requestEventDisplay'
 
 const stageLabels: Record<RetryFailureStage, string> = {
   connecting: '请求建立阶段',
@@ -17,17 +18,25 @@ const stopLabels: Record<RetryStopReason, string> = {
   canceled: '用户已停止生成',
 }
 
-export function RetryAuditBadge({ summary }: { summary?: RunRetrySummary | null }) {
+export function RetryAuditBadge({ summary }: { summary?: RetryAuditSummary | null }) {
   if (!summary) return null
   return (
-    <Badge tone={summary.outcome === 'completed' ? 'success' : 'neutral'}>
+    <Badge
+      tone={
+        summary.outcome === 'running'
+          ? 'warning'
+          : summary.outcome === 'completed'
+            ? 'success'
+            : 'neutral'
+      }
+    >
       {retrySummaryLabel(summary)}
     </Badge>
   )
 }
 
 /** 请求结果说明和错误日志共用同一份持久化尝试记录。 */
-export function RetryAuditDetails({ summary }: { summary?: RunRetrySummary | null }) {
+export function RetryAuditDetails({ summary }: { summary?: RetryAuditSummary | null }) {
   if (!summary) return null
   return (
     <div className="space-y-2 border-t border-neutral-200 pt-3 text-xs dark:border-neutral-700">
@@ -41,9 +50,17 @@ export function RetryAuditDetails({ summary }: { summary?: RunRetrySummary | nul
               <span className="font-medium">
                 第 {failure.attempt} 次请求 · {stageLabels[failure.stage]}
               </span>
-              <time className="text-[11px] text-neutral-500">
-                {formatDateTime(failure.failedAt)}
-              </time>
+              <span className="font-medium tabular-nums">{retryFailureDurationLabel(failure)}</span>
+            </div>
+            <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-neutral-500 dark:text-neutral-400">
+              {failure.requestStartedAt != null && (
+                <span>
+                  开始 <time>{formatDateTime(failure.requestStartedAt)}</time>
+                </span>
+              )}
+              <span>
+                失败 <time>{formatDateTime(failure.failedAt)}</time>
+              </span>
             </div>
             <p className="break-words whitespace-pre-wrap">{failure.message}</p>
             <p className="break-all text-[11px] text-neutral-500 dark:text-neutral-400">
@@ -54,9 +71,11 @@ export function RetryAuditDetails({ summary }: { summary?: RunRetrySummary | nul
             <p className="text-neutral-500 dark:text-neutral-400">
               {failure.stopReason
                 ? stopLabels[failure.stopReason]
-                : failure.nextRetryAt != null
-                  ? `等待 ${Math.max(0, Math.round((failure.nextRetryAt - failure.failedAt) / 1000))} 秒后重试`
-                  : ''}
+                : failure.retriedAt != null
+                  ? `等待 ${formatRequestLatency(Math.max(0, failure.retriedAt - failure.failedAt))}后重试 · ${formatDateTime(failure.retriedAt)}`
+                  : failure.nextRetryAt != null
+                    ? `计划等待 ${formatRequestLatency(Math.max(0, failure.nextRetryAt - failure.failedAt))}后重试`
+                    : ''}
             </p>
           </li>
         ))}

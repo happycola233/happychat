@@ -1,8 +1,9 @@
 import { and, eq, inArray } from 'drizzle-orm'
 import type { ModelParams } from '@shared/types/domain'
+import type { RetryAuditSummary, RunRetrySummary } from '@shared/types/retry'
 import { isReasoningEnabled, requestedReasoningEffort } from '@shared/util/reasoning'
 import { db } from '../db/client'
-import { messages, models, providers, runs, usageLogs } from '../db/schema'
+import { errorLogs, messages, models, providers, runs, usageLogs } from '../db/schema'
 import { computeGenerationDurationMs } from '../services/run-timing'
 import {
   getFirstTokenLatencySnapshot,
@@ -13,6 +14,7 @@ import { runAnthropicEngine } from './anthropic-engine'
 import { runEngine } from './engine'
 import { runImageEngine } from './image-run'
 import type { EngineContext } from './types'
+import { saveRunErrorAudit } from './error-audit'
 
 /** 进程内 run 管理器单例：保活生成（客户端断开不影响），支持中止。 */
 class RunManager {
@@ -73,11 +75,22 @@ export async function recoverInterruptedRuns(): Promise<void> {
     const recovered = db.transaction((tx) => {
       const recoveredRun = tx
         .update(runs)
-        .set({ state: 'interrupted', finishedAt })
+        .set({ state: 'interrupted', finishedAt, progress: null })
         .where(and(eq(runs.id, r.id), inArray(runs.state, ['queued', 'running'])))
         .returning({ id: runs.id })
         .get()
       if (!recoveredRun) return false
+
+      const errorAudit = tx
+        .select({ detail: errorLogs.detail })
+        .from(errorLogs)
+        .where(and(eq(errorLogs.runId, r.id), eq(errorLogs.scope, 'upstream')))
+        .get()
+      const runningRetry = errorAudit?.detail?.retry as RetryAuditSummary | undefined
+      const retrySummary: RunRetrySummary | null = runningRetry
+        ? { ...runningRetry, outcome: 'interrupted' }
+        : null
+      if (retrySummary) saveRunErrorAudit(tx, r.id, r.userId, retrySummary)
 
       if (r.assistantMessageId) {
         tx.update(messages)
@@ -107,14 +120,16 @@ export async function recoverInterruptedRuns(): Promise<void> {
               userId: r.userId,
               modelId: model?.id ?? null,
               providerId: provider?.id ?? null,
-              modelLabel: model?.modelId ?? null,
-              modelDisplayName: model?.displayName ?? null,
-              providerLabel: provider?.name ?? null,
+              modelLabel: r.progress?.modelLabel ?? model?.modelId ?? null,
+              modelDisplayName: r.progress?.modelDisplayName ?? model?.displayName ?? null,
+              providerLabel: r.progress?.providerLabel ?? provider?.name ?? null,
               pricingSnapshot: model?.pricing ?? null,
               conversationId: r.conversationId,
               reasoningEffort: requestedReasoningEffort(r.requestParams),
               durationMs: generationDurationMs,
               firstTokenLatencyMs,
+              upstreamResponseLatencyMs: r.progress?.upstreamResponseLatencyMs ?? null,
+              retrySummary,
               quotaAt: r.createdAt,
               outcome: 'interrupted',
               terminalReason: 'server_restart',

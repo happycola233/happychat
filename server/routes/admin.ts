@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { listActiveRequests } from '../services/active-requests'
 import type { Context } from 'hono'
 import { desc, eq, inArray } from 'drizzle-orm'
 import {
@@ -979,6 +980,12 @@ adminRoutes.get('/user-stats', async (c) => {
   const f = readFilter(c)
   if (!f) return badFilter(c)
   return c.json({ users: await getUserStats(f) })
+})
+
+adminRoutes.get('/active-requests', (c) => {
+  const f = readFilter(c)
+  if (!f) return badFilter(c)
+  return c.json(listActiveRequests(f))
 })
 
 adminRoutes.get('/usage-events', async (c) => {

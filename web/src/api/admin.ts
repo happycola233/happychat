@@ -1,5 +1,6 @@
 import type {
   AdminPasswordResetResult,
+  ActiveRequestsDTO,
   AdminModelDTO,
   AdminModelGroupDTO,
   AdminQuotaPolicyDTO,
@@ -233,5 +234,7 @@ export const getUserStats = (query?: StatsQuery) =>
   apiGet<{ users: UserStatDTO[] }>(`/admin/user-stats${qs(query)}`).then((r) => r.users)
 export const getUsageEvents = (query?: StatsQuery) =>
   apiGet<Paginated<UsageLogDTO>>(`/admin/usage-events${qs(query)}`)
+export const getActiveRequests = (query?: StatsQuery) =>
+  apiGet<ActiveRequestsDTO>(`/admin/active-requests${qs(query)}`)
 export const getErrorEvents = (query?: StatsQuery) =>
   apiGet<Paginated<ErrorLogDTO>>(`/admin/error-events${qs(query)}`)

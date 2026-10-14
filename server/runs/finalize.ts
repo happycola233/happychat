@@ -24,6 +24,7 @@ import {
 import { maybeGenerateTitle } from '../services/title'
 import type { ConvRow, ModelRow, MsgRow, ProviderRow, RunRow } from './types'
 import { errorTypeForAudit, terminalReasonForUsage } from './usage-audit'
+import { saveRunErrorAudit } from './error-audit'
 
 type FinalState = 'completed' | 'incomplete' | 'failed' | 'canceled'
 
@@ -119,6 +120,7 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
       .update(runs)
       .set({
         state: a.state,
+        progress: null,
         finishedAt,
         upstreamResponseId: a.upstreamResponseId,
         incompleteReason: a.incompleteReason,
@@ -207,17 +209,18 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
       })
       .run()
 
-    if ((a.state === 'failed' && a.errorMessage) || lastFailure) {
+    if (lastFailure) {
+      saveRunErrorAudit(tx, a.run.id, a.run.userId, a.retrySummary!)
+    } else if (a.state === 'failed' && a.errorMessage) {
       tx.insert(errorLogs)
         .values({
           runId: a.run.id,
           userId: a.run.userId,
           scope: 'upstream',
-          errorType: lastFailure?.errorType ?? persistedErrorType,
-          code: lastFailure?.errorCode ?? a.errorCode ?? null,
-          httpStatus: lastFailure ? lastFailure.httpStatus : (a.httpStatus ?? null),
-          message: lastFailure?.message ?? a.errorMessage!,
-          detail: a.retrySummary ? { retry: a.retrySummary } : null,
+          errorType: persistedErrorType,
+          code: a.errorCode ?? null,
+          httpStatus: a.httpStatus ?? null,
+          message: a.errorMessage,
         })
         .run()
     }

@@ -113,7 +113,7 @@ export default function ErrorEventsPage() {
   const { data, isLoading, isFetching, isError, refetch } = useQuery<Paginated<ErrorLogDTO>>({
     queryKey: errorEventsQueryKey(filters),
     queryFn: () => getErrorEvents(buildErrorEventsQuery(filters)),
-    refetchInterval: live ? 15000 : false,
+    refetchInterval: live ? 2000 : false,
   })
 
   const toggleExpanded = (id: string) => {

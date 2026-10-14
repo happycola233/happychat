@@ -10,6 +10,7 @@ import type {
   UserStatDTO,
 } from '@shared/types/api'
 import type { ModelPricing, UsageLogKind, UsageResult } from '@shared/types/domain'
+import type { RetryAuditSummary } from '@shared/types/retry'
 import { costUsd } from '@shared/util/cost'
 import { requestedReasoningEffort } from '@shared/util/reasoning'
 import { resolveUsageResult } from '@shared/util/usageOutcome'
@@ -640,21 +641,28 @@ export async function listErrorEvents(filter: StatsFilter): Promise<Paginated<Er
     .limit(pageSize)
     .offset((page - 1) * pageSize)
 
-  const items: ErrorLogDTO[] = rows.map(({ log, username }) => ({
-    retrySummary:
-      (log.detail?.retry as import('@shared/types/retry').RunRetrySummary | undefined) ?? null,
-    id: log.id,
-    scope: log.scope,
-    errorType: log.errorType,
-    code: log.code,
-    httpStatus: log.httpStatus,
-    message: log.message,
-    detail: log.detail ?? null,
-    userId: log.userId,
-    username: username ?? null,
-    runId: log.runId,
-    createdAt: log.createdAt.getTime(),
-  }))
+  const items: ErrorLogDTO[] = rows.map(({ log, username }) => {
+    const recordedRetry = (log.detail?.retry as RetryAuditSummary | undefined) ?? null
+    // 生成期间删除会话/账号会级联删除 run；保留的即时错误不能永远显示“处理中”。
+    const retrySummary: RetryAuditSummary | null =
+      recordedRetry?.outcome === 'running' && !log.runId
+        ? { ...recordedRetry, outcome: 'interrupted' }
+        : recordedRetry
+    return {
+      retrySummary,
+      id: log.id,
+      scope: log.scope,
+      errorType: log.errorType,
+      code: log.code,
+      httpStatus: log.httpStatus,
+      message: log.message,
+      detail: retrySummary ? { ...log.detail, retry: retrySummary } : log.detail,
+      userId: log.userId,
+      username: username ?? null,
+      runId: log.runId,
+      createdAt: log.createdAt.getTime(),
+    }
+  })
 
   return { items, total, page, pageSize }
 }

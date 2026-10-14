@@ -22,6 +22,7 @@ let schema: typeof import('../db/schema')
 let engines: Record<ModelKind, (ctx: import('./types').EngineContext) => Promise<void>>
 let config: typeof import('../services/appConfig')
 let stats: typeof import('../services/stats')
+let activeRequests: typeof import('../services/active-requests')
 let counter = 0
 
 beforeAll(async () => {
@@ -38,6 +39,7 @@ beforeAll(async () => {
   migration.runMigrations()
   config = await import('../services/appConfig')
   stats = await import('../services/stats')
+  activeRequests = await import('../services/active-requests')
   engines = {
     responses: (await import('./engine')).runEngine,
     chat: (await import('./chat-engine')).runChatEngine,
@@ -276,6 +278,246 @@ async function drain(run: Promise<void>, ms = 3000) {
 }
 
 describe('整次生成自动重试与审计', () => {
+  it('每次失败保存独立的上游请求起点与实际重试时刻，耗时不包含此前请求或退避', async () => {
+    await setPolicy({
+      initialDelaySeconds: 5,
+      maxDelaySeconds: 5,
+      attemptTimeoutSeconds: 60,
+      streamIdleTimeoutSeconds: 60,
+    })
+    const ctx = fixture()
+    const first = controlledSse({ type: 'response.created' })
+    let rejectSecond!: (response: Response) => void
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(first.response)
+        .mockImplementationOnce(
+          () =>
+            new Promise<Response>((resolve) => {
+              rejectSecond = resolve
+            }),
+        )
+        .mockResolvedValueOnce(success()),
+    )
+    const startedAt = Date.now()
+    const task = engines.responses(ctx)
+    await vi.advanceTimersByTimeAsync(12000)
+    first.push(overloaded)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(
+      (await stats.listErrorEvents({ userId: ctx.run.userId })).items[0]?.retrySummary?.failures[0],
+    ).toMatchObject({
+      requestStartedAt: startedAt,
+      failedAt: startedAt + 12000,
+      nextRetryAt: startedAt + 17000,
+    })
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(
+      activeRequests.listActiveRequests({ userId: ctx.run.userId }).items[0]?.progress,
+    ).toMatchObject({ requestStartedAt: startedAt + 17000, attempt: 2 })
+    await vi.advanceTimersByTimeAsync(7000)
+    rejectSecond(new Response('{}', { status: 503 }))
+    await vi.advanceTimersByTimeAsync(0)
+    const pending = (await stats.listErrorEvents({ userId: ctx.run.userId })).items[0]!
+      .retrySummary!
+    expect(pending.failures).toMatchObject([
+      { requestStartedAt: startedAt, failedAt: startedAt + 12000, retriedAt: startedAt + 17000 },
+      {
+        requestStartedAt: startedAt + 17000,
+        failedAt: startedAt + 24000,
+        nextRetryAt: startedAt + 29000,
+      },
+    ])
+    expect(pending.failures[1]?.retriedAt).toBeUndefined()
+    await drain(task, 5000)
+    const saved = snapshot(ctx)
+    expect(saved.logs[0]?.retrySummary).toMatchObject({
+      outcome: 'completed',
+      attempts: 3,
+      failures: [
+        { requestStartedAt: startedAt, failedAt: startedAt + 12000, retriedAt: startedAt + 17000 },
+        {
+          requestStartedAt: startedAt + 17000,
+          failedAt: startedAt + 24000,
+          retriedAt: startedAt + 29000,
+        },
+      ],
+    })
+    expect(saved.errors[0]?.detail?.retry).toEqual(saved.logs[0]?.retrySummary)
+  })
+
+  it('请求结束前可查询连接、输出与失败，重试恢复后原位更新错误并只结算一次', async () => {
+    const ctx = fixture()
+    const first = controlledSse({ type: 'response.created' })
+    const second = controlledSse({ type: 'response.created' })
+    let connect!: (response: Response) => void
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockImplementationOnce(
+          () =>
+            new Promise<Response>((resolve) => {
+              connect = resolve
+            }),
+        )
+        .mockResolvedValueOnce(second.response),
+    )
+    const filter = { userId: ctx.run.userId, providerId: ctx.provider.id, modelId: ctx.model.id }
+    expect(activeRequests.listActiveRequests(filter).items[0]?.progress).toBeNull()
+    const task = engines.responses(ctx)
+    await vi.advanceTimersByTimeAsync(100)
+    expect(activeRequests.listActiveRequests(filter).items[0]?.progress).toMatchObject({
+      phase: 'connecting',
+      attempt: 1,
+      maxAttempts: 3,
+    })
+    expect(snapshot(ctx).logs).toHaveLength(0)
+    connect(first.response)
+    await vi.advanceTimersByTimeAsync(100)
+    expect(activeRequests.listActiveRequests(filter).items[0]?.progress?.phase).toBe(
+      'waiting_output',
+    )
+    first.push(delta('测试输出'))
+    await vi.advanceTimersByTimeAsync(100)
+    expect(activeRequests.listActiveRequests(filter).items[0]?.progress?.phase).toBe('streaming')
+    first.push(overloaded)
+    await vi.advanceTimersByTimeAsync(0)
+    const waiting = activeRequests.listActiveRequests(filter).items[0]!
+    expect(waiting.progress).toMatchObject({
+      phase: 'retry_wait',
+      attempt: 1,
+      nextRetryAt: Date.now() + 1000,
+    })
+    expect(waiting.retrySummary).toMatchObject({
+      outcome: 'running',
+      attempts: 1,
+      failures: [{ httpStatus: 200, stage: 'after_output' }],
+    })
+    const error = (await stats.listErrorEvents({ userId: ctx.run.userId })).items[0]!
+    expect(error.retrySummary?.outcome).toBe('running')
+    expect(snapshot(ctx).logs).toHaveLength(0)
+
+    // 运行中改名不改变这次请求的身份快照；诊断原文和正文不进入监控列表。
+    client.db
+      .update(schema.models)
+      .set({ displayName: '新名称' })
+      .where(eq(schema.models.id, ctx.model.id))
+      .run()
+    expect(activeRequests.listActiveRequests(filter).items[0]?.modelDisplayName).toBe('Retry model')
+    expect(JSON.stringify(waiting)).not.toContain('测试输出')
+    expect(JSON.stringify(waiting)).not.toContain('test-key')
+    expect(waiting.retrySummary?.failures[0]?.rawMessage).toBeUndefined()
+    for (const mismatch of [
+      { providerId: 'other' },
+      { modelId: 'other' },
+      { userId: 'other' },
+      { kind: 'title' as const },
+      { result: 'completed' as const },
+      { from: Date.now() + 1 },
+    ])
+      expect(activeRequests.listActiveRequests({ ...filter, ...mismatch }).total).toBe(0)
+
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(activeRequests.listActiveRequests(filter).items[0]?.progress).toMatchObject({
+      phase: 'waiting_output',
+      attempt: 2,
+      nextRetryAt: null,
+    })
+    expect(
+      (await stats.listErrorEvents({ userId: ctx.run.userId })).items[0]?.retrySummary?.attempts,
+    ).toBe(2)
+    second.push(delta('恢复输出'))
+    await vi.advanceTimersByTimeAsync(100)
+    expect(activeRequests.listActiveRequests(filter).items[0]?.progress?.phase).toBe('streaming')
+    second.push(done)
+    await vi.advanceTimersByTimeAsync(0)
+    await task
+    expect(activeRequests.listActiveRequests(filter).total).toBe(0)
+    const saved = snapshot(ctx)
+    expect(saved.run.progress).toBeNull()
+    expect(saved.logs).toHaveLength(1)
+    expect(saved.errors).toHaveLength(1)
+    expect(saved.errors[0]?.id).toBe(error.id)
+    expect(saved.errors[0]?.detail?.retry).toMatchObject({ outcome: 'completed', attempts: 2 })
+
+    client.db
+      .delete(schema.conversations)
+      .where(eq(schema.conversations.id, ctx.conversation.id))
+      .run()
+    const retained = (await stats.listErrorEvents({ userId: ctx.run.userId })).items[0]!
+    expect(retained.id).toBe(error.id)
+    expect(retained.runId).toBeNull()
+    expect(retained.retrySummary?.outcome).toBe('completed')
+    expect((await stats.listUsageEvents({ userId: ctx.run.userId })).total).toBe(1)
+  })
+
+  it('活跃请求按开始时间分页，完成后页码收缩且不会遗漏排队请求', () => {
+    const first = fixture()
+    const later = client.db
+      .insert(schema.runs)
+      .values({
+        conversationId: first.conversation.id,
+        userId: first.run.userId,
+        modelId: first.model.id,
+        createdAt: new Date(Date.now() + 1000),
+      })
+      .returning()
+      .get()
+    const filter = { userId: first.run.userId, pageSize: 1 }
+    expect(activeRequests.listActiveRequests(filter)).toMatchObject({
+      total: 2,
+      page: 1,
+      items: [{ runId: later.id }],
+    })
+    expect(activeRequests.listActiveRequests({ ...filter, page: 2 }).items[0]?.runId).toBe(
+      first.run.id,
+    )
+    client.db
+      .update(schema.runs)
+      .set({ state: 'completed' })
+      .where(eq(schema.runs.id, later.id))
+      .run()
+    expect(activeRequests.listActiveRequests({ ...filter, page: 2 })).toMatchObject({
+      page: 1,
+      total: 1,
+      items: [{ runId: first.run.id }],
+    })
+  })
+
+  it('生成期间删除会话后，保留的错误不再显示为处理中', async () => {
+    const ctx = fixture()
+    const { saveRunErrorAudit } = await import('./error-audit')
+    saveRunErrorAudit(client.db, ctx.run.id, ctx.run.userId, {
+      attempts: 1,
+      outcome: 'running',
+      failures: [
+        {
+          attempt: 1,
+          stage: 'connecting',
+          requestStartedAt: Date.now() - 5000,
+          failedAt: Date.now(),
+          errorType: 'server_error',
+          errorCode: null,
+          httpStatus: 503,
+          message: '测试错误',
+          nextRetryAt: Date.now() + 1000,
+          stopReason: null,
+        },
+      ],
+    })
+    client.db
+      .delete(schema.conversations)
+      .where(eq(schema.conversations.id, ctx.conversation.id))
+      .run()
+    const retained = (await stats.listErrorEvents({ userId: ctx.run.userId })).items[0]!
+    expect(retained.runId).toBeNull()
+    expect(retained.retrySummary?.outcome).toBe('interrupted')
+    expect(retained.detail?.retry).toEqual(retained.retrySummary)
+  })
+
   it.each(['chat', 'anthropic'] as const)(
     '%s 等待上游消息开始前保持等待状态，思考耗时不包含连接与心跳等待',
     async (kind) => {
@@ -927,6 +1169,8 @@ describe('整次生成自动重试与审计', () => {
     vi.stubGlobal('fetch', fetch)
     const task = engines.responses(ctx)
     await vi.advanceTimersByTimeAsync(0)
+    const pendingErrorId = snapshot(ctx).errors[0]?.id
+    expect(pendingErrorId).toBeTruthy()
     ctx.abortController.abort()
     await task
     await vi.advanceTimersByTimeAsync(60000)
@@ -934,6 +1178,12 @@ describe('整次生成自动重试与审计', () => {
     expect(snapshot(ctx).run.state).toBe('canceled')
     expect(snapshot(ctx).live.text).toBe('保留部分')
     expect(snapshot(ctx).logs[0]?.retrySummary?.failures[0]?.stopReason).toBe('canceled')
+    expect(snapshot(ctx).errors).toHaveLength(1)
+    expect(snapshot(ctx).errors[0]).toMatchObject({
+      id: pendingErrorId,
+      detail: { retry: { outcome: 'canceled' } },
+    })
+    expect(activeRequests.listActiveRequests({ userId: ctx.run.userId }).total).toBe(0)
     expect(vi.getTimerCount()).toBe(0)
   })
 

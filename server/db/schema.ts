@@ -10,6 +10,7 @@ import {
 import { newId } from '../lib/id'
 import type { RetryPolicy } from '../../shared/schemas/retry'
 import type { RunRetrySummary } from '../../shared/types/retry'
+import type { RunProgress } from '../../shared/types/run-progress'
 import type { ContextOptimizationSuggestion } from '../../shared/schemas/user-notices'
 // 注意：schema.ts 仅用相对路径导入（含 type-only），以规避 drizzle-kit 对 @shared/* 别名解析的不确定性。
 import type {
@@ -667,6 +668,7 @@ export const runs = sqliteTable(
     assistantMessageId: text('assistant_message_id'),
     modelId: text('model_id').references(() => models.id, { onDelete: 'set null' }),
     state: text('state').$type<RunState>().notNull().default('queued'),
+    progress: text('progress', { mode: 'json' }).$type<RunProgress>(),
     idempotencyKey: text('idempotency_key'),
     requestParams: text('request_params', { mode: 'json' }).$type<Record<string, unknown>>(),
     instructions: text('instructions'),
@@ -683,6 +685,7 @@ export const runs = sqliteTable(
     uniqueIndex('runs_idempotency_unique').on(t.idempotencyKey),
     index('runs_conversation_idx').on(t.conversationId),
     index('runs_user_state_idx').on(t.userId, t.state),
+    index('runs_state_created_idx').on(t.state, t.createdAt),
   ],
 )
 
@@ -776,5 +779,6 @@ export const errorLogs = sqliteTable(
   (t) => [
     index('error_logs_created_idx').on(t.createdAt),
     index('error_logs_user_idx').on(t.userId),
+    index('error_logs_run_idx').on(t.runId),
   ],
 )

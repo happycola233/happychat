@@ -387,7 +387,7 @@ export interface StatsDTO {
 }
 
 export interface ErrorLogDTO {
-  retrySummary?: import('./retry').RunRetrySummary | null
+  retrySummary?: import('./retry').RetryAuditSummary | null
   id: string
   scope: string
   errorType: string | null
@@ -399,6 +399,24 @@ export interface ErrorLogDTO {
   username: string | null
   runId: string | null
   createdAt: number
+}
+
+export interface ActiveRequestDTO {
+  runId: string
+  userId: string
+  username: string | null
+  modelLabel: string | null
+  modelDisplayName: string | null
+  providerLabel: string | null
+  reasoningEffort: string | null
+  createdAt: number
+  startedAt: number | null
+  progress: import('./run-progress').RunProgress | null
+  retrySummary: import('./retry').RetryAuditSummary | null
+}
+
+export interface ActiveRequestsDTO extends Paginated<ActiveRequestDTO> {
+  observedAt: number
 }
 
 export interface UsageLogDTO {

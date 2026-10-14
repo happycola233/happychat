@@ -110,6 +110,28 @@ describe('recoverInterruptedRuns', () => {
       createdAt: new Date(startedAt.getTime() + 2_000),
     })
 
+    const { saveRunErrorAudit } = await import('./error-audit')
+    saveRunErrorAudit(dbClient.db, run.id, user.id, {
+      attempts: 2,
+      outcome: 'running',
+      failures: [
+        {
+          attempt: 1,
+          stage: 'before_output',
+          failedAt: startedAt.getTime() + 1_000,
+          errorType: 'server_error',
+          errorCode: 'server_error',
+          httpStatus: 200,
+          message: '测试上游暂时不可用',
+          nextRetryAt: startedAt.getTime() + 2_000,
+          stopReason: null,
+        },
+      ],
+    })
+    const pendingError = await dbClient.db.query.errorLogs.findFirst({
+      where: eq(schema.errorLogs.runId, run.id),
+    })
+
     await manager.recoverInterruptedRuns()
 
     const recoveredRun = await dbClient.db.query.runs.findFirst({
@@ -122,6 +144,7 @@ describe('recoverInterruptedRuns', () => {
       where: eq(schema.usageLogs.runId, run.id),
     })
     expect(recoveredRun?.state).toBe('interrupted')
+    expect(recoveredRun?.progress).toBeNull()
     expect(recoveredMessage).toMatchObject({
       status: 'interrupted',
       providerReplayContext: null,
@@ -135,6 +158,7 @@ describe('recoverInterruptedRuns', () => {
       reasoningEffort: 'medium',
       durationMs: expect.any(Number),
       firstTokenLatencyMs: 2_000,
+      retrySummary: { outcome: 'interrupted', attempts: 2 },
     })
 
     // 恢复流程可重复调用，不会为同一个 run 追加第二条请求事件。
@@ -144,5 +168,14 @@ describe('recoverInterruptedRuns', () => {
       .from(schema.usageLogs)
       .where(eq(schema.usageLogs.runId, run.id))
     expect(usageRows).toHaveLength(1)
+    const errorRows = await dbClient.db
+      .select()
+      .from(schema.errorLogs)
+      .where(eq(schema.errorLogs.runId, run.id))
+    expect(errorRows).toHaveLength(1)
+    expect(errorRows[0]).toMatchObject({
+      id: pendingError?.id,
+      detail: { retry: { outcome: 'interrupted', attempts: 2 } },
+    })
   })
 })
