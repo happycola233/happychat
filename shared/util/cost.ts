@@ -21,7 +21,7 @@ const PER_MILLION = 1_000_000
 /**
  * 估算单条用量的成本（USD）。规则：
  * - 普通输入 (input - cache write - cache read) 按 input 价
- * - 缓存写入按 cacheWriteInput 价（未配置则回退 input 价）
+ * - 缓存写入按 cacheWriteInput 价；旧快照缺省时沿用 input，新请求快照显式补 0
  * - 缓存读取按 cachedInput 价（未配置则回退 input 价，即不打折）
  * - 输出（含 reasoning，二者计费一致）按 output 价
  * - 图片 token 按 image 价
@@ -84,6 +84,16 @@ export function normalizeModelPricing(
   return current
 }
 
+/** 新请求显式冻结默认价格；旧快照不经过这里，避免改变历史费用。 */
+export function createRequestPricingSnapshot(
+  pricing: ModelPricing | null | undefined,
+  kind: ModelKind,
+): ModelPricing {
+  const snapshot = normalizeModelPricing(pricing, kind)
+  if (kind !== 'image') snapshot.cacheWriteInput ??= 0
+  return snapshot
+}
+
 function imageUnitPrice(
   pricing: Extract<ImageGenerationPricing, { mode: 'per_image' }>,
   usage: ImageGenerationUsage,
@@ -112,7 +122,7 @@ export function calculateRequestCost(
   kind: ModelKind,
   images: ImageGenerationUsage[],
 ): RequestCostBreakdown {
-  const current = normalizeModelPricing(pricing, kind)
+  const current = createRequestPricingSnapshot(pricing, kind)
   const chatUsd =
     kind === 'image' ? 0 : costUsd({ ...tokens, costUsd: null, imageTokens: 0 }, current)
   const result: RequestCostBreakdown = {

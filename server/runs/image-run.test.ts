@@ -275,7 +275,10 @@ describe('runImageEngine audit outcome', () => {
       .where(eq(schema.usageLogs.runId, fixture.run.id))
       .get()!
     expect(log.costUsd).toBe(0.1)
-    expect(log.pricingSnapshot).toEqual({ imageGeneration: { mode: 'per_image', price: 0.1 } })
+    expect(log.pricingSnapshot).toEqual({
+      cacheWriteInput: 0,
+      imageGeneration: { mode: 'per_image', price: 0.1 },
+    })
     expect(log.imageUsage?.[0]?.imageOutputTokens).toBeNull()
   })
   it('settles successful image state and usage atomically', async () => {

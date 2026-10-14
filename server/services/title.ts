@@ -2,6 +2,7 @@ import { and, desc, eq } from 'drizzle-orm'
 import { DEFAULT_TITLE_PROMPT } from '@shared/constants'
 import type { MessageUsage, UsageOutcome } from '@shared/types/domain'
 import { textFromContent } from '@shared/util/contentText'
+import { createRequestPricingSnapshot } from '@shared/util/cost'
 import { anthropicModelProfile } from '@shared/util/anthropic'
 import { titleLocaleFromBrowser } from '@shared/util/titleLocale'
 import { db } from '../db/client'
@@ -187,7 +188,7 @@ async function logTitleUsage(
     modelLabel: model.modelId,
     modelDisplayName: model.displayName,
     providerLabel: provider.name,
-    pricingSnapshot: model.pricing,
+    pricingSnapshot: createRequestPricingSnapshot(model.pricing, model.kind),
     conversationId,
     kind: 'title',
     inputTokens: usage.inputTokens,

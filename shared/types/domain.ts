@@ -139,7 +139,7 @@ export type ModelHardParams = Record<string, unknown>
 export interface ModelPricing {
   /** 既未写入缓存、也未从缓存读取的普通输入 token 单价。 */
   input?: number
-  /** 写入提示词缓存的输入 token 单价。未配置时成本估算回退到普通输入价。 */
+  /** 写入提示词缓存的输入 token 单价。未配置时新请求按 0 计费。 */
   cacheWriteInput?: number
   /** 从提示词缓存读取的输入 token 单价。未配置时成本估算回退到普通输入价。 */
   cachedInput?: number

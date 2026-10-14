@@ -159,19 +159,17 @@ export function ModelPricingEditor({
           <div className={gridClass}>
             {(
               [
-                ['input', '普通输入'],
-                ['output', '输出'],
-                ['cachedInput', '缓存读取'],
-                ['cacheWriteInput', '缓存写入'],
+                ['input', '普通输入', '未设置'],
+                ['output', '输出', '未设置'],
+                ['cachedInput', '缓存读取', '沿用普通输入价格'],
+                ['cacheWriteInput', '缓存写入', '0'],
               ] as const
-            ).map(([key, label]) => (
+            ).map(([key, label, placeholder]) => (
               <PriceInput
                 key={key}
                 label={label}
                 value={pricing[key]}
-                placeholder={
-                  key === 'cachedInput' || key === 'cacheWriteInput' ? '沿用普通输入价格' : '未设置'
-                }
+                placeholder={placeholder}
                 onChange={(value) => onChange({ ...pricing, [key]: value })}
               />
             ))}

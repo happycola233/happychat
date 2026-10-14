@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { costUsd } from './cost'
+import { calculateRequestCost, costUsd, createRequestPricingSnapshot } from './cost'
 
 describe('costUsd', () => {
   it('returns 0 when pricing is missing', () => {
@@ -44,7 +44,7 @@ describe('costUsd', () => {
     expect(cost).toBeCloseTo(3, 6)
   })
 
-  it('falls back cache-write tokens to input price when cacheWriteInput is unset', () => {
+  it('preserves the input-price fallback for historical snapshots without cacheWriteInput', () => {
     const cost = costUsd(
       {
         inputTokens: 1_000_000,
@@ -101,4 +101,33 @@ describe('costUsd', () => {
     // 读取优先占 800k，写入裁剪到剩余 200k，总输入只计费一次。
     expect(cost).toBeCloseTo(1.6, 6)
   })
+})
+
+describe.each(['responses', 'chat', 'anthropic'] as const)('%s request pricing', (kind) => {
+  it.each([
+    { cacheWriteInput: undefined, expected: 3.1 },
+    { cacheWriteInput: 0, expected: 3.1 },
+    { cacheWriteInput: 4, expected: 4.3 },
+  ])(
+    'charges cache writes at $cacheWriteInput per million tokens',
+    ({ cacheWriteInput, expected }) => {
+      const usage = {
+        inputTokens: 1_000_000,
+        cacheWriteTokens: 300_000,
+        cachedTokens: 200_000,
+        outputTokens: 500_000,
+        imageTokens: 0,
+      }
+      const pricing = { input: 2, output: 4, cachedInput: 0.5, cacheWriteInput }
+      const cost = calculateRequestCost(usage, pricing, kind, [])
+      // 普通输入 500k、缓存读取 200k 与输出 500k 共 3.1 USD；写入留空或填 0 不加价。
+      expect(cost.chatUsd).toBeCloseTo(expected, 6)
+      expect(cost.totalUsd).toBeCloseTo(expected, 6)
+
+      // 序列化后的新快照仍保留默认值，统计回算不会再沿用普通输入价格。
+      const snapshot = JSON.parse(JSON.stringify(createRequestPricingSnapshot(pricing, kind)))
+      expect(costUsd(usage, snapshot)).toBeCloseTo(expected, 6)
+      expect(pricing.cacheWriteInput).toBe(cacheWriteInput)
+    },
+  )
 })

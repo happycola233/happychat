@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ModelPricing, QuotaRule } from '@shared/types/domain'
+import { costUsd } from '@shared/util/cost'
 
 let tmpDir: string
 let dbClient: typeof import('../db/client')
@@ -194,7 +195,7 @@ describe('标题总结', () => {
       durationMs: expect.any(Number),
     })
     // 价格快照随行落库，标题请求的成本口径与对话请求完全一致。
-    expect(logs[0]?.pricingSnapshot).toEqual(PRICING)
+    expect(logs[0]?.pricingSnapshot).toEqual({ ...PRICING, cacheWriteInput: 0 })
     expect(logs[0]?.quotaAt).toBeNull()
 
     // 标题是后台维护调用，不得成为“首次请求起算”规则的首次请求。
@@ -343,6 +344,32 @@ describe('标题总结', () => {
       outcome: 'incomplete',
       terminalReason: 'max_output_tokens',
     })
+  })
+
+  it('标题缓存写入价格留空时按 0 计费，并在快照中保留该默认值', async () => {
+    providerMocks.createAnthropicMessage.mockResolvedValueOnce({
+      content: [{ type: 'text', text: '缓存计费测试' }],
+      stop_reason: 'end_turn',
+      usage: {
+        input_tokens: 120,
+        cache_creation_input_tokens: 60,
+        cache_read_input_tokens: 20,
+        output_tokens: 8,
+      },
+    })
+    const { userId, conversationId, modelId } = await createFixture('anthropic')
+    await appConfig.updateAppConfig({ titleModelId: modelId })
+
+    await title.maybeGenerateTitle(conversationId)
+
+    const { usageLog } = await readTitleResult(userId, conversationId)
+    expect(usageLog).toMatchObject({
+      inputTokens: 200,
+      cacheWriteTokens: 60,
+      cachedTokens: 20,
+      pricingSnapshot: { ...PRICING, cacheWriteInput: 0 },
+    })
+    expect(costUsd(usageLog!, usageLog!.pricingSnapshot)).toBe(148)
   })
 
   it('上游请求异常时仍写失败事件并使用本地回退标题', async () => {

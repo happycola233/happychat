@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm'
 import type { ModelKind, ModelPricing } from '@shared/types/domain'
-import { normalizeModelPricing } from '@shared/util/cost'
+import { createRequestPricingSnapshot, normalizeModelPricing } from '@shared/util/cost'
 import { db } from '../db/client'
 import { models } from '../db/schema'
 
@@ -8,7 +8,7 @@ type PricedModel = { kind: ModelKind; providerId: string; pricing: ModelPricing 
 
 /** 请求开始时冻结引用价格。后续改价、删除来源模型都不影响本次结算。 */
 export function resolveModelPricing(model: PricedModel): ModelPricing {
-  const current = normalizeModelPricing(model.pricing, model.kind)
+  const current = createRequestPricingSnapshot(model.pricing, model.kind)
   if (!current.imagePricingModelId) return current
   const source = db.select().from(models).where(eq(models.id, current.imagePricingModelId)).get()
   const { imagePricingModelId: _sourceId, ...snapshot } = current
