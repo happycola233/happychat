@@ -68,6 +68,7 @@ function RuleRow({
   return (
     <div
       ref={setNodeRef}
+      role="listitem"
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={clsx(
         'bg-white dark:bg-neutral-900',
@@ -305,25 +306,25 @@ export function QuotaRuleList({
               strategy={verticalListSortingStrategy}
             >
               <div role="list" className="divide-y divide-neutral-100 dark:divide-neutral-800">
+                {/* 拖拽行直接属于列表，父元素边界限制才会覆盖整个列表，而非锁在单行内。 */}
                 {drafts.map((draft, index) => (
-                  <div key={draft.id} role="listitem">
-                    <RuleRow
-                      draft={draft}
-                      expanded={expandedId === draft.id}
-                      sortable={sortable}
-                      autoFocus={focusId === draft.id}
-                      models={models}
-                      groups={groups}
-                      invalidMessage={invalidIndex === index ? invalidMessage : undefined}
-                      onToggle={() =>
-                        setExpandedId((current) => (current === draft.id ? null : draft.id))
-                      }
-                      onChange={(next) =>
-                        onChange(drafts.map((item) => (item.id === draft.id ? next : item)))
-                      }
-                      onRemove={() => onChange(drafts.filter((item) => item.id !== draft.id))}
-                    />
-                  </div>
+                  <RuleRow
+                    key={draft.id}
+                    draft={draft}
+                    expanded={expandedId === draft.id}
+                    sortable={sortable}
+                    autoFocus={focusId === draft.id}
+                    models={models}
+                    groups={groups}
+                    invalidMessage={invalidIndex === index ? invalidMessage : undefined}
+                    onToggle={() =>
+                      setExpandedId((current) => (current === draft.id ? null : draft.id))
+                    }
+                    onChange={(next) =>
+                      onChange(drafts.map((item) => (item.id === draft.id ? next : item)))
+                    }
+                    onRemove={() => onChange(drafts.filter((item) => item.id !== draft.id))}
+                  />
                 ))}
               </div>
             </SortableContext>
