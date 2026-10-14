@@ -18,7 +18,6 @@ import type {
   ModelKind,
   ModelParams,
   ModelPricing,
-  ModelTag,
 } from '@shared/types/domain'
 import { guessModelIconSlug } from '@shared/util/modelIconGuess'
 import { normalizeModelCapabilitiesForKind } from '@shared/util/modelCapabilities'
@@ -48,12 +47,13 @@ import {
   modelKindForProviderProtocol,
 } from './modelProtocolMigration'
 import { TagsInput } from './TagsInput'
+import { createModelTagDraft } from './modelTagDrafts'
 import { ModelEditorNavigation } from './ModelEditorNavigation'
 import { RequestPreview } from './RequestPreview'
 import { ModelUsageNoticeEditor } from './ModelUsageNoticeEditor'
 import { ModelPricingEditor } from './ModelPricingEditor'
 import { normalizeModelPricing } from '@shared/util/cost'
-import { pricingSchema } from '@shared/schemas/model-config'
+import { modelTagsSchema, pricingSchema } from '@shared/schemas/model-config'
 import { DEFAULT_MODEL_USAGE_NOTICE, modelUsageNoticeSchema } from '@shared/schemas/user-notices'
 
 const fieldClass = inputClass
@@ -212,7 +212,7 @@ function ModelEditorForm({
   const [modelId, setModelId] = useState(model?.modelId ?? '')
   const [displayName, setDisplayName] = useState(model?.displayName ?? '')
   const [description, setDescription] = useState(model?.description ?? '')
-  const [tags, setTags] = useState<ModelTag[]>(model?.tags ?? [])
+  const [tagDrafts, setTagDrafts] = useState(() => (model?.tags ?? []).map(createModelTagDraft))
   const [icon, setIcon] = useState<ModelIcon | null>(model?.icon ?? null)
   const [groupId, setGroupId] = useState(model?.groupId ?? '')
   const [usageNotice, setUsageNotice] = useState(model?.usageNotice ?? DEFAULT_MODEL_USAGE_NOTICE)
@@ -251,7 +251,7 @@ function ModelEditorForm({
     displayName,
     description,
     usageNotice,
-    tags,
+    tagDrafts,
     icon,
     groupId,
     kind,
@@ -399,6 +399,8 @@ function ModelEditorForm({
 
   const save = useMutation({
     mutationFn: async (nextModel: AdminModelDTO | undefined) => {
+      const parsedTags = modelTagsSchema.safeParse(tagDrafts)
+      if (!parsedTags.success) throw new Error(parsedTags.error.issues[0]!.message)
       const reasoningEffortError = validateReasoningEffortDrafts(reasoningEffortDrafts)
       if (reasoningEffortError) throw new Error(reasoningEffortError)
       const defaultEffort = defaultEffortDraftId
@@ -433,7 +435,8 @@ function ModelEditorForm({
         displayName,
         description: description.trim() || null,
         usageNotice: modelUsageNoticeSchema.parse(usageNotice),
-        tags,
+        // 共享 schema 统一校验、去首尾空白，并移除只用于编辑和排序的 draftId。
+        tags: parsedTags.data,
         icon,
         groupId: groupId || null,
         kind,
@@ -525,12 +528,21 @@ function ModelEditorForm({
     )
   const missingIdentity = !providerId || !modelId.trim() || !displayName.trim()
   const usageNoticeValid = modelUsageNoticeSchema.safeParse(usageNotice).success
-  const canSave = !missingIdentity && !effortValidationError && hasValidDefault && usageNoticeValid
+  const tagValidation = modelTagsSchema.safeParse(tagDrafts)
+  const canSave =
+    !missingIdentity &&
+    !effortValidationError &&
+    hasValidDefault &&
+    usageNoticeValid &&
+    tagValidation.success
   const validationMessage = missingIdentity
     ? '请在基本信息中填写供应商、模型 ID 和显示名称。'
     : !usageNoticeValid
       ? '请在基本信息中填写使用提示正文。'
-      : effortValidationError || (!hasValidDefault ? '请在能力参数中重新选择默认思考等级。' : null)
+      : !tagValidation.success
+        ? tagValidation.error.issues[0]!.message
+        : effortValidationError ||
+          (!hasValidDefault ? '请在能力参数中重新选择默认思考等级。' : null)
   const switchModel = (next: AdminModelDTO) => {
     if (next.id === model?.id || save.isPending) return
     if (dirty) setSwitchTarget(next)
@@ -636,7 +648,11 @@ function ModelEditorForm({
             <button
               type="button"
               onClick={() =>
-                setSection(missingIdentity || !usageNoticeValid ? 'general' : 'capabilities')
+                setSection(
+                  missingIdentity || !usageNoticeValid || !tagValidation.success
+                    ? 'general'
+                    : 'capabilities',
+                )
               }
               className="mb-4 w-full rounded-lg bg-amber-50 p-3 text-left text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300"
             >
@@ -723,7 +739,7 @@ function ModelEditorForm({
               />
             </Field>
 
-            <TagsInput tags={tags} onChange={setTags} />
+            <TagsInput tags={tagDrafts} onChange={setTagDrafts} />
 
             <IconPicker
               value={icon}

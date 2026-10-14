@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { TagsInput } from './TagsInput'
+import { createModelTagDraft } from './modelTagDrafts'
 
 describe('TagsInput', () => {
   it('只把字段标题关联到文本输入，不把删除按钮嵌入 label', () => {
@@ -9,7 +10,7 @@ describe('TagsInput', () => {
         tags={[
           { label: 'Flagship', color: null },
           { label: 'Smartest', color: '#8b5cf6' },
-        ]}
+        ].map(createModelTagDraft)}
         onChange={() => undefined}
       />,
     )
@@ -21,7 +22,7 @@ describe('TagsInput', () => {
     expect(labelHtml).not.toContain('<button')
     expect(inputId).toBeTruthy()
     expect(html).toContain(`<input id="${inputId}"`)
-    expect(html).toContain('aria-label="设置标签 Flagship 的颜色"')
+    expect(html).toContain('aria-label="编辑标签 Flagship"')
     expect(html).toContain('aria-label="删除标签 Flagship"')
   })
 })

@@ -86,6 +86,8 @@ export function Modal({
       if (dialog && !dialog.contains(document.activeElement)) dialog.focus({ preventScroll: true })
     })
     const onKey = (e: KeyboardEvent) => {
+      // 排序等子控件可先消费 Escape，取消局部操作时不应同时关闭整个弹窗。
+      if (e.defaultPrevented) return
       const dialog = dialogRef.current
       if (!dialog) return
       // 页面偶尔会叠加确认框（role=alertdialog）；只有 DOM 中最上层的模态层接管 Escape 与焦点循环。
