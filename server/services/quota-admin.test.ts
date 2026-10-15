@@ -416,6 +416,61 @@ describe('临时额度与重置', () => {
     expect(detail?.adjustments.every((row) => row.active)).toBe(true)
   })
 
+  it('一键重置全部用户：只重置有用量或正在计时的规则，跳过无限额度与没用过的用户', async () => {
+    const modelId = await createModel()
+    const anchoredRule: QuotaRule = {
+      ...monthlyCost(5, 'r-anchored'),
+      window: { type: 'anchored', hours: 24 },
+    }
+    const policy = await admin.createQuotaPolicy({
+      name: '全员重置',
+      rules: [
+        monthlyCost(10),
+        anchoredRule,
+        { ...monthlyCost(1, 'r-free'), limit: { kind: 'unlimited' } },
+      ],
+    })
+    const unlimitedPolicy = await admin.createQuotaPolicy({ name: '无限额度', rules: [] })
+    const active = await createUser()
+    const idle = await createUser()
+    const unlimited = await createUser()
+    for (const [userId, policyId] of [
+      [active, policy.id],
+      [idle, policy.id],
+      [unlimited, unlimitedPolicy.id],
+    ] as const) {
+      await admin.updateUserQuota(
+        userId,
+        { policyId, overrides: {}, enforcementPaused: false },
+        userId,
+      )
+    }
+
+    const admission = await quota.prepareQuotaAdmission(active, modelId)
+    quota.activateQuotaCycles(active, admission.cycleClaims, new Date())
+    await logUsage(active, modelId, 3)
+
+    // idle 从未请求：月度规则没有用量、首次请求起算的周期也未开始，重置不会改变任何东西。
+    expect(await admin.resetAllUserQuotaPeriods(unlimited)).toEqual({
+      resetUsers: 1,
+      resetRules: 2,
+    })
+    expect(await admin.resetQuotaPeriod(idle, {}, unlimited)).toEqual({
+      ok: false,
+      code: 'nothing_to_reset',
+    })
+
+    const snapshot = await quota.getQuotaSnapshot(active)
+    const byRule = new Map(snapshot.rules.map((rule) => [rule.ruleId, rule]))
+    expect(byRule.get('r-cost')).toMatchObject({ used: 0 })
+    expect(byRule.get('r-anchored')).toMatchObject({ periodActive: false, used: 0 })
+    const resets = await dbClient.db
+      .select({ userId: schema.quotaAdjustments.userId, ruleId: schema.quotaAdjustments.ruleId })
+      .from(schema.quotaAdjustments)
+      .where(eq(schema.quotaAdjustments.kind, 'reset'))
+    expect(resets).toEqual([{ userId: active, ruleId: 'r-cost' }])
+  })
+
   it('拒绝指向不存在桶的调整与非整数的次数赠送', async () => {
     const modelId = await createModel()
     const policy = await admin.createQuotaPolicy({
@@ -621,7 +676,9 @@ describe('临时额度与重置', () => {
         .where(eq(schema.quotaCycles.userId, userId)),
     ).toEqual([])
     expect(
-      (await admin.getAdminUserQuotaDetail(userId))?.adjustments.filter((row) => row.kind === 'reset'),
+      (await admin.getAdminUserQuotaDetail(userId))?.adjustments.filter(
+        (row) => row.kind === 'reset',
+      ),
     ).toEqual([])
 
     const nextStart = new Date()

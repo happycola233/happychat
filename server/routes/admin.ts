@@ -82,6 +82,7 @@ import {
   listQuotaPolicies,
   previewUserQuota,
   reorderQuotaPolicies,
+  resetAllUserQuotaPeriods,
   resetQuotaPeriod,
   revokeQuotaAdjustment,
   setDefaultQuotaPolicy,
@@ -910,6 +911,11 @@ adminRoutes.post('/quota/users/batch-assign', jsonValidator(quotaBatchAssignSche
   return c.json({ ok: true, updated: result.updated })
 })
 
+/** 一键重置全部用户的当前周期；没有可重置周期的用户跳过。 */
+adminRoutes.post('/quota/users/reset-all', async (c) => {
+  return c.json({ ok: true, ...(await resetAllUserQuotaPeriods(c.get('user').id)) })
+})
+
 /** 手动重置当前周期：日历/滚动/永久抬高统计起点；首次请求起算清空锚点。不删除用量日志。 */
 adminRoutes.post('/quota/users/:id/reset', jsonValidator(quotaResetSchema), async (c) => {
   const result = await resetQuotaPeriod(c.req.param('id'), c.req.valid('json'), c.get('user').id)
@@ -920,6 +926,7 @@ adminRoutes.post('/quota/users/:id/reset', jsonValidator(quotaResetSchema), asyn
       bucket_unknown: '目标模型或分组已不在这条规则的范围内，请刷新后重试',
       no_rules: '该用户当前没有任何限额规则',
       period_not_started: '首次请求起算周期尚未开始，当前没有可重置的用量',
+      nothing_to_reset: '该用户当前没有可重置的用量',
     } as const
     return c.json({ error: { message: messages[result.code], code: result.code } }, 400)
   }

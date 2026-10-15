@@ -160,19 +160,6 @@ function QuotaFootnotes({
             : ''}
         </span>
       )}
-      {rule.limit.kind !== 'unlimited' && rule.usageStart > rule.periodStart && (
-        <span>
-          已于{' '}
-          {new Date(rule.usageStart).toLocaleString('zh-CN', {
-            month: 'numeric',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: false,
-          })}{' '}
-          由管理员重置
-        </span>
-      )}
       {rule.invalid && <span className="text-rose-500 dark:text-rose-400">规则目标已不存在</span>}
     </div>
   )

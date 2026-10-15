@@ -229,6 +229,26 @@ describe('QuotaProgressCard', () => {
     expect(html).not.toContain('重置')
   })
 
+  it('管理员手动重置后只展示重置后的用量与下次重置时刻，不提示重置操作', () => {
+    const html = renderToStaticMarkup(
+      <QuotaProgressCard
+        quota={quota([
+          bucket({
+            label: 'OpenAI API（每月）',
+            periodStart: Date.now() - 14 * 86_400_000,
+            usageStart: Date.now() - 3_600_000,
+            periodEnd: Date.now() + 16 * 86_400_000,
+            used: 0,
+            remaining: 160,
+            percent: 0,
+          }),
+        ])}
+      />,
+    )
+    expect(html).toContain('剩余 $160')
+    expect(html).not.toContain('管理员')
+  })
+
   it('共享额度在进度条上方列出池内模型', () => {
     const html = renderToStaticMarkup(
       <QuotaProgressCard

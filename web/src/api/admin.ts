@@ -221,6 +221,8 @@ export const batchAssignQuotaPolicy = (input: QuotaBatchAssignInput) =>
   apiPost<{ ok: true; updated: number }>('/admin/quota/users/batch-assign', input)
 export const resetUserQuotaPeriod = (userId: string, input: QuotaResetInput) =>
   apiPost<{ ok: true; resetRules: number }>(`/admin/quota/users/${userId}/reset`, input)
+export const resetAllUserQuotaPeriods = () =>
+  apiPost<{ ok: true; resetUsers: number; resetRules: number }>('/admin/quota/users/reset-all')
 export const createUserQuotaGrant = (userId: string, input: QuotaGrantCreateInput) =>
   apiPost<{ grant: QuotaAdjustmentDTO }>(`/admin/quota/users/${userId}/grants`, input).then(
     (r) => r.grant,

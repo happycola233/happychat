@@ -19,6 +19,7 @@ import type {
   UserQuotaUpdateInput,
 } from '@shared/schemas/quota'
 import {
+  isQuotaBucketResettable,
   normalizeQuotaRules,
   normalizeUserQuotaOverrides,
   quotaRuleRequiresBucketKey,
@@ -42,6 +43,7 @@ import {
 import { getUserModelUsage } from './usage-stats'
 
 type PolicyRow = typeof quotaPolicies.$inferSelect
+type QuotaAdminTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
 /** 排序沿用 models / model_groups 的稀疏步长约定，插队时不必整体重排。 */
 const SORT_STEP = 100
@@ -97,10 +99,7 @@ async function nextPolicySort(): Promise<number> {
 }
 
 /** 设为默认策略：同一事务内清掉旧默认，保证「至多一条 isDefault」。 */
-function markDefaultWithin(
-  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
-  policyId: string,
-): void {
+function markDefaultWithin(tx: QuotaAdminTransaction, policyId: string): void {
   tx.update(quotaPolicies)
     .set({ isDefault: false })
     .where(and(eq(quotaPolicies.isDefault, true), sql`${quotaPolicies.id} <> ${policyId}`))
@@ -518,17 +517,83 @@ export async function revokeQuotaAdjustment(id: string): Promise<boolean> {
 
 export type ResetPeriodResult =
   | { ok: true; resetRules: number }
-  | { ok: false; code: AdjustmentTargetError | 'no_rules' | 'period_not_started' }
+  | {
+      ok: false
+      code: AdjustmentTargetError | 'no_rules' | 'period_not_started' | 'nothing_to_reset'
+    }
+
+interface QuotaResetTarget {
+  rule: EffectiveQuotaRule
+  bucketKey: string | null
+  periodStart: number
+  periodEnd: number | null
+}
 
 /**
- * 手动重置当前周期：**不删除任何用量日志**，后台统计与审计口径不受影响。
+ * 「重置全部」的目标：每条有可重置用量的规则各一条，不同规则的周期起点不同，一条记录无法覆盖。
+ * bucketKey 留空，判定时对该规则的所有桶生效（含「各自独立」展开出的每个桶）。
+ */
+function collectFullResetTargets(
+  rules: EffectiveQuotaRule[],
+  buckets: QuotaBucketUsageDTO[],
+): QuotaResetTarget[] {
+  return rules.flatMap((rule) => {
+    const resettableBuckets = buckets.filter(
+      (bucket) => bucket.ruleId === rule.id && isQuotaBucketResettable(bucket),
+    )
+    if (resettableBuckets.length === 0) return []
+    return [
+      {
+        rule,
+        bucketKey: null,
+        periodStart: Math.min(...resettableBuckets.map((bucket) => bucket.periodStart)),
+        periodEnd: resettableBuckets.some((bucket) => bucket.periodEnd === null)
+          ? null
+          : Math.max(...resettableBuckets.map((bucket) => bucket.periodEnd!)),
+      },
+    ]
+  })
+}
+
+/**
+ * 落库手动重置：**不删除任何用量日志**，后台统计与审计口径不受影响。
  *
  * - 日历 / 滚动 / 永久累计：写 `reset` 记录把统计起点抬到此刻；
  * - 首次请求起算：删除 `quota_cycles` 锚点，周期回到未启动，等下一次获准请求再起算。
- *   不能只抬高计量起点，否则界面会留下「管理员已重置」时间，且周期不会按首次请求重新计时。
- *
- * ruleId 省略时重置该用户的全部规则。
+ *   不写 reset，否则新周期会被旧「计量起点」污染，也不会按首次请求重新计时。
  */
+function writeQuotaResets(
+  tx: QuotaAdminTransaction,
+  userId: string,
+  targets: QuotaResetTarget[],
+  meta: { now: Date; note: string | null; actorId: string },
+): void {
+  for (const target of targets) {
+    if (target.rule.window.type === 'anchored') {
+      clearQuotaCyclesInTransaction(tx, userId, [
+        { ruleId: target.rule.id, bucketKey: target.bucketKey },
+      ])
+      continue
+    }
+    tx.insert(quotaAdjustments)
+      .values({
+        userId,
+        kind: 'reset',
+        ruleId: target.rule.id,
+        bucketKey: target.bucketKey,
+        metric: target.rule.metric,
+        amount: null,
+        effectiveFrom: meta.now,
+        periodStart: new Date(target.periodStart),
+        expiresAt: adjustmentExpiresAt(target.rule, target.periodEnd, meta.now),
+        note: meta.note,
+        createdBy: meta.actorId,
+      })
+      .run()
+  }
+}
+
+/** 手动重置当前周期；ruleId 省略时重置该用户的全部规则。 */
 export async function resetQuotaPeriod(
   userId: string,
   input: QuotaResetInput,
@@ -539,12 +604,7 @@ export async function resetQuotaPeriod(
   if (binding.rules.length === 0) return { ok: false, code: 'no_rules' }
 
   const snapshot = await getQuotaSnapshot(userId, { config, binding })
-  const targets: {
-    rule: EffectiveQuotaRule
-    bucketKey: string | null
-    periodStart: number
-    periodEnd: number | null
-  }[] = []
+  let targets: QuotaResetTarget[]
   if (input.ruleId) {
     const found = findAdjustmentTarget(
       binding.rules,
@@ -554,60 +614,50 @@ export async function resetQuotaPeriod(
     )
     if (!found.ok) return found
     if (!found.bucket.periodActive) return { ok: false, code: 'period_not_started' }
-    targets.push({
-      rule: found.rule,
-      bucketKey: input.bucketKey ?? null,
-      periodStart: found.bucket.periodStart,
-      periodEnd: found.bucket.periodEnd,
-    })
+    targets = [
+      {
+        rule: found.rule,
+        bucketKey: input.bucketKey ?? null,
+        periodStart: found.bucket.periodStart,
+        periodEnd: found.bucket.periodEnd,
+      },
+    ]
   } else {
-    // 「重置全部」对每条规则各写一条记录：不同规则的周期起点不同，一条记录无法覆盖。
-    // 记录的 bucketKey 留空，判定时对该规则的所有桶生效（含「各自独立」展开出的每个桶）。
-    for (const rule of binding.rules) {
-      const activeBuckets = snapshot.rules.filter(
-        (bucket) => bucket.ruleId === rule.id && bucket.periodActive,
-      )
-      if (activeBuckets.length === 0) continue
-      targets.push({
-        rule,
-        bucketKey: null,
-        periodStart: Math.min(...activeBuckets.map((bucket) => bucket.periodStart)),
-        periodEnd: activeBuckets.some((bucket) => bucket.periodEnd === null)
-          ? null
-          : Math.max(...activeBuckets.map((bucket) => bucket.periodEnd!)),
-      })
-    }
+    targets = collectFullResetTargets(binding.rules, snapshot.rules)
+    if (targets.length === 0) return { ok: false, code: 'nothing_to_reset' }
   }
-  if (targets.length === 0) return { ok: false, code: 'period_not_started' }
 
-  const now = new Date()
-  db.transaction((tx) => {
-    for (const target of targets) {
-      if (target.rule.window.type === 'anchored') {
-        // 清空锚点即结束当前周期；不写 reset，避免新周期被旧「计量起点」污染。
-        clearQuotaCyclesInTransaction(tx, userId, [
-          { ruleId: target.rule.id, bucketKey: target.bucketKey },
-        ])
-        continue
-      }
-      tx.insert(quotaAdjustments)
-        .values({
-          userId,
-          kind: 'reset',
-          ruleId: target.rule.id,
-          bucketKey: target.bucketKey,
-          metric: target.rule.metric,
-          amount: null,
-          effectiveFrom: now,
-          periodStart: new Date(target.periodStart),
-          expiresAt: adjustmentExpiresAt(target.rule, target.periodEnd, now),
-          note: input.note ?? null,
-          createdBy: actorId,
-        })
-        .run()
-    }
-  })
+  const meta = { now: new Date(), note: input.note ?? null, actorId }
+  db.transaction((tx) => writeQuotaResets(tx, userId, targets, meta))
   return { ok: true, resetRules: targets.length }
+}
+
+/**
+ * 一键重置全部用户：与单个用户的「重置全部」同一语义。先逐人算好目标，再在同一事务内写入，
+ * 不会留下只重置了一部分用户的中间态；没有可重置用量的用户直接跳过。
+ */
+export async function resetAllUserQuotaPeriods(
+  actorId: string,
+): Promise<{ resetUsers: number; resetRules: number }> {
+  const config = await getQuotaConfig()
+  const userRows = await db.select({ id: users.id }).from(users)
+  const plans: { userId: string; targets: QuotaResetTarget[] }[] = []
+  for (const user of userRows) {
+    const binding = await getUserQuotaBinding(user.id)
+    if (binding.rules.length === 0) continue
+    const snapshot = await getQuotaSnapshot(user.id, { config, binding })
+    const targets = collectFullResetTargets(binding.rules, snapshot.rules)
+    if (targets.length > 0) plans.push({ userId: user.id, targets })
+  }
+
+  const meta = { now: new Date(), note: null, actorId }
+  db.transaction((tx) => {
+    for (const plan of plans) writeQuotaResets(tx, plan.userId, plan.targets, meta)
+  })
+  return {
+    resetUsers: plans.length,
+    resetRules: plans.reduce((sum, plan) => sum + plan.targets.length, 0),
+  }
 }
 
 // ---------------- 列表 / 明细 / 预览 ----------------

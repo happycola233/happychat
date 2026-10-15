@@ -4,9 +4,20 @@ import { LoadError } from '../../components/ui/LoadError'
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { clsx } from 'clsx'
-import { ChevronDown, ListChecks, PauseCircle, Plus, SlidersHorizontal } from 'lucide-react'
+import {
+  ChevronDown,
+  ListChecks,
+  PauseCircle,
+  Plus,
+  RotateCcw,
+  SlidersHorizontal,
+} from 'lucide-react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { pickTightestQuotaBucket, groupQuotaBucketsByRule } from '@shared/util/quota'
+import {
+  groupQuotaBucketsByRule,
+  isQuotaBucketResettable,
+  pickTightestQuotaBucket,
+} from '@shared/util/quota'
 import type { AdminQuotaPolicyDTO, AdminUserQuotaDTO } from '@shared/types/api'
 import type { AppConfigUpdateInput } from '@shared/schemas/app-config'
 import {
@@ -17,6 +28,8 @@ import {
   getUserStats,
   listQuotaPolicies,
   listUserQuotas,
+  resetAllUserQuotaPeriods,
+  resetUserQuotaPeriod,
   setDefaultQuotaPolicy,
   updateUserQuota,
 } from '../../api/admin'
@@ -216,6 +229,36 @@ export default function QuotasPage() {
     onError: (error) => toast.error(error instanceof Error ? error.message : '操作失败'),
   })
 
+  // 与配置弹窗里的「重置全部周期」同一语义：各规则当前周期清零，首次请求起算的周期回到未启动。
+  const resetUser = useMutation({
+    mutationFn: (row: AdminUserQuotaDTO) => resetUserQuotaPeriod(row.userId, {}),
+    onSuccess: (_result, row) => {
+      toast.success(`已重置 ${row.username} 的额度`)
+      invalidate()
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : '重置失败'),
+  })
+
+  const resetAllUsers = useMutation({
+    mutationFn: resetAllUserQuotaPeriods,
+    onSuccess: (result) => {
+      if (result.resetUsers === 0) toast.info('当前没有需要重置的额度')
+      else toast.success(`已重置 ${result.resetUsers} 位用户的额度`)
+      invalidate()
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : '重置失败'),
+  })
+
+  const confirmResetUser = async (row: AdminUserQuotaDTO) => {
+    const confirmed = await askConfirm({
+      title: `重置 ${row.username} 的额度`,
+      description:
+        '各项额度的本周期用量将从此刻重新计算；首次请求起算的周期会在下次请求时重新开始。历史用量记录保留。',
+      confirmLabel: '重置',
+    })
+    if (confirmed) resetUser.mutate(row)
+  }
+
   const warnThreshold = config?.quotaWarnThreshold ?? 0.8
   const quotaTimezone = config?.quotaTimezone ?? 'UTC'
   const timezoneLabel = quotaTimezoneLabel(quotaTimezone)
@@ -282,6 +325,20 @@ export default function QuotasPage() {
     setOverviewFilter(null)
     setHighlightUserId(userId)
     setExpandedUsers((current) => new Set([...current, userId]))
+  }
+
+  const resettableUserCount = (users ?? []).filter((row) =>
+    row.rules.some(isQuotaBucketResettable),
+  ).length
+
+  const confirmResetAllUsers = async () => {
+    const confirmed = await askConfirm({
+      title: '重置全部用户的额度',
+      description: `${resettableUserCount} 位用户各项额度的本周期用量将从此刻重新计算；首次请求起算的周期会在下次请求时重新开始。历史用量记录保留。`,
+      confirmLabel: '全部重置',
+      tone: 'danger',
+    })
+    if (confirmed) resetAllUsers.mutate()
   }
 
   const allSelected =
@@ -531,6 +588,15 @@ export default function QuotasPage() {
                   >
                     {expandedUsers.size ? '收起全部额度' : '展开全部额度'}
                   </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    loading={resetAllUsers.isPending}
+                    disabled={resettableUserCount === 0}
+                    onClick={() => void confirmResetAllUsers()}
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" /> 重置全部额度
+                  </Button>
                   {(search || overviewFilter) && (
                     <Button
                       variant="ghost"
@@ -651,6 +717,16 @@ export default function QuotasPage() {
                             >
                               <PauseCircle className="h-4 w-4" />
                             </button>
+                            <IconButton
+                              label="重置额度"
+                              onClick={() => void confirmResetUser(row)}
+                              disabled={
+                                !row.rules.some(isQuotaBucketResettable) ||
+                                (resetUser.isPending && resetUser.variables?.userId === row.userId)
+                              }
+                            >
+                              <RotateCcw className="h-4 w-4" />
+                            </IconButton>
                             <Button
                               variant="secondary"
                               size="sm"

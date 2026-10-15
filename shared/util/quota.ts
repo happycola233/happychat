@@ -339,6 +339,31 @@ export function quotaRuleRequiresBucketKey(rule: Pick<QuotaRule, 'scope'>): bool
   return rule.scope.type !== 'all' && rule.scope.mode === 'each'
 }
 
+type QuotaAdjustableBucket = {
+  limit: QuotaLimit
+  window: QuotaWindow
+  used: number
+  periodActive: boolean
+  invalid: boolean
+  shadowed: boolean
+}
+
+/** 额度桶当前是否可做周期调整（赠送临时额度 / 手动重置）：有上限、周期已开始、仍在计量。 */
+export function isQuotaBucketAdjustable(bucket: QuotaAdjustableBucket): boolean {
+  return (
+    bucket.limit.kind === 'amount' && bucket.periodActive && !bucket.invalid && !bucket.shadowed
+  )
+}
+
+/**
+ * 手动重置是否真的会改变什么：首次请求起算的周期即使还没用量，也会回到未启动重新计时；
+ * 其他周期没有用量时重置等于空操作。管理端按钮与服务端「重置全部」共用这一判定，
+ * 因此不会为没用过的用户写无效记录，确认框里的人数也与实际重置一致。
+ */
+export function isQuotaBucketResettable(bucket: QuotaAdjustableBucket): boolean {
+  return isQuotaBucketAdjustable(bucket) && (bucket.used > 0 || bucket.window.type === 'anchored')
+}
+
 /** 按规则 id 收拢展开后的额度桶，首次出现的顺序即策略 / 专属规则的展示顺序。 */
 export function groupQuotaBucketsByRule<T extends { ruleId: string }>(
   rules: T[],

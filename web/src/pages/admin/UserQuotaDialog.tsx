@@ -18,6 +18,8 @@ import {
   formatQuotaLimit,
   formatQuotaTargetLabels,
   groupQuotaBucketsByRule,
+  isQuotaBucketAdjustable,
+  isQuotaBucketResettable,
 } from '@shared/util/quota'
 import { describeQuotaWindow } from '@shared/util/quotaWindow'
 import {
@@ -400,12 +402,8 @@ export function UserQuotaDialog({
     (row) => row.kind === 'grant' && row.active,
   )
   // 周期调整只使用已保存快照；预览可能包含尚未落库的策略、专属规则或周期改动。
-  const grantableRules = (detail?.rules ?? []).filter(
-    (rule) => rule.limit.kind === 'amount' && rule.periodActive && !rule.invalid && !rule.shadowed,
-  )
-  const hasResettablePeriods = (detail?.rules ?? []).some(
-    (rule) => rule.limit.kind === 'amount' && rule.periodActive && !rule.invalid && !rule.shadowed,
-  )
+  const grantableRules = (detail?.rules ?? []).filter(isQuotaBucketAdjustable)
+  const hasResettablePeriods = (detail?.rules ?? []).some(isQuotaBucketResettable)
   const grantRule = grantableRules.find((rule) => rule.ruleId === grantForm.ruleId)
   const grantBuckets = grantableRules.filter((rule) => rule.ruleId === grantForm.ruleId)
   const requiresBucket = grantRule ? grantBuckets.some((rule) => rule.bucketKey !== null) : false
@@ -643,11 +641,7 @@ export function UserQuotaDialog({
                 <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
                   {groupQuotaBucketsByRule(preview.rules).map((group) => {
                     const resetFor = (rule: QuotaBucketUsageDTO) =>
-                      !previewActionsReady ||
-                      !rule.periodActive ||
-                      rule.invalid ||
-                      rule.shadowed ||
-                      rule.limit.kind === 'unlimited'
+                      !previewActionsReady || !isQuotaBucketResettable(rule)
                         ? undefined
                         : async () => {
                             if (
