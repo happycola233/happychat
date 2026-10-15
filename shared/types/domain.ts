@@ -204,6 +204,11 @@ export type ImageGenerationPricing =
       price?: number
       tiers?: { size?: string; quality?: string; price: number }[]
     }
+  | {
+      /** 同一次请求只收取一次生图费用，与生成张数、工具调用数无关。 */
+      mode: 'per_request'
+      price?: number
+    }
 
 /** 每次生图的独立用量；null 表示上游未报告，不能当作免费。 */
 export interface ImageGenerationUsage {

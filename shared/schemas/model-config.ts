@@ -158,6 +158,10 @@ export const imageGenerationPricingSchema = z.discriminatedUnion('mode', [
     cachedImageInput: priceSchema.optional(),
   }),
   z.object({
+    mode: z.literal('per_request'),
+    price: priceSchema.optional(),
+  }),
+  z.object({
     mode: z.literal('per_image'),
     price: priceSchema.optional(),
     tiers: z

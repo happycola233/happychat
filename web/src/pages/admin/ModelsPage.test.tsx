@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import type { AdminModelDTO, ProviderDTO } from '@shared/types/api'
 import { ModelEditor } from './ModelEditor'
+import { ModelPricingEditor } from './ModelPricingEditor'
 import ModelsPage from './ModelsPage'
 
 vi.mock('../../components/ui/Modal', () => ({
@@ -85,6 +86,48 @@ function queryClient(): QueryClient {
 }
 
 describe('ModelsPage model actions', () => {
+  it.each(['responses', 'image'] as const)('模型列表正确展示 %s 的每次生图价格', (kind) => {
+    const client = queryClient()
+    client.setQueryData(
+      ['admin', 'models'],
+      [
+        modelFixture({
+          kind,
+          pricing: { currency: 'CNY', imageGeneration: { mode: 'per_request', price: 0.5 } },
+        }),
+      ],
+    )
+    client.setQueryData(['admin', 'model-groups'], [])
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <ModelsPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+    expect(html).toContain('¥0.5 / 次')
+    if (kind === 'image') expect(html).toContain('按次计价')
+    expect(html).not.toContain('按张计价')
+  })
+
+  it('引用生图模型时展示按次计价', () => {
+    const source = modelFixture({
+      kind: 'image',
+      pricing: { imageGeneration: { mode: 'per_request', price: 0.1 } },
+    })
+    const html = renderToStaticMarkup(
+      <ModelPricingEditor
+        kind="responses"
+        pricing={{ imagePricingModelId: source.id }}
+        onChange={() => {}}
+        providerId={source.providerId}
+        models={[source]}
+      />,
+    )
+    expect(html).toContain('按次计价')
+    expect(html).not.toContain('按 Token 计价')
+  })
+
   it('为每个模型提供创建副本的操作', () => {
     const client = queryClient()
     client.setQueryData(['admin', 'models'], [modelFixture()])

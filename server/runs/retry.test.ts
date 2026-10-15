@@ -952,6 +952,35 @@ describe('整次生成自动重试与审计', () => {
     })
   })
 
+  it.each([undefined, 'USD'] as const)(
+    '按次生图跨自动重试只收取一次费用（%s）',
+    async (currency) => {
+      const ctx = fixture()
+      ctx.model.pricing = { currency, imageGeneration: { mode: 'per_request', price: 0.05 } }
+      const imageDone = (id: string) => ({
+        type: 'response.output_item.done',
+        output_index: 0,
+        item: { id, type: 'image_generation_call', result: 'aW1hZ2U=' },
+      })
+      vi.stubGlobal(
+        'fetch',
+        vi
+          .fn()
+          .mockResolvedValueOnce(sse(imageDone('first-image'), overloaded))
+          .mockResolvedValueOnce(sse(imageDone('retry-image'), done)),
+      )
+      await drain(engines.responses(ctx))
+      const saved = snapshot(ctx)
+      expect(saved.run.state).toBe('completed')
+      expect(saved.logs[0]).toMatchObject({
+        generatedImageCount: 1,
+        costUsd: 0.05,
+        costBreakdown: { imageCount: 2, imageUsd: 0.05, imageStatus: 'complete' },
+      })
+      expect(saved.logs[0]?.imageUsage).toHaveLength(2)
+    },
+  )
+
   it('重试取代图片预览后清理旧附件，刷新回放不恢复已删除图片', async () => {
     const ctx = fixture()
     vi.stubGlobal(

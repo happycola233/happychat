@@ -198,6 +198,7 @@ function PricingTableEditor({
                       options={[
                         { value: 'tokens', label: '按 Token' },
                         { value: 'per_image', label: '按张' },
+                        { value: 'per_request', label: '按次' },
                       ]}
                       onChange={(mode) => {
                         if (mode !== imagePricing?.mode) setImage({ mode })
@@ -212,7 +213,11 @@ function PricingTableEditor({
                     <>
                       <p>
                         {source.displayName} · {source.pricing?.currency ?? 'USD'} ·{' '}
-                        {imagePricing?.mode === 'per_image' ? '按张计价' : '按 Token 计价'}
+                        {imagePricing?.mode === 'per_request'
+                          ? '按次计价'
+                          : imagePricing?.mode === 'per_image'
+                            ? '按张计价'
+                            : '按 Token 计价'}
                       </p>
                       <p className={`mt-1 ${hintClass}`}>
                         后续新请求使用该模型的最新生图价格。此处只引用价格，不改变实际调用的生图模型。
@@ -224,7 +229,20 @@ function PricingTableEditor({
                 </div>
               ) : (
                 <>
-                  {imagePricing?.mode === 'per_image' ? (
+                  {imagePricing?.mode === 'per_request' ? (
+                    <>
+                      <div className={gridClass}>
+                        <PriceInput
+                          label={`每次请求价格（${pricing.currency ?? 'USD'} / 次）`}
+                          value={imagePricing.price}
+                          onChange={(price) => setImage({ ...imagePricing, price })}
+                        />
+                      </div>
+                      <p className={hintClass}>
+                        同一次请求生成多张图片只收取一次生图费用，自动重试不重复收取。未生成最终图片时不计费。
+                      </p>
+                    </>
+                  ) : imagePricing?.mode === 'per_image' ? (
                     <>
                       <div className={gridClass}>
                         <PriceInput

@@ -90,11 +90,13 @@ export function ModelListRow({
   const imagePricing = pricing.imageGeneration
   const imagePriceLabel = pricing.imagePricingModelId
     ? '生图 · 引用定价'
-    : imagePricing?.mode === 'per_image'
-      ? `${priceText(imagePricing.price)} / 张${imagePricing.tiers?.length ? ' · 分档' : ''}`
-      : imagePricing
-        ? `图片输出 ${priceText(imagePricing.imageOutput)} / 百万`
-        : null
+    : imagePricing?.mode === 'per_request'
+      ? `${priceText(imagePricing.price)} / 次`
+      : imagePricing?.mode === 'per_image'
+        ? `${priceText(imagePricing.price)} / 张${imagePricing.tiers?.length ? ' · 分档' : ''}`
+        : imagePricing
+          ? `图片输出 ${priceText(imagePricing.imageOutput)} / 百万`
+          : null
   const accessLabel =
     model.accessMode === 'all'
       ? '全部用户'
@@ -237,9 +239,11 @@ export function ModelListRow({
         </span>
         <span className="hidden truncate text-neutral-500 xl:block">
           {model.kind === 'image'
-            ? imagePricing?.mode === 'per_image'
-              ? '按张计价'
-              : '按 Token 计价'
+            ? imagePricing?.mode === 'per_request'
+              ? '按次计价'
+              : imagePricing?.mode === 'per_image'
+                ? '按张计价'
+                : '按 Token 计价'
             : (imagePriceLabel ??
               `缓存 ${pricing.cachedInput == null ? '随输入' : priceText(pricing.cachedInput)}`)}
         </span>

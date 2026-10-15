@@ -160,6 +160,7 @@ function calculateBaseRequestCost(
     imageStatus: 'complete',
   }
   const imagePricing = current.imageGeneration
+  let imageRequestCharged = false
   const addTokens = (count: number | null, price: number | undefined) => {
     if (count === null) result.imageStatus = 'missing_usage'
     else if (count > 0 && price == null && result.imageStatus !== 'missing_usage')
@@ -170,6 +171,11 @@ function calculateBaseRequestCost(
     result.imageCount += usage.imageCount
     if (!imagePricing) {
       result.imageStatus = 'missing_pricing'
+    } else if (imagePricing.mode === 'per_request') {
+      if (usage.imageCount === 0 || imageRequestCharged) continue
+      imageRequestCharged = true
+      if (imagePricing.price == null) result.imageStatus = 'missing_pricing'
+      else result.imageUsd += imagePricing.price
     } else if (imagePricing.mode === 'per_image') {
       if (usage.imageCount === 0) continue
       const { price, status } = imageUnitPrice(imagePricing, usage)
@@ -265,16 +271,22 @@ export function calculateRequestCost(
     }
   }
   const imageSchedule = current.imagePricingSnapshot ?? current
+  let imageRequestCharged = false
   for (const image of images) {
     const at = image.startedAt ?? startedAt
     const { table, period } = selectPricingTable(imageSchedule, at)
+    result.imageCount += image.imageCount
+    if (table.imageGeneration?.mode === 'per_request') {
+      // 工具调用与重试会产生多条用量；按次费用只在首条实际出图的用量上结算。
+      if (image.imageCount === 0 || imageRequestCharged) continue
+      imageRequestCharged = true
+    }
     const cost = calculateBaseRequestCost(
       tokens,
       { imageGeneration: table.imageGeneration },
       'image',
       [image],
     )
-    result.imageCount += cost.imageCount
     if (
       cost.imageStatus === 'missing_usage' ||
       (cost.imageStatus === 'missing_pricing' && result.imageStatus === 'complete')

@@ -93,6 +93,70 @@ describe('independent image generation pricing', () => {
       calculateRequestCost(tokens, perImage, 'image', [{ ...image, size: null }]).imageStatus,
     ).toBe('missing_usage')
   })
+  it.each([undefined, 'USD', 'CNY'] as const)(
+    'charges one image fee per request with %s pricing across multiple tools and retries',
+    (currency) => {
+      const perRequest: ModelPricing = {
+        ...pricing,
+        currency,
+        ...(currency && { exchangeRate: { usdToCny: 7, fetchedAt: 1 } }),
+        imageGeneration: { mode: 'per_request', price: 0.05 },
+      }
+      const unknown = {
+        ...image,
+        size: null,
+        quality: null,
+        textInputTokens: null,
+        imageInputTokens: null,
+        imageOutputTokens: null,
+      }
+      const images = [
+        { ...unknown, imageCount: 0, startedAt: 1 },
+        { ...unknown, imageCount: 2, startedAt: 1 },
+        { ...unknown, imageCount: 1, startedAt: 2 },
+      ]
+      const cost = calculateRequestCost(tokens, perRequest, 'responses', images)
+      const rate = currency === 'CNY' ? 7 : 1
+      expect(cost.chatUsd).toBeCloseTo(0.06 / rate)
+      expect(cost.imageUsd).toBeCloseTo(0.05 / rate)
+      expect(cost.totalUsd).toBeCloseTo(0.11 / rate)
+      expect(cost).toMatchObject({ imageCount: 3, imageStatus: 'complete' })
+      if (currency)
+        expect(cost.charges?.filter((charge) => charge.kind === 'image')).toHaveLength(1)
+      expect(calculateRequestCost(tokens, perRequest, 'image', images).totalUsd).toBeCloseTo(
+        0.05 / rate,
+      )
+      // 单价按请求结算，下一条请求仍需收取自己的费用。
+      expect(calculateRequestCost(tokens, perRequest, 'responses', [unknown]).imageUsd).toBeCloseTo(
+        0.05 / rate,
+      )
+      for (const noImages of [[], [{ ...unknown, imageCount: 0 }]]) {
+        expect(calculateRequestCost(tokens, perRequest, 'responses', noImages)).toMatchObject({
+          imageUsd: 0,
+          imageCount: 0,
+          imageStatus: 'complete',
+        })
+      }
+    },
+  )
+  it.each([undefined, 'USD'] as const)(
+    'distinguishes free and unconfigured request prices (%s)',
+    (currency) => {
+      for (const price of [undefined, 0]) {
+        const cost = calculateRequestCost(
+          tokens,
+          { currency, imageGeneration: { mode: 'per_request', price } },
+          'responses',
+          [image, image],
+        )
+        expect(cost).toMatchObject({
+          imageUsd: 0,
+          imageCount: 2,
+          imageStatus: price == null ? 'missing_pricing' : 'complete',
+        })
+      }
+    },
+  )
   it('missing image usage stays incomplete and never borrows chat output tokens', () => {
     const cost = calculateRequestCost(tokens, pricing, 'responses', [
       { ...image, imageOutputTokens: null },
@@ -113,6 +177,12 @@ describe('independent image generation pricing', () => {
     expect(costUsd({ ...tokens, costUsd: 0.1 }, null)).toBe(0.1)
   })
   it('rejects conflicting sources, negative prices and duplicate tiers at the boundary', () => {
+    expect(
+      pricingSchema.safeParse({ imageGeneration: { mode: 'per_request', price: 0 } }).success,
+    ).toBe(true)
+    expect(
+      pricingSchema.safeParse({ imageGeneration: { mode: 'per_request', price: -1 } }).success,
+    ).toBe(false)
     expect(
       pricingSchema.safeParse({ imageGeneration: { mode: 'per_image', price: -1 } }).success,
     ).toBe(false)

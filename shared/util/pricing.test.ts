@@ -136,6 +136,55 @@ describe('分时、上下文与双币种核价', () => {
     expect(result.totalCny).toBe(21)
     expect(result.charges?.map((charge) => charge.currency)).toEqual(['USD', 'CNY'])
   })
+  it('引用的按次生图价格按首次出图尝试选时段，跨时段重试不重复收取', () => {
+    const firstAttempt = at('2026-10-12T11:59:00Z')
+    const laterAttempt = at('2026-10-12T12:01:00Z')
+    const image = {
+      model: null,
+      imageCount: 2,
+      size: null,
+      quality: null,
+      textInputTokens: null,
+      imageInputTokens: null,
+      imageOutputTokens: null,
+      cachedTextInputTokens: 0,
+      cachedImageInputTokens: 0,
+    }
+    const imageSchedule: ModelPricing = {
+      currency: 'CNY',
+      timezone: 'UTC',
+      imageGeneration: { mode: 'per_request', price: 2 },
+      periods: [{ ...period, pricing: { imageGeneration: { mode: 'per_request', price: 7 } } }],
+    }
+    expect(pricingSchema.safeParse(imageSchedule).success).toBe(true)
+    const result = calculateRequestCost(
+      tokens(1_000_000, 0),
+      {
+        currency: 'USD',
+        input: 1,
+        exchangeRate: { usdToCny: 7, fetchedAt: 1 },
+        imagePricingSnapshot: imageSchedule,
+      },
+      'responses',
+      [
+        { ...image, imageCount: 0, startedAt: firstAttempt },
+        { ...image, startedAt: firstAttempt },
+        { ...image, startedAt: laterAttempt },
+      ],
+      firstAttempt,
+    )
+    expect(result).toMatchObject({
+      chatUsd: 1,
+      imageUsd: 1,
+      totalUsd: 2,
+      totalCny: 14,
+      imageCount: 4,
+      imageStatus: 'complete',
+    })
+    expect(result.charges?.filter((charge) => charge.kind === 'image')).toEqual([
+      { kind: 'image', currency: 'CNY', amount: 7, period: '高峰', startedAt: firstAttempt },
+    ])
+  })
   it('拒绝重叠时段（含跨周）、重复档位、无效时区；相邻时段合法', () => {
     const valid = { periods: [period, { ...period, id: 'second', start: '12:00', end: '14:00' }] }
     expect(pricingSchema.safeParse(valid).success).toBe(true)

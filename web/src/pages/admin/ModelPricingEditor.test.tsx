@@ -31,6 +31,23 @@ describe('image pricing presentation', () => {
     for (const label of ['聊天费用', '文字提示词输入', '参考图片输入', '图片输出', '缓存价格'])
       expect(html).toContain(label)
   })
+  it('per-request pricing shows one fixed fee and keeps chat pricing separate', () => {
+    const html = renderToStaticMarkup(
+      <ModelPricingEditor
+        kind="responses"
+        pricing={{ currency: 'CNY', imageGeneration: { mode: 'per_request', price: 0.5 } }}
+        onChange={() => {}}
+        providerId="provider"
+        models={[]}
+      />,
+    )
+    expect(html).toContain('聊天费用')
+    expect(html).toContain('每次请求价格（CNY / 次）')
+    expect(html).toContain('同一次请求生成多张图片只收取一次生图费用')
+    expect(html).not.toContain('默认每张价格')
+    expect(html).not.toContain('按尺寸或质量设置不同价格')
+    expect(html).not.toContain('文字提示词输入')
+  })
   it('missing usage is disclosed on the cost popover trigger and in its details', () => {
     const html = renderToStaticMarkup(
       <CostBreakdown
