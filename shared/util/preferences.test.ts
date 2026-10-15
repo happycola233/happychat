@@ -23,7 +23,7 @@ describe('mergePreferences', () => {
       accentColor: 'default',
       messageFontSize: 'medium',
       showMessageTime: true,
-      messageTimeFormat: 'datetime',
+      messageTimeFormat: 'smart',
       showModelLabel: true,
       showUsageStats: true,
     })

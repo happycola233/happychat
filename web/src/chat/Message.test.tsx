@@ -259,7 +259,10 @@ describe('assistant failure explanation', () => {
     const html = renderMessage(failed('已触发上游限流，请稍后重试。'))
     expect(html).toContain('已触发上游限流，请稍后重试。')
     expect(html).not.toContain('请稍候片刻')
-    expect(html).not.toContain(' · ')
+    // 此断言只约束错误说明；消息时间详情也会使用分隔点连接时分秒与时区。
+    const errorNotice = html.match(/data-testid="run-error-notice">([\s\S]*?)<\/div><\/div>/)?.[1]
+    expect(errorNotice).toBeDefined()
+    expect(errorNotice).not.toContain(' · ')
   })
 
   it.each([

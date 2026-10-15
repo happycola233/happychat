@@ -11,7 +11,6 @@ import {
   computeTps,
   formatMessageCost,
   formatDuration,
-  formatMessageTime,
   formatTokens,
   formatTps,
 } from './usageFormat'
@@ -77,22 +76,6 @@ export function CopyMessageButton({ text, className }: { text: string; className
         <CopyIcon className="h-[18px] w-[18px]" />
       )}
     </MessageIconButton>
-  )
-}
-
-export function MessageTimeLabel({
-  ts,
-  format,
-  className,
-}: {
-  ts: number
-  format: 'time' | 'datetime'
-  className?: string
-}) {
-  return (
-    <span className={clsx('text-xs tabular-nums text-neutral-400', className)}>
-      {formatMessageTime(ts, format)}
-    </span>
   )
 }
 

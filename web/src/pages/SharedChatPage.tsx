@@ -14,7 +14,8 @@ import { Markdown } from '../chat/Markdown'
 import { ProcessTrack, type ProcessTrackStatus } from '../chat/ProcessTrack'
 import { safeCitationUrl, SHOW_CITATION_SOURCE_CHIPS } from '../chat/citationDisplay'
 import { liveStepsFromPersisted } from '../sse/eventReducer'
-import { CopyMessageButton, MessageTimeLabel, MessageUsageStats } from '../chat/MessageMeta'
+import { CopyMessageButton, MessageUsageStats } from '../chat/MessageMeta'
+import { MessageTimeLabel } from '../chat/MessageTimeLabel'
 import { Spinner } from '../components/ui/Spinner'
 import { formatShortDate } from '../lib/format'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
@@ -221,8 +222,10 @@ function SharedMessageMeta({
       >
         <CopyMessageButton text={text} />
         {modelLabel && <span className="ml-1 text-xs text-neutral-400">{modelLabel}</span>}
-        {modelLabel && <span className="text-xs text-neutral-300 dark:text-neutral-600">·</span>}
-        <MessageTimeLabel ts={m.createdAt} format="datetime" />
+        <div className="inline-flex shrink-0 items-center gap-1.5">
+          {modelLabel && <span className="text-xs text-neutral-300 dark:text-neutral-600">·</span>}
+          <MessageTimeLabel timestamp={m.createdAt} format="datetime" />
+        </div>
       </div>
       {m.role === 'assistant' && m.usage && (
         <MessageUsageStats

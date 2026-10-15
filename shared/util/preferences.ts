@@ -40,7 +40,7 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   accentColor: 'default',
   messageFontSize: 'medium',
   showMessageTime: true,
-  messageTimeFormat: 'datetime',
+  messageTimeFormat: 'smart',
   showModelLabel: true,
   showUsageStats: true,
 }

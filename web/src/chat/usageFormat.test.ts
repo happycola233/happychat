@@ -4,7 +4,6 @@ import {
   formatCostUsd,
   formatMessageCost,
   formatDuration,
-  formatMessageTime,
   formatTokens,
   formatTps,
 } from './usageFormat'
@@ -70,11 +69,5 @@ describe('formatDuration', () => {
     expect(formatDuration(90000)).toBe('1m 30s')
     expect(formatDuration(112000)).toBe('1m 52s')
     expect(formatDuration(119600)).toBe('2m 00s')
-  })
-})
-
-describe('formatMessageTime', () => {
-  it('renders 24-hour HH:mm', () => {
-    expect(formatMessageTime(Date.UTC(2026, 5, 20, 3, 4))).toMatch(/^\d{2}:\d{2}$/)
   })
 })

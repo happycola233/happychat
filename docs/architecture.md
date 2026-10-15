@@ -323,6 +323,8 @@
 
 ### 7.2 聊天组件（`web/src/chat/`）
 
+- **消息时间**：`messageTime.ts` 统一格式化，`MessageTimeLabel.tsx` 在聊天与分享页共用带 `<time datetime>` 的按钮；`smart`（默认）为今天 HH:mm / 昨天 HH:mm / 本年月日 HH:mm / 跨年年月日 HH:mm，`datetime` 始终保留年月日，`time` 仅显示时分并由 `ChatView` 为当前分支首条及相邻跨日消息插入 `MessageDateDivider`，不重排分支消息。关闭 `showMessageTime` 同时隐藏标签和日期分隔。`useLocalDate` 用一个共享午夜计时器及 focus/visibilitychange 订阅更新日期与设备时区，不为每条消息轮询；昨天按本地日历回退，覆盖夏令时。所有格式均可通过悬停、键盘聚焦或手机点按查看星期、秒与该时刻的 UTC 偏移，原生 `popover=auto` 负责顶层绘制、Esc 和外点关闭，指针可移入浮层阅读。分享页保持完整日期格式。时间来源仍为 `messages.createdAt`，助手为消息创建时刻，不是回复完成时刻。偏好枚举在 shared 类型/schema 中统一；**0057 启动数据迁移**仅一次性将所有 `user_settings.ui_prefs.messageTimeFormat` 设为 `smart`，保留其他键和时间显示开关，不改表结构；后续重启不覆盖用户的新选择。新账号及缺失偏好使用共享默认值，登录后的 settings hydrate 以服务端真值覆盖旧浏览器缓存。交互参考 [MDN Popover API](https://developer.mozilla.org/en-US/docs/Web/API/Popover_API/Using) 与 [WAI Tooltip](https://www.w3.org/WAI/ARIA/apg/patterns/tooltip/)。
+
 - **队列输入**：`Composer.queue` 将 `MessageQueue` 放在输入框上方，面板高度计入现有 ResizeObserver 测量；多条列表限高滚动，浅色为白底淡描边，深色为中性灰表面，行高 32px。生成中有草稿时显示「加入队列」，同时保留停止按钮；键盘沿用桌面/手机发送偏好，IME 确认不触发发送。队列使用用户提供 sprite 的 `#6b1f51` 原路径，左侧拖动手柄在桌面悬停或自身键盘聚焦时显示，拖动后鼠标移开即隐藏，触控布局保持可见。复用 `@dnd-kit` 支持指针/键盘排序，仅手柄禁用触控滚动（参考 [Pointer sensor](https://dndkit.com/legacy/api-documentation/sensors/pointer/) 与 [Keyboard sensor](https://dndkit.com/legacy/api-documentation/sensors/keyboard/)）。图片消息显示缩略图与数量，文件显示附件图标。右侧删除与三点菜单提供操作；原生 popover 避开列表裁切，生成时的自动滚动只更新菜单位置。编辑将该项从队列撤回到主输入框，通过 240ms 滑入动画恢复正文；附件由 `uploadDraftFromAttachment` 直接恢复就绪状态，图片编辑源、一次性上下文选择和模型参数同时恢复，不重复上传。已有输入草稿时提示用户先处理，避免覆盖；修改后重新发送或入队，尊重减少动态效果偏好。上传未完成/失败时不可入队；暂停提示与消息内容对齐，并提供「继续发送」。
 
 - `ChatLayout`(Sidebar+Outlet+全局弹窗宿主 SettingsDialog/FolderEditorDialog/AnnouncementDialog) / `ChatView`(编排，见 §5.6) / `Sidebar`(会话列表+文件夹+批量管理+新建+删除+管理入口+登出+主题切换)。

@@ -26,7 +26,7 @@ export const userPreferencesPatchSchema = z
     accentColor: accentColorSchema,
     messageFontSize: messageFontSizeSchema,
     showMessageTime: z.boolean(),
-    messageTimeFormat: z.enum(['time', 'datetime']),
+    messageTimeFormat: z.enum(['smart', 'time', 'datetime']),
     showModelLabel: z.boolean(),
     showUsageStats: z.boolean(),
   })

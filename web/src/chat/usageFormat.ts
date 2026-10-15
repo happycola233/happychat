@@ -27,19 +27,3 @@ export function computeTps(outputTokens: number, durationMs: number | null): num
 export function formatTps(tps: number): string {
   return tps >= 100 ? String(Math.round(tps)) : trim1(tps)
 }
-
-/** 消息时间显示：'time'=HH:mm；'datetime'=YYYY/MM/DD HH:mm（均 24 小时制）。 */
-export function formatMessageTime(ts: number, format: 'time' | 'datetime' = 'time'): string {
-  const d = new Date(ts)
-  if (format === 'datetime') {
-    return d.toLocaleString('zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    })
-  }
-  return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })
-}

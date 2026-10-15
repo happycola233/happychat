@@ -521,8 +521,8 @@ export type ThemePreference = 'system' | 'light' | 'dark'
 /** 消息正文字号档位 */
 export type MessageFontSize = 'small' | 'medium' | 'large'
 
-/** 消息时间显示格式：仅时间 / 日期+时间 */
-export type MessageTimeFormat = 'time' | 'datetime'
+/** 消息时间显示格式：智能 / 仅时间（按天分组）/ 完整日期时间。 */
+export type MessageTimeFormat = 'smart' | 'time' | 'datetime'
 
 /** ChatGPT 风重点色：驱动用户消息气泡与发送按钮。 */
 export type AccentColor = 'default' | 'blue' | 'green' | 'yellow' | 'pink' | 'orange' | 'purple'
@@ -573,7 +573,7 @@ export interface UserPreferences {
   messageFontSize: MessageFontSize
   /** 在每条消息上显示时间 */
   showMessageTime: boolean
-  /** 消息时间格式：仅时间 / 日期+时间 */
+  /** 消息时间格式，默认智能显示。 */
   messageTimeFormat: MessageTimeFormat
   /** 在助手消息上显示所用模型名 */
   showModelLabel: boolean

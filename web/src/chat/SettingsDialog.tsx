@@ -30,6 +30,8 @@ import { SettingsSection } from '../components/ui/SettingsSection'
 import { TextField } from '../components/ui/TextField'
 import { Toggle } from '../components/ui/Toggle'
 import { useMe } from '../hooks/useAuth'
+import { useLocalDate } from '../hooks/useLocalDate'
+import { formatMessageTime } from './messageTime'
 import {
   useChangePassword,
   useClearConversations,
@@ -123,6 +125,7 @@ function Row({
 type SelectOption<T extends string> = {
   value: T
   label: string
+  description?: string
 }
 
 function PreferenceSelect<T extends string, TOption extends SelectOption<T> = SelectOption<T>>({
@@ -158,7 +161,31 @@ function PreferenceSelect<T extends string, TOption extends SelectOption<T> = Se
   if (!selected) return null
 
   return (
-    <div ref={ref} className="relative">
+    <div
+      ref={ref}
+      className="relative"
+      onKeyDown={(event) => {
+        if (!open) return
+        if (event.key === 'Escape') {
+          event.stopPropagation()
+          setOpen(false)
+          ref.current?.querySelector('button')?.focus()
+        }
+        if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+          event.preventDefault()
+          const items = Array.from(
+            ref.current!.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]'),
+          )
+          const index = items.indexOf(document.activeElement as HTMLButtonElement)
+          let next: number
+          if (event.key === 'Home') next = 0
+          else if (event.key === 'End') next = items.length - 1
+          else if (index < 0) next = event.key === 'ArrowUp' ? items.length - 1 : 0
+          else next = (index + (event.key === 'ArrowUp' ? -1 : 1) + items.length) % items.length
+          items[next]?.focus()
+        }
+      }}
+    >
       <button
         type="button"
         aria-haspopup="menu"
@@ -199,6 +226,7 @@ function PreferenceSelect<T extends string, TOption extends SelectOption<T> = Se
                 onClick={() => {
                   onChange(option.value)
                   setOpen(false)
+                  ref.current?.querySelector('button')?.focus()
                 }}
                 className={clsx(
                   'flex min-h-9 w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] font-medium transition hover:bg-neutral-100 dark:hover:bg-white/10',
@@ -206,7 +234,14 @@ function PreferenceSelect<T extends string, TOption extends SelectOption<T> = Se
                 )}
               >
                 {leading?.(option)}
-                <span className="min-w-0 flex-1">{option.label}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block">{option.label}</span>
+                  {option.description && (
+                    <span className="mt-1 block text-xs font-normal leading-5 text-neutral-500 dark:text-neutral-400">
+                      {option.description}
+                    </span>
+                  )}
+                </span>
                 {active && <Check className="h-4 w-4 shrink-0" />}
               </button>
             )
@@ -383,6 +418,10 @@ function GeneralPanel() {
 }
 
 function MessagesPanel() {
+  const { today, timeZone } = useLocalDate()
+  const previewDate = new Date(today)
+  previewDate.setHours(14, 32)
+  const previewTimestamp = previewDate.getTime()
   const fontSize = useSettings((s) => s.preferences.messageFontSize)
   const showMessageTime = useSettings((s) => s.preferences.showMessageTime)
   const messageTimeFormat = useSettings((s) => s.preferences.messageTimeFormat)
@@ -412,7 +451,7 @@ function MessagesPanel() {
         <PrefToggleRow
           prefKey="showMessageTime"
           title="显示消息时间"
-          desc="在每条消息旁显示发送/生成时间。"
+          desc="显示消息时间，悬停或点按可查看完整日期与时间。"
         />
         {showMessageTime && (
           <Row
@@ -423,9 +462,23 @@ function MessagesPanel() {
                 ariaLabel="消息时间格式"
                 value={messageTimeFormat}
                 onChange={(v) => setPreference('messageTimeFormat', v)}
+                menuClassName="w-72 max-w-[calc(100vw-3rem)]"
                 options={[
-                  { value: 'time', label: '仅时间' },
-                  { value: 'datetime', label: '日期+时间' },
+                  {
+                    value: 'smart',
+                    label: '智能',
+                    description: `今天 ${formatMessageTime(previewTimestamp, 'smart', today, timeZone)} · 昨天 14:32 · 10月12日 14:32`,
+                  },
+                  {
+                    value: 'time',
+                    label: '仅时间',
+                    description: `${formatMessageTime(previewTimestamp, 'time', today, timeZone)} · 按天分组`,
+                  },
+                  {
+                    value: 'datetime',
+                    label: '完整日期时间',
+                    description: formatMessageTime(previewTimestamp, 'datetime', today, timeZone),
+                  },
                 ]}
               />
             }

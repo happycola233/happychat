@@ -52,6 +52,7 @@ import { useContextSelection } from '../store/contextSelection'
 import { ConversationMenu } from './ConversationMenu'
 import { ArrowUpIcon } from './icons'
 import { Message } from './Message'
+import { MessageDateDivider } from './MessageDateDivider'
 import type { MessageEditSubmit } from './MessageEditForm'
 import { CollapsibleUserMessageText } from './MessageContent'
 import { ModelControlMenu } from './ModelControlMenu'
@@ -128,6 +129,9 @@ export default function ChatView() {
   const autoScrollOnOpen = useSettings((s) => s.preferences.autoScrollOnOpen)
   const showScrollToBottom = useSettings((s) => s.preferences.showScrollToBottom)
   const showTimelineNav = useSettings((s) => s.preferences.showTimelineNav)
+  const showDateDividers = useSettings(
+    (s) => s.preferences.showMessageTime && s.preferences.messageTimeFormat === 'time',
+  )
   const timelineNavPosition = useSettings((s) => s.preferences.timelineNavPosition)
   const showNewChatGradientGlow = useSettings((s) => s.preferences.showNewChatGradientGlow)
   const resolvedGlowColor = useSettings((s) =>
@@ -1064,7 +1068,7 @@ export default function ChatView() {
             <div className="hc-chat-scroll-content px-4 pt-[4.25rem]">
               {/* 页面留白放在限宽层外，确保消息区边界与 Composer 输入框严格对齐。 */}
               <div className="mx-auto max-w-3xl space-y-6">
-                {messages.map((m) => {
+                {messages.map((m, index) => {
                   const siblings = getSiblings(allMessages, m)
                   const messageModel = models?.find((modelItem) => modelItem.id === m.modelId)
                   const branch =
@@ -1078,6 +1082,12 @@ export default function ChatView() {
                       : undefined
                   return (
                     <div key={m.id} data-scroll-anchor={m.id} className="hc-anim-in">
+                      {showDateDividers && (
+                        <MessageDateDivider
+                          timestamp={m.createdAt}
+                          previousTimestamp={messages[index - 1]?.createdAt}
+                        />
+                      )}
                       <Message
                         message={m}
                         costDisplay={detail?.messageCostDisplay}

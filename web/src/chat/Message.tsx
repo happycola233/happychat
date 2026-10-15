@@ -10,12 +10,8 @@ import { textFromContent } from './contentText'
 import { Markdown } from './Markdown'
 import { ProcessTrack, type ProcessTrackStatus } from './ProcessTrack'
 import { AttachmentParts } from './Attachments'
-import {
-  CopyMessageButton,
-  MessageIconButton,
-  MessageTimeLabel,
-  MessageUsageStats,
-} from './MessageMeta'
+import { CopyMessageButton, MessageIconButton, MessageUsageStats } from './MessageMeta'
+import { MessageTimeLabel } from './MessageTimeLabel'
 import type { ImageEditSource } from './imageSource'
 import { ProgressiveImageStage } from './ProgressiveImageStage'
 import { RetryStatus } from './RetryStatus'
@@ -190,7 +186,7 @@ export function Message({
             )}
           </div>
           {showMessageTime && (
-            <MessageTimeLabel ts={message.createdAt} format={messageTimeFormat} />
+            <MessageTimeLabel timestamp={message.createdAt} format={messageTimeFormat} />
           )}
         </div>
       </div>
@@ -291,7 +287,7 @@ export function Message({
       {SHOW_CITATION_SOURCE_CHIPS && annotations.length > 0 && <Citations items={annotations} />}
       {!liveStreaming && (
         <div className="space-y-1.5">
-          <div className="flex items-center gap-1.5 text-neutral-400">
+          <div className="flex flex-wrap items-center gap-1.5 text-neutral-400">
             {branch && branch.total > 1 && <BranchSwitch branch={branch} />}
             <CopyMessageButton text={text} />
             {onRegenerate && (
@@ -314,12 +310,12 @@ export function Message({
               <span className="ml-1 text-xs text-neutral-400">{modelName}</span>
             )}
             {showMessageTime && (
-              <>
+              <div className="inline-flex shrink-0 items-center gap-1.5">
                 {showModelLabel && modelName && (
                   <span className="text-xs text-neutral-300 dark:text-neutral-600">·</span>
                 )}
-                <MessageTimeLabel ts={message.createdAt} format={messageTimeFormat} />
-              </>
+                <MessageTimeLabel timestamp={message.createdAt} format={messageTimeFormat} />
+              </div>
             )}
           </div>
           {showUsageStats && message.usage && (
