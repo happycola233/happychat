@@ -1,4 +1,5 @@
 import { ChevronDown, Clock3, LoaderCircle } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { ActiveRequestDTO, ActiveRequestsDTO } from '@shared/types/api'
 import { Badge } from '../../components/ui/Badge'
@@ -26,11 +27,35 @@ function activeRequestStatus(row: ActiveRequestDTO): string {
 /** 桌面用紧凑行扫读，窄屏重排；发起时间、复制操作和完整重试经过按需展开。 */
 export function ActiveRequestsPanel({
   data,
+  receivedAt,
+  live,
   onPage,
 }: {
   data: ActiveRequestsDTO
+  receivedAt: number
+  live: boolean
   onPage: (page: number) => void
 }) {
+  const [clock, setClock] = useState(() => ({
+    now: data.observedAt,
+    serverOffset: data.observedAt - receivedAt,
+  }))
+  useEffect(() => {
+    if (!live) return
+    const timer = window.setInterval(() => {
+      setClock((current) => ({ ...current, now: Date.now() + current.serverOffset }))
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [live])
+  useEffect(() => {
+    if (live) return
+    // 暂停时冻结当前时刻；手动刷新仍可重新校准快照，且不会重启秒表。
+    const serverOffset = data.observedAt - receivedAt
+    setClock({ now: Date.now() + serverOffset, serverOffset })
+  }, [live, data.observedAt, receivedAt])
+  // 运行期间沿用同一时差，避免每次轮询的网络延迟让秒数重复或跳动。
+  const now = clock.now
+
   return (
     <section aria-label="进行中的请求" className="space-y-2">
       <div className="flex items-center gap-2">
@@ -46,7 +71,7 @@ export function ActiveRequestsPanel({
           const latestFailure = row.retrySummary?.failures.at(-1)
           const retrySeconds =
             progress?.nextRetryAt != null
-              ? Math.max(0, Math.ceil((progress.nextRetryAt - data.observedAt) / 1000))
+              ? Math.max(0, Math.ceil((progress.nextRetryAt - now) / 1000))
               : null
           return (
             <details key={row.runId} className="group/request">
@@ -96,8 +121,7 @@ export function ActiveRequestsPanel({
                     {formatRequestLatency(
                       Math.max(
                         0,
-                        Math.floor((data.observedAt - (row.startedAt ?? row.createdAt)) / 1000) *
-                          1000,
+                        Math.floor((now - (row.startedAt ?? row.createdAt)) / 1000) * 1000,
                       ),
                     )}
                   </span>
@@ -105,18 +129,13 @@ export function ActiveRequestsPanel({
                     <span className="block text-[11px] text-neutral-500 dark:text-neutral-400">
                       本次请求已用时{' '}
                       {formatRequestLatency(
-                        Math.max(
-                          0,
-                          Math.floor((data.observedAt - progress.requestStartedAt) / 1000) * 1000,
-                        ),
+                        Math.max(0, Math.floor((now - progress.requestStartedAt) / 1000) * 1000),
                       )}
                     </span>
                   )}
                 </span>
                 <span className="col-start-2 row-start-3 whitespace-nowrap text-right text-[11px] text-neutral-500 lg:col-start-5 lg:row-start-1 lg:text-left dark:text-neutral-400">
-                  {progress
-                    ? `第 ${progress.attempt} / ${progress.maxAttempts} 次请求`
-                    : '尚未开始请求'}
+                  {progress && progress.attempt > 1 && `已重试 ${progress.attempt - 1} 次`}
                 </span>
                 <span className="col-start-3 row-start-1 lg:col-start-6">
                   <ChevronDown
@@ -126,12 +145,21 @@ export function ActiveRequestsPanel({
                   <span className="sr-only">请求详情</span>
                 </span>
                 {latestFailure && (
-                  <span className="col-span-full break-words text-[11px] leading-5 text-amber-700 dark:text-amber-400">
+                  <span
+                    role="status"
+                    className="col-span-full break-words text-[11px] leading-5 text-amber-700 dark:text-amber-400"
+                  >
                     第 {latestFailure.attempt} 次请求 · {retryFailureDurationLabel(latestFailure)}
                     {latestFailure.httpStatus != null && (
                       <span className="whitespace-nowrap">
                         {' · '}HTTP {latestFailure.httpStatus}
                         {latestFailure.httpStatus === 200 ? '（响应中报错）' : ''}
+                      </span>
+                    )}
+                    {(latestFailure.errorCode || latestFailure.errorType) && (
+                      <span className="break-all">
+                        {' · '}
+                        {latestFailure.errorCode || latestFailure.errorType}
                       </span>
                     )}
                     {' · '}

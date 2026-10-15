@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { listActiveRequests } from '../services/active-requests'
+import { streamRequestMonitor } from './request-monitor'
 import type { Context } from 'hono'
 import { desc, eq, inArray } from 'drizzle-orm'
 import {
@@ -125,6 +126,8 @@ import { buildRequestPreview } from '../provider/request-preview'
 export const adminRoutes = new Hono<AppEnv>()
 
 adminRoutes.use('*', requireAdmin)
+
+adminRoutes.get('/request-events/stream', streamRequestMonitor)
 
 /** 解析统计/事件查询筛选；失败返回 null（由调用方回 400）。 */
 function readFilter(c: Context): StatsFilter | null {

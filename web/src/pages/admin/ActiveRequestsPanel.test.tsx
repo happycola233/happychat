@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ActiveRequestDTO } from '@shared/types/api'
 import { ActiveRequestsPanel } from './ActiveRequestsPanel'
 
@@ -57,6 +57,8 @@ function render(active: ActiveRequestDTO, now = 10000) {
           pageSize: 10,
           observedAt: now,
         }}
+        receivedAt={Date.now()}
+        live
         onPage={() => {}}
       />
     </MemoryRouter>,
@@ -64,12 +66,14 @@ function render(active: ActiveRequestDTO, now = 10000) {
 }
 
 describe('进行中的请求展示', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
   it('显示真实阶段、耗时、重试倒计时和 HTTP 200 中断原因，不伪造 Token 或成本', () => {
     const html = render(row)
     for (const value of [
       '等待重试',
       '2 秒后重试',
-      '第 1 / 3 次请求',
       '已用时 8秒',
       '输出暂时中断',
       '持续 5秒后失败',
@@ -80,6 +84,28 @@ describe('进行中的请求展示', () => {
       expect(html).toContain(value)
     expect(html).not.toContain('后恢复')
     expect(html).not.toContain('$0')
+    expect(html).not.toContain('已重试')
+    // 不展开详情也能看到错误码与原因。
+    expect(html.split('</summary>')[0]).toContain('server_error')
+    expect(html.split('</summary>')[0]).toContain('输出暂时中断')
+  })
+  it.each(['connecting', 'waiting_output', 'streaming'] as const)(
+    '首次正常请求在 %s 阶段不显示次数或重试提示',
+    (phase) => {
+      const html = render({
+        ...row,
+        progress: { ...row.progress!, phase, nextRetryAt: null },
+        retrySummary: null,
+      })
+      expect(html).not.toContain('次请求')
+      expect(html).not.toContain('重试')
+      expect(html).toContain('已用时 8秒')
+    },
+  )
+  it('客户端时钟与服务端不同时仍以服务端快照计算时长', () => {
+    vi.setSystemTime(new Date('2030-01-01T00:00:00Z'))
+    expect(render(row)).toContain('已用时 8秒')
+    expect(render(row)).toContain('2 秒后重试')
   })
   it('等待时间到达后不产生负数，也不会宣称请求已恢复', () => {
     const html = render(row, 15000)
@@ -102,6 +128,7 @@ describe('进行中的请求展示', () => {
     expect(html).toContain('等待输出')
     expect(html).toContain('本次请求已用时 2秒')
     expect(html).toContain('已用时 8秒')
+    expect(html).toContain('已重试 1 次')
     expect(html).not.toContain('秒后重试</span>')
   })
 })

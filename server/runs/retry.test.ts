@@ -23,6 +23,7 @@ let engines: Record<ModelKind, (ctx: import('./types').EngineContext) => Promise
 let config: typeof import('../services/appConfig')
 let stats: typeof import('../services/stats')
 let activeRequests: typeof import('../services/active-requests')
+let monitor: typeof import('../services/request-monitor-events')
 let counter = 0
 
 beforeAll(async () => {
@@ -40,6 +41,7 @@ beforeAll(async () => {
   config = await import('../services/appConfig')
   stats = await import('../services/stats')
   activeRequests = await import('../services/active-requests')
+  monitor = await import('../services/request-monitor-events')
   engines = {
     responses: (await import('./engine')).runEngine,
     chat: (await import('./chat-engine')).runChatEngine,
@@ -366,6 +368,11 @@ describe('整次生成自动重试与审计', () => {
         .mockResolvedValueOnce(second.response),
     )
     const filter = { userId: ctx.run.userId, providerId: ctx.provider.id, modelId: ctx.model.id }
+    const notifiedSnapshot = vi.fn(() => ({
+      active: activeRequests.listActiveRequests(filter).items[0],
+      saved: snapshot(ctx),
+    }))
+    onTestFinished(monitor.requestMonitorEvents.subscribe(notifiedSnapshot))
     expect(activeRequests.listActiveRequests(filter).items[0]?.progress).toBeNull()
     const task = engines.responses(ctx)
     await vi.advanceTimersByTimeAsync(100)
@@ -375,6 +382,7 @@ describe('整次生成自动重试与审计', () => {
       maxAttempts: 3,
     })
     expect(snapshot(ctx).logs).toHaveLength(0)
+    expect(notifiedSnapshot.mock.results.at(-1)?.value.active?.progress?.phase).toBe('connecting')
     connect(first.response)
     await vi.advanceTimersByTimeAsync(100)
     expect(activeRequests.listActiveRequests(filter).items[0]?.progress?.phase).toBe(
@@ -395,6 +403,10 @@ describe('整次生成自动重试与审计', () => {
       outcome: 'running',
       attempts: 1,
       failures: [{ httpStatus: 200, stage: 'after_output' }],
+    })
+    expect(notifiedSnapshot.mock.results.at(-1)?.value.active).toMatchObject({
+      progress: { phase: 'retry_wait' },
+      retrySummary: { failures: [{ httpStatus: 200, stage: 'after_output' }] },
     })
     const error = (await stats.listErrorEvents({ userId: ctx.run.userId })).items[0]!
     expect(error.retrySummary?.outcome).toBe('running')
@@ -442,6 +454,12 @@ describe('整次生成自动重试与审计', () => {
     expect(saved.errors).toHaveLength(1)
     expect(saved.errors[0]?.id).toBe(error.id)
     expect(saved.errors[0]?.detail?.retry).toMatchObject({ outcome: 'completed', attempts: 2 })
+    const finalNotification = notifiedSnapshot.mock.results.at(-1)?.value
+    expect(finalNotification?.active).toBeUndefined()
+    expect(finalNotification?.saved.logs).toHaveLength(1)
+    expect(finalNotification?.saved.errors[0]?.detail?.retry).toMatchObject({
+      outcome: 'completed',
+    })
 
     client.db
       .delete(schema.conversations)

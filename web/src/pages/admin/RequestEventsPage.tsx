@@ -25,6 +25,7 @@ import { Button } from '../../components/ui/Button'
 import { LoadError } from '../../components/ui/LoadError'
 import { RefreshButton } from './DashboardPrimitives'
 import { ActiveRequestsPanel } from './ActiveRequestsPanel'
+import { useRequestMonitor } from './useRequestMonitor'
 import { RequestEventCard } from './RequestEventCard'
 import { RequestGeneratedImagesBadge } from './RequestGeneratedImagesBadge'
 import { buildUsageEventsQuery, usageEventsQueryKey } from './eventFilters'
@@ -84,6 +85,7 @@ export default function RequestEventsPage() {
     readDashboardFilters(searchParams)
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [live, setLive] = useState(true)
+  useRequestMonitor(live, 'usage-events')
   const [activePage, setActivePage] = useState(1)
   const updateFilter = (key: string, value: string) => {
     setActivePage(1)
@@ -156,7 +158,7 @@ export default function RequestEventsPage() {
     pageSize,
   }
 
-  const { data, isLoading, isError, isFetching, refetch } = useQuery({
+  const { data, dataUpdatedAt, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: [...usageEventsQueryKey(filters), 'monitor', activePage, currency],
     queryFn: async () => {
       const query = { ...buildUsageEventsQuery(filters), currency }
@@ -277,7 +279,12 @@ export default function RequestEventsPage() {
 
       {data && data.active.total > 0 && !resultSel && kindSel !== 'title' && (
         <>
-          <ActiveRequestsPanel data={data.active} onPage={setActivePage} />
+          <ActiveRequestsPanel
+            data={data.active}
+            receivedAt={dataUpdatedAt}
+            live={live}
+            onPage={setActivePage}
+          />
           <h2 className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">
             已结束的请求
           </h2>

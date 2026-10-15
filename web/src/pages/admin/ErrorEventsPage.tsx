@@ -2,6 +2,7 @@ import { Fragment, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ChevronRight } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
+import { useRequestMonitor } from './useRequestMonitor'
 import type { ErrorLogDTO, Paginated } from '@shared/types/api'
 import { getErrorEvents } from '../../api/admin'
 import { DateRangePicker } from '../../components/ui/DateRangePicker'
@@ -100,6 +101,7 @@ export default function ErrorEventsPage() {
   const [pageSize, setPageSize] = useState(50)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [live, setLive] = useState(true)
+  useRequestMonitor(live, 'error-events')
   const debouncedSearch = useDebouncedValue(search, 250)
 
   const filters = {

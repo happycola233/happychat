@@ -14,6 +14,7 @@ import {
   type UpstreamResponseTimingObserver,
 } from '../provider/response-timing'
 import { getAppConfig } from '../services/appConfig'
+import { requestMonitorEvents } from '../services/request-monitor-events'
 import { resolveModelPricing } from '../services/model-pricing'
 import { runEmitter } from './emitter'
 import {
@@ -141,17 +142,20 @@ export async function executeRun(
     providerId: ctx.provider.id,
     providerLabel: ctx.provider.name,
   }
-  // 只在阶段切换时写轻量快照；管理端轮询无需扫描正文事件，也不为每个 delta 增加写入。
+  // 只在阶段切换时写轻量快照并通知管理端，不为每个 delta 增加写入或刷新。
   const saveProgress = (patch: Partial<RunProgress>) => {
     progress = { ...progress, ...patch, updatedAt: Date.now() }
     db.update(runs).set({ progress }).where(eq(runs.id, ctx.run.id)).run()
+    requestMonitorEvents.notify()
   }
-  const saveRunningError = () =>
+  const saveRunningError = () => {
     saveRunErrorAudit(db, ctx.run.id, ctx.run.userId, {
       attempts: attempt,
       outcome: 'running',
       failures,
     })
+    requestMonitorEvents.notify()
+  }
 
   for (;;) {
     const attemptStartedAt = new Date()

@@ -22,6 +22,7 @@ import {
   getReasoningDurationSnapshot,
 } from '../services/run-timing-snapshot'
 import { maybeGenerateTitle } from '../services/title'
+import { requestMonitorEvents } from '../services/request-monitor-events'
 import type { ConvRow, ModelRow, MsgRow, ProviderRow, RunRow } from './types'
 import { errorTypeForAudit, terminalReasonForUsage } from './usage-audit'
 import { saveRunErrorAudit } from './error-audit'
@@ -232,6 +233,7 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
   })
 
   if (!finalized) return
+  requestMonitorEvents.notify()
 
   if (a.state === 'failed') {
     const terminalErrorCode = a.errorCode ?? persistedErrorType
