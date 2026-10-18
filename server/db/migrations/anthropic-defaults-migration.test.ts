@@ -169,3 +169,43 @@ describe('0051 Anthropic direct search default migration', () => {
     }
   })
 })
+
+describe('0058 Anthropic between_tools label migration', () => {
+  it('仅将出厂文案改为「关闭」，保留自定义描述、其他档位与非 Anthropic 模型', () => {
+    const sqlite = new Database(':memory:')
+    try {
+      sqlite.exec('CREATE TABLE models (id TEXT PRIMARY KEY, kind TEXT, allowed_efforts TEXT)')
+      const legacy = { value: 'between_tools', description: '仅工具间思考' }
+      const others = ['low', { value: 'high', description: '高' }]
+      const insert = sqlite.prepare('INSERT INTO models VALUES (?,?,?)')
+      insert.run('factory', 'anthropic', JSON.stringify([legacy, ...others]))
+      insert.run(
+        'custom',
+        'anthropic',
+        JSON.stringify([{ value: 'between_tools', description: '极速' }, ...others]),
+      )
+      insert.run('other', 'responses', JSON.stringify([legacy]))
+      const migration = readFileSync(
+        resolve('server/db/migrations/0058_anthropic_between_tools_label.sql'),
+        'utf8',
+      )
+      sqlite.exec(migration)
+      const read = (id: string) =>
+        JSON.parse(
+          (
+            sqlite.prepare('SELECT allowed_efforts FROM models WHERE id=?').get(id) as {
+              allowed_efforts: string
+            }
+          ).allowed_efforts,
+        )
+      expect(read('factory')).toEqual([{ value: 'between_tools', description: '关闭' }, ...others])
+      expect(read('custom')[0]).toEqual({ value: 'between_tools', description: '极速' })
+      expect(read('other')).toEqual([legacy])
+      const first = sqlite.prepare('SELECT * FROM models ORDER BY id').all()
+      sqlite.exec(migration)
+      expect(sqlite.prepare('SELECT * FROM models ORDER BY id').all()).toEqual(first)
+    } finally {
+      sqlite.close()
+    }
+  })
+})

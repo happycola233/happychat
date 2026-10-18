@@ -13,6 +13,10 @@ describe('resolveReasoningEffortIconKey', () => {
     expect(resolveReasoningEffortIconKey('max')).toBe('xhigh')
   })
 
+  it('maps between_tools to the none icon', () => {
+    expect(resolveReasoningEffortIconKey('between_tools')).toBe('none')
+  })
+
   it.each(['vendor-ultra', '__proto__', 'constructor', null, undefined])(
     'falls back from %s to the high icon',
     (effort) => {

@@ -160,7 +160,7 @@ describe('buildAnthropicBody', () => {
     },
   )
 
-  it('Sonnet 5.5 工具间思考是独立模式；高强度档仍用 adaptive', () => {
+  it('Sonnet 5.5 关闭档发送 between_tools 并固定 high；其他档仍用 adaptive', () => {
     const sonnet = model({
       modelId: 'claude-sonnet-5-5',
       hardParams: createAnthropicDefaultHardParams('claude-sonnet-5-5'),
@@ -173,7 +173,7 @@ describe('buildAnthropicBody', () => {
       userParams: { reasoning_effort: 'between_tools' },
     })
     expect(reduced.thinking).toEqual({ type: 'between_tools' })
-    expect(reduced).not.toHaveProperty('output_config')
+    expect(reduced.output_config).toEqual({ effort: 'high' })
     expect(
       buildAnthropicBody({ ...options, userParams: { reasoning_effort: 'max' } }),
     ).toMatchObject({ thinking: { type: 'adaptive' }, output_config: { effort: 'max' } })
@@ -186,7 +186,7 @@ describe('buildAnthropicBody', () => {
         },
         userParams: { reasoning_effort: 'between_tools' },
       }),
-    ).toThrow('仅工具间思考')
+    ).toThrow('思考关闭时 effort 仅支持 low、medium、high')
   })
 
   it('只在开关开启时应用高级 JSON 中的 thinking 与 web search 模板', () => {

@@ -41,12 +41,12 @@ describe('Anthropic model presets', () => {
     expect(anthropicModelProfile('claude-opus-5').canDisableThinking).toBe(true)
   })
 
-  it('Sonnet 5.5 用工具间思考代替关闭，旧 Sonnet 5 保留关闭', () => {
+  it('Sonnet 5.5 的关闭档使用 between_tools，旧 Sonnet 5 保留 none', () => {
     const profile = anthropicModelProfile('claude-sonnet-5-5')
     expect(profile).toMatchObject({ canDisableThinking: false, supportsBetweenTools: true })
     expect(anthropicReasoningEffortOptions(profile)[0]).toEqual({
       value: 'between_tools',
-      description: '仅工具间思考',
+      description: '关闭',
     })
     expect(anthropicModelProfile('claude-sonnet-5').canDisableThinking).toBe(true)
   })

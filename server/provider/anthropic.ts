@@ -166,8 +166,10 @@ export function buildAnthropicBody(options: BuildAnthropicBodyOptions): Record<s
   let thinkingEnabled = false
   if (model.capabilities.reasoning) {
     if (effort === 'between_tools' && profile.supportsBetweenTools) {
-      // 这是站内的模式选项，不是 output_config.effort 的上游枚举值。
+      // 站内「关闭」档对应的思考模式，不是 output_config.effort 的上游枚举值。该模式不做推理，
+      // 但 effort 仍决定回答详略与工具调用次数；显式固定为其允许的最高档 high，只关思考不降完整度。
       body.thinking = { type: 'between_tools' }
+      body.output_config = { effort: 'high' }
       thinkingEnabled = true
     } else if (!effort || effort === 'none') {
       if (profile.thinkingDefaultsOn && profile.canDisableThinking) {
@@ -219,7 +221,7 @@ export function buildAnthropicBody(options: BuildAnthropicBodyOptions): Record<s
     ['xhigh', 'max'].includes(String(body.output_config.effort))
   ) {
     throw new Error(
-      '仅工具间思考支持 low、medium、high；请降低高级参数中的 effort 或选择自适应思考档位',
+      '思考关闭时 effort 仅支持 low、medium、high；请降低高级参数中的 effort 或选择其他思考档位',
     )
   }
 

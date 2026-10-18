@@ -164,7 +164,8 @@ export function anthropicReasoningEffortOptions(
   if (!profile.preferredThinkingType) return []
   const options = profile.canDisableThinking ? [DEFAULT_REASONING_EFFORT_OPTIONS[0]!] : []
   if (profile.supportsBetweenTools) {
-    options.push({ value: 'between_tools', description: '仅工具间思考' })
+    // Sonnet 5.5 拒绝 disabled；between_tools 是其最低思考模式，对用户即「关闭」档。
+    options.push({ value: 'between_tools', description: '关闭' })
   }
   if (profile.effortValues.length > 0) {
     return [
