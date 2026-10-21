@@ -1056,7 +1056,7 @@ function ModelEditorForm({
                 <p>
                   顶层 <code className="font-mono">cache_control: ephemeral</code>{' '}
                   启用官方自动提示缓存，默认有效期 5
-                  分钟；首次写入产生缓存写入费用，命中后可降低延迟与输入成本。
+                  分钟；多轮对话会按同一设置在上一轮提问处保留缓存，联网较多的长对话也能命中。首次写入产生缓存写入费用，命中后可降低延迟与输入成本。
                 </p>
                 <p>
                   <code className="font-mono">thinking.type</code> 的默认模板会按模型 ID

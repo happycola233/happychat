@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { createAnthropicDefaultHardParams } from '@shared/util/anthropic'
-import { buildAnthropicBody, buildAnthropicMessages, mapAnthropicUsage } from './anthropic'
+import {
+  buildAnthropicBody,
+  buildAnthropicMessages,
+  mapAnthropicUsage,
+  withHistoryCacheBreakpoint,
+  type AnthropicMessage,
+} from './anthropic'
 import type { BuildBodyOptions } from './params'
 
 type ModelRow = BuildBodyOptions['model']
@@ -371,6 +377,98 @@ describe('buildAnthropicBody', () => {
     expect(body.tools).toEqual([
       { name: 'custom_tool', description: 'custom', input_schema: { type: 'object' } },
     ])
+  })
+})
+
+describe('withHistoryCacheBreakpoint', () => {
+  const history = (): AnthropicMessage[] => [
+    { role: 'user', content: [{ type: 'text', text: '第一问' }] },
+    { role: 'assistant', content: [{ type: 'text', text: '第一答' }] },
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: '第二问' },
+        { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aW1hZ2U=' } },
+      ],
+    },
+    {
+      role: 'assistant',
+      content: [
+        { type: 'server_tool_use', id: 'srv_1', name: 'web_search', input: { query: 'q' } },
+        { type: 'text', text: '第二答' },
+      ],
+    },
+    { role: 'user', content: [{ type: 'text', text: '第三问' }] },
+  ]
+
+  it('在上一轮请求末尾的 user block 打上与顶层相同的断点，且不修改传入消息', () => {
+    const messages = history()
+    const snapshot = structuredClone(messages)
+    const cacheControl = { type: 'ephemeral', ttl: '1h' }
+
+    const body = buildAnthropicBody({
+      model: model({
+        hardParams: { ...createAnthropicDefaultHardParams(), cache_control: cacheControl },
+      }),
+      messages,
+      instructions: null,
+      stream: true,
+    })
+
+    const marked = body.messages as AnthropicMessage[]
+    expect(marked[2]?.content.at(-1)).toEqual({
+      type: 'image',
+      source: { type: 'base64', media_type: 'image/png', data: 'aW1hZ2U=' },
+      cache_control: cacheControl,
+    })
+    expect(JSON.stringify(marked).match(/cache_control/g)).toHaveLength(1)
+    expect(messages).toEqual(snapshot)
+  })
+
+  it('跳过生成图上下文这类连续 user 消息，只标记紧邻 assistant 之前的那条', () => {
+    const messages: AnthropicMessage[] = [
+      { role: 'user', content: [{ type: 'text', text: '画一只猫' }] },
+      { role: 'assistant', content: [{ type: 'text', text: '已生成' }] },
+      { role: 'user', content: [{ type: 'text', text: 'Context: generated image' }] },
+      { role: 'user', content: [{ type: 'text', text: '换成橘猫' }] },
+    ]
+
+    const marked = withHistoryCacheBreakpoint(messages, { type: 'ephemeral' })
+
+    expect(marked[0]?.content).toEqual([
+      { type: 'text', text: '画一只猫', cache_control: { type: 'ephemeral' } },
+    ])
+    expect(marked.slice(1)).toEqual(messages.slice(1))
+  })
+
+  it('pause_turn 续跑时把断点后移到本轮提问并移除旧断点', () => {
+    const initial = withHistoryCacheBreakpoint(history(), { type: 'ephemeral' })
+    const continued = withHistoryCacheBreakpoint(
+      [...initial, { role: 'assistant', content: [{ type: 'text', text: '暂停片段' }] }],
+      { type: 'ephemeral' },
+    )
+
+    expect(continued[2]).toEqual(history()[2])
+    expect(continued[4]?.content).toEqual([
+      { type: 'text', text: '第三问', cache_control: { type: 'ephemeral' } },
+    ])
+  })
+
+  it('首轮请求或顶层未启用缓存时不添加断点', () => {
+    const firstTurn: AnthropicMessage[] = [
+      { role: 'user', content: [{ type: 'text', text: 'hi' }] },
+    ]
+    expect(withHistoryCacheBreakpoint(firstTurn, { type: 'ephemeral' })).toEqual(firstTurn)
+
+    const hardParams = { ...createAnthropicDefaultHardParams() }
+    delete hardParams.cache_control
+    const body = buildAnthropicBody({
+      model: model({ hardParams }),
+      messages: history(),
+      instructions: null,
+      stream: true,
+    })
+    expect(JSON.stringify(body)).not.toContain('cache_control')
   })
 })
 

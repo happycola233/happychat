@@ -3,6 +3,7 @@ import { RUN_EVENT_TYPE } from '@shared/types/events'
 import {
   anthropicCitation,
   mapAnthropicUsage,
+  withHistoryCacheBreakpoint,
   type AnthropicContentBlock,
   type AnthropicMessage,
 } from '../provider/anthropic'
@@ -274,7 +275,7 @@ async function runAnthropicAttempt(
       // 动态搜索在服务端容器内执行；同轮暂停后沿用容器，保留执行状态及未完成调用。
       requestBody = {
         ...requestBody,
-        messages,
+        messages: withHistoryCacheBreakpoint(messages, requestBody.cache_control),
         ...(accumulator.containerId ? { container: accumulator.containerId } : {}),
       }
     }

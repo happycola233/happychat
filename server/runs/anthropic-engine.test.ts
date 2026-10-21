@@ -558,6 +558,70 @@ describe('runAnthropicEngine', () => {
     )
   })
 
+  it('pause_turn 续跑把历史缓存断点后移到本轮提问', async () => {
+    const fixture = await createFixture()
+    const cacheControl = { type: 'ephemeral' }
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        sseResponse([
+          { type: 'message_start', message: { id: 'msg_pause', usage: { input_tokens: 10 } } },
+          {
+            type: 'content_block_start',
+            index: 0,
+            content_block: { type: 'server_tool_use', id: 'srv_1', name: 'web_search', input: {} },
+          },
+          { type: 'content_block_stop', index: 0 },
+          {
+            type: 'message_delta',
+            delta: { stop_reason: 'pause_turn' },
+            usage: { output_tokens: 1 },
+          },
+          { type: 'message_stop' },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        sseResponse([
+          { type: 'message_start', message: { id: 'msg_final', usage: { input_tokens: 10 } } },
+          { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+          { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: '答案' } },
+          { type: 'content_block_stop', index: 0 },
+          {
+            type: 'message_delta',
+            delta: { stop_reason: 'end_turn' },
+            usage: { output_tokens: 1 },
+          },
+          { type: 'message_stop' },
+        ]),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await anthropicEngine.runAnthropicEngine({
+      ...fixture,
+      body: {
+        ...fixture.body,
+        cache_control: cacheControl,
+        messages: [
+          {
+            role: 'user',
+            content: [{ type: 'text', text: '上一问', cache_control: cacheControl }],
+          },
+          { role: 'assistant', content: [{ type: 'text', text: '上一答' }] },
+          { role: 'user', content: [{ type: 'text', text: '本轮提问' }] },
+        ],
+      },
+    })
+
+    const secondRequest = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as {
+      messages: Array<{ role: string; content: unknown[] }>
+    }
+    expect(secondRequest.messages[0]?.content).toEqual([{ type: 'text', text: '上一问' }])
+    expect(secondRequest.messages[2]?.content).toEqual([
+      { type: 'text', text: '本轮提问', cache_control: cacheControl },
+    ])
+    expect(secondRequest.messages[3]?.role).toBe('assistant')
+  })
+
   it('refusal 作为失败终结，丢弃全部部分输出但保留 usage', async () => {
     const fixture = await createFixture()
     vi.stubGlobal(

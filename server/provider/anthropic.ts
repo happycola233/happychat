@@ -124,6 +124,30 @@ export function buildAnthropicMessages(
   return output
 }
 
+/**
+ * 顶层自动缓存只在请求末尾写入，读取时最多从末尾回看 20 个 block；联网回答重放的搜索、
+ * 引用 blocks 很容易超出窗口，导致整段历史重新按全价计算。上一次请求恰好结束于
+ * 「最后一条后面紧跟 assistant 的 user 消息」，在其末尾 block 补一个与顶层配置相同的显式断点
+ * （TTL 一致才不违反混用顺序），即可精确读回该缓存。pause_turn 续跑时目标后移到本轮提问，
+ * 返回结果只保留这一个消息级断点。顶层未配置 cache_control 视为不启用缓存，原样返回。
+ */
+export function withHistoryCacheBreakpoint(
+  messages: AnthropicMessage[],
+  cacheControl: unknown,
+): AnthropicMessage[] {
+  if (!isPlainObject(cacheControl)) return messages
+  const targetIndex = messages.findLastIndex(
+    (message, index) => message.role === 'user' && messages[index + 1]?.role === 'assistant',
+  )
+  return messages.map((message, index) => {
+    const marked = message.content.some((block) => 'cache_control' in block)
+    if (index !== targetIndex && !marked) return message
+    const content = message.content.map(({ cache_control: _previous, ...block }) => block)
+    if (index === targetIndex) content.push({ ...content.pop(), cache_control: cacheControl })
+    return { ...message, content }
+  })
+}
+
 function isAnthropicWebSearchTool(tool: unknown): tool is Record<string, unknown> {
   return isPlainObject(tool) && typeof tool.type === 'string' && tool.type.startsWith('web_search_')
 }
@@ -213,6 +237,8 @@ export function buildAnthropicBody(options: BuildAnthropicBodyOptions): Record<s
   delete hardParamsWithoutManagedFields.thinking
   delete hardParamsWithoutManagedFields.tools
   mergeDeep(body, hardParamsWithoutManagedFields)
+  // 顶层 cache_control 来自高级 JSON 合并结果，历史断点沿用同一配置。
+  body.messages = withHistoryCacheBreakpoint(messages, body.cache_control)
 
   if (
     isPlainObject(body.thinking) &&
