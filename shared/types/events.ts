@@ -19,7 +19,10 @@ export const RUN_EVENT_TYPE = {
   retry: 'run.retry',
   outputReset: 'run.output_reset',
   answerStarted: 'answer.started',
-  /** 兼容上游在 raw reasoning 流中把中间进展误标为 final_answer。 */
+  /**
+   * 事后确认某段正文其实是中间进展，把它整体移入 commentary：raw reasoning 兼容网关
+   * 把进展误标为 final_answer，或 Anthropic 正文之后又出现了工具调用。
+   */
   outputItemReclassified: 'response.output_item.reclassified',
   done: 'run.done',
   error: 'run.error',

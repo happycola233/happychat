@@ -558,6 +558,139 @@ describe('runAnthropicEngine', () => {
     )
   })
 
+  it('工具调用前的正文跨 pause_turn 改归 commentary，终答引用按剩余正文定位', async () => {
+    const fixture = await createFixture()
+    const textBlockEvents = (index: number, text: string, citation?: Record<string, unknown>) => [
+      { type: 'content_block_start', index, content_block: { type: 'text', text: '' } },
+      { type: 'content_block_delta', index, delta: { type: 'text_delta', text } },
+      ...(citation
+        ? [{ type: 'content_block_delta', index, delta: { type: 'citations_delta', citation } }]
+        : []),
+      { type: 'content_block_stop', index },
+    ]
+    const searchBlockEvents = (index: number, id: string, query: string) => [
+      {
+        type: 'content_block_start',
+        index,
+        content_block: { type: 'server_tool_use', id, name: 'web_search', input: { query } },
+      },
+      { type: 'content_block_stop', index },
+      {
+        type: 'content_block_start',
+        index: index + 1,
+        content_block: { type: 'web_search_tool_result', tool_use_id: id, content: [] },
+      },
+      { type: 'content_block_stop', index: index + 1 },
+    ]
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(
+          sseResponse([
+            { type: 'message_start', message: { id: 'msg_commentary_pause' } },
+            {
+              type: 'content_block_start',
+              index: 0,
+              content_block: { type: 'thinking', thinking: '', signature: '' },
+            },
+            {
+              type: 'content_block_delta',
+              index: 0,
+              delta: { type: 'thinking_delta', thinking: '规划' },
+            },
+            { type: 'content_block_stop', index: 0 },
+            ...textBlockEvents(1, '我先查一下。'),
+            ...searchBlockEvents(2, 'srv_1', 'q1'),
+            ...textBlockEvents(4, '再核对一项。'),
+            { type: 'message_delta', delta: { stop_reason: 'pause_turn' } },
+            { type: 'message_stop' },
+          ]),
+        )
+        .mockResolvedValueOnce(
+          sseResponse([
+            { type: 'message_start', message: { id: 'msg_commentary_final' } },
+            ...searchBlockEvents(0, 'srv_2', 'q2'),
+            ...textBlockEvents(2, '前言'),
+            ...textBlockEvents(3, '答案', {
+              type: 'web_search_result_location',
+              url: 'https://example.com/source',
+              title: 'Source',
+              encrypted_index: 'opaque-citation-index',
+            }),
+            { type: 'message_delta', delta: { stop_reason: 'end_turn' } },
+            { type: 'message_stop' },
+          ]),
+        ),
+    )
+
+    await anthropicEngine.runAnthropicEngine(fixture)
+
+    const storedMessage = await dbClient.db.query.messages.findFirst({
+      where: eq(schema.messages.id, fixture.assistantMessage.id),
+    })
+    expect(storedMessage).toMatchObject({
+      status: 'complete',
+      content: [{ type: 'output_text', text: '前言答案' }],
+      processSteps: [
+        { kind: 'reasoning', text: '规划' },
+        { kind: 'commentary', text: '我先查一下。' },
+        { kind: 'search', action: { type: 'search', queries: ['q1'] } },
+        { kind: 'commentary', text: '再核对一项。' },
+        { kind: 'search', action: { type: 'search', queries: ['q2'] } },
+      ],
+      annotations: [
+        {
+          type: 'url_citation',
+          url: 'https://example.com/source',
+          title: 'Source',
+          start_index: 2,
+          end_index: 4,
+        },
+      ],
+    })
+
+    const events = dbClient.db
+      .select({
+        type: schema.runEvents.type,
+        data: schema.runEvents.data,
+        sequenceNumber: schema.runEvents.sequenceNumber,
+      })
+      .from(schema.runEvents)
+      .where(eq(schema.runEvents.runId, fixture.run.id))
+      .all()
+      .sort((left, right) => left.sequenceNumber - right.sequenceNumber)
+    const dataOf = (type: string) =>
+      events.filter((event) => event.type === type).map((event) => event.data)
+    expect(dataOf('answer.started')).toEqual([
+      { itemId: 'anthropic-text-0:1' },
+      { itemId: 'anthropic-text-0:4' },
+      { itemId: 'anthropic-text-1:2' },
+    ])
+    expect(dataOf('response.output_item.reclassified')).toEqual([
+      {
+        itemId: 'anthropic-text-0:1',
+        phase: 'commentary',
+        commentaryText: '我先查一下。',
+        answerText: '',
+        annotations: [],
+      },
+      {
+        itemId: 'anthropic-text-0:4',
+        phase: 'commentary',
+        commentaryText: '再核对一项。',
+        answerText: '',
+        annotations: [],
+      },
+    ])
+    // 进展说明先进入过程轨，随后的搜索步骤才建行，浏览器实时顺序与持久化一致。
+    const eventTypes = events.map((event) => event.type)
+    expect(eventTypes.indexOf('response.output_item.reclassified')).toBeLessThan(
+      eventTypes.indexOf('response.web_search_call.in_progress'),
+    )
+    expect(dataOf('run.done')[0]).toMatchObject({ text: '前言答案' })
+  })
+
   it('pause_turn 续跑把历史缓存断点后移到本轮提问', async () => {
     const fixture = await createFixture()
     const cacheControl = { type: 'ephemeral' }

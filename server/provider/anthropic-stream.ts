@@ -6,7 +6,10 @@ import { UpstreamError } from './errors'
 export type AnthropicStreamEffect =
   | { type: 'text'; index: number; delta: string }
   | { type: 'thinking'; index: number; delta: string }
-  | { type: 'citation'; index: number; citation: unknown; start: number; end: number }
+  /** 引用随 text block 结束一并下发，覆盖该 block 的全部文本（长度为 textLength）。 */
+  | { type: 'citation'; index: number; citation: unknown; textLength: number }
+  /** 任一工具调用 block 开始（客户端、服务端或 MCP 工具）。 */
+  | { type: 'tool_call_start'; index: number }
   | { type: 'web_search_start'; index: number; id: string }
   | { type: 'web_search_input'; index: number; id: string; input: Record<string, unknown> }
   | {
@@ -20,7 +23,6 @@ export type AnthropicStreamEffect =
 interface BlockState {
   block: AnthropicContentBlock
   partialJson: string
-  textStart: number
   stopped: boolean
 }
 
@@ -71,7 +73,6 @@ function anthropicStreamErrorStatus(type: string): number {
  */
 export class AnthropicStreamAccumulator {
   private readonly blocks = new Map<number, BlockState>()
-  private textLength = 0
   private sawMessageStop = false
 
   messageId: string | null = null
@@ -98,9 +99,11 @@ export class AnthropicStreamAccumulator {
         this.blocks.set(index, {
           block,
           partialJson: '',
-          textStart: this.textLength,
           stopped: false,
         })
+        if (typeof block.type === 'string' && block.type.endsWith('tool_use')) {
+          effects.push({ type: 'tool_call_start', index })
+        }
         if (
           block.type === 'server_tool_use' &&
           block.name === 'web_search' &&
@@ -142,7 +145,6 @@ export class AnthropicStreamAccumulator {
         const delta = objectField(event.data, 'delta')
         if (delta.type === 'text_delta' && typeof delta.text === 'string') {
           state.block.text = `${typeof state.block.text === 'string' ? state.block.text : ''}${delta.text}`
-          this.textLength += delta.text.length
           effects.push({ type: 'text', index, delta: delta.text })
         } else if (delta.type === 'thinking_delta' && typeof delta.thinking === 'string') {
           state.block.thinking = `${typeof state.block.thinking === 'string' ? state.block.thinking : ''}${delta.thinking}`
@@ -178,16 +180,9 @@ export class AnthropicStreamAccumulator {
           })
         }
         if (state.block.type === 'text' && Array.isArray(state.block.citations)) {
-          const end =
-            state.textStart + (typeof state.block.text === 'string' ? state.block.text.length : 0)
+          const textLength = typeof state.block.text === 'string' ? state.block.text.length : 0
           for (const citation of state.block.citations) {
-            effects.push({
-              type: 'citation',
-              index,
-              citation,
-              start: state.textStart,
-              end,
-            })
+            effects.push({ type: 'citation', index, citation, textLength })
           }
         }
         break

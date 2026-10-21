@@ -116,7 +116,12 @@ async function runAnthropicAttempt(
   let upstreamResponseId: string | null = null
   let discardPartialOutput = false
   let refusalObserved = false
-  let answerStarted = false
+  /**
+   * Anthropic 没有 Responses 的 message phase，text block 流出时无法预知其后是否还有工具调用。
+   * 正文先照常流式下发；随后一旦出现工具调用，就把上一个工具调用之后的全部正文改归
+   * commentary，与 Responses 调用前的进展说明同样进入过程轨。该状态跨 pause_turn 续跑保留。
+   */
+  let pendingAnswer: { itemId: string; processStepIndex: number } | null = null
   const rawContent: AnthropicContentBlock[] = []
   const searchActionById = new Map<string, SearchAction>()
   const searchStepById = new Map<string, Extract<ProcessStep, { kind: 'search' }>>()
@@ -132,7 +137,6 @@ async function runAnthropicAttempt(
     for (let continuation = 0; ; continuation++) {
       const billingStartedAt = Date.now()
       const accumulator = new AnthropicStreamAccumulator()
-      const textOffset = text.length
 
       try {
         for await (const event of client.createAnthropicMessageStream(
@@ -149,12 +153,37 @@ async function runAnthropicAttempt(
           )
           for (const effect of accumulator.accept(event)) {
             if (effect.type === 'text') {
-              if (!answerStarted) {
-                answerStarted = true
-                persistEmit(RUN_EVENT_TYPE.answerStarted, {})
+              if (!pendingAnswer) {
+                pendingAnswer = {
+                  itemId: `anthropic-text-${continuation}:${effect.index}`,
+                  processStepIndex: processSteps.length,
+                }
+                persistEmit(RUN_EVENT_TYPE.answerStarted, { itemId: pendingAnswer.itemId })
               }
               text += effect.delta
-              persistEmit('response.output_text.delta', { delta: effect.delta })
+              persistEmit('response.output_text.delta', {
+                item_id: pendingAnswer.itemId,
+                delta: effect.delta,
+              })
+            } else if (effect.type === 'tool_call_start') {
+              if (pendingAnswer) {
+                // 正文只含上一个工具调用之后的文本，整体就是这次调用前的进展说明；
+                // 按其开始时的位置插回过程轨，中间若夹着 thinking 也保持真实顺序。
+                processSteps.splice(pendingAnswer.processStepIndex, 0, {
+                  kind: 'commentary',
+                  text,
+                })
+                persistEmit(RUN_EVENT_TYPE.outputItemReclassified, {
+                  itemId: pendingAnswer.itemId,
+                  phase: 'commentary',
+                  commentaryText: text,
+                  answerText: '',
+                  annotations: [],
+                })
+                text = ''
+                annotations.length = 0
+                pendingAnswer = null
+              }
             } else if (effect.type === 'thinking') {
               const partKey = `${continuation}:${effect.index}`
               let reasoningStep = reasoningStepByPartKey.get(partKey)
@@ -170,10 +199,11 @@ async function runAnthropicAttempt(
                 summary_index: 0,
               })
             } else if (effect.type === 'citation') {
+              // 引用在所属 text block 结束时到达，此时该 block 的文本正好位于正文末尾。
               const citation = anthropicCitation(
                 effect.citation,
-                textOffset + effect.start,
-                textOffset + effect.end,
+                text.length - effect.textLength,
+                text.length,
               )
               if (citation) {
                 annotations.push(citation)

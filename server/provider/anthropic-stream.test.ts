@@ -112,6 +112,7 @@ describe('AnthropicStreamAccumulator', () => {
     expect(effects).toEqual(
       expect.arrayContaining([
         { type: 'thinking', index: 0, delta: '推理摘要' },
+        { type: 'tool_call_start', index: 1 },
         { type: 'web_search_start', index: 1, id: 'srv_1' },
         {
           type: 'web_search_input',
@@ -123,9 +124,17 @@ describe('AnthropicStreamAccumulator', () => {
         { type: 'text', index: 3, delta: '答案' },
       ]),
     )
+    expect(
+      effects.filter(
+        (effect) => effect.type === 'tool_call_start' || effect.type === 'web_search_start',
+      ),
+    ).toEqual([
+      { type: 'tool_call_start', index: 1 },
+      { type: 'web_search_start', index: 1, id: 'srv_1' },
+    ])
     expect(effects.find((effect) => effect.type === 'citation')).toMatchObject({
-      start: 0,
-      end: 2,
+      index: 3,
+      textLength: 2,
     })
     expect(accumulator.usage).toMatchObject({
       input_tokens: 5,
