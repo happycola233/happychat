@@ -11,12 +11,14 @@ import { Bookmark } from 'lucide-react'
 import { clsx } from 'clsx'
 import type { TimelineNavPosition } from '@shared/types/domain'
 import {
+  liveTimelineReply,
   resolveActiveTimelineId,
   TIMELINE_JUMP_OFFSET_PX,
   type TimelineItem,
 } from './timelineItems'
 import { Markdown } from './Markdown'
 import { useMessageBookmark } from '../hooks/useMessageBookmark'
+import { useStreamStore } from '../store/stream'
 import './timeline.css'
 
 const COLLAPSE_DELAY_MS = 160
@@ -28,6 +30,18 @@ interface Props {
   items: TimelineItem[]
   scrollContainerRef: RefObject<HTMLDivElement | null>
   onJump: (messageId: string) => void
+}
+
+/** 悬停的这一轮仍在流式生成时，预览单独订阅流式正文；时间轴本身不随增量重渲染。 */
+function TimelineReplyPreview({
+  conversationId,
+  item,
+}: {
+  conversationId: string
+  item: TimelineItem
+}) {
+  const liveReply = useStreamStore((s) => liveTimelineReply(item, s.byConversation[conversationId]))
+  return <Markdown text={liveReply || item.reply} variant="preview" />
 }
 
 /** 一轮一刻度；悬停只预览这一轮，阅读位置与悬停位置独立。 */
@@ -293,7 +307,7 @@ export function TimelineNav({
               />
             </button>
           </div>
-          <Markdown text={preview.reply} variant="preview" />
+          <TimelineReplyPreview conversationId={conversationId} item={preview} />
         </div>
       )}
     </nav>

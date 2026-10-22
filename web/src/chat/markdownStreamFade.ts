@@ -1,6 +1,6 @@
 import type { Element, ElementContent, Root } from 'hast'
 
-// 每个可见单元被包裹后使用的类名；淡入动画定义见 index.css 的 .hc-stream-seg。
+// 新到达文字的包裹类名；淡入动画定义见 index.css 的 .hc-stream-seg。
 const SEGMENT_CLASS = 'hc-stream-seg'
 
 // 代码块 / 行内代码 / 公式 / 矢量图内部不拆分：保留原节点，避免破坏高亮、KaTeX 与语义。
@@ -20,7 +20,6 @@ function shouldSkip(node: Element): boolean {
 }
 
 // 把一段文本切成「可见单元」：连续空白保持纯文本，ASCII 单词整体成段，其余按单个码点成段。
-// 逐段包裹后，仅新到达的 <span> 会在挂载时播放淡入，已存在的文本不会重播动画。
 const UNIT_RE = /(\s+)|([A-Za-z0-9]+(?:[-'’][A-Za-z0-9]+)*)|(.)/gsu
 
 export interface VisibleUnit {
@@ -29,7 +28,7 @@ export interface VisibleUnit {
   isSpace: boolean
 }
 
-/** 可见单元切分（CJK 逐字、ASCII 整词）；思考卡小标题的错峰渐入也复用同一口径。 */
+/** 可见单元切分（CJK 逐字、ASCII 整词），供思考卡小标题逐字错峰扫入。 */
 export function splitVisibleUnits(value: string): VisibleUnit[] {
   const units: VisibleUnit[] = []
   for (const match of value.matchAll(UNIT_RE)) {
@@ -38,43 +37,99 @@ export function splitVisibleUnits(value: string): VisibleUnit[] {
   return units
 }
 
-export function segmentText(value: string): ElementContent[] {
-  return splitVisibleUnits(value).map((unit): ElementContent => {
-    if (unit.isSpace) return { type: 'text', value: unit.chunk }
-    return {
-      type: 'element',
-      tagName: 'span',
-      properties: { className: [SEGMENT_CLASS] },
-      children: [{ type: 'text', value: unit.chunk }],
-    }
-  })
+/**
+ * 单个流式 Markdown 块的渐入进度，偏移量按「可渐入文字」计数（跳过代码与公式）。
+ *
+ * 同一次流式更新到达的文字包进同一个 span：React 只挂载最新一段，旧段保持原节点、不重播动画；
+ * 相比逐字包裹，DOM 节点与同时运行的动画（各占一个合成层）都从「字数」级降到「更新次数」级。
+ */
+export interface StreamFadeState {
+  /** 已播完渐入、按纯文本渲染的前缀长度。 */
+  plainLength: number
+  /** plainLength 之后每次渲染结束时的文字长度（递增），相邻边界之间是同一次更新的文字。 */
+  chunkEnds: number[]
+  /** 最近一次渲染的文字总长。 */
+  renderedLength: number
 }
 
-function segmentChildren(children: ElementContent[]): ElementContent[] {
-  const next: ElementContent[] = []
-  for (const child of children) {
-    if (child.type === 'text') {
-      next.push(...segmentText(child.value))
-      continue
-    }
-    if (child.type === 'element') {
-      if (!shouldSkip(child)) child.children = segmentChildren(child.children)
-      next.push(child)
-      continue
-    }
-    next.push(child)
-  }
-  return next
+export function createStreamFadeState(): StreamFadeState {
+  return { plainLength: 0, chunkEnds: [], renderedLength: 0 }
 }
 
 /**
- * rehype 插件：流式渲染时把正文文本按可见单元包成 <span class="hc-stream-seg">，
- * 配合 CSS 让新到达的文字逐段淡入，替代原来的打字光标。
- * 需放在 rehype-katex / rehype-highlight 之后运行，并跳过代码与公式子树。
+ * 块停止变化且动画已播完后调用：把已有文字全部转为纯文本，释放渐入 span。
+ * 返回是否有 span 需要通过重渲染移除；之后若块继续生长，只有新文字会渐入。
  */
-export function rehypeStreamFade() {
+export function settleStreamFade(state: StreamFadeState): boolean {
+  if (state.plainLength >= state.renderedLength) return false
+  state.plainLength = state.renderedLength
+  state.chunkEnds = []
+  return true
+}
+
+function textPiece(value: string): ElementContent {
+  // 纯空白保持文本节点：列表、表格等容器的子节点间只有空白，包成 span 会破坏 DOM 结构。
+  if (!value.trim()) return { type: 'text', value }
+  return {
+    type: 'element',
+    tagName: 'span',
+    properties: { className: [SEGMENT_CLASS] },
+    children: [{ type: 'text', value }],
+  }
+}
+
+/**
+ * rehype 插件：按 state 记录的更新边界，把每次新到达的文字包成 <span class="hc-stream-seg">，
+ * 配合 CSS 逐段淡入，替代打字光标。需放在 rehype-katex / rehype-highlight 之后运行。
+ *
+ * 渲染时会把本次文字长度记为新的边界；同一文本重复渲染（如 StrictMode 双调用）结果不变。
+ */
+export function rehypeStreamFade(state: StreamFadeState) {
   return (tree: Root): void => {
+    const { chunkEnds } = state
+    let offset = 0
+    // 文本节点按文档顺序访问、偏移单调递增，边界指针只需前移。
+    let boundaryIndex = 0
+
+    const splitText = (value: string): ElementContent[] => {
+      const start = offset
+      const end = start + value.length
+      offset = end
+      const pieces: ElementContent[] = []
+      let cursor = start
+      const plainEnd = Math.min(end, state.plainLength)
+      if (plainEnd > cursor) {
+        pieces.push({ type: 'text', value: value.slice(0, plainEnd - start) })
+        cursor = plainEnd
+      }
+      while (boundaryIndex < chunkEnds.length && chunkEnds[boundaryIndex]! <= cursor) {
+        boundaryIndex += 1
+      }
+      while (boundaryIndex < chunkEnds.length && chunkEnds[boundaryIndex]! < end) {
+        const boundary = chunkEnds[boundaryIndex]!
+        pieces.push(textPiece(value.slice(cursor - start, boundary - start)))
+        cursor = boundary
+        boundaryIndex += 1
+      }
+      if (cursor < end) pieces.push(textPiece(value.slice(cursor - start)))
+      return pieces
+    }
+
+    const wrapChildren = (children: ElementContent[]): ElementContent[] =>
+      children.flatMap((child) => {
+        if (child.type === 'text') return splitText(child.value)
+        if (child.type === 'element' && !shouldSkip(child)) {
+          child.children = wrapChildren(child.children)
+        }
+        return [child]
+      })
+
     // 本管线里 Root 的直接子节点均为块级元素/文本，可安全按 ElementContent 处理。
-    tree.children = segmentChildren(tree.children as ElementContent[])
+    tree.children = wrapChildren(tree.children as ElementContent[])
+
+    // 文字因 Markdown 结构变化而变短时丢弃越界边界，再记下本次长度作为下一段的起点。
+    while ((chunkEnds.at(-1) ?? 0) > offset) chunkEnds.pop()
+    if (offset > Math.max(state.plainLength, chunkEnds.at(-1) ?? 0)) chunkEnds.push(offset)
+    state.renderedLength = offset
   }
 }

@@ -63,8 +63,7 @@ describe('ProcessTrack', () => {
     expect(html).toContain('data-testid="commentary-step"')
     expect(html).toContain('hc-process-commentary')
     expect(html).toContain('M16.279 13.793')
-    expect(html).toContain('>我</span>')
-    expect(html).toContain('>。</span>')
+    expect(html).toContain('<span class="hc-stream-seg">我正在核对官方文档。</span>')
     expect(html).not.toContain('正在思考')
   })
 

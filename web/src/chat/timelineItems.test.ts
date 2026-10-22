@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { MessageDTO } from '@shared/types/api'
 import {
+  liveTimelineReply,
   resolveActiveTimelineId,
   shouldShowTimeline,
   timelineItemsFromMessages,
@@ -31,8 +32,14 @@ describe('timelineItemsFromMessages', () => {
       userMessage('u2', '你好'),
     ])
     expect(items).toEqual([
-      { id: 'u1', prompt: '第一行 第二行 结尾', reply: '回复', bookmarked: false },
-      { id: 'u2', prompt: '你好', reply: '等待回复', bookmarked: false },
+      {
+        id: 'u1',
+        prompt: '第一行 第二行 结尾',
+        reply: '回复',
+        replyMessageId: 'a1',
+        bookmarked: false,
+      },
+      { id: 'u2', prompt: '你好', reply: '等待回复', replyMessageId: null, bookmarked: false },
     ])
   })
 
@@ -48,8 +55,8 @@ describe('timelineItemsFromMessages', () => {
       content: [{ type: 'input_file', attachmentId: 'att2', filename: 'a.txt' }],
     } as unknown as MessageDTO
     expect(timelineItemsFromMessages([withImage, withFile])).toEqual([
-      { id: 'u1', prompt: '[图片]', reply: '等待回复', bookmarked: false },
-      { id: 'u2', prompt: '[附件]', reply: '等待回复', bookmarked: false },
+      { id: 'u1', prompt: '[图片]', reply: '等待回复', replyMessageId: null, bookmarked: false },
+      { id: 'u2', prompt: '[附件]', reply: '等待回复', replyMessageId: null, bookmarked: false },
     ])
   })
 
@@ -66,25 +73,31 @@ describe('timelineItemsFromMessages', () => {
     expect(items[0]?.bookmarked).toBe(true)
   })
 
-  it('使用当前流式正文，不把 reasoning 或 commentary 当作回复', () => {
+  it('不把 commentary 当作回复，生成中的占位消息显示等待文案', () => {
     const user = userMessage('u1', '提问')
     const assistant = assistantMessage('a1', '旧正文')
     assistant.content.unshift({ type: 'output_text', text: '过程说明', phase: 'commentary' })
     expect(timelineItemsFromMessages([user, assistant])[0]?.reply).toBe('旧正文')
-    expect(
-      timelineItemsFromMessages([user, assistant], {
-        assistantMessageId: 'a1',
-        text: '**正在更新**',
-        status: 'streaming',
-      })[0]?.reply,
-    ).toBe('**正在更新**')
-    expect(
-      timelineItemsFromMessages([user, assistant], {
-        assistantMessageId: 'a1',
-        text: '',
-        status: 'streaming',
-      })[0]?.reply,
-    ).toBe('正在回复…')
+
+    const pending = { ...assistantMessage('a2', ''), status: 'streaming' } as MessageDTO
+    expect(timelineItemsFromMessages([user, pending])[0]).toMatchObject({
+      reply: '正在回复…',
+      replyMessageId: 'a2',
+    })
+  })
+
+  it('悬停预览只叠加属于这一轮的流式正文', () => {
+    const [item] = timelineItemsFromMessages([
+      userMessage('u1', '提问'),
+      assistantMessage('a1', ''),
+    ])
+
+    expect(liveTimelineReply(item!, { assistantMessageId: 'a1', text: '  **正在更新**  ' })).toBe(
+      '**正在更新**',
+    )
+    expect(liveTimelineReply(item!, { assistantMessageId: 'a1', text: '' })).toBe('')
+    expect(liveTimelineReply(item!, { assistantMessageId: 'a2', text: '另一轮' })).toBe('')
+    expect(liveTimelineReply(item!, undefined)).toBe('')
   })
 
   it('生成图片有明确摘要，长文本限制预览解析量', () => {

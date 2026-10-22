@@ -1,13 +1,19 @@
-import { Children, isValidElement, memo, useId, useMemo, useRef, useState } from 'react'
+import {
+  Children,
+  isValidElement,
+  memo,
+  useEffect,
+  useId,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from 'react'
 import type { MouseEvent, ReactElement, ReactNode } from 'react'
 import { clsx } from 'clsx'
 import ReactMarkdown from 'react-markdown'
 import type { Components, Options } from 'react-markdown'
-import remarkCjkFriendly from 'remark-cjk-friendly/parseOnly'
-import remarkCjkFriendlyGfmStrikethrough from 'remark-cjk-friendly-gfm-strikethrough/parseOnly'
-import remarkGfm from 'remark-gfm'
-import remarkMath from 'remark-math'
-import remarkFlexibleMarkers from 'remark-flexible-markers'
+import type { PluggableList } from 'unified'
 import rehypeRaw from 'rehype-raw'
 import rehypeKatex from 'rehype-katex'
 import rehypeHighlight from 'rehype-highlight'
@@ -23,7 +29,9 @@ import {
 } from './markdownAlerts'
 import type { MarkdownAlertType } from './markdownAlerts'
 import { normalizeMarkdownMath } from './markdownMath'
-import { rehypeStreamFade } from './markdownStreamFade'
+import { MARKDOWN_REMARK_PLUGINS } from './markdownRemarkPlugins'
+import { createStreamingBlockSplitter } from './markdownStreamBlocks'
+import { createStreamFadeState, rehypeStreamFade, settleStreamFade } from './markdownStreamFade'
 import { markdownSanitizeSchema, rehypeSafeInlineStyles, rehypeSanitize } from './markdownHtml'
 import { MESSAGE_BODY_TEXT_CLASS } from './messageStyles'
 import { resolveNearestTargetScrollTop } from './scrollAnchor'
@@ -439,15 +447,12 @@ const PREVIEW_COMPONENTS: Components = {
   img: ({ alt }) => <span>{alt ? `[图片：${alt}]` : '[图片]'}</span>,
 }
 
-const REMARK_PLUGINS: Options['remarkPlugins'] = [
-  remarkGfm,
-  // CommonMark 会把 CJK 句末标点视为 punctuation，导致 `**文字。**文字` 无法闭合。
-  // 解析期扩展保留标准 AST，并覆盖同类的强调、粗体与 GFM 删除线；删除线扩展须位于 GFM 之后。
-  remarkCjkFriendly,
-  remarkCjkFriendlyGfmStrikethrough,
-  [remarkFlexibleMarkers, { actionForEmptyContent: 'keep' }],
-  [remarkMath, { singleDollarTextMath: false }],
-]
+// rehype-highlight 每次挂载都会重新注册全部常用语言（createLowlight），而 react-markdown 每次渲染
+// 都新建处理器：流式时每帧都要白付这笔开销。只在模块加载时初始化一次，之后复用同一个转换函数。
+const highlightCodeBlocks = rehypeHighlight()
+function rehypeHighlightShared() {
+  return highlightCodeBlocks
+}
 
 const ANNOUNCEMENT_SANITIZE_SCHEMA = {
   ...markdownSanitizeSchema,
@@ -461,6 +466,48 @@ const ANNOUNCEMENT_COMPONENTS: Components = {
   img: AnnouncementImage,
 }
 
+/** 一个 Markdown 实例内各块共用的渲染管线（不含流式渐入）。 */
+interface MarkdownPipeline {
+  remarkRehypeOptions: Options['remarkRehypeOptions']
+  rehypePlugins: PluggableList
+  components: Components
+}
+
+// 略长于 .hc-stream-seg 的 0.5s 渐入：块停止变化这么久后，其中的 span 都已播完动画，可无感换成纯文本。
+const STREAM_FADE_SETTLE_MS = 600
+
+/** 流式渲染的单个顶层块：文本不变即跳过重渲染；新到达的文字逐段渐入，停止变化后收拢为纯文本。 */
+const StreamingMarkdownBlock = memo(function StreamingMarkdownBlock({
+  text,
+  pipeline,
+}: {
+  text: string
+  pipeline: MarkdownPipeline
+}) {
+  const [fade] = useState(createStreamFadeState)
+  const [, rerender] = useReducer((count: number) => count + 1, 0)
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      if (settleStreamFade(fade)) rerender()
+    }, STREAM_FADE_SETTLE_MS)
+    return () => window.clearTimeout(timer)
+  }, [fade, text])
+  const rehypePlugins = useMemo<PluggableList>(
+    () => [...pipeline.rehypePlugins, [rehypeStreamFade, fade]],
+    [fade, pipeline.rehypePlugins],
+  )
+  return (
+    <ReactMarkdown
+      remarkPlugins={MARKDOWN_REMARK_PLUGINS}
+      remarkRehypeOptions={pipeline.remarkRehypeOptions}
+      rehypePlugins={rehypePlugins}
+      components={pipeline.components}
+    >
+      {text}
+    </ReactMarkdown>
+  )
+})
+
 function MarkdownImpl({
   text,
   variant = 'message',
@@ -470,18 +517,39 @@ function MarkdownImpl({
 }: MarkdownProps) {
   const normalizedText = normalizeMarkdownMath(text)
   const reactId = useId()
-  const clobberPrefix = useMemo(() => markdownInstancePrefix(reactId), [reactId])
-  // 流式时追加 rehypeStreamFade，把正文按可见单元包 span 做逐段渐入；静态时省去以免多余 span。
-  const rehypePlugins = useMemo<Options['rehypePlugins']>(
-    () => [
-      rehypeRaw,
-      rehypeSafeInlineStyles,
-      [rehypeSanitize, announcementImages ? ANNOUNCEMENT_SANITIZE_SCHEMA : markdownSanitizeSchema],
-      [rehypeKatex, { throwOnError: false }],
-      rehypeHighlight,
-      ...(animate ? [rehypeStreamFade] : []),
-    ],
-    [animate, announcementImages],
+  const [blockSplitter] = useState(createStreamingBlockSplitter)
+  const pipeline = useMemo<MarkdownPipeline>(
+    () => ({
+      remarkRehypeOptions: {
+        allowDangerousHtml: true,
+        clobberPrefix: markdownInstancePrefix(reactId),
+        footnoteLabel: '脚注',
+        footnoteBackContent: FOOTNOTE_BACK_CONTENT,
+        footnoteBackLabel,
+      },
+      rehypePlugins: [
+        rehypeRaw,
+        rehypeSafeInlineStyles,
+        [
+          rehypeSanitize,
+          announcementImages ? ANNOUNCEMENT_SANITIZE_SCHEMA : markdownSanitizeSchema,
+        ],
+        [rehypeKatex, { throwOnError: false }],
+        rehypeHighlightShared,
+      ],
+      components:
+        variant === 'preview'
+          ? PREVIEW_COMPONENTS
+          : announcementImages
+            ? ANNOUNCEMENT_COMPONENTS
+            : COMPONENTS_BY_VARIANT[variant][animate ? 'streaming' : 'static'],
+    }),
+    [animate, announcementImages, reactId, variant],
+  )
+  // 流式时按顶层块分别渲染：已闭合的块不再重新解析，单次增量只处理仍在生长的最后一块。
+  const streamingBlocks = useMemo(
+    () => (animate ? blockSplitter.split(normalizedText) : null),
+    [animate, blockSplitter, normalizedText],
   )
   return (
     <div
@@ -495,26 +563,23 @@ function MarkdownImpl({
         className,
       )}
     >
-      <ReactMarkdown
-        remarkPlugins={REMARK_PLUGINS}
-        remarkRehypeOptions={{
-          allowDangerousHtml: true,
-          clobberPrefix,
-          footnoteLabel: '脚注',
-          footnoteBackContent: FOOTNOTE_BACK_CONTENT,
-          footnoteBackLabel,
-        }}
-        rehypePlugins={rehypePlugins}
-        components={
-          variant === 'preview'
-            ? PREVIEW_COMPONENTS
-            : announcementImages
-              ? ANNOUNCEMENT_COMPONENTS
-              : COMPONENTS_BY_VARIANT[variant][animate ? 'streaming' : 'static']
-        }
-      >
-        {normalizedText}
-      </ReactMarkdown>
+      {streamingBlocks ? (
+        // 块只会在末尾追加，下标即稳定身份。
+        streamingBlocks.map((block, index) => (
+          <StreamingMarkdownBlock key={index} text={block} pipeline={pipeline} />
+        ))
+      ) : (
+        // 静态内容整篇渲染；流式文本含引用定义而无法分块时也走这里，此时不做渐入，
+        // 否则从分块切换到整篇时所有节点重挂载，全文会重播一遍淡入。
+        <ReactMarkdown
+          remarkPlugins={MARKDOWN_REMARK_PLUGINS}
+          remarkRehypeOptions={pipeline.remarkRehypeOptions}
+          rehypePlugins={pipeline.rehypePlugins}
+          components={pipeline.components}
+        >
+          {normalizedText}
+        </ReactMarkdown>
+      )}
     </div>
   )
 }

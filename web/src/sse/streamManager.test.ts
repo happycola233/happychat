@@ -38,3 +38,42 @@ describe('队列交接后的旧流', () => {
     })
   })
 })
+
+describe('增量提交节奏', () => {
+  it('同一帧内到达的增量合并为一次提交，终止事件立即提交', async () => {
+    vi.stubGlobal('EventSource', FakeEventSource)
+    const frames: FrameRequestCallback[] = []
+    vi.stubGlobal('window', {
+      setTimeout,
+      clearTimeout,
+      requestAnimationFrame: (callback: FrameRequestCallback) => frames.push(callback),
+      cancelAnimationFrame: vi.fn(),
+    })
+    const { startStream } = await import('./streamManager')
+    startStream({ runId: 'paced', conversationId: 'chat', assistantMessageId: 'a', fromSeq: -1 })
+    const source = FakeEventSource.sources.at(-1)!
+    const commits = vi.fn()
+    const unsubscribe = useStreamStore.subscribe(commits)
+    const delta = (seq: number, text: string) =>
+      source.onmessage?.({
+        data: JSON.stringify({ seq, type: 'response.output_text.delta', data: { delta: text } }),
+      })
+
+    delta(1, '你')
+    delta(2, '好')
+    expect(commits).not.toHaveBeenCalled()
+    expect(frames).toHaveLength(1)
+
+    frames[0]!(0)
+    expect(commits).toHaveBeenCalledTimes(1)
+    expect(useStreamStore.getState().byConversation.chat?.text).toBe('你好')
+
+    delta(3, '！')
+    source.onmessage?.({
+      data: JSON.stringify({ seq: 4, type: 'run.done', data: { state: 'completed' } }),
+    })
+    expect(commits).toHaveBeenCalledTimes(2)
+    expect(useStreamStore.getState().byConversation.chat?.text).toBe('你好！')
+    unsubscribe()
+  })
+})

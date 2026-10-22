@@ -1,4 +1,13 @@
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+  Fragment,
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { clsx } from 'clsx'
 import { ChevronDown, Globe } from 'lucide-react'
 import type { SearchAction } from '@shared/types/domain'
@@ -15,7 +24,7 @@ import {
 import { elapsedSeconds } from './elapsed'
 import { splitVisibleUnits } from './markdownStreamFade'
 import { normalizeReasoningMarkdown } from './reasoningMarkdown'
-import { splitReasoningSections, type ReasoningSection } from './reasoningSections'
+import { splitReasoningSections } from './reasoningSections'
 
 export type ProcessTrackStatus = 'working' | 'paused' | 'completed' | 'stopped'
 
@@ -105,8 +114,17 @@ function AnimatedSectionTitle({ text }: { text: string }) {
   )
 }
 
-function ReasoningRow({ section, animate }: { section: ReasoningSection; animate: boolean }) {
-  const hasBody = section.body.trim().length > 0
+// 行组件均按值 memo：流式时只有仍在生长的那一行随增量重渲染。
+const ReasoningRow = memo(function ReasoningRow({
+  title,
+  body,
+  animate,
+}: {
+  title: string | null
+  body: string
+  animate: boolean
+}) {
+  const hasBody = body.trim().length > 0
   return (
     <li
       className={clsx(
@@ -114,7 +132,7 @@ function ReasoningRow({ section, animate }: { section: ReasoningSection; animate
         animate && 'hc-reasoning-step-in',
       )}
     >
-      {section.title && (
+      {title && (
         <>
           <span
             aria-hidden
@@ -124,23 +142,23 @@ function ReasoningRow({ section, animate }: { section: ReasoningSection; animate
             )}
           />
           <div className="text-sm leading-6 font-medium text-neutral-950 dark:text-neutral-100">
-            {animate ? <AnimatedSectionTitle text={section.title} /> : section.title}
+            {animate ? <AnimatedSectionTitle text={title} /> : title}
           </div>
         </>
       )}
-      {(hasBody || !section.title) && (
+      {(hasBody || !title) && (
         <>
           <span
             aria-hidden
             className={clsx(
               'w-px justify-self-center bg-neutral-300 dark:bg-neutral-600',
-              section.title && 'mt-1',
+              title && 'mt-1',
             )}
           />
-          <div className={clsx('min-w-0', section.title && 'mt-1')}>
+          <div className={clsx('min-w-0', title && 'mt-1')}>
             {hasBody && (
               <Markdown
-                text={section.body}
+                text={body}
                 variant="reasoning"
                 className="hc-reasoning-detail"
                 animate={animate}
@@ -151,9 +169,9 @@ function ReasoningRow({ section, animate }: { section: ReasoningSection; animate
       )}
     </li>
   )
-}
+})
 
-function CommentaryRow({
+const CommentaryRow = memo(function CommentaryRow({
   step,
   animate,
 }: {
@@ -185,9 +203,15 @@ function CommentaryRow({
       />
     </li>
   )
-}
+})
 
-function SearchRow({ step, animate }: { step: LiveSearchStep; animate: boolean }) {
+const SearchRow = memo(function SearchRow({
+  step,
+  animate,
+}: {
+  step: LiveSearchStep
+  animate: boolean
+}) {
   const phase = step.action ? 'action' : 'pending'
   return (
     <li
@@ -210,6 +234,32 @@ function SearchRow({ step, animate }: { step: LiveSearchStep; animate: boolean }
       </div>
     </li>
   )
+})
+
+type ProcessRow =
+  | { kind: 'reasoning'; key: string; title: string | null; body: string }
+  | { kind: 'commentary'; key: string; step: Extract<LiveProcessStep, { kind: 'commentary' }> }
+  | { kind: 'search'; key: string; step: LiveSearchStep }
+
+/** 推理步骤按小标题拆成多行；其余步骤一步一行。 */
+function processRowsOf(steps: LiveProcessStep[]): ProcessRow[] {
+  return steps.flatMap((step): ProcessRow[] => {
+    if (step.kind === 'reasoning') {
+      return splitReasoningSections(normalizeReasoningMarkdown(step.text)).map(
+        (section, index) => ({
+          kind: 'reasoning',
+          key: `${step.id}-${index}`,
+          title: section.title,
+          body: section.body,
+        }),
+      )
+    }
+    return [
+      step.kind === 'commentary'
+        ? { kind: 'commentary', key: step.id, step }
+        : { kind: 'search', key: step.id, step },
+    ]
+  })
 }
 
 function SummaryFooter({ label }: { label: string }) {
@@ -302,14 +352,11 @@ export function ProcessTrack({
   const collapseAnchorRef = useRef<CollapseScrollAnchor | null>(null)
 
   const visibleSteps = useMemo(
-    () =>
-      steps.filter(
-        (step) =>
-          step.kind === 'search' ||
-          (step.kind === 'reasoning' ? step.text.trim().length > 0 : step.text.trim().length > 0),
-      ),
+    () => steps.filter((step) => step.kind === 'search' || step.text.trim().length > 0),
     [steps],
   )
+  // 已入库消息的 steps 引用稳定，整页重渲染时不必重新规范化并拆分全部历史推理文本。
+  const rows = useMemo(() => processRowsOf(visibleSteps), [visibleSteps])
   const searchSteps = visibleSteps.filter((step): step is LiveSearchStep => step.kind === 'search')
   const searchActions = searchSteps
     .map((step) => step.action)
@@ -396,6 +443,7 @@ export function ProcessTrack({
         ? [activeSearchLabelOf(searchSteps)]
         : completedSegments
   const activelyWorking = status === 'working' && (activeSearch || reasoningEnabled)
+  const animateRows = status === 'working'
   const pureSearch =
     durationMs == null &&
     !hasReasoningStep &&
@@ -466,23 +514,21 @@ export function ProcessTrack({
         >
           <div className="min-h-0 overflow-hidden">
             <ol className="space-y-2 pt-2 pr-2 pb-1">
-              {visibleSteps.flatMap((step) => {
-                if (step.kind === 'reasoning') {
-                  const normalized = normalizeReasoningMarkdown(step.text)
-                  return splitReasoningSections(normalized).map((section, index) => (
+              {rows.map((row) => {
+                if (row.kind === 'reasoning') {
+                  return (
                     <ReasoningRow
-                      key={`${step.id}-${index}`}
-                      section={section}
-                      animate={status === 'working'}
+                      key={row.key}
+                      title={row.title}
+                      body={row.body}
+                      animate={animateRows}
                     />
-                  ))
+                  )
                 }
-                if (step.kind === 'commentary') {
-                  return [
-                    <CommentaryRow key={step.id} step={step} animate={status === 'working'} />,
-                  ]
+                if (row.kind === 'commentary') {
+                  return <CommentaryRow key={row.key} step={row.step} animate={animateRows} />
                 }
-                return [<SearchRow key={step.id} step={step} animate={status === 'working'} />]
+                return <SearchRow key={row.key} step={row.step} animate={animateRows} />
               })}
               {status === 'completed' && <SummaryFooter label={label} />}
             </ol>

@@ -178,9 +178,8 @@ describe('Markdown CJK-friendly emphasis', () => {
   it('also applies while streaming without leaking delimiter markers', () => {
     const html = renderToStaticMarkup(<Markdown text={'**文字。**文字'} animate />)
 
-    expect(html).toContain('<strong>')
+    expect(html).toContain('<strong><span class="hc-stream-seg">文字。</span></strong>')
     expect(html).not.toContain('**')
-    expect(html).toMatch(/<span class="hc-stream-seg">文<\/span>/)
   })
 
   it('keeps emphasis stable when text arrives after a completed CJK delimiter', () => {
@@ -310,8 +309,7 @@ describe('Markdown GitHub Alerts', () => {
     expect(html).toContain('<span>Tip</span>')
     expect(html).not.toContain('[!tip]')
     expect(html).not.toContain('<span class="hc-stream-seg">Tip</span>')
-    expect(html).toMatch(/<span class="hc-stream-seg">你<\/span>/)
-    expect(html).toMatch(/<span class="hc-stream-seg">world<\/span>/)
+    expect(html).toContain('<span class="hc-stream-seg">你好 world</span>')
   })
 })
 
@@ -408,14 +406,10 @@ describe('Markdown math', () => {
 })
 
 describe('Markdown 流式渐入', () => {
-  it('animate 时把正文按可见单元包成 hc-stream-seg（CJK 逐字、ASCII 整词）', () => {
+  it('animate 时把同一次到达的正文整段包进 hc-stream-seg', () => {
     const html = renderToStaticMarkup(<Markdown text={'你好 world'} animate />)
 
-    expect(html).toMatch(/<span class="hc-stream-seg">你<\/span>/)
-    expect(html).toMatch(/<span class="hc-stream-seg">好<\/span>/)
-    // ASCII 单词整体成段，不逐字拆开。
-    expect(html).toMatch(/<span class="hc-stream-seg">world<\/span>/)
-    expect(html).not.toContain('>w</span>')
+    expect(html).toContain('<p><span class="hc-stream-seg">你好 world</span></p>')
   })
 
   it('默认（非流式）不包裹，正文保持连续文本', () => {
@@ -429,9 +423,41 @@ describe('Markdown 流式渐入', () => {
     const html = renderToStaticMarkup(<Markdown text={'看 `code` 这里'} animate />)
 
     // 行内代码原样保留，内部不拆分。
-    expect(html).toContain('<code>code</code>')
-    expect(html).toMatch(/<span class="hc-stream-seg">看<\/span>/)
-    expect(html).toMatch(/<span class="hc-stream-seg">这<\/span>/)
+    expect(html).toContain(
+      '<span class="hc-stream-seg">看 </span><code>code</code><span class="hc-stream-seg"> 这里</span>',
+    )
+  })
+
+  it('流式分块渲染与整篇渲染的结构一致', () => {
+    const text = [
+      '# 标题',
+      '第一段 **粗体** 与 `code`，以及 $$x^2$$。',
+      '- 列表一\n\n- 列表二\n  - 嵌套',
+      '| 列 | 值 |\n| --- | --- |\n| a | 1 |',
+      '```ts\nconst a = 1\n\nconst b = 2\n```',
+      '$$\nE = mc^2\n$$',
+      '> [!note]\n> 提示内容',
+      '1. 有序\n2. 列表',
+      '末段\n===',
+    ].join('\n\n')
+    const unwrapFade = (html: string) =>
+      html.replace(/<span class="hc-stream-seg">([^<]*)<\/span>/g, '$1').replace(/>\s+</g, '><')
+
+    const streaming = renderToStaticMarkup(<Markdown text={text} animate />)
+    const settled = renderToStaticMarkup(<Markdown text={text} />)
+
+    expect(streaming).toContain('hc-stream-seg')
+    expect(unwrapFade(streaming)).toBe(unwrapFade(settled))
+  })
+
+  it('流式文本含脚注定义时整篇渲染，引用照常解析', () => {
+    const html = renderToStaticMarkup(
+      <Markdown text={'正文[^a]\n\n下一段\n\n[^a]: 脚注内容。'} animate />,
+    )
+
+    expect(html).toContain('data-footnote-ref')
+    expect(html).toContain('脚注内容。')
+    expect(html).not.toContain('hc-stream-seg')
   })
 })
 

@@ -4,12 +4,14 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type ComponentProps,
   type CSSProperties,
   type KeyboardEvent,
   type WheelEvent,
 } from 'react'
 import { useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
+import { useShallow } from 'zustand/react/shallow'
 import { clsx } from 'clsx'
 import { Menu } from 'lucide-react'
 import type {
@@ -113,6 +115,29 @@ function completionNoticeTitle(queryClient: QueryClient, conversationId: string)
   return compactActivityText(firstUserText, 64) || '新聊天'
 }
 
+/**
+ * 每条消息只订阅属于自己的流式状态：增量只重渲染正在生成的那一条，整页与历史消息不随 token 重渲染。
+ * 流式开始和结束都保持同一组件，过程轨展开状态与图片舞台不会因重新挂载而丢失。
+ */
+function ConversationMessage({
+  conversationId,
+  onLiveUpdate,
+  ...props
+}: Omit<ComponentProps<typeof Message>, 'live'> & {
+  conversationId: string | undefined
+  onLiveUpdate: () => void
+}) {
+  const messageId = props.message.id
+  const live = useStreamStore((s) => {
+    const stream = conversationId ? s.byConversation[conversationId] : undefined
+    return stream?.assistantMessageId === messageId ? stream : undefined
+  })
+  useEffect(() => {
+    if (live) onLiveUpdate()
+  }, [live, onLiveUpdate])
+  return <Message {...props} live={live} />
+}
+
 export default function ChatView() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -150,7 +175,19 @@ export default function ChatView() {
   const { data: quota } = useMyQuota()
   const modelQuotaExhausted = Boolean(model && quota?.blockedModelIds.includes(model.id))
   const { data: detail } = useConversation(id)
-  const stream = useStreamStore((s) => (id ? s.byConversation[id] : undefined))
+  // 页面只关心 run 身份与状态；正文、过程轨等逐 token 字段由 ConversationMessage 自行订阅。
+  const stream = useStreamStore(
+    useShallow((s) => {
+      const current = id ? s.byConversation[id] : undefined
+      return current
+        ? {
+            runId: current.runId,
+            assistantMessageId: current.assistantMessageId,
+            status: current.status,
+          }
+        : undefined
+    }),
+  )
   const messageQueue = useMessageQueue((s) => (id ? s.byConversation[id] : undefined))
   const sendRequestInFlightRef = useRef(false)
   const queuedSubmissionRef = useRef<{ fingerprint: string; id: string } | null>(null)
@@ -606,10 +643,14 @@ export default function ChatView() {
     if (models) reconcileActiveModel(models)
   }, [id, detail, models, resetActive, reconcileActiveModel])
 
-  // 流式/新内容时仅在贴底状态跟随，避免打断向上翻阅
-  useEffect(() => {
+  // 流式/新内容时仅在贴底状态跟随，避免打断向上翻阅。流式增量由正在生成的消息提交后回调；
+  // run 开始、结束与交接到入库内容（可能多出用量等行）时由这里补一次。
+  const followNewContent = useCallback(() => {
     if (shouldAutoFollowRef.current) scrollToBottom()
-  }, [messages.length, optimisticUser, stream?.text, stream?.processSteps, scrollToBottom])
+  }, [scrollToBottom])
+  useEffect(() => {
+    followNewContent()
+  }, [messages.length, optimisticUser, stream, followNewContent])
 
   // 打开会话时按设置滚动到底（关闭则停留在顶部）
   useEffect(() => {
@@ -984,7 +1025,7 @@ export default function ChatView() {
   // 升层与光晕大渐变的光栅化在打字期完成，发送必先有草稿，发送瞬间依旧没有「首次升层」掉帧，
   // 且落底 transform 在合成线程跑，不被首条消息挂载的主线程重排阻塞。落位后撤下标记。
   const composerLayerWarm = (heroComposer && composerHasDraft) || dockAnimated
-  const timelineItems = timelineItemsFromMessages(messages, stream)
+  const timelineItems = timelineItemsFromMessages(messages)
   const timelineVisible = !isMobile && showTimelineNav && shouldShowTimeline(timelineItems.length)
   const topFadeVisible = shouldShowTopFade({
     viewportWidth,
@@ -1088,10 +1129,11 @@ export default function ChatView() {
                           previousTimestamp={messages[index - 1]?.createdAt}
                         />
                       )}
-                      <Message
+                      <ConversationMessage
+                        conversationId={id}
+                        onLiveUpdate={followNewContent}
                         message={m}
                         costDisplay={detail?.messageCostDisplay}
-                        live={stream && m.id === stream.assistantMessageId ? stream : undefined}
                         branch={branch}
                         busy={
                           streaming ||

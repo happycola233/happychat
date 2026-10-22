@@ -17,7 +17,8 @@ interface StartOptions {
 
 const open = new Map<string, EventSource>()
 const MAX_ATTEMPTS = 6
-const FLUSH_DELAY_MS = 16
+// 页面不可见时 requestAnimationFrame 暂停，用定时器兜底继续折叠事件（浏览器会再节流后台定时器）。
+const HIDDEN_FLUSH_FALLBACK_MS = 250
 
 /**
  * 打开/恢复某 run 的 SSE 流，折叠事件到 stream store。
@@ -43,18 +44,20 @@ export function startStream(opts: StartOptions): void {
   let lastSeq = opts.fromSeq
   let attempt = 0
   let stopped = false
+  let flushFrame: number | null = null
   let flushTimer: number | null = null
   let pendingEvents: WireEvent[] = []
 
-  const clearFlushTimer = () => {
-    if (flushTimer === null) return
-    window.clearTimeout(flushTimer)
+  const cancelScheduledFlush = () => {
+    if (flushFrame !== null) window.cancelAnimationFrame(flushFrame)
+    if (flushTimer !== null) window.clearTimeout(flushTimer)
+    flushFrame = null
     flushTimer = null
   }
 
   const finish = () => {
     stopped = true
-    clearFlushTimer()
+    cancelScheduledFlush()
     pendingEvents = []
     const es = open.get(opts.runId)
     es?.close()
@@ -62,7 +65,7 @@ export function startStream(opts: StartOptions): void {
   }
 
   const flushPending = () => {
-    clearFlushTimer()
+    cancelScheduledFlush()
     if (!pendingEvents.length) return
     const batch = pendingEvents
     pendingEvents = []
@@ -81,9 +84,11 @@ export function startStream(opts: StartOptions): void {
     }
   }
 
+  // 与绘制节奏对齐：一帧内到达的事件合并成一次提交，每帧最多重渲染一次，且紧贴绘制前完成。
   const scheduleFlush = () => {
-    if (flushTimer !== null) return
-    flushTimer = window.setTimeout(flushPending, FLUSH_DELAY_MS)
+    if (flushFrame !== null) return
+    flushFrame = window.requestAnimationFrame(flushPending)
+    flushTimer = window.setTimeout(flushPending, HIDDEN_FLUSH_FALLBACK_MS)
   }
 
   const connect = () => {

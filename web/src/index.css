@@ -966,9 +966,12 @@ html.hc-ios .hc-chat-scroll {
 }
 /* 思考摘要流式期间：新小节（圆点+标题+竖线）与完成页脚入场；
    小节体文字经 Markdown animate 复用正文的 .hc-stream-seg 逐段渐入，
-   小标题按可见单元错峰扫入（AnimatedSectionTitle 注入逐单元 delay）。 */
+   小标题按可见单元错峰扫入（AnimatedSectionTitle 注入逐单元 delay）。
+   流式入场动画一律用 backwards 而非 both/forwards：终帧即元素原样式，播完后不再生效；
+   而保持生效的动画会让 Chrome 把元素一直留在独立合成层，流式文字一多就是上万个层，
+   造成掉帧与滚动时图块来不及光栅化的空白。backwards 仍覆盖 delay 期间的起始帧。 */
 .hc-reasoning-step-in {
-  animation: hc-step-in 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: hc-step-in 0.3s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 /* 新小标题的圆点轻弹落位，与标题文字的扫入同步开始 */
 @keyframes hc-reasoning-dot-in {
@@ -982,7 +985,7 @@ html.hc-ios .hc-chat-scroll {
   }
 }
 .hc-reasoning-dot-in {
-  animation: hc-reasoning-dot-in 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: hc-reasoning-dot-in 0.3s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
 /* 检索活动卡：状态行 + 动作时间线（web_search 的搜索词 chips / 阅读页面 / 页内查找，
@@ -1010,7 +1013,7 @@ html.hc-ios .hc-chat-scroll {
 }
 /* 步骤/内容渐入：动作到达（占位 → 内容）与新行出现共用同一入场（关键帧与思考卡共享）。 */
 .hc-search-step-in {
-  animation: hc-step-in 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: hc-step-in 0.3s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 /* 查询词逐个错峰浮现 */
 @keyframes hc-search-chip-in {
@@ -1024,7 +1027,7 @@ html.hc-ios .hc-chat-scroll {
   }
 }
 .hc-search-chip-in {
-  animation: hc-search-chip-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: hc-search-chip-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 /* web_search 进行中的调用：流动骨架 pill（查询词要等调用完成才回传，不猜内容；
    x_search 一出现就带动作类型，不走骨架） */
@@ -1339,7 +1342,8 @@ html.hc-ios .hc-chat-scroll {
   animation: hc-backdrop-in 0.2s ease-out;
 }
 
-/* 流式正文渐入：新到达的每个可见单元逐段淡入，替代打字光标（见 chat/markdownStreamFade.ts）。 */
+/* 流式正文渐入：每次更新新到达的文字整段淡入，替代打字光标（见 chat/markdownStreamFade.ts）。
+   backwards 的原因同 .hc-reasoning-step-in：播完即释放合成层。 */
 @keyframes hc-stream-fade {
   from {
     opacity: 0;
@@ -1349,7 +1353,7 @@ html.hc-ios .hc-chat-scroll {
   }
 }
 .hc-stream-seg {
-  animation: hc-stream-fade 0.5s ease-out both;
+  animation: hc-stream-fade 0.5s ease-out backwards;
 }
 
 /* 指针捕获保证拖出手柄后仍能调整；全局禁选避免拖动时误选聊天正文。 */
