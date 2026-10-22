@@ -73,6 +73,7 @@ beforeEach(async () => {
         web_search: false,
         x_search: false,
         image_generation: false,
+        artifacts: false,
       },
     })
     .run()

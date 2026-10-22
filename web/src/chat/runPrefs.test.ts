@@ -18,6 +18,7 @@ const baseModel: ModelDTO = {
     image_generation: false,
     web_search: true,
     x_search: false,
+    artifacts: false,
   },
   allowedEfforts: [
     { value: 'none', description: '关闭' },

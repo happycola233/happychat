@@ -34,6 +34,7 @@ function source(messages = [message()]): ExportSource {
     title: '虚构的导出示例',
     timezone: 'Asia/Shanghai',
     exportedAt: stamp,
+    readFiles: true,
     conversation: {
       id: 'conversation-example',
       title: '虚构的导出示例',

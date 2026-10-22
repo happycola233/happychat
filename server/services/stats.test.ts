@@ -397,6 +397,7 @@ describe('cache-write cost integration', () => {
           x_search: false,
           image_generation: false,
           reasoning: false,
+          artifacts: false,
         },
         pricing: { input: 2.5, cacheWriteInput: 3.125, cachedInput: 0.25, output: 10 },
       })
@@ -487,6 +488,7 @@ describe('historical cost snapshots', () => {
           x_search: false,
           image_generation: false,
           reasoning: false,
+          artifacts: false,
         },
         pricing: initialPricing,
       })

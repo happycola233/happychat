@@ -43,6 +43,8 @@ export const capabilitiesSchema = z.object({
   x_search: z.boolean().default(false),
   image_generation: z.boolean(),
   reasoning: z.boolean(),
+  // 后加入的能力位，缺省规则同 x_search。
+  artifacts: z.boolean().default(false),
 })
 
 /** reasoning.effort 是上游标识符：允许自定义，但禁止空白和控制字符。 */
@@ -269,6 +271,7 @@ const defaultCapabilities = {
   x_search: false,
   image_generation: false,
   reasoning: false,
+  artifacts: false,
 }
 
 /** 手动添加模型：providerId + modelId 必填，其余给合理默认。 */

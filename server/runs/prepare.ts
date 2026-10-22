@@ -34,7 +34,8 @@ import {
 import { fileInputMime, isImageMime, isSupportedFileInputMime } from '@shared/util/fileTypes'
 import { toDataUrl, uploadFileExists } from '../storage/files'
 import type { ConvRow, ImageOperation, ModelRow, MsgRow, ProviderRow, RunRow } from './types'
-import { appendRuntimeContextInstructions, buildRuntimeContext } from './runtimeContext'
+import { appendAppProtocols } from './appProtocols'
+import { buildRuntimeContext } from './runtimeContext'
 
 export interface AttachmentRef {
   attachmentId: string
@@ -467,7 +468,7 @@ async function createAssistantAndRun(opts: {
         buildPromptVars({ user: userRow ?? null, model, now: new Date(), clientLocale }),
       )
     }
-    instructions = appendRuntimeContextInstructions(instructions)
+    instructions = appendAppProtocols(instructions, { artifacts: model.capabilities.artifacts })
     // 文本会话始终使用稳定路由 key；其他上游参数仅由通用 hardParams 显式提供。
     const promptCacheKey = promptCacheKeyForConversation(conv.id)
     if (model.kind === 'chat') {

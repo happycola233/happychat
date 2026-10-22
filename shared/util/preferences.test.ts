@@ -26,6 +26,7 @@ describe('mergePreferences', () => {
       messageTimeFormat: 'smart',
       showModelLabel: true,
       showUsageStats: true,
+      autoRunArtifacts: true,
     })
   })
 
@@ -37,6 +38,11 @@ describe('mergePreferences', () => {
   it('旧账号默认压缩新上传图片，并保留用户关闭的选择', () => {
     expect(mergePreferences({ showMessageTime: false }).compressUploadedImages).toBe(true)
     expect(mergePreferences({ compressUploadedImages: false }).compressUploadedImages).toBe(false)
+  })
+
+  it('旧账号默认自动运行图表，并保留用户关闭的选择', () => {
+    expect(mergePreferences({ showMessageTime: false }).autoRunArtifacts).toBe(true)
+    expect(mergePreferences({ autoRunArtifacts: false }).autoRunArtifacts).toBe(false)
   })
 
   it('旧偏好默认在右侧显示时间轴，并保留用户选择的左侧位置', () => {

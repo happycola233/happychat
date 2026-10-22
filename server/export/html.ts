@@ -5,8 +5,17 @@ import remarkRehype from 'remark-rehype'
 import rehypeRaw from 'rehype-raw'
 import rehypeSanitize from 'rehype-sanitize'
 import rehypeStringify from 'rehype-stringify'
+import type { Element, ElementContent, Root } from 'hast'
 import type { MessageDTO } from '@shared/types/api'
 import type { ExportOptions } from '@shared/schemas/export'
+import { artifactTitle, isArtifactLanguage } from '@shared/util/artifactBlocks'
+import {
+  buildArtifactDocument,
+  collectArtifactAssets,
+  HOST_FRAME_POLICY,
+} from '@shared/util/artifactDocument'
+import { ARTIFACT_ASSETS } from '@shared/util/artifactLibraries'
+import { readArtifactAsset } from '../services/artifact-assets'
 import {
   attachmentDisplayName,
   attachmentRefsOf,
@@ -23,8 +32,8 @@ import { formatDurationShort, formatStamp } from './time'
 import type { ExportAttachment, ExportSource } from './types'
 
 /**
- * Markdown → 安全 HTML：与站内渲染同一思路（raw HTML 经 sanitize 白名单过滤），
- * 保证导出文件是自包含且不含可执行脚本的静态页面。
+ * Markdown → 安全 HTML：与站内渲染同一思路（raw HTML 经 sanitize 白名单过滤），正文本身不含可执行脚本。
+ * 回答中的 Artifact 代码块与站内一样放进沙箱 iframe 运行（见 rehypeArtifactFrames）。
  */
 const markdownProcessor = unified()
   .use(remarkParse)
@@ -38,6 +47,86 @@ function renderMarkdown(text: string): string {
   return String(markdownProcessor.processSync(text))
 }
 
+function textOf(node: ElementContent): string {
+  if (node.type === 'text') return node.value
+  return node.type === 'element' ? node.children.map(textOf).join('') : ''
+}
+
+function artifactSource(pre: Element): string | null {
+  const code = pre.children.find(
+    (child): child is Element => child.type === 'element' && child.tagName === 'code',
+  )
+  const classes = code?.properties.className
+  const language = Array.isArray(classes)
+    ? classes
+        .map(String)
+        .find((name) => name.startsWith('language-'))
+        ?.slice('language-'.length)
+    : undefined
+  if (!code || !isArtifactLanguage(language)) return null
+  return code.children.map(textOf).join('').replace(/\n$/, '')
+}
+
+/**
+ * 预览不读盘：库内容换成注释占位，文件结构与正式导出一致；正式导出把库完整内联，单文件离线可用。
+ * Artifact 跟随系统浅色/深色，与导出页面本身的配色方式一致。
+ */
+function artifactFigure(source: string, readFiles: boolean): Element {
+  const title = artifactTitle(source) ?? 'Artifact'
+  const assets = new Map(
+    collectArtifactAssets(source).map((id) => {
+      const { packageName, version } = ARTIFACT_ASSETS[id]
+      return [id, readFiles ? readArtifactAsset(id) : `/* ${packageName}@${version} */`] as const
+    }),
+  )
+  return {
+    type: 'element',
+    tagName: 'figure',
+    properties: { className: ['artifact'] },
+    children: [
+      {
+        type: 'element',
+        tagName: 'iframe',
+        properties: {
+          className: ['artifact-frame'],
+          title,
+          // 与站内相同的安全边界：只允许脚本，不给同源权限。
+          sandbox: 'allow-scripts',
+          srcDoc: buildArtifactDocument({ source, assets, theme: { scheme: 'auto' } }),
+          referrerPolicy: 'no-referrer',
+        },
+        children: [],
+      },
+      {
+        type: 'element',
+        tagName: 'figcaption',
+        properties: {},
+        children: [{ type: 'text', value: title }],
+      },
+    ],
+  }
+}
+
+/** 必须排在净化之后：iframe 是导出器自己生成的可信结构，不能被 Markdown 白名单剔除。 */
+function rehypeArtifactFrames(options: { readFiles: boolean; onArtifact: () => void }) {
+  const replace = (parent: Root | Element) => {
+    parent.children = parent.children.map((child) => {
+      if (child.type !== 'element') return child
+      const source = child.tagName === 'pre' ? artifactSource(child) : null
+      if (source === null) {
+        replace(child)
+        return child
+      }
+      options.onArtifact()
+      return artifactFigure(source, options.readFiles)
+    })
+  }
+  return (tree: Root) => replace(tree)
+}
+
+/** 页面只附带这一段脚本：按沙箱上报的内容高度调整对应 Artifact 的 iframe。 */
+const ARTIFACT_RESIZE_SCRIPT = `addEventListener('message',function(e){var d=e.data;if(!d||d.source!=='hc-artifact'||d.type!=='size')return;document.querySelectorAll('iframe.artifact-frame').forEach(function(f){if(f.contentWindow===e.source)f.style.height=Math.min(Math.max(d.height,48),1200)+'px'})})`
+
 function esc(text: string): string {
   return text
     .replace(/&/g, '&amp;')
@@ -49,11 +138,31 @@ function esc(text: string): string {
 /** 自包含单文件网页：附件内联 data URI，浅色/深色随系统自动切换。 */
 export function buildHtml(source: ExportSource, options: ExportOptions): string {
   const note = exportHeaderNote(source, formatStamp(source.exportedAt, source.timezone, 'minute'))
-  const body = source.messages.map((m) => messageHtml(m, source, options)).join('\n')
+  let hasArtifacts = false
+  const answerProcessor = unified()
+    .use(remarkParse)
+    .use(remarkGfm)
+    .use(remarkRehype, { allowDangerousHtml: true })
+    .use(rehypeRaw)
+    .use(rehypeSanitize)
+    .use(rehypeArtifactFrames, {
+      readFiles: source.readFiles,
+      onArtifact: () => {
+        hasArtifacts = true
+      },
+    })
+    .use(rehypeStringify)
+  const renderAnswer = (text: string) => String(answerProcessor.processSync(text))
+  const body = source.messages.map((m) => messageHtml(m, source, options, renderAnswer)).join('\n')
+  const script = hasArtifacts ? `\n<script>${ARTIFACT_RESIZE_SCRIPT}</script>` : ''
+  // 下载后不再有主站响应头，导航限制必须写进文件，继续由宿主文档约束 iframe。
+  const framePolicyMeta = hasArtifacts
+    ? `\n<meta http-equiv="Content-Security-Policy" content="${HOST_FRAME_POLICY}">`
+    : ''
   return `<!doctype html>
 <html lang="zh-CN">
 <head>
-<meta charset="utf-8">
+<meta charset="utf-8">${framePolicyMeta}
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="generator" content="HappyChat">
 <title>${esc(source.title)}</title>
@@ -66,13 +175,18 @@ export function buildHtml(source: ExportSource, options: ExportOptions): string 
 <p class="meta">${esc(note)}</p>
 </header>
 ${body}
-</main>
+</main>${script}
 </body>
 </html>
 `
 }
 
-function messageHtml(m: MessageDTO, source: ExportSource, options: ExportOptions): string {
+function messageHtml(
+  m: MessageDTO,
+  source: ExportSource,
+  options: ExportOptions,
+  renderAnswer: (text: string) => string,
+): string {
   const isUser = m.role === 'user'
   const who = isUser ? '🧑‍💻 用户' : m.role === 'system' ? '⚙️ 系统' : '🤖 助手'
   const parts: string[] = []
@@ -121,7 +235,10 @@ function messageHtml(m: MessageDTO, source: ExportSource, options: ExportOptions
 
   const attachmentsHtml = attachmentBlocks(m, source, options)
   const bodyText = textOfContent(m.content)
-  const bodyHtml = bodyText ? `<div class="md">${renderMarkdown(bodyText)}</div>` : ''
+  // 只有助手回答运行 Artifact；用户消息里的同类代码块与站内一样按原文展示。
+  const bodyHtml = bodyText
+    ? `<div class="md">${isUser ? renderMarkdown(bodyText) : renderAnswer(bodyText)}</div>`
+    : ''
 
   if (isUser) {
     // 用户消息按站内样式渲染为右对齐气泡（附件在气泡上方）
@@ -233,6 +350,9 @@ a{color:#0284c7}
 .md th,.md td{border:1px solid #e5e5e5;padding:.4rem .75rem;font-size:.875rem}
 .md img{max-width:100%;border-radius:.5rem}
 .md hr{border:none;border-top:1px solid #e5e5e5;margin:1.5rem 0}
+.artifact{margin:1rem 0;border:1px solid #e5e5e5;border-radius:1rem;overflow:hidden;background:#fff}
+.artifact iframe{display:block;width:100%;height:320px;border:0;background:transparent}
+.artifact figcaption{border-top:1px solid #f0f0f0;padding:.4rem .9rem;font-size:.75rem;color:#a3a3a3}
 @media (prefers-color-scheme:dark){
 body{background:#171717;color:#e5e5e5}
 header.page .meta{color:#737373}
@@ -252,5 +372,7 @@ a{color:#38bdf8}
 .md blockquote{border-left-color:#404040;color:#a3a3a3}
 .md th,.md td{border-color:#333}
 .md hr{border-top-color:#333}
+.artifact{border-color:#333;background:#171717}
+.artifact figcaption{border-top-color:#262626}
 }
 `

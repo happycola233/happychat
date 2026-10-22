@@ -127,6 +127,7 @@ export async function collectExportSource(
       attachments: attachmentMap,
       exportedAt,
       timezone: resolveTimezone(options.timezone),
+      readFiles,
     },
   }
 }

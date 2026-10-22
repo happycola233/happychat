@@ -71,6 +71,7 @@ async function createEngineFixture(input: unknown[] = []) {
         x_search: false,
         image_generation: false,
         reasoning: true,
+        artifacts: false,
       },
       allowedEfforts: ['medium'],
       defaultEffort: 'medium',

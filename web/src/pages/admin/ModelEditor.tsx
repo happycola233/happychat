@@ -76,7 +76,8 @@ const MODEL_INPUT_EXAMPLES: Record<ModelKind, { modelId: string; displayName: st
   image: { modelId: 'gpt-image-1', displayName: 'GPT Image 1' },
 }
 
-type EditableCapability = Exclude<keyof ModelCapabilities, 'image_generation'>
+/** 网格里只放上游模型能力；Artifacts 是站内渲染能力，在下方单独说明。 */
+type EditableCapability = Exclude<keyof ModelCapabilities, 'image_generation' | 'artifacts'>
 
 const CAP_LABELS: Record<EditableCapability, string> = {
   vision: '图片输入（视觉）',
@@ -94,13 +95,15 @@ const EDITABLE_CAP_KEYS: EditableCapability[] = [
   'reasoning',
 ]
 
-const BLANK_CAPS: ModelCapabilities = {
+/** 手动新建模型的初始能力：上游能力需管理员确认，站内 Artifacts 默认开启（图片模型保存时自动关闭）。 */
+const NEW_MODEL_CAPS: ModelCapabilities = {
   vision: false,
   file_input: false,
   web_search: false,
   x_search: false,
   image_generation: false,
   reasoning: false,
+  artifacts: true,
 }
 
 function numOrUndef(v: string): number | undefined {
@@ -220,7 +223,7 @@ function ModelEditorForm({
   const hasModelIdentity = Boolean(displayName.trim() || modelId.trim())
   const autoIconSlug = guessModelIconSlug(modelId, displayName)
   const [kind, setKind] = useState(model?.kind ?? 'responses')
-  const [caps, setCaps] = useState<ModelCapabilities>(model?.capabilities ?? BLANK_CAPS)
+  const [caps, setCaps] = useState<ModelCapabilities>(model?.capabilities ?? NEW_MODEL_CAPS)
   const [systemPrompt, setSystemPrompt] = useState(model?.defaultSystemPrompt ?? '')
   const [reasoningEffortDrafts, setReasoningEffortDrafts] = useState(() =>
     model
@@ -803,7 +806,8 @@ function ModelEditorForm({
 
           {/* ============ 能力 ============ */}
           <FormSection title="能力" hidden={section !== 'capabilities'}>
-            {/* 两列开关：四项能力收进两行，缩短长表单。 */}
+            <p className="text-xs font-medium text-neutral-400">模型能力</p>
+            {/* 两列开关，缩短长表单。 */}
             <div className="grid grid-cols-1 gap-x-8 gap-y-2.5 sm:grid-cols-2">
               {EDITABLE_CAP_KEYS.filter(
                 (key) =>
@@ -872,6 +876,18 @@ function ModelEditorForm({
                 checked={defaultXSearch}
                 onChange={setDefaultXSearch}
               />
+            )}
+
+            {kind !== 'image' && (
+              <div className="border-t border-neutral-100 pt-3 dark:border-neutral-800">
+                <p className="mb-2 text-xs font-medium text-neutral-400">站内能力</p>
+                <ToggleRow
+                  label="Artifacts"
+                  description="这是本站的渲染能力，不是上游模型参数：开启后，本站会在系统提示词末尾附加 Artifacts 协议（数百 token，可命中缓存），模型就能在回答中输出由本站隔离渲染的图表、几何图形、波形和交互演示。不会向上游发送额外的参数或工具；附加的内容可在「请求预览」中查看。"
+                  checked={caps.artifacts}
+                  onChange={(value) => setCaps((current) => ({ ...current, artifacts: value }))}
+                />
+              </div>
             )}
           </FormSection>
 

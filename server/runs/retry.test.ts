@@ -110,6 +110,7 @@ function fixture(kind: ModelKind = 'responses', reasoning = false) {
         x_search: false,
         reasoning,
         image_generation: kind === 'image',
+        artifacts: false,
       },
     })
     .returning()

@@ -557,3 +557,54 @@ describe('Markdown Mermaid', () => {
     expect(html).toContain('flowchart TD')
   })
 })
+
+describe('Markdown artifacts', () => {
+  const artifact = '```artifact\n<title>正弦曲线</title>\n<div id="board"></div>\n```'
+
+  it('renders answer artifact fences as sandboxed cards', () => {
+    const html = renderToStaticMarkup(<Markdown text={`图像：\n\n${artifact}`} />)
+
+    expect(html).toContain('data-testid="artifact-block"')
+    expect(html).toContain('正弦曲线')
+    expect(html).not.toContain('正在生成')
+  })
+
+  it('renders svg fences as artifacts too', () => {
+    const html = renderToStaticMarkup(
+      <Markdown text={'```svg\n<svg viewBox="0 0 10 10"><title>杠杆</title></svg>\n```'} />,
+    )
+
+    expect(html).toContain('data-testid="artifact-block"')
+    expect(html).toContain('杠杆')
+  })
+
+  it('waits for the closing fence while streaming, then runs before the answer ends', () => {
+    const open = renderToStaticMarkup(
+      <Markdown text={'图像：\n\n```artifact\n<title>正弦曲线</title>\n<div>'} animate />,
+    )
+    const closed = renderToStaticMarkup(<Markdown text={`图像：\n\n${artifact}`} animate />)
+
+    expect(open).toContain('正在生成 · 2 行')
+    expect(closed).toContain('data-testid="artifact-block"')
+    expect(closed).not.toContain('正在生成')
+  })
+
+  it('waits for the whole answer when definitions force whole-document streaming', () => {
+    const html = renderToStaticMarkup(
+      <Markdown text={`结论[^1]\n\n${artifact}\n\n[^1]: 来源`} animate />,
+    )
+
+    expect(html).toContain('正在生成')
+  })
+
+  it('keeps artifact fences as highlighted code in reasoning and as a label in previews', () => {
+    const reasoning = renderToStaticMarkup(<Markdown text={artifact} variant="reasoning" />)
+    expect(reasoning).not.toContain('data-testid="artifact-block"')
+    expect(reasoning).toContain('HTML')
+    expect(reasoning).toContain('hljs')
+
+    const preview = renderToStaticMarkup(<Markdown text={artifact} variant="preview" />)
+    expect(preview).toContain('[Artifact：正弦曲线]')
+    expect(preview).not.toContain('&lt;div')
+  })
+})

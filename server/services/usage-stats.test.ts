@@ -106,6 +106,7 @@ describe('个人使用情况统计', () => {
         x_search: false,
         image_generation: false,
         reasoning: false,
+        artifacts: false,
       },
     })
     await logUsage(userId, { at: new Date(), modelId, modelLabel: 'upstream-raw-id', tokens: 2 })
@@ -140,6 +141,7 @@ describe('个人使用情况统计', () => {
         x_search: false,
         image_generation: false,
         reasoning: false,
+        artifacts: false,
       },
     })
     await logUsage(userId, { at: new Date(), modelId, modelLabel: '历史模型', tokens: 7 })

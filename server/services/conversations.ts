@@ -7,6 +7,7 @@ import type {
 } from '@shared/types/api'
 import type { ContentPart, ModelParams, ReasoningEffort } from '@shared/types/domain'
 import { textFromContent } from '@shared/util/contentText'
+import { summarizeArtifactBlocks } from '@shared/util/artifactBlocks'
 import { DEFAULT_CONTEXT_POLICY, isContextAttachment } from '@shared/util/contextPolicy'
 import { normalizeModelCapabilities } from '@shared/util/modelCapabilities'
 import { costUsd as estimateCostUsd } from '@shared/util/cost'
@@ -695,16 +696,22 @@ export async function searchConversations(
       })
     } else {
       const path = buildPath(byConversation.get(conv.id) ?? [], conv.activeLeafId)
-      const hit = path.find((msg) =>
-        textFromContent(msg.content).toLocaleLowerCase().includes(needle),
-      )
+      // Artifact 源码不参与匹配：搜「div」「const」不该命中每一条带 Artifact 的回答，标题仍可搜到。
+      let hit: { msg: (typeof path)[number]; text: string } | undefined
+      for (const msg of path) {
+        const text = summarizeArtifactBlocks(textFromContent(msg.content))
+        if (text.toLocaleLowerCase().includes(needle)) {
+          hit = { msg, text }
+          break
+        }
+      }
       if (hit) {
         results.push({
           conversation: toConversationDTO(conv),
-          messageId: hit.id,
+          messageId: hit.msg.id,
           matchType: 'message',
-          role: hit.role,
-          snippet: makeSnippet(textFromContent(hit.content), q),
+          role: hit.msg.role,
+          snippet: makeSnippet(hit.text, q),
         })
       }
     }

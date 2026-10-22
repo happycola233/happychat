@@ -185,4 +185,19 @@ describe('conversation pinning and search', () => {
     expect(await services.searchConversations(owner.id, 'archived needle')).toHaveLength(0)
     expect(await services.searchConversations(owner.id, 'other needle')).toHaveLength(0)
   })
+
+  it('matches Artifact titles but not Artifact source code', async () => {
+    const owner = await createUser()
+    const conversation = await createConversation(owner.id, null)
+    const answer = await addMessage({
+      conversationId: conversation.id,
+      role: 'assistant',
+      text: '图像：\n```artifact\n<title>阻尼振荡</title>\n<script>const sourceOnlyToken = 1</script>\n```',
+    })
+    await setActiveLeaf(conversation.id, answer.id)
+
+    expect(await services.searchConversations(owner.id, 'sourceOnlyToken')).toHaveLength(0)
+    const results = await services.searchConversations(owner.id, '阻尼振荡')
+    expect(results[0]).toMatchObject({ messageId: answer.id, snippet: '图像： [Artifact：阻尼振荡]' })
+  })
 })

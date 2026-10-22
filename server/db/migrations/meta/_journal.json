@@ -414,6 +414,13 @@
       "when": 1792281600000,
       "tag": "0058_anthropic_between_tools_label",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "6",
+      "when": 1792678680000,
+      "tag": "0059_artifacts_capability",
+      "breakpoints": true
     }
   ]
 }

@@ -22,6 +22,8 @@ import { announcementRoutes } from './routes/announcements'
 import { adminAnnouncementImageRoutes, announcementImageRoutes } from './routes/announcement-images'
 import { quotaRoutes } from './routes/quota'
 import { isVersionedAssetPath, productionWebCacheMiddleware } from './http/web-cache'
+import { hostFramePolicyMiddleware } from './http/frame-policy'
+import { artifactAssetRoutes } from './routes/artifact-assets'
 import { resolveClientIp } from './http/client-ip'
 import { renderSharePageHtml, resolvePublicRequestUrl } from './http/share-page'
 import { recoverInterruptedRuns } from './runs/manager'
@@ -63,12 +65,14 @@ app.route('/api/shares', shareRoutes)
 app.route('/api/announcements/images', announcementImageRoutes)
 app.route('/api/announcements', announcementRoutes)
 app.route('/api/quota', quotaRoutes)
+app.route('/api/artifact-assets', artifactAssetRoutes)
 
 // 生产环境：由后端静态托管构建后的前端（单体部署）
 const isProd = env.NODE_ENV === 'production'
 const productionIndexHtml = isProd ? readFileSync('./dist/web/index.html', 'utf8') : null
 if (isProd) {
   app.use('/*', productionWebCacheMiddleware)
+  app.use('/*', hostFramePolicyMiddleware)
   app.get('/s/:token', async (c) => {
     const share = await getPublicSharePreview(c.req.param('token'))
     if (!share) return c.html(productionIndexHtml!)

@@ -1,5 +1,6 @@
 import type { ContentPart } from '@shared/types/domain'
 import { textFromContent } from '@shared/util/contentText'
+import { summarizeArtifactBlocks } from '@shared/util/artifactBlocks'
 
 const DEFAULT_SHARE_TITLE = '分享的对话'
 const DEFAULT_SHARE_DESCRIPTION = '来自 HappyChat 的公开对话'
@@ -42,7 +43,9 @@ export function buildShareDescription(messages: SharePreviewMessage[]): string {
     messages.find((item) => textFromContent(item.content).trim())
   if (!message) return DEFAULT_SHARE_DESCRIPTION
 
-  const singleLineText = textFromContent(message.content).replace(/\s+/g, ' ').trim()
+  const singleLineText = summarizeArtifactBlocks(textFromContent(message.content))
+    .replace(/\s+/g, ' ')
+    .trim()
   return truncatePreviewText(singleLineText)
 }
 

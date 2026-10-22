@@ -50,6 +50,8 @@ export interface ModelCapabilities {
   x_search: boolean
   image_generation: boolean
   reasoning: boolean
+  /** 站内渲染能力（非上游参数）：系统提示词附加 Artifacts 协议，模型可在回答中输出由站内沙箱渲染的 Artifact。 */
+  artifacts: boolean
 }
 
 /** 用户可见的模型标签；color=null 时按标签文字稳定自动配色。 */
@@ -579,4 +581,6 @@ export interface UserPreferences {
   showModelLabel: boolean
   /** 在助手消息下方显示 Token / TPS / 耗时 明细 */
   showUsageStats: boolean
+  /** 回答中的 Artifacts 进入视野后自动运行；关闭时需点击运行。 */
+  autoRunArtifacts: boolean
 }

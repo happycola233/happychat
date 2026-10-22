@@ -74,6 +74,7 @@ async function createFixture() {
         x_search: false,
         image_generation: false,
         reasoning: true,
+        artifacts: false,
       },
       allowedEfforts: ['high'],
       defaultEffort: 'high',

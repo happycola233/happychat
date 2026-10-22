@@ -77,6 +77,14 @@ describe('conversation activity', () => {
     expect(compactActivityText('😀😀😀', 2)).toBe('😀…')
   })
 
+  it('shows an Artifact label instead of its source code', () => {
+    const stream = {
+      ...initialLive(),
+      text: '```artifact\n<title>温度变化</title>\n<script>draw()</script>\n```\n结论如上',
+    }
+    expect(completionPreviewFromStream(stream)).toBe('[Artifact：温度变化] 结论如上')
+  })
+
   it('falls back to generated-image copy when the reply has no text', () => {
     const stream = {
       ...initialLive(),

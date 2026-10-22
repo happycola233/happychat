@@ -47,6 +47,7 @@ const capabilities = {
   x_search: false,
   image_generation: false,
   reasoning: false,
+  artifacts: false,
 }
 
 /** 用户 + 供应商 + 2 个模型（第二个属于一个分组）；每次调用序号递增，不做全表清理。 */

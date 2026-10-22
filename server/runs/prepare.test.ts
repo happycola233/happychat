@@ -75,6 +75,7 @@ async function createRunnableModel(overrides: Partial<typeof schema.models.$infe
       x_search: false,
       image_generation: false,
       reasoning: false,
+      artifacts: false,
     },
     ...overrides,
   })
@@ -134,6 +135,7 @@ async function createRunnableImageModel() {
       x_search: false,
       image_generation: true,
       reasoning: false,
+      artifacts: false,
     },
   })
 
@@ -176,6 +178,7 @@ async function createRunnableFileModel(kind: 'responses' | 'chat' = 'responses')
       x_search: false,
       image_generation: false,
       reasoning: false,
+      artifacts: false,
     }),
     runnable.modelId,
   )
@@ -229,6 +232,7 @@ describe('上下文优化请求链路', () => {
           x_search: false,
           image_generation: false,
           reasoning: false,
+          artifacts: false,
         },
       })
       const old = await createImageAttachment(userId, 'image/png', 'old.png')
@@ -358,6 +362,7 @@ describe('上下文优化请求链路', () => {
           x_search: false,
           image_generation: false,
           reasoning: false,
+          artifacts: false,
         },
       })
       const old = await createImageAttachment(userId)
@@ -624,6 +629,7 @@ describe('prepareRun active leaf', () => {
           x_search: false,
           image_generation: false,
           reasoning: true,
+          artifacts: false,
         },
         allowedEfforts: ['none', 'high'],
         defaultEffort: 'high',
@@ -685,6 +691,7 @@ describe('prepareRun active leaf', () => {
           x_search: false,
           image_generation: false,
           reasoning: true,
+          artifacts: false,
         },
         allowedEfforts: ['enabled'],
         defaultEffort: 'enabled',
@@ -785,6 +792,7 @@ describe('prepareRun active leaf', () => {
           x_search: false,
           image_generation: false,
           reasoning: false,
+          artifacts: false,
         }),
         modelId,
       )
@@ -807,6 +815,7 @@ describe('prepareRun active leaf', () => {
       x_search: false,
       image_generation: false,
       reasoning: true,
+      artifacts: false,
     },
     allowedEfforts: ['none', 'high', 'vendor-max'],
   }
@@ -936,6 +945,7 @@ describe('prepareRun active leaf', () => {
           x_search: false,
           image_generation: false,
           reasoning: true,
+          artifacts: false,
         }),
         JSON.stringify(['low', 'medium']),
         'low',
@@ -997,6 +1007,7 @@ describe('prepareRun active leaf', () => {
           x_search: false,
           image_generation: false,
           reasoning: true,
+          artifacts: false,
         },
         allowedEfforts: [{ value: 'medium', description: '中等思考' }],
         defaultEffort: 'medium',
@@ -1056,6 +1067,7 @@ describe('prepareRun active leaf', () => {
         x_search: false,
         image_generation: false,
         reasoning: false,
+        artifacts: false,
       }),
       modelId,
     )

@@ -20,6 +20,7 @@ const CAPABILITIES: { key: keyof ModelCapabilities; label: string }[] = [
   { key: 'file_input', label: '文件' },
   { key: 'web_search', label: '联网' },
   { key: 'reasoning', label: '思考' },
+  { key: 'artifacts', label: 'Artifacts' },
 ]
 const PROTOCOL_LABEL = {
   responses: 'Responses',

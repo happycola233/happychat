@@ -88,6 +88,7 @@ async function createModelFixture() {
       x_search: false,
       image_generation: false,
       reasoning: false,
+      artifacts: false,
     },
   })
   return modelId

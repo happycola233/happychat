@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { summarizeArtifactBlocks } from '@shared/util/artifactBlocks'
 import type { LiveMessage, LiveStatus } from '../sse/eventReducer'
 
 const COMPLETION_NOTICE_DURATION_MS = 7000
@@ -64,7 +65,10 @@ export function shouldRecordBackgroundCompletion({
 export function completionPreviewFromStream(
   stream: Pick<LiveMessage, 'text' | 'imageGenerations'>,
 ): string {
-  const textPreview = compactActivityText(stream.text, COMPLETION_PREVIEW_MAX_CHARACTERS)
+  const textPreview = compactActivityText(
+    summarizeArtifactBlocks(stream.text),
+    COMPLETION_PREVIEW_MAX_CHARACTERS,
+  )
   if (textPreview) return textPreview
 
   const completedImageCount = stream.imageGenerations.filter(

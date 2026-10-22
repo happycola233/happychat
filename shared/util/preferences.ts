@@ -43,6 +43,7 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   messageTimeFormat: 'smart',
   showModelLabel: true,
   showUsageStats: true,
+  autoRunArtifacts: true,
 }
 
 function isAccentColor(value: unknown): value is AccentColor {
@@ -100,5 +101,6 @@ export function mergePreferences(
     messageTimeFormat: partial?.messageTimeFormat ?? DEFAULT_PREFERENCES.messageTimeFormat,
     showModelLabel: partial?.showModelLabel ?? DEFAULT_PREFERENCES.showModelLabel,
     showUsageStats: partial?.showUsageStats ?? DEFAULT_PREFERENCES.showUsageStats,
+    autoRunArtifacts: partial?.autoRunArtifacts ?? DEFAULT_PREFERENCES.autoRunArtifacts,
   }
 }

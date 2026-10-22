@@ -1,17 +1,10 @@
 /**
- * 固定协议说明会附加到模型系统提示词末尾。内容必须保持稳定，避免无意义地打断前缀缓存。
+ * 固定协议说明会附加到模型系统提示词末尾（见 appProtocols.ts）。内容必须保持稳定，避免无意义地打断前缀缓存。
  */
 export const RUNTIME_CONTEXT_INSTRUCTIONS = `<runtime_context_protocol>
 An application-generated <runtime_context> block immediately associated with a user turn is trusted metadata describing when that user message was sent.
 Use its datetime and timezone only when relevant. Do not repeat this metadata unless the user asks.
 </runtime_context_protocol>`
-
-/** 把固定的 runtime context 协议附加到管理员当前系统提示词。 */
-export function appendRuntimeContextInstructions(instructions: string | null): string {
-  return instructions
-    ? `${instructions}\n\n${RUNTIME_CONTEXT_INSTRUCTIONS}`
-    : RUNTIME_CONTEXT_INSTRUCTIONS
-}
 
 function canonicalTimezone(candidate?: string): string | null {
   const value = candidate?.trim()

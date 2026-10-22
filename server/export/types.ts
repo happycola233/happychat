@@ -52,6 +52,8 @@ export interface ExportSource {
   exportedAt: number
   /** 已解析的有效 IANA 时区 */
   timezone: string
+  /** 是否读取了文件内容（附件、Artifact 用到的库）；预览不读盘，相应位置只放占位。 */
+  readFiles: boolean
 }
 
 /** 单个导出产物（可能是文本文件或 ZIP）。 */

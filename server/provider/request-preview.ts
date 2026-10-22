@@ -3,7 +3,7 @@ import type { RequestPreviewDTO } from '@shared/types/request-preview'
 import type { ProviderProtocol } from '@shared/types/domain'
 import { PROMPT_VARIABLES, renderPromptTemplate } from '@shared/util/promptTemplate'
 import { joinAnthropicUrl, joinBaseUrl } from '@shared/util/url'
-import { appendRuntimeContextInstructions } from '../runs/runtimeContext'
+import { appendAppProtocols } from '../runs/appProtocols'
 import { buildAnthropicBody, buildAnthropicMessages } from './anthropic'
 import { buildChatBody, buildChatMessages } from './chat'
 import { buildInput, type PathMessage, type ResolvedAttachment } from './context'
@@ -49,8 +49,9 @@ export function buildRequestPreview(
   )
   variables.model_name = draft.displayName
   variables.model_id = draft.modelId
-  const instructions = appendRuntimeContextInstructions(
+  const instructions = appendAppProtocols(
     draft.defaultSystemPrompt ? renderPromptTemplate(draft.defaultSystemPrompt, variables) : null,
+    { artifacts: draft.capabilities.artifacts },
   )
   const messages: PathMessage[] = input.includeHistory
     ? [

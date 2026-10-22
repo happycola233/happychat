@@ -51,6 +51,7 @@ function modelFixture(overrides: Partial<AdminModelDTO> = {}): AdminModelDTO {
       x_search: false,
       image_generation: false,
       reasoning: false,
+      artifacts: false,
     },
     allowedEfforts: [],
     defaultEffort: null,

@@ -850,6 +850,72 @@ html.hc-ios .hc-chat-scroll {
   margin-top: 0;
   margin-bottom: 0;
 }
+/* 回答中的 Artifact：iframe 高度随沙箱上报的内容高度平滑变化。 */
+.hc-artifact-block {
+  contain: content;
+}
+.hc-artifact-frame {
+  transition: height 0.2s ease;
+}
+.hc-artifact-code {
+  scrollbar-width: thin;
+}
+/* 加载提示延迟出现：缓存命中时 Artifact 几十毫秒内就绪，提示不会一闪而过。 */
+.hc-artifact-loading {
+  animation: hc-artifact-loading-in 0.2s ease-out 0.35s backwards;
+}
+@keyframes hc-artifact-loading-in {
+  from {
+    opacity: 0;
+  }
+}
+/* 生成与加载状态的呼吸圆点：与未读圆点同一取色规则。 */
+.hc-artifact-dot {
+  background: var(--hc-accent-glow-tint, var(--hc-accent-swatch));
+  animation: hc-artifact-dot 1.6s ease-in-out infinite;
+}
+@keyframes hc-artifact-dot {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+/* 生成中的代码流：越往上越淡，旧行滚出时自然隐去。 */
+.hc-artifact-stream {
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black 70%);
+  mask-image: linear-gradient(to bottom, transparent, black 70%);
+}
+/* 当前行末的光标：与呼吸圆点同色；输出时常亮，停顿片刻后开始闪烁。 */
+.hc-artifact-caret {
+  display: inline-block;
+  width: 2px;
+  height: 13px;
+  margin-left: 2px;
+  border-radius: 1px;
+  vertical-align: -2px;
+  background: var(--hc-accent-glow-tint, var(--hc-accent-swatch));
+  animation: hc-artifact-caret 1s step-end 0.6s infinite;
+}
+@keyframes hc-artifact-caret {
+  50% {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hc-artifact-frame {
+    transition: none;
+  }
+  .hc-artifact-loading,
+  .hc-artifact-dot,
+  .hc-artifact-caret {
+    animation: none;
+  }
+}
 .hc-md-reasoning p {
   margin: 0.35rem 0;
 }

@@ -78,6 +78,7 @@ async function createFixture() {
         x_search: false,
         image_generation: true,
         reasoning: false,
+        artifacts: false,
       },
       pricing: { image: 2 },
     })

@@ -14,18 +14,21 @@ export function normalizeModelCapabilities(
     x_search: Boolean(capabilities?.x_search),
     image_generation: Boolean(capabilities?.image_generation),
     reasoning: Boolean(capabilities?.reasoning),
+    artifacts: Boolean(capabilities?.artifacts),
   }
 }
 
 /**
  * 按执行协议收敛能力位。Chat Completions 路径不提供站内的 Web/X Search 工具，
- * 即使旧记录或客户端仍携带历史配置，也不能继续把它们暴露成可用能力。
+ * 即使旧记录或客户端仍携带历史配置，也不能继续把它们暴露成可用能力；
+ * 图片模型不生成文字回答，没有附加 Artifacts 协议的位置。
  */
 export function normalizeModelCapabilitiesForKind(
   kind: ModelKind,
   capabilities: Partial<ModelCapabilities> | null | undefined,
 ): ModelCapabilities {
   const normalized = normalizeModelCapabilities(capabilities)
-  if (kind !== 'chat') return normalized
-  return { ...normalized, web_search: false, x_search: false }
+  if (kind === 'chat') return { ...normalized, web_search: false, x_search: false }
+  if (kind === 'image') return { ...normalized, artifacts: false }
+  return normalized
 }

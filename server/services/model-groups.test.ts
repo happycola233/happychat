@@ -67,6 +67,7 @@ async function createFixture(modelCount = 1) {
         x_search: false,
         image_generation: false,
         reasoning: false,
+        artifacts: false,
       },
     })
   }

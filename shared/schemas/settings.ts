@@ -29,6 +29,7 @@ export const userPreferencesPatchSchema = z
     messageTimeFormat: z.enum(['smart', 'time', 'datetime']),
     showModelLabel: z.boolean(),
     showUsageStats: z.boolean(),
+    autoRunArtifacts: z.boolean(),
   })
   .partial()
 

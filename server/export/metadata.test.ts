@@ -66,6 +66,7 @@ async function createFixture(messageValues: Partial<MsgRow> = {}) {
         x_search: false,
         image_generation: false,
         reasoning: true,
+        artifacts: false,
       },
       allowedEfforts: [{ value: 'high', description: '深度思考' }],
       defaultEffort: 'high',

@@ -2,6 +2,7 @@ import { and, desc, eq } from 'drizzle-orm'
 import { DEFAULT_TITLE_PROMPT } from '@shared/constants'
 import type { MessageUsage, UsageOutcome } from '@shared/types/domain'
 import { textFromContent } from '@shared/util/contentText'
+import { summarizeArtifactBlocks } from '@shared/util/artifactBlocks'
 import { calculateRequestCost, createRequestPricingSnapshot } from '@shared/util/cost'
 import { freezeModelPricing } from './model-pricing'
 import { anthropicModelProfile } from '@shared/util/anthropic'
@@ -269,10 +270,11 @@ export async function maybeGenerateTitle(conversationId: string, runId?: string)
       (firstUser ? textFromContent(firstUser.content).trim().slice(0, 20) : '') || '新聊天'
 
     const recent = path.slice(-4)
+    // Artifact 源码对总结标题没有帮助，只保留「[Artifact：标题]」，把 500 字预算留给正文。
     const content = recent
       .map(
         (m) =>
-          `${m.role === 'user' ? 'User' : 'Assistant'}: ${textFromContent(m.content).slice(0, 500)}`,
+          `${m.role === 'user' ? 'User' : 'Assistant'}: ${summarizeArtifactBlocks(textFromContent(m.content)).slice(0, 500)}`,
       )
       .join('\n')
 

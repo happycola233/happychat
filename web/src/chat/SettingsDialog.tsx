@@ -498,6 +498,11 @@ function MessagesPanel() {
           title="生成时展开思考过程"
           desc="开启后生成过程中自动展开思考过程与检索明细，回答开始后自动折叠；关闭则始终保持折叠。"
         />
+        <PrefToggleRow
+          prefKey="autoRunArtifacts"
+          title="自动运行 Artifacts"
+          desc="开启后，回答中的 Artifacts（图表、几何图形、交互演示等）滚动到附近时自动运行；关闭后需点击「运行」。Artifacts 在隔离环境中运行，无法访问你的账号与聊天记录。"
+        />
       </SettingsSection>
     </div>
   )

@@ -1,7 +1,9 @@
 import {
   Children,
+  createContext,
   isValidElement,
   memo,
+  useContext,
   useEffect,
   useId,
   useMemo,
@@ -18,9 +20,17 @@ import rehypeRaw from 'rehype-raw'
 import rehypeKatex from 'rehype-katex'
 import rehypeHighlight from 'rehype-highlight'
 import { Check, Code2 } from 'lucide-react'
+import {
+  ARTIFACT_BLOCK_LANGUAGE,
+  artifactLabel,
+  artifactTitle,
+  isArtifactLanguage,
+  isClosedArtifactFence,
+} from '@shared/util/artifactBlocks'
 import { copyToClipboard } from '../lib/clipboard'
 import { toast } from '../store/toast'
 import { MermaidBlock } from './MermaidBlock'
+import { ArtifactBlock } from './ArtifactBlock'
 import { CopyIcon } from './icons'
 import {
   getMarkdownAlertMeta,
@@ -175,6 +185,7 @@ const LANGUAGE_LABELS: Record<string, string> = {
   md: 'Markdown',
   markdown: 'Markdown',
   mermaid: 'Mermaid',
+  [ARTIFACT_BLOCK_LANGUAGE]: 'HTML',
   yml: 'YAML',
   yaml: 'YAML',
 }
@@ -269,17 +280,34 @@ function CodeBlockFrame({ children, variant }: { children?: ReactNode; variant: 
   )
 }
 
+/**
+ * 流式分块渲染时，当前顶层块是否已经定型（后面已有新块，或它本身是已闭合的 Artifact 代码块）。
+ * 整篇静态渲染不提供该值，默认即为定型。
+ */
+const StreamingBlockSettledContext = createContext(true)
+
 function PreBlock({
   children,
   variant,
-  renderMermaid,
+  streaming,
 }: {
   children?: ReactNode
   variant: MarkdownVariant
-  renderMermaid: boolean
+  streaming: boolean
 }) {
   const language = languageIdFrom(children)
-  if (renderMermaid && language === 'mermaid') {
+  const blockSettled = useContext(StreamingBlockSettledContext)
+  // 只有回答正文运行 Artifact；思考与 commentary 中的同类代码块保持代码展示。
+  if (variant === 'message' && isArtifactLanguage(language)) {
+    return (
+      <ArtifactBlock
+        source={codeTextFrom(children)}
+        code={codeElementFrom(children)}
+        complete={!streaming || blockSettled}
+      />
+    )
+  }
+  if (!streaming && language === 'mermaid') {
     const source = codeTextFrom(children)
     return (
       <MermaidBlock
@@ -352,7 +380,7 @@ function MarkdownAlertTitle({ type }: { type: MarkdownAlertType }) {
   )
 }
 
-const componentsFor = (variant: MarkdownVariant, renderMermaid: boolean): Components => ({
+const componentsFor = (variant: MarkdownVariant, streaming: boolean): Components => ({
   blockquote: ({ children, node, className, ...props }) => {
     const alert = matchMarkdownAlert(node)
     if (!alert) {
@@ -375,7 +403,7 @@ const componentsFor = (variant: MarkdownVariant, renderMermaid: boolean): Compon
     )
   },
   pre: ({ children }) => (
-    <PreBlock variant={variant} renderMermaid={renderMermaid}>
+    <PreBlock variant={variant} streaming={streaming}>
       {children}
     </PreBlock>
   ),
@@ -432,24 +460,31 @@ const componentsFor = (variant: MarkdownVariant, renderMermaid: boolean): Compon
 // 否则流式每 token 都会传入新标识，React 视作新类型而重挂载其子树，导致内部渐入 span 反复重播动画（“跳动”）。
 const COMPONENTS_BY_VARIANT: Record<MarkdownVariant, Record<'static' | 'streaming', Components>> = {
   message: {
-    static: componentsFor('message', true),
-    streaming: componentsFor('message', false),
+    static: componentsFor('message', false),
+    streaming: componentsFor('message', true),
   },
   reasoning: {
-    static: componentsFor('reasoning', true),
-    streaming: componentsFor('reasoning', false),
+    static: componentsFor('reasoning', false),
+    streaming: componentsFor('reasoning', true),
   },
 }
 
-// 摘要只负责阅读：链接/图片转为文字，代码和表格保留结构，不挂载复制按钮或图表。
+// 摘要只负责阅读：链接/图片转为文字，代码和表格保留结构，不挂载复制按钮、图表或 Artifact。
 const PREVIEW_COMPONENTS: Components = {
   a: ({ children }) => <span>{children}</span>,
   img: ({ alt }) => <span>{alt ? `[图片：${alt}]` : '[图片]'}</span>,
+  pre: ({ children }) =>
+    isArtifactLanguage(languageIdFrom(children)) ? (
+      <p>{artifactLabel(artifactTitle(codeTextFrom(children)))}</p>
+    ) : (
+      <pre>{children}</pre>
+    ),
 }
 
 // rehype-highlight 每次挂载都会重新注册全部常用语言（createLowlight），而 react-markdown 每次渲染
 // 都新建处理器：流式时每帧都要白付这笔开销。只在模块加载时初始化一次，之后复用同一个转换函数。
-const highlightCodeBlocks = rehypeHighlight()
+// artifact 代码块的内容是 HTML，「查看代码」时按 HTML 高亮（svg 本身就是 highlight.js 的 xml 别名）。
+const highlightCodeBlocks = rehypeHighlight({ aliases: { xml: [ARTIFACT_BLOCK_LANGUAGE] } })
 function rehypeHighlightShared() {
   return highlightCodeBlocks
 }
@@ -480,9 +515,11 @@ const STREAM_FADE_SETTLE_MS = 600
 const StreamingMarkdownBlock = memo(function StreamingMarkdownBlock({
   text,
   pipeline,
+  settled,
 }: {
   text: string
   pipeline: MarkdownPipeline
+  settled: boolean
 }) {
   const [fade] = useState(createStreamFadeState)
   const [, rerender] = useReducer((count: number) => count + 1, 0)
@@ -497,14 +534,16 @@ const StreamingMarkdownBlock = memo(function StreamingMarkdownBlock({
     [fade, pipeline.rehypePlugins],
   )
   return (
-    <ReactMarkdown
-      remarkPlugins={MARKDOWN_REMARK_PLUGINS}
-      remarkRehypeOptions={pipeline.remarkRehypeOptions}
-      rehypePlugins={rehypePlugins}
-      components={pipeline.components}
-    >
-      {text}
-    </ReactMarkdown>
+    <StreamingBlockSettledContext.Provider value={settled}>
+      <ReactMarkdown
+        remarkPlugins={MARKDOWN_REMARK_PLUGINS}
+        remarkRehypeOptions={pipeline.remarkRehypeOptions}
+        rehypePlugins={rehypePlugins}
+        components={pipeline.components}
+      >
+        {text}
+      </ReactMarkdown>
+    </StreamingBlockSettledContext.Provider>
   )
 })
 
@@ -564,21 +603,29 @@ function MarkdownImpl({
       )}
     >
       {streamingBlocks ? (
-        // 块只会在末尾追加，下标即稳定身份。
+        // 块只会在末尾追加，下标即稳定身份。已闭合的 Artifact 代码块不必等后续正文就可以开始运行。
         streamingBlocks.map((block, index) => (
-          <StreamingMarkdownBlock key={index} text={block} pipeline={pipeline} />
+          <StreamingMarkdownBlock
+            key={index}
+            text={block}
+            pipeline={pipeline}
+            settled={index < streamingBlocks.length - 1 || isClosedArtifactFence(block)}
+          />
         ))
       ) : (
         // 静态内容整篇渲染；流式文本含引用定义而无法分块时也走这里，此时不做渐入，
         // 否则从分块切换到整篇时所有节点重挂载，全文会重播一遍淡入。
-        <ReactMarkdown
-          remarkPlugins={MARKDOWN_REMARK_PLUGINS}
-          remarkRehypeOptions={pipeline.remarkRehypeOptions}
-          rehypePlugins={pipeline.rehypePlugins}
-          components={pipeline.components}
-        >
-          {normalizedText}
-        </ReactMarkdown>
+        // 这条流式路径无法判断单个代码块是否已闭合，Artifact 等整条回复结束再运行。
+        <StreamingBlockSettledContext.Provider value={!animate}>
+          <ReactMarkdown
+            remarkPlugins={MARKDOWN_REMARK_PLUGINS}
+            remarkRehypeOptions={pipeline.remarkRehypeOptions}
+            rehypePlugins={pipeline.rehypePlugins}
+            components={pipeline.components}
+          >
+            {normalizedText}
+          </ReactMarkdown>
+        </StreamingBlockSettledContext.Provider>
       )}
     </div>
   )

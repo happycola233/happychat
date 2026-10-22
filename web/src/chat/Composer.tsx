@@ -43,7 +43,8 @@ export interface ComposerMetrics {
 }
 
 export interface ComposerHandle {
-  restoreDraft: (
+  /** 把文字与附件填进空输入框（撤回队列项、请模型修复图表），并从来源位置滑入。 */
+  fillDraft: (
     text: string,
     attachments: AttachmentDTO[],
     sourceRect: DOMRect,
@@ -220,7 +221,7 @@ export function Composer({
   const imageInput = useRef<HTMLInputElement>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const dragDepth = useRef(0)
-  const returningDraftOriginRef = useRef<DOMRect | null>(null)
+  const draftOriginRef = useRef<DOMRect | null>(null)
 
   const showPlusMenu = Boolean(canImage || canFile)
 
@@ -243,7 +244,7 @@ export function Composer({
   useImperativeHandle(
     composerRef,
     () => ({
-      restoreDraft: async (restoredText, attachments, sourceRect, take) => {
+      fillDraft: async (draftText, attachments, sourceRect, take) => {
         if (hasDraft || hasContextAttachments || draftOperationRef.current) {
           toast.error('请先发送或清空输入框中的内容')
           return false
@@ -251,10 +252,10 @@ export function Composer({
         draftOperationRef.current = true
         setDraftBusy(true)
         try {
-          // 云端撤回成功后才交回草稿；等待期间锁住输入，避免覆盖新输入的内容。
+          // 前置操作（如云端撤回队列项）成功后才填入；等待期间锁住输入，避免覆盖新输入的内容。
           await take()
-          returningDraftOriginRef.current = sourceRect
-          setText(restoredText)
+          draftOriginRef.current = sourceRect
+          setText(draftText)
           restoreAttachments(attachments)
           return true
         } finally {
@@ -352,11 +353,11 @@ export function Composer({
   }, [text, multiline, updateScrollFade])
 
   useLayoutEffect(() => {
-    const origin = returningDraftOriginRef.current
+    const origin = draftOriginRef.current
     if (!origin) return
-    // 等正文与附件完成布局后，再从原队列行的方向滑入输入框。
+    // 等正文与附件完成布局后，再从来源（队列行或图表卡片）的方向滑入输入框。
     const frame = requestAnimationFrame(() => {
-      returningDraftOriginRef.current = null
+      draftOriginRef.current = null
       const input = ref.current!
       const grid = gridRef.current!
       if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {

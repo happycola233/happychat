@@ -19,6 +19,7 @@ const model = (id: string, displayName: string): AdminModelDTO =>
       x_search: false,
       image_generation: false,
       reasoning: false,
+      artifacts: false,
     },
     description: null,
     tags: [],

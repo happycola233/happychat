@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { HOST_FRAME_POLICY } from './shared/util/artifactDocument'
 
 // 版本号唯一来源是 package.json，避免前端再硬编码一份导致发版后忘记同步。
 const { version: appVersion } = JSON.parse(
@@ -32,6 +33,8 @@ export default defineConfig({
     host: true,
     port: 5173,
     strictPort: true,
+    // 与生产环境的 HTML 响应头一致：拦截 Artifact 沙箱把自身导航到外部站点。
+    headers: { 'Content-Security-Policy': HOST_FRAME_POLICY },
     proxy: {
       // 把 /api 代理到 Hono 后端；SSE 流式由后端设置 no-transform / X-Accel-Buffering 保证不被缓冲。
       '/api': {

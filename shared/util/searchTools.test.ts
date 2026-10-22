@@ -15,6 +15,7 @@ const searchCapabilities: ModelCapabilities = {
   x_search: true,
   image_generation: false,
   reasoning: false,
+  artifacts: false,
 }
 
 function model(kind: ModelKind) {

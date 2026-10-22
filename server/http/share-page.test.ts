@@ -76,6 +76,13 @@ describe('share page metadata', () => {
     )
   })
 
+  it('summarizes Artifact source as a short label instead of leaking HTML into the preview', () => {
+    const text = '图像如下：\n\n```artifact\n<title>正弦曲线</title>\n<script>draw()</script>\n```'
+    expect(
+      buildShareDescription([{ role: 'assistant', content: [{ type: 'output_text', text }] }]),
+    ).toBe('图像如下： [Artifact：正弦曲线]')
+  })
+
   it('uses forwarded public origin and removes query/hash from the canonical URL', () => {
     const request = new Request('http://127.0.0.1:8787/s/token?preview=1#section', {
       headers: {

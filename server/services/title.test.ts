@@ -106,6 +106,7 @@ async function createFixture(kind: 'responses' | 'chat' | 'anthropic' = 'respons
       x_search: false,
       image_generation: false,
       reasoning: false,
+      artifacts: false,
     },
   })
   const [conversation] = await dbClient.db

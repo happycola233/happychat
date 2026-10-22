@@ -41,6 +41,27 @@ describe('upstream request preview', () => {
     expect(fetchSpy).not.toHaveBeenCalled()
     fetchSpy.mockRestore()
   })
+  it('shows the Artifacts protocol only when the draft enables the site capability', () => {
+    const preview = (artifacts: boolean) =>
+      buildRequestPreview(
+        provider,
+        requestPreviewSchema.parse({
+          model: {
+            ...baseModel,
+            capabilities: {
+              vision: false,
+              file_input: false,
+              web_search: false,
+              image_generation: false,
+              reasoning: false,
+              artifacts,
+            },
+          },
+        }),
+      ).body.instructions
+    expect(preview(true)).toContain('<artifact_protocol>')
+    expect(preview(false)).not.toContain('<artifact_protocol>')
+  })
   it('applies the actual web search gating instead of blindly showing a hard-parameter template', () => {
     const model = {
       ...baseModel,

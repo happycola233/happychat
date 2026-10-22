@@ -26,6 +26,7 @@ function model(id: string, overrides: Partial<ModelDTO> = {}): ModelDTO {
       x_search: false,
       image_generation: false,
       reasoning: false,
+      artifacts: false,
     },
     description: null,
     tags: [],

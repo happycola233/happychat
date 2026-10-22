@@ -56,6 +56,7 @@ export function inferModelDefaults(
         x_search: false,
         image_generation: false,
         reasoning: profile.preferredThinkingType !== null,
+        artifacts: true,
       },
       allowedEfforts,
       defaultEffort,
@@ -84,6 +85,7 @@ export function inferModelDefaults(
         x_search: false,
         image_generation: true,
         reasoning: false,
+        artifacts: false,
       },
       allowedEfforts: [],
       defaultEffort: null,
@@ -112,6 +114,7 @@ export function inferModelDefaults(
       x_search: xSearch,
       image_generation: false,
       reasoning,
+      artifacts: true,
     },
     allowedEfforts: reasoning ? allowedEfforts : [],
     // GPT-5.5/5.6 默认 medium；其余思考模型给一个保守默认，管理员可调。

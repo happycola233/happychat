@@ -19,7 +19,8 @@ interface Props {
   animate?: boolean
   /** 阅读型内容使用舒展的文章画布，手机全屏；表单保留原有布局。 */
   presentation?: 'default' | 'reading'
-  size?: 'default' | 'form' | 'reading' | 'workspace' | 'wide'
+  /** content：宽度随内容收缩，适合自行计算展示尺寸的内容（如 Artifact 放大查看）。 */
+  size?: 'default' | 'form' | 'reading' | 'workspace' | 'content'
   /** 复杂双栏面板可自行安排内部滚动，其余弹窗保持统一正文边距。 */
   bodyClassName?: string
   /** 面板高度：auto=随内容收缩（默认）；fixed=固定高度，内容很短时也保持体面的窗体比例。 */
@@ -36,7 +37,7 @@ const SIZE_CLASS: Record<NonNullable<Props['size']>, string> = {
   /** 内容阅读档：给公告/文档类正文（含表格）留足排版宽度。 */
   reading: 'max-w-3xl',
   workspace: 'max-w-5xl',
-  wide: 'max-w-[min(80vw,calc(100vw-2rem))]',
+  content: 'max-w-full',
 }
 
 const HEIGHT_CLASS: Record<NonNullable<Props['height']>, string> = {
@@ -159,7 +160,8 @@ export function Modal({
         aria-labelledby={titleId}
         tabIndex={-1}
         className={clsx(
-          'relative z-10 flex w-full flex-col overflow-hidden bg-white outline-none dark:bg-neutral-900',
+          'relative z-10 flex flex-col overflow-hidden bg-white outline-none dark:bg-neutral-900',
+          size !== 'content' && 'w-full',
           reading
             ? 'h-[100dvh] max-w-[60rem] sm:h-auto sm:max-h-[min(90dvh,55rem)] sm:min-h-[min(28rem,80dvh)] sm:rounded-2xl'
             : ['rounded-2xl shadow-xl', SIZE_CLASS[size], HEIGHT_CLASS[height]],

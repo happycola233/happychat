@@ -22,6 +22,7 @@ function model(overrides: Partial<ModelRow> = {}): ModelRow {
       x_search: false,
       image_generation: false,
       reasoning: true,
+      artifacts: false,
     },
     defaultParams: { max_output_tokens: 16000 },
     hardParams: createAnthropicDefaultHardParams(),

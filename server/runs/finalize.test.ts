@@ -61,6 +61,7 @@ describe('finalizeRun terminal snapshots', () => {
           x_search: false,
           image_generation: false,
           reasoning: true,
+          artifacts: false,
         },
         allowedEfforts: [{ value: 'high', description: '深度思考' }],
         defaultEffort: 'high',
@@ -552,6 +553,7 @@ describe('finalizeRun generated image audit', () => {
           x_search: false,
           reasoning: false,
           image_generation: testCase.imageCapability,
+          artifacts: false,
         },
         pricing: { input: 2, output: 8, image: 99 },
       })

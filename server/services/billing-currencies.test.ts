@@ -72,6 +72,7 @@ beforeAll(async () => {
         x_search: false,
         image_generation: false,
         reasoning: false,
+        artifacts: false,
       },
       pricing: { currency: 'CNY', input: 7 },
     })

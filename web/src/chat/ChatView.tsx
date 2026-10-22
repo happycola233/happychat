@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ComponentProps,
@@ -90,6 +91,7 @@ import type { SendMessageInput } from '@shared/schemas/chat'
 import { ActiveRunRecoveryGate } from './activeRunRecovery'
 import { beginBranchCreationCooldown } from './branchCreationGuard'
 import { textFromContent } from './contentText'
+import { ArtifactActionsContext, type ArtifactActions } from './artifactActions'
 
 const SCROLL_BUTTON_IDLE_MS = 2400
 const PROGRAMMATIC_SCROLL_RESET_MS = 1200
@@ -192,6 +194,15 @@ export default function ChatView() {
   const sendRequestInFlightRef = useRef(false)
   const queuedSubmissionRef = useRef<{ fingerprint: string; id: string } | null>(null)
   const composerRef = useRef<ComposerHandle>(null)
+  // 图表卡片的「让模型修复」只把说明填进输入框，由用户确认后再发送。
+  const artifactActions = useMemo<ArtifactActions>(
+    () => ({
+      requestFix: (prompt, sourceRect) => {
+        void composerRef.current?.fillDraft(prompt, [], sourceRect, async () => {})
+      },
+    }),
+    [],
+  )
   const clearStream = useStreamStore((s) => s.clear)
   const markConversationViewed = useConversationActivityStore((s) => s.markViewed)
   const [optimisticUser, setOptimisticUser] = useState<string | null>(null)
@@ -889,7 +900,7 @@ export default function ChatView() {
     const message = queue?.items.find((item) => item.id === messageId)
     if (!queue || !message || queue.sendingId === messageId) return
     try {
-      const restored = await composerRef.current!.restoreDraft(
+      const restored = await composerRef.current!.fillDraft(
         message.input.text,
         message.attachments,
         sourceRect,
@@ -1038,7 +1049,7 @@ export default function ChatView() {
   } as CSSProperties
 
   return (
-    <>
+    <ArtifactActionsContext.Provider value={artifactActions}>
       <ConversationDocumentTitle conversationId={id} persistedTitle={detail?.conversation.title} />
       <AnnouncementBanner />
 
@@ -1335,6 +1346,6 @@ export default function ChatView() {
           />
         </div>
       </div>
-    </>
+    </ArtifactActionsContext.Provider>
   )
 }

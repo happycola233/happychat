@@ -21,6 +21,7 @@ function model(overrides: Partial<ModelRow> = {}): ModelRow {
       x_search: false,
       image_generation: false,
       reasoning: false,
+      artifacts: false,
     },
     defaultParams: null,
     hardParams: null,
@@ -366,6 +367,7 @@ describe('buildChatBody', () => {
           x_search: false,
           image_generation: false,
           reasoning: true,
+          artifacts: false,
         },
         allowedEfforts: ['low', 'medium'],
         defaultEffort: 'low',
@@ -388,6 +390,7 @@ describe('buildChatBody', () => {
           x_search: false,
           image_generation: false,
           reasoning: true,
+          artifacts: false,
         },
         allowedEfforts: [
           { value: 'xhigh', description: '超高' },
