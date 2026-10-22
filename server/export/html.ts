@@ -10,6 +10,7 @@ import type { MessageDTO } from '@shared/types/api'
 import type { ExportOptions } from '@shared/schemas/export'
 import { artifactTitle, isArtifactLanguage } from '@shared/util/artifactBlocks'
 import {
+  ARTIFACT_MAX_FRAME_HEIGHT,
   buildArtifactDocument,
   collectArtifactAssets,
   HOST_FRAME_POLICY,
@@ -125,7 +126,7 @@ function rehypeArtifactFrames(options: { readFiles: boolean; onArtifact: () => v
 }
 
 /** 页面只附带这一段脚本：按沙箱上报的内容高度调整对应 Artifact 的 iframe。 */
-const ARTIFACT_RESIZE_SCRIPT = `addEventListener('message',function(e){var d=e.data;if(!d||d.source!=='hc-artifact'||d.type!=='size')return;document.querySelectorAll('iframe.artifact-frame').forEach(function(f){if(f.contentWindow===e.source)f.style.height=Math.min(Math.max(d.height,48),1200)+'px'})})`
+const ARTIFACT_RESIZE_SCRIPT = `addEventListener('message',function(e){var d=e.data;if(!d||d.source!=='hc-artifact'||d.type!=='size')return;document.querySelectorAll('iframe.artifact-frame').forEach(function(f){if(f.contentWindow===e.source)f.style.height=Math.min(Math.max(d.height,48),${ARTIFACT_MAX_FRAME_HEIGHT})+'px'})})`
 
 function esc(text: string): string {
   return text

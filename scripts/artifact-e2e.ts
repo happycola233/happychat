@@ -1,9 +1,11 @@
 import { chromium, type Frame, type Locator, type Page } from '@playwright/test'
+import { ARTIFACT_MAX_FRAME_HEIGHT, buildArtifactDocument } from '../shared/util/artifactDocument'
 
 /**
  * Artifacts 端到端冒烟：先 `npm run dev`，再 `npx tsx scripts/artifact-e2e.ts`。
  * SMOKE_MODEL_ID 可指定模型配置 id（需对测试账号开放且开启了 Artifacts 能力）。
  * 截图写入 `.tmp/artifact-e2e-*.png`，供人工检查浅色、深色、手机宽度与生成中状态。
+ * `--sizing-only` 只跑确定性的尺寸回归，无需服务、登录或 LLM；`--headed` 使用可见浏览器。
  */
 const BASE = process.env.SMOKE_BASE ?? 'http://127.0.0.1:5173'
 const USERNAME = process.env.SMOKE_USER ?? 'test'
@@ -131,8 +133,111 @@ async function newChat(page: Page): Promise<void> {
   await page.getByPlaceholder('发送消息…').waitFor({ timeout: 15_000 })
 }
 
+/** 用合成 SVG 覆盖滚动条占宽导致测高偏小的回归，不依赖模型输出或真实聊天内容。 */
+async function checkArtifactSizing(page: Page): Promise<void> {
+  const source =
+    '<svg viewBox="0 0 600 360" style="display:block;width:100%;height:auto"><rect width="600" height="360" fill="var(--hc-surface)"/><path d="M0 359H600" stroke="var(--hc-fg)"/></svg>'
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.setContent(
+      '<!doctype html><iframe title="尺寸自检" sandbox="allow-scripts" style="display:block;border:0;width:768px;height:240px;transition:height .2s ease"></iframe>',
+    )
+    await page.evaluate(
+      ({ doc, maxHeight }) => {
+        const iframe = document.querySelector('iframe')!
+        window.onmessage = (event) => {
+          if (event.source === iframe.contentWindow && event.data.type === 'size') {
+            iframe.style.height = `${Math.min(maxHeight, Math.max(48, event.data.height))}px`
+          }
+        }
+        iframe.srcdoc = doc
+      },
+      {
+        doc: buildArtifactDocument({ source, assets: new Map(), theme: { scheme } }),
+        maxHeight: ARTIFACT_MAX_FRAME_HEIGHT,
+      },
+    )
+    const frame = (await (await page.locator('iframe').elementHandle())!.contentFrame())!
+    await frame.locator('svg').waitFor()
+    for (const width of [768, 390, 1024]) {
+      await page.locator('iframe').evaluate((el, value) => {
+        el.style.width = `${value}px`
+      }, width)
+      await frame.waitForFunction(() => {
+        const root = document.documentElement
+        // 除了不可滚动，还必须占满宽度；原问题的空轨道并没有实际可滚动距离。
+        return (
+          root.scrollHeight === root.clientHeight &&
+          Math.abs(innerWidth - root.getBoundingClientRect().width) < 1 &&
+          Math.abs(innerHeight - document.body.getBoundingClientRect().height) < 1
+        )
+      })
+      check(true, `${scheme} / ${width}px：SVG 完整展开且没有竖向滚动条占宽`)
+    }
+
+    await frame.locator('svg').evaluate((el) => el.setAttribute('viewBox', '0 0 600 1600'))
+    await frame.waitForFunction((maxHeight) => {
+      const root = document.documentElement
+      return (
+        innerHeight === maxHeight &&
+        root.scrollHeight > root.clientHeight &&
+        getComputedStyle(root).overflowY === 'auto'
+      )
+    }, ARTIFACT_MAX_FRAME_HEIGHT)
+    await frame.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+    check(
+      await frame.evaluate(
+        () => scrollY > 0 && document.body.getBoundingClientRect().bottom <= innerHeight + 1,
+      ),
+      `${scheme}：超过高度上限后可以滚动到底部`,
+    )
+
+    await frame.locator('svg').evaluate((el) => el.setAttribute('viewBox', '0 0 600 360'))
+    await frame.waitForFunction(
+      () =>
+        innerHeight < 1000 &&
+        document.documentElement.scrollHeight === document.documentElement.clientHeight &&
+        Math.abs(innerWidth - document.documentElement.getBoundingClientRect().width) < 1,
+    )
+    check(true, `${scheme}：长内容收起后恢复完整宽度和自适应高度`)
+
+    await frame.evaluate(() => {
+      const wide = document.createElement('div')
+      wide.style.cssText = 'width:1600px;height:80px;background:var(--hc-grid)'
+      document.body.append(wide)
+    })
+    await frame.waitForFunction(() => {
+      const root = document.documentElement
+      return (
+        root.scrollWidth > root.clientWidth &&
+        root.scrollHeight === root.clientHeight &&
+        document.body.getBoundingClientRect().bottom <= root.clientHeight
+      )
+    })
+    await frame.evaluate(() => window.scrollTo(document.documentElement.scrollWidth, 0))
+    check(
+      await frame.evaluate(() => scrollX > 0),
+      `${scheme}：横向溢出仍可滚动，底部内容不被横向滚动条遮挡`,
+    )
+  }
+
+  await page.setContent(
+    buildArtifactDocument({
+      source: '<div style="height:1800px;color:var(--hc-fg)">独立网页滚动自检</div>',
+      assets: new Map(),
+      theme: { scheme: 'light' },
+    }),
+  )
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+  check(
+    await page.evaluate(
+      () => scrollY > 0 && getComputedStyle(document.documentElement).overflowY !== 'hidden',
+    ),
+    '下载的独立网页保持正常滚动',
+  )
+}
+
 async function main() {
-  const browser = await chromium.launch()
+  const browser = await chromium.launch({ headless: !process.argv.includes('--headed') })
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } })
   if (MODEL_ID) {
     // 初始化脚本也会注入 Artifact 沙箱，只在顶层页面写入偏好。
@@ -147,6 +252,13 @@ async function main() {
   const page = await context.newPage()
   const pageErrors: string[] = []
   page.on('pageerror', (error) => pageErrors.push(error.message))
+
+  await checkArtifactSizing(page)
+  check(pageErrors.length === 0, `尺寸自适应没有浏览器错误：${pageErrors.join('; ')}`)
+  if (process.argv.includes('--sizing-only')) {
+    await browser.close()
+    return
+  }
 
   await page.goto(`${BASE}/login`, { waitUntil: 'networkidle' })
   await page.getByPlaceholder('请输入用户名').fill(USERNAME)

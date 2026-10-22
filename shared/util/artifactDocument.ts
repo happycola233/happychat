@@ -39,6 +39,9 @@ export const ARTIFACT_CONTENT_SECURITY_POLICY = [
  */
 export const HOST_FRAME_POLICY = "frame-src 'self'"
 
+/** 聊天、分享与 HTML 导出统一的嵌入高度上限，超过后在 iframe 内滚动。 */
+export const ARTIFACT_MAX_FRAME_HEIGHT = 1200
+
 /** 沙箱发给宿主的消息：只有尺寸与错误两种，宿主不会执行或插入其中任何内容。 */
 export type ArtifactFrameMessage =
   | { source: 'hc-artifact'; type: 'size'; height: number }
@@ -108,6 +111,12 @@ function themeCss(theme: ArtifactTheme): string {
 // 放在库样式之后：给模型没写样式的控件一个与站内一致的外观，并压掉 JSXGraph 自带的白底蓝框。
 const BASE_CSS = `*,*::before,*::after{box-sizing:border-box}
 html,body{margin:0;background:transparent}
+html{scrollbar-width:thin;scrollbar-color:var(--hc-border) transparent}
+html::-webkit-scrollbar{width:10px;height:10px}
+html::-webkit-scrollbar-track{background:transparent}
+html::-webkit-scrollbar-thumb{border:3px solid transparent;border-radius:999px;background:var(--hc-muted);background-clip:padding-box}
+html::-webkit-scrollbar-corner,html::-webkit-scrollbar-button{display:none}
+@supports selector(::-webkit-scrollbar){html{scrollbar-width:auto;scrollbar-color:auto}}
 body{padding:16px;color:var(--hc-fg);font:14px/1.5 var(--hc-font);-webkit-font-smoothing:antialiased}
 @media (max-width:480px){body{padding:12px}}
 h1,h2,h3,h4{margin:0 0 8px;font-size:15px;font-weight:600}
@@ -130,17 +139,30 @@ const THEME_ADAPTERS: Partial<Record<ArtifactAssetId, string>> = {
 }
 
 function bridgeScript(hostOrigin: string): string {
+  // 先按无竖向滚动条的完整宽度测高，否则响应式 SVG 会缩小并把 iframe 锁在偏小的高度。
+  // 只给超过上限的嵌入内容开放竖向滚动；独立下载页仍由浏览器正常滚动。
+  // 横向滚动条厚度也计入高度；ResizeObserver 延到下一帧测量，避免修改根布局时触发观察循环。
   return `(function(){
 var host=parent===window?null:parent;var origin=${JSON.stringify(hostOrigin)};
 function send(message){message.source='hc-artifact';if(host)host.postMessage(message,origin)}
+var root=document.documentElement;if(host)root.style.overflowY='hidden';
 var lastHeight=-1;
-function measure(){var body=document.body;if(!body)return;var height=Math.ceil(Math.max(body.scrollHeight,body.getBoundingClientRect().height));if(height!==lastHeight){lastHeight=height;send({type:'size',height:height})}}
+function measure(){
+var body=document.body;if(!body||!host)return;
+root.style.overflowY='hidden';
+var horizontalScrollbarHeight=innerHeight-root.clientHeight;
+var height=Math.ceil(Math.max(body.scrollHeight,body.getBoundingClientRect().height)+horizontalScrollbarHeight);
+root.style.overflowY=height>${ARTIFACT_MAX_FRAME_HEIGHT}?'auto':'hidden';
+if(height!==lastHeight){lastHeight=height;send({type:'size',height:height})}
+}
+var measureFrame=0;
+function scheduleMeasure(){if(!measureFrame)measureFrame=requestAnimationFrame(function(){measureFrame=0;measure()})}
 var reported={};var count=0;
 function report(text){text=String(text||'').slice(0,500);if(!text||reported[text]||count>=5)return;reported[text]=true;count++;send({type:'error',message:text})}
 addEventListener('error',function(event){if(event instanceof ErrorEvent)report(event.message||(event.error&&event.error.message))});
 addEventListener('unhandledrejection',function(event){var reason=event.reason;report(reason&&reason.message?reason.message:reason)});
 addEventListener('securitypolicyviolation',function(event){report('已阻止访问外部资源：'+(event.blockedURI||event.violatedDirective))});
-var observer=new ResizeObserver(measure);
+var observer=new ResizeObserver(scheduleMeasure);
 addEventListener('DOMContentLoaded',function(){observer.observe(document.body);observer.observe(document.documentElement);measure()});
 addEventListener('load',function(){measure();setTimeout(measure,300);setTimeout(measure,1200)});
 })()`

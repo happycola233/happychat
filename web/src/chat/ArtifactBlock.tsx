@@ -13,7 +13,11 @@ import {
   WandSparkles,
 } from 'lucide-react'
 import { artifactTitle } from '@shared/util/artifactBlocks'
-import { buildArtifactDocument, collectArtifactAssets } from '@shared/util/artifactDocument'
+import {
+  ARTIFACT_MAX_FRAME_HEIGHT,
+  buildArtifactDocument,
+  collectArtifactAssets,
+} from '@shared/util/artifactDocument'
 import type { ArtifactFrameMessage, ArtifactTheme } from '@shared/util/artifactDocument'
 import type { ArtifactAssetId } from '@shared/util/artifactLibraries'
 import { saveBlobToFile } from '../api/export'
@@ -33,7 +37,6 @@ import { useArtifactTheme } from './useArtifactTheme'
 export const ARTIFACT_FRAME_SANDBOX = 'allow-scripts'
 
 const MIN_FRAME_HEIGHT = 48
-const MAX_FRAME_HEIGHT = 1200
 const PLACEHOLDER_HEIGHT = 240
 const MAX_REPORTED_ERRORS = 5
 const REMEMBERED_SOURCES_LIMIT = 100
@@ -62,7 +65,7 @@ function rememberHeight(source: string, height: number) {
 }
 
 function clampHeight(height: number): number {
-  return Math.min(MAX_FRAME_HEIGHT, Math.max(MIN_FRAME_HEIGHT, Math.ceil(height)))
+  return Math.min(ARTIFACT_MAX_FRAME_HEIGHT, Math.max(MIN_FRAME_HEIGHT, Math.ceil(height)))
 }
 
 function isFrameMessage(data: unknown): data is ArtifactFrameMessage {
