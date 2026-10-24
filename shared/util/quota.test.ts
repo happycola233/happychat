@@ -103,13 +103,6 @@ describe('normalizeQuotaRules', () => {
           window: { type: 'total' },
         },
         {
-          id: 'zero',
-          scope: { type: 'all' },
-          metric: 'cost',
-          limit: { kind: 'amount', value: 0 },
-          window: { type: 'total' },
-        },
-        {
           id: 'empty-models',
           scope: { type: 'models', modelIds: [], mode: 'each' },
           metric: 'cost',
@@ -127,6 +120,12 @@ describe('normalizeQuotaRules', () => {
     ).toEqual([])
     expect(normalizeQuotaRules('not-an-array')).toEqual([])
     expect(normalizeQuotaRules(undefined)).toEqual([])
+  })
+
+  it('保留零金额和零次数规则', () => {
+    const rules = [monthlyCost(0), dailyRequests(0)]
+    expect(normalizeQuotaRules(rules)).toEqual(rules)
+    expect(isQuotaUnlimited(normalizeQuotaRules(rules))).toBe(false)
   })
 
   it('丢弃重复 id 并限制单策略规则数量', () => {
@@ -165,6 +164,16 @@ describe('normalizeQuotaRules', () => {
 })
 
 describe('normalizeUserQuotaOverrides', () => {
+  it('零额度覆写经过归一化后仍替换模板额度', () => {
+    const overrides = { rules: { 'r-cost': { limit: { kind: 'amount', value: 0 } } } }
+    const normalized = normalizeUserQuotaOverrides(overrides)
+    expect(normalized).toEqual(overrides)
+    expect(resolveEffectiveQuota([monthlyCost(10)], normalized)[0]).toMatchObject({
+      source: 'override',
+      limit: { kind: 'amount', value: 0 },
+    })
+  })
+
   it('保留有效覆写与专属规则，丢弃空覆写', () => {
     expect(
       normalizeUserQuotaOverrides({
@@ -258,6 +267,22 @@ describe('isQuotaUnlimited', () => {
 })
 
 describe('evaluateQuotaLimit', () => {
+  it('零额度立即耗尽；临时赠送仍可增加可用额度', () => {
+    const limit = { kind: 'amount', value: 0 } as const
+    expect(evaluateQuotaLimit({ limit, used: 0 })).toMatchObject({
+      effectiveLimit: 0,
+      remaining: 0,
+      percent: 1,
+      blocked: true,
+    })
+    expect(evaluateQuotaLimit({ limit, used: 0, granted: 2 })).toMatchObject({
+      effectiveLimit: 2,
+      remaining: 2,
+      percent: 0,
+      blocked: false,
+    })
+  })
+
   it('无限额度不产生剩余/占比，也永不拦截', () => {
     expect(evaluateQuotaLimit({ limit: { kind: 'unlimited' }, used: 999 })).toMatchObject({
       effectiveLimit: null,

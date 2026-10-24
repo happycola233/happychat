@@ -92,8 +92,8 @@ export function ruleFromDraft(draft: QuotaRuleDraft): DraftResult {
   }
 
   const amount = Number(draft.limitInput)
-  if (!draft.unlimited && (!draft.limitInput.trim() || !Number.isFinite(amount) || amount <= 0)) {
-    return { ok: false, message: '请填写大于 0 的额度上限，或改为「不限」' }
+  if (!draft.unlimited && (!draft.limitInput.trim() || !Number.isFinite(amount) || amount < 0)) {
+    return { ok: false, message: '请填写不小于 0 的额度上限，或开启「豁免」' }
   }
   if (!draft.unlimited && draft.metric === 'requests' && !Number.isInteger(amount)) {
     return { ok: false, message: '请求次数上限必须是整数' }
@@ -216,7 +216,7 @@ function describeDraftScope(draft: QuotaRuleDraft): string {
 function describeDraftLimit(draft: QuotaRuleDraft): { text: string; incomplete: boolean } {
   if (draft.unlimited) return { text: '豁免', incomplete: false }
   const amount = Number(draft.limitInput)
-  if (!draft.limitInput.trim() || !Number.isFinite(amount) || amount <= 0) {
+  if (!draft.limitInput.trim() || !Number.isFinite(amount) || amount < 0) {
     return { text: '未设上限', incomplete: true }
   }
   if (draft.metric === 'requests' && !Number.isInteger(amount)) {

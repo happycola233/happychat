@@ -1,6 +1,73 @@
-import type { UserQuotaOverrides } from '@shared/types/domain'
+import type {
+  QuotaLimit,
+  QuotaRule,
+  QuotaRuleOverride,
+  QuotaWindow,
+  UserQuotaOverrides,
+} from '@shared/types/domain'
 
 type QuotaRuleOverrides = NonNullable<UserQuotaOverrides['rules']>
+
+export interface QuotaRuleOverrideDraft {
+  mode: 'inherit' | 'override' | 'disabled'
+  limitUnlimited: boolean
+  limitInput: string
+  /** 空串=沿用模板周期 */
+  windowChoice: '' | 'day' | 'week' | 'month' | 'total'
+}
+
+export function quotaRuleOverrideDraftFromRule(
+  rule: QuotaRule,
+  overrides: UserQuotaOverrides,
+): QuotaRuleOverrideDraft {
+  const override = overrides.rules?.[rule.id]
+  if (override?.disabled) {
+    return { mode: 'disabled', limitUnlimited: false, limitInput: '', windowChoice: '' }
+  }
+  if (override?.limit || override?.window) {
+    return {
+      mode: 'override',
+      limitUnlimited: override.limit?.kind === 'unlimited',
+      limitInput: override.limit?.kind === 'amount' ? String(override.limit.value) : '',
+      windowChoice:
+        override.window?.type === 'calendar'
+          ? override.window.period
+          : override.window?.type === 'total'
+            ? 'total'
+            : '',
+    }
+  }
+  return {
+    mode: 'inherit',
+    limitUnlimited: rule.limit.kind === 'unlimited',
+    limitInput: rule.limit.kind === 'amount' ? String(rule.limit.value) : '',
+    windowChoice: '',
+  }
+}
+
+/** 覆写草稿 → 覆写载荷；返回 null 表示该规则保持继承（不写入覆写）。 */
+export function quotaRuleOverrideFromDraft(
+  draft: QuotaRuleOverrideDraft,
+): QuotaRuleOverride | null {
+  if (draft.mode === 'disabled') return { disabled: true }
+  if (draft.mode === 'inherit') return null
+  const amount = Number(draft.limitInput)
+  // 空输入表示沿用模板上限；显式填 0 才表示零额度，不能直接依赖 Number('') 的结果。
+  const limit: QuotaLimit | undefined = draft.limitUnlimited
+    ? { kind: 'unlimited' }
+    : draft.limitInput.trim() && Number.isFinite(amount) && amount >= 0
+      ? { kind: 'amount', value: amount }
+      : undefined
+  const window: QuotaWindow | undefined =
+    draft.limitUnlimited || draft.windowChoice === ''
+      ? undefined
+      : draft.windowChoice === 'total'
+        ? { type: 'total' }
+        : { type: 'calendar', period: draft.windowChoice }
+  // 覆写模式但没填任何有效值时按继承处理，避免写入空覆写被 zod 拒绝。
+  if (!limit && !window) return null
+  return { ...(limit ? { limit } : {}), ...(window ? { window } : {}) }
+}
 
 function stableJson(value: unknown): string {
   return JSON.stringify(value, (_key, item: unknown) => {

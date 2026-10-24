@@ -106,6 +106,33 @@ describe('额度周期文案', () => {
 })
 
 describe('UserQuotaBuckets', () => {
+  it('尚未启动的零额度周期显示已耗尽', () => {
+    const html = renderToStaticMarkup(
+      <UserQuotaBuckets
+        timezone="Asia/Shanghai"
+        warnThreshold={0.8}
+        rules={[
+          bucket({
+            limit: { kind: 'amount', value: 0 },
+            used: 0,
+            effectiveLimit: 0,
+            remaining: 0,
+            percent: 1,
+            blocked: true,
+            window: { type: 'anchored', hours: 24 },
+            periodActive: false,
+            periodStart: 0,
+            usageStart: 0,
+            periodEnd: null,
+          }),
+        ]}
+      />,
+    )
+    expect(html).toContain('已耗尽')
+    expect(html).not.toContain('>未开始<')
+    expect(html).toContain('text-rose-600 dark:bg-rose-500/10 dark:text-rose-300')
+  })
+
   it('同时展示全部额度桶、各自状态、用量、周期与管理员重置时间', () => {
     const resetAt = Date.parse('2026-08-10T02:30:00.000Z')
     const html = renderToStaticMarkup(

@@ -48,9 +48,15 @@ describe('quotaRuleSchema', () => {
     expect(parsed.label).toBeNull()
   })
 
-  it('拒绝非正上限、空目标、重复目标与越界滚动窗口', () => {
+  it.each(['cost', 'requests'])('接受 %s 的零额度上限', (metric) => {
     expect(
-      quotaRuleSchema.safeParse({ ...validRule, limit: { kind: 'amount', value: 0 } }).success,
+      quotaRuleSchema.parse({ ...validRule, metric, limit: { kind: 'amount', value: 0 } }).limit,
+    ).toEqual({ kind: 'amount', value: 0 })
+  })
+
+  it('拒绝负数上限、空目标、重复目标与越界滚动窗口', () => {
+    expect(
+      quotaRuleSchema.safeParse({ ...validRule, limit: { kind: 'amount', value: -1 } }).success,
     ).toBe(false)
     expect(
       quotaRuleSchema.safeParse({
@@ -145,6 +151,11 @@ describe('userQuotaUpdateSchema', () => {
         enforcementPaused: true,
       }).success,
     ).toBe(true)
+  })
+
+  it('零额度覆写保持为显式上限', () => {
+    const overrides = { rules: { 'r-1': { limit: { kind: 'amount', value: 0 } } } }
+    expect(userQuotaUpdateSchema.parse({ policyId: null, overrides }).overrides).toEqual(overrides)
   })
 })
 

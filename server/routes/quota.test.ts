@@ -3,7 +3,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Hono } from 'hono'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { MyQuotaDTO, QuotaPolicyDTO, UsageStatsDTO } from '@shared/types/api'
+import type {
+  AdminUserQuotaDetailDTO,
+  MyQuotaDTO,
+  QuotaPolicyDTO,
+  QuotaPreviewDTO,
+  UsageStatsDTO,
+} from '@shared/types/api'
 import type { ModelPricing } from '@shared/types/domain'
 import type { AppEnv } from '../http/types'
 
@@ -196,6 +202,51 @@ describe('GET /api/quota/usage', () => {
 })
 
 describe('管理端限额接口', () => {
+  it.each(['cost', 'requests'])('零 %s 覆写可预览、保存与读回，并拦截首条请求', async (metric) => {
+    const policy = await createPolicy([
+      { ...dailyRequests, metric, window: { type: 'anchored', hours: 24 } },
+    ])
+    const overrides = { rules: { 'r-req': { limit: { kind: 'amount', value: 0 } } } }
+    const body = { policyId: policy.id, overrides, enforcementPaused: false }
+    const previewResponse = await request('/api/admin/quota/preview', adminCookie, {
+      method: 'POST',
+      body: JSON.stringify({ userId, ...body }),
+    })
+    expect(previewResponse.status).toBe(200)
+    const { preview } = (await previewResponse.json()) as { preview: QuotaPreviewDTO }
+    expect(preview.blockedRules).toHaveLength(1)
+    expect(preview.rules[0]).toMatchObject({
+      source: 'override',
+      effectiveLimit: 0,
+      used: 0,
+      remaining: 0,
+      blocked: true,
+      periodActive: false,
+    })
+
+    const saved = await request(`/api/admin/quota/users/${userId}`, adminCookie, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    })
+    expect(saved.status).toBe(200)
+    const detailResponse = await request(`/api/admin/quota/users/${userId}`, adminCookie)
+    const { detail } = (await detailResponse.json()) as { detail: AdminUserQuotaDetailDTO }
+    expect(detail.overrides).toEqual(overrides)
+    expect(detail.effectiveRules[0]?.limit).toEqual({ kind: 'amount', value: 0 })
+    const quotaResponse = await request('/api/quota/me', userCookie)
+    const { quota } = (await quotaResponse.json()) as { quota: MyQuotaDTO }
+    expect(quota.blockedModelIds).toEqual([modelId])
+
+    const { prepareRun } = await import('../runs/prepare')
+    expect(await prepareRun({ userId, modelId, text: '零额度测试' })).toMatchObject({
+      ok: false,
+      status: 429,
+      code: 'quota_exceeded',
+    })
+    expect(await dbClient.db.select().from(schema.runs)).toHaveLength(0)
+    expect(await dbClient.db.select().from(schema.quotaCycles)).toHaveLength(0)
+  })
+
   it('普通用户无法访问', async () => {
     expect((await request('/api/admin/quota/policies', userCookie)).status).toBe(403)
     expect((await request(`/api/admin/quota/users/${userId}`, userCookie)).status).toBe(403)

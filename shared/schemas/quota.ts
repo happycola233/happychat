@@ -56,12 +56,12 @@ export const quotaWindowSchema = z.discriminatedUnion('type', [
 
 export const quotaMetricSchema = z.enum(['requests', 'cost'])
 
-/** 上限：unlimited 是「豁免」（配合更高优先级放行）；amount 必须为正数（0 应当用「停用规则」表达）。 */
+/** 上限：unlimited 是「豁免」；amount 为非负数，0 表示无基础额度，区别于移除限制的「停用规则」。 */
 export const quotaLimitSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('unlimited') }),
   z.object({
     kind: z.literal('amount'),
-    value: z.number().positive('额度上限必须大于 0').max(1_000_000_000),
+    value: z.number().nonnegative('额度上限不能小于 0').max(1_000_000_000),
   }),
 ])
 

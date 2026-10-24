@@ -164,6 +164,25 @@ const anchoredRequests = (value: number, hours: number, id = 'r-anchor'): QuotaR
 })
 
 describe('额度快照与拦截', () => {
+  it.each<QuotaRule>([
+    monthlyCost(0),
+    dailyRequests(0),
+    anchoredRequests(0, 24),
+    { ...monthlyCost(0), window: { type: 'rolling', hours: 5 } },
+    { ...dailyRequests(0), window: { type: 'total' } },
+  ])('$metric / $window.type 的零额度只拦截范围内模型', async (rule) => {
+    const { userId, modelA, modelB, groupId } = await createFixture()
+    await bindPolicy(userId, [
+      { ...rule, scope: { type: 'groups', groupIds: [groupId], mode: 'shared' } },
+    ])
+
+    const snapshot = await quota.getQuotaSnapshot(userId)
+    expect(snapshot.rules[0]).toMatchObject({ used: 0, remaining: 0, blocked: true })
+    expect(snapshot.blockedModelIds).toEqual([modelB])
+    expect((await quota.prepareQuotaAdmission(userId, modelB)).check.ok).toBe(false)
+    expect((await quota.prepareQuotaAdmission(userId, modelA)).check.ok).toBe(true)
+  })
+
   it('可选提示随用户额度下发，清空后保留空值，关闭限额后不再下发提醒', async () => {
     const { userId } = await createFixture()
     await appConfig.updateAppConfig({

@@ -4,13 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { clsx } from 'clsx'
 import { Gift, RotateCcw, Trash2 } from 'lucide-react'
 import type { AdminQuotaPolicyDTO, QuotaBucketUsageDTO, QuotaPreviewDTO } from '@shared/types/api'
-import type {
-  QuotaLimit,
-  QuotaRule,
-  QuotaRuleOverride,
-  QuotaWindow,
-  UserQuotaOverrides,
-} from '@shared/types/domain'
+import type { QuotaRule, UserQuotaOverrides } from '@shared/types/domain'
 import {
   describeQuotaRule,
   describeQuotaRuleGroupTitle,
@@ -42,17 +36,13 @@ import { askConfirm } from '../../store/confirm'
 import { toast } from '../../store/toast'
 import { QuotaRuleList } from './QuotaRuleList'
 import { draftFromRule, draftsToRules, type QuotaRuleDraft } from './quotaRuleDrafts'
-import { hasUnsavedQuotaDefinitionChanges, hiddenQuotaRuleOverrides } from './userQuotaDraftState'
-
-type OverrideMode = 'inherit' | 'override' | 'disabled'
-
-interface RuleOverrideDraft {
-  mode: OverrideMode
-  limitUnlimited: boolean
-  limitInput: string
-  /** 空串=沿用模板周期 */
-  windowChoice: '' | 'day' | 'week' | 'month' | 'total'
-}
+import {
+  hasUnsavedQuotaDefinitionChanges,
+  hiddenQuotaRuleOverrides,
+  quotaRuleOverrideDraftFromRule,
+  quotaRuleOverrideFromDraft,
+  type QuotaRuleOverrideDraft,
+} from './userQuotaDraftState'
 
 const WINDOW_OPTIONS = [
   { value: '', label: '沿用模板周期' },
@@ -61,52 +51,6 @@ const WINDOW_OPTIONS = [
   { value: 'month', label: '每月' },
   { value: 'total', label: '永久累计' },
 ]
-
-function initialOverrideDraft(rule: QuotaRule, overrides: UserQuotaOverrides): RuleOverrideDraft {
-  const override = overrides.rules?.[rule.id]
-  if (override?.disabled) {
-    return { mode: 'disabled', limitUnlimited: false, limitInput: '', windowChoice: '' }
-  }
-  if (override?.limit || override?.window) {
-    return {
-      mode: 'override',
-      limitUnlimited: override.limit?.kind === 'unlimited',
-      limitInput: override.limit?.kind === 'amount' ? String(override.limit.value) : '',
-      windowChoice:
-        override.window?.type === 'calendar'
-          ? override.window.period
-          : override.window?.type === 'total'
-            ? 'total'
-            : '',
-    }
-  }
-  return {
-    mode: 'inherit',
-    limitUnlimited: rule.limit.kind === 'unlimited',
-    limitInput: rule.limit.kind === 'amount' ? String(rule.limit.value) : '',
-    windowChoice: '',
-  }
-}
-
-/** 覆写草稿 → 覆写载荷；返回 null 表示该规则保持继承（不写入覆写）。 */
-function overridePayload(draft: RuleOverrideDraft): QuotaRuleOverride | null {
-  if (draft.mode === 'disabled') return { disabled: true }
-  if (draft.mode === 'inherit') return null
-  const limit: QuotaLimit | undefined = draft.limitUnlimited
-    ? { kind: 'unlimited' }
-    : Number(draft.limitInput) > 0
-      ? { kind: 'amount', value: Number(draft.limitInput) }
-      : undefined
-  const window: QuotaWindow | undefined =
-    draft.limitUnlimited || draft.windowChoice === ''
-      ? undefined
-      : draft.windowChoice === 'total'
-        ? { type: 'total' }
-        : { type: 'calendar', period: draft.windowChoice }
-  // 覆写模式但没填任何有效值时按继承处理，避免写入空覆写被 zod 拒绝。
-  if (!limit && !window) return null
-  return { ...(limit ? { limit } : {}), ...(window ? { window } : {}) }
-}
 
 const SOURCE_BADGE: Record<string, { label: string; className: string }> = {
   policy: {
@@ -251,7 +195,7 @@ export function UserQuotaDialog({
   const [policyId, setPolicyId] = useState<string | null | undefined>(undefined)
   const [paused, setPaused] = useState<boolean | undefined>(undefined)
   const [note, setNote] = useState<string | undefined>(undefined)
-  const [overrideDrafts, setOverrideDrafts] = useState<Record<string, RuleOverrideDraft>>({})
+  const [overrideDrafts, setOverrideDrafts] = useState<Record<string, QuotaRuleOverrideDraft>>({})
   const [extraDrafts, setExtraDrafts] = useState<QuotaRuleDraft[] | undefined>(undefined)
   const [extraInvalid, setExtraInvalid] = useState<{ index: number; message: string } | null>(null)
   const [grantForm, setGrantForm] = useState<{ ruleId: string; bucketKey: string; amount: string }>(
@@ -282,8 +226,8 @@ export function UserQuotaDialog({
   const templateRules = (policyId ? effectivePolicy?.rules : defaultPolicy?.rules) ?? []
 
   // 模板规则的覆写草稿按需初始化：切换策略后新规则自动取继承态。
-  const overrideFor = (rule: QuotaRule): RuleOverrideDraft =>
-    overrideDrafts[rule.id] ?? initialOverrideDraft(rule, detail?.overrides ?? {})
+  const overrideFor = (rule: QuotaRule): QuotaRuleOverrideDraft =>
+    overrideDrafts[rule.id] ?? quotaRuleOverrideDraftFromRule(rule, detail?.overrides ?? {})
 
   const buildOverrides = (): UserQuotaOverrides => {
     const rules: NonNullable<UserQuotaOverrides['rules']> = hiddenQuotaRuleOverrides(
@@ -291,7 +235,7 @@ export function UserQuotaDialog({
       templateRules.map((rule) => rule.id),
     )
     for (const rule of templateRules) {
-      const payload = overridePayload(overrideFor(rule))
+      const payload = quotaRuleOverrideFromDraft(overrideFor(rule))
       if (payload) rules[rule.id] = payload
     }
     const extras = draftsToRules(extraDrafts ?? [])
@@ -482,7 +426,7 @@ export function UserQuotaDialog({
               >
                 {templateRules.map((rule) => {
                   const draft = overrideFor(rule)
-                  const patch = (changes: Partial<RuleOverrideDraft>) =>
+                  const patch = (changes: Partial<QuotaRuleOverrideDraft>) =>
                     setOverrideDrafts((current) => ({
                       ...current,
                       [rule.id]: { ...draft, ...changes },
@@ -554,7 +498,7 @@ export function UserQuotaDialog({
                               onChange={(event) =>
                                 patch({
                                   windowChoice: event.target
-                                    .value as RuleOverrideDraft['windowChoice'],
+                                    .value as QuotaRuleOverrideDraft['windowChoice'],
                                 })
                               }
                               options={WINDOW_OPTIONS}

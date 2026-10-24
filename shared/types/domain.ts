@@ -310,6 +310,7 @@ export type QuotaWeekStart = 'mon' | 'sun'
 /**
  * 上限：`unlimited` 是「豁免」——配合更高的 `priority` 用来把个别模型从大范围规则里放行，
  * 不是一个很大的数字。优先级为 0 的豁免规则等价于不写这条规则。
+ * `amount.value` 为非负数；0 表示无基础额度，仍可叠加当前周期的临时赠送。
  */
 export type QuotaLimit = { kind: 'unlimited' } | { kind: 'amount'; value: number }
 

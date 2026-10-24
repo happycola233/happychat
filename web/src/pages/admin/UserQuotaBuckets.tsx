@@ -53,16 +53,16 @@ function bucketStatus(rule: QuotaBucketUsageDTO, warnThreshold: number): StatusB
       className: 'bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400',
     }
   }
-  if (!rule.periodActive) {
-    return {
-      label: '未开始',
-      className: 'bg-sky-50 text-sky-600 dark:bg-sky-500/10 dark:text-sky-300',
-    }
-  }
   if (rule.blocked) {
     return {
       label: '已耗尽',
       className: 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-300',
+    }
+  }
+  if (!rule.periodActive) {
+    return {
+      label: '未开始',
+      className: 'bg-sky-50 text-sky-600 dark:bg-sky-500/10 dark:text-sky-300',
     }
   }
   if ((rule.percent ?? 0) >= warnThreshold) {

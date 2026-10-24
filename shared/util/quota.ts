@@ -75,7 +75,12 @@ function normalizeWindow(value: unknown): QuotaWindow | null {
 function normalizeLimit(value: unknown): QuotaLimit | null {
   if (!isRecord(value)) return null
   if (value.kind === 'unlimited') return { kind: 'unlimited' }
-  if (value.kind === 'amount' && isPositiveNumber(value.value)) {
+  if (
+    value.kind === 'amount' &&
+    typeof value.value === 'number' &&
+    Number.isFinite(value.value) &&
+    value.value >= 0
+  ) {
     return { kind: 'amount', value: value.value }
   }
   return null

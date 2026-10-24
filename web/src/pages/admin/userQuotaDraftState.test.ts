@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import type { UserQuotaOverrides } from '@shared/types/domain'
-import { hasUnsavedQuotaDefinitionChanges, hiddenQuotaRuleOverrides } from './userQuotaDraftState'
+import type { QuotaRule, UserQuotaOverrides } from '@shared/types/domain'
+import {
+  hasUnsavedQuotaDefinitionChanges,
+  hiddenQuotaRuleOverrides,
+  quotaRuleOverrideDraftFromRule,
+  quotaRuleOverrideFromDraft,
+  type QuotaRuleOverrideDraft,
+} from './userQuotaDraftState'
 
 const savedOverrides: UserQuotaOverrides = {
   rules: {
@@ -10,6 +16,47 @@ const savedOverrides: UserQuotaOverrides = {
     },
   },
 }
+
+describe('规则覆写草稿', () => {
+  const template: QuotaRule = {
+    id: 'rule-1',
+    label: null,
+    scope: { type: 'all' },
+    metric: 'cost',
+    limit: { kind: 'amount', value: 1 },
+    window: { type: 'anchored', hours: 24 },
+    priority: 0,
+  }
+  const draft: QuotaRuleOverrideDraft = {
+    mode: 'override',
+    limitUnlimited: false,
+    limitInput: '0',
+    windowChoice: '',
+  }
+
+  it('零额度被提交，重新打开后仍显示覆写 0', () => {
+    const override = quotaRuleOverrideFromDraft(draft)!
+    expect(override).toEqual({ limit: { kind: 'amount', value: 0 } })
+    const overrides = { rules: { [template.id]: override } }
+    expect(quotaRuleOverrideDraftFromRule(template, overrides)).toEqual(draft)
+    expect(hasUnsavedQuotaDefinitionChanges(null, null, {}, overrides)).toBe(true)
+  })
+
+  it.each(['', '   '])('空输入 %j 沿用模板上限，仍可单独覆写周期', (limitInput) => {
+    expect(quotaRuleOverrideFromDraft({ ...draft, limitInput })).toBeNull()
+    expect(quotaRuleOverrideFromDraft({ ...draft, limitInput, windowChoice: 'month' })).toEqual({
+      window: { type: 'calendar', period: 'month' },
+    })
+  })
+
+  it('继承、停用与无限额度不被残留的 0 输入改变', () => {
+    expect(quotaRuleOverrideFromDraft({ ...draft, mode: 'inherit' })).toBeNull()
+    expect(quotaRuleOverrideFromDraft({ ...draft, mode: 'disabled' })).toEqual({ disabled: true })
+    expect(quotaRuleOverrideFromDraft({ ...draft, limitUnlimited: true })).toEqual({
+      limit: { kind: 'unlimited' },
+    })
+  })
+})
 
 describe('hasUnsavedQuotaDefinitionChanges', () => {
   it('忽略对象键顺序，不把等价配置误判为未保存', () => {

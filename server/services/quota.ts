@@ -756,8 +756,8 @@ export async function getQuotaSnapshot(
       remaining: evaluation.remaining,
       percent: evaluation.percent,
       // 失效规则（目标已不存在）与被更高优先级接管的桶永不拦截。
-      blocked:
-        !bucket.periodActive || bucket.invalid || bucket.shadowed ? false : evaluation.blocked,
+      // 未启动周期按 0 用量评估：正额度允许首条请求，零额度仍须立即拦截。
+      blocked: bucket.invalid || bucket.shadowed ? false : evaluation.blocked,
       periodActive: bucket.periodActive,
       periodStart: bucket.periodStart,
       usageStart: bucket.usageStart,

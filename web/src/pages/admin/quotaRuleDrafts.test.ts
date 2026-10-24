@@ -50,9 +50,14 @@ describe('ruleFromDraft', () => {
     })
   })
 
-  it('上限必须是大于 0 的数；次数必须为整数', () => {
+  it('上限必须是非负数；空输入无效，次数必须为整数', () => {
     expect(ruleFromDraft(baseDraft({ limitInput: '' })).ok).toBe(false)
-    expect(ruleFromDraft(baseDraft({ limitInput: '0' })).ok).toBe(false)
+    expect(ruleFromDraft(baseDraft({ limitInput: '   ' })).ok).toBe(false)
+    expect(ruleFromDraft(baseDraft({ limitInput: '0' }))).toMatchObject({
+      ok: true,
+      rule: { limit: { kind: 'amount', value: 0 } },
+    })
+    expect(ruleFromDraft(baseDraft({ metric: 'requests', limitInput: '0' })).ok).toBe(true)
     expect(ruleFromDraft(baseDraft({ limitInput: '-3' })).ok).toBe(false)
     expect(ruleFromDraft(baseDraft({ limitInput: 'abc' })).ok).toBe(false)
     expect(ruleFromDraft(baseDraft({ metric: 'requests', limitInput: '3.5' })).ok).toBe(false)
@@ -161,6 +166,16 @@ describe('createQuotaRuleDraft', () => {
 })
 
 describe('summarizeQuotaRuleDraft', () => {
+  it('零额度显示为已填写的上限', () => {
+    expect(summarizeQuotaRuleDraft(baseDraft({ limitInput: '0' }))).toMatchObject({
+      limitText: '$0',
+      incomplete: false,
+    })
+    expect(
+      summarizeQuotaRuleDraft(baseDraft({ metric: 'requests', limitInput: '0' })),
+    ).toMatchObject({ limitText: '0 次', incomplete: false })
+  })
+
   it('有备注时用备注作标题，右侧给出格式化额度', () => {
     const summary = summarizeQuotaRuleDraft(
       baseDraft({ label: '日常上限', limitInput: '30', windowChoice: 'month' }),
