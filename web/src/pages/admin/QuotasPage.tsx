@@ -83,7 +83,7 @@ export default function QuotasPage() {
   const [view, setView] = useState<View>(
     searchParams.get('userId') || searchParams.get('view') === 'users' ? 'users' : 'policies',
   )
-  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(true)
   const [expandedUsers, setExpandedUsers] = useState<Set<string>>(new Set())
   const [userSort, setUserSort] = useState('attention')
   const [editingPolicy, setEditingPolicy] = useState<AdminQuotaPolicyDTO | null | undefined>(
