@@ -14,7 +14,7 @@ import type { ModelEditorSection } from './ModelEditor'
 
 /** 按列表实际宽度切换布局，兼顾侧栏展开与收起；表头和行共用列宽。 */
 const MODEL_COLUMNS =
-  '@min-[70rem]/models:grid-cols-[minmax(200px,1.1fr)_minmax(110px,0.55fr)_minmax(240px,0.9fr)_140px_86px_44px_96px]'
+  '@min-[70rem]/models:grid-cols-[minmax(200px,1.1fr)_minmax(110px,0.55fr)_minmax(240px,0.9fr)_minmax(220px,0.75fr)_86px_44px_96px]'
 const CAPABILITY_LABELS: { key: keyof ModelCapabilities; label: string }[] = [
   { key: 'vision', label: '视觉' },
   { key: 'file_input', label: '文件' },
@@ -99,6 +99,24 @@ export function ModelListRow({
         : imagePricing
           ? `图片输出 ${priceText(imagePricing.imageOutput)} / 百万`
           : null
+  const pricingDetail =
+    model.kind === 'image'
+      ? imagePricing?.mode === 'per_request'
+        ? '按次计价'
+        : imagePricing?.mode === 'per_image'
+          ? '按张计价'
+          : '按 Token 计价'
+      : (imagePriceLabel ??
+        `缓存 ${pricing.cachedInput == null ? '随输入' : priceText(pricing.cachedInput)}`)
+  const pricingFeatures = [
+    pricing.periods?.length ? '分时' : null,
+    pricing.contextTiers?.length ||
+    pricing.periods?.some((period) => period.pricing.contextTiers?.length)
+      ? '分档'
+      : null,
+  ]
+    .filter(Boolean)
+    .join(' · ')
   const accessLabel =
     model.accessMode === 'all'
       ? '全部用户'
@@ -235,6 +253,8 @@ export function ModelListRow({
         aria-label={`配置 ${model.displayName} 的定价`}
         title={[
           '编辑定价',
+          pricingDetail,
+          pricingFeatures,
           pricing.periods?.length ? `${pricing.periods.length} 个定价时段` : null,
           pricing.contextTiers?.length ? `${pricing.contextTiers.length} 个上下文档位` : null,
         ]
@@ -247,29 +267,20 @@ export function ModelListRow({
             ? imagePriceLabel
             : `${priceText(pricing.input)} / ${priceText(pricing.output)} · 百万`}
         </span>
-        <span className="hidden truncate text-neutral-500 @min-[70rem]/models:block">
-          {model.kind === 'image'
-            ? imagePricing?.mode === 'per_request'
-              ? '按次计价'
-              : imagePricing?.mode === 'per_image'
-                ? '按张计价'
-                : '按 Token 计价'
-            : (imagePriceLabel ??
-              `缓存 ${pricing.cachedInput == null ? '随输入' : priceText(pricing.cachedInput)}`)}
+        {/* 附加单价与定价规则共用次行，避免分档模型额外撑高列表。 */}
+        <span className="flex min-w-0 items-baseline gap-1.5 text-[11px] text-neutral-500 @min-[40rem]/models:justify-end @min-[70rem]/models:justify-start">
+          <span className="min-w-0 truncate">{pricingDetail}</span>
+          {pricingFeatures && (
+            <>
+              <span aria-hidden className="shrink-0 text-neutral-400 dark:text-neutral-600">
+                ·
+              </span>
+              <span className="shrink-0 whitespace-nowrap text-sky-600 dark:text-sky-400">
+                {pricingFeatures}
+              </span>
+            </>
+          )}
         </span>
-        {pricing.periods?.length || pricing.contextTiers?.length ? (
-          <span className="block truncate text-[11px] text-sky-600 dark:text-sky-400">
-            {[
-              pricing.periods?.length ? '分时定价' : null,
-              pricing.contextTiers?.length ||
-              pricing.periods?.some((period) => period.pricing.contextTiers?.length)
-                ? '长上下文分档'
-                : null,
-            ]
-              .filter(Boolean)
-              .join(' · ')}
-          </span>
-        ) : null}
       </button>
       <button
         type="button"
