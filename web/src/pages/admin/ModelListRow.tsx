@@ -12,15 +12,16 @@ import { IconButton } from '../../components/ui/IconButton'
 import { Toggle } from '../../components/ui/Toggle'
 import type { ModelEditorSection } from './ModelEditor'
 
-/** 同一列模板用于表头与数据行；窄屏按阅读顺序重排，避免缩成横向宽表。 */
+/** 按列表实际宽度切换布局，兼顾侧栏展开与收起；表头和行共用列宽。 */
 const MODEL_COLUMNS =
-  'xl:grid-cols-[minmax(200px,1.5fr)_minmax(105px,0.8fr)_152px_120px_94px_48px_96px]'
-const CAPABILITIES: { key: keyof ModelCapabilities; label: string }[] = [
+  '@min-[70rem]/models:grid-cols-[minmax(200px,1.1fr)_minmax(110px,0.55fr)_minmax(240px,0.9fr)_140px_86px_44px_96px]'
+const CAPABILITY_LABELS: { key: keyof ModelCapabilities; label: string }[] = [
   { key: 'vision', label: '视觉' },
   { key: 'file_input', label: '文件' },
   { key: 'web_search', label: '联网' },
-  { key: 'reasoning', label: '思考' },
+  { key: 'x_search', label: 'X 搜索' },
   { key: 'artifacts', label: 'Artifacts' },
+  { key: 'image_generation', label: '生图' },
 ]
 const PROTOCOL_LABEL = {
   responses: 'Responses',
@@ -32,7 +33,7 @@ export function ModelListHeader() {
   return (
     <div
       className={clsx(
-        'hidden items-center gap-3 rounded-t-lg bg-neutral-50 px-3 py-2.5 text-xs text-neutral-500 xl:grid dark:bg-neutral-900/60',
+        'hidden items-center gap-3 rounded-t-lg bg-neutral-50 px-3 py-2.5 text-xs text-neutral-500 @min-[70rem]/models:grid dark:bg-neutral-900/60',
         MODEL_COLUMNS,
       )}
     >
@@ -104,6 +105,11 @@ export function ModelListRow({
       : model.allowedUserCount > 0
         ? `指定 ${model.allowedUserCount} 人`
         : '未选择用户'
+  const enabledCapabilities = CAPABILITY_LABELS.filter(({ key }) =>
+    key === 'image_generation'
+      ? model.kind === 'image' || model.capabilities.image_generation
+      : model.capabilities[key],
+  )
   return (
     <div
       ref={setNodeRef}
@@ -111,7 +117,7 @@ export function ModelListRow({
       style={{ transform: CSS.Transform.toString(transform), transition }}
       onClick={batchMode ? onToggleSelected : undefined}
       className={clsx(
-        'grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 px-3 py-3 text-[13px] transition xl:gap-y-0',
+        'grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 px-3 py-3 text-[13px] transition @min-[70rem]/models:gap-y-0',
         MODEL_COLUMNS,
         selected
           ? 'bg-sky-50 dark:bg-sky-950/30'
@@ -120,7 +126,7 @@ export function ModelListRow({
         isDragging && 'relative z-10 bg-white ring-1 ring-sky-300 dark:bg-neutral-900',
       )}
     >
-      <div className="col-start-1 row-start-1 flex min-w-0 items-center gap-2 xl:col-auto xl:row-auto">
+      <div className="col-start-1 row-start-1 flex min-w-0 items-center gap-2 @min-[70rem]/models:col-auto @min-[70rem]/models:row-auto">
         {batchMode ? (
           <span className="shrink-0" onClick={(event) => event.stopPropagation()}>
             <Checkbox
@@ -141,7 +147,7 @@ export function ModelListRow({
             <GripVertical className="h-3.5 w-3.5" />
           </button>
         ) : (
-          <span className="hidden w-5 shrink-0 xl:block" />
+          <span className="hidden w-5 shrink-0 @min-[70rem]/models:block" />
         )}
         <span className="flex shrink-0 items-center">
           <ModelIconMark
@@ -166,7 +172,7 @@ export function ModelListRow({
                 {model.displayName}
               </button>
             )}
-            <span className="hidden min-w-0 overflow-hidden xl:block">
+            <span className="hidden min-w-0 overflow-hidden @min-[70rem]/models:block">
               <ModelTagList tags={model.tags} />
             </span>
           </div>
@@ -175,11 +181,11 @@ export function ModelListRow({
             title={`${model.modelId}${model.description ? ` · ${model.description}` : ''}`}
           >
             {model.modelId}
-            <span className="xl:hidden"> · {model.providerName}</span>
+            <span className="@min-[70rem]/models:hidden"> · {model.providerName}</span>
           </p>
         </div>
       </div>
-      <div className="hidden min-w-0 xl:block">
+      <div className="hidden min-w-0 @min-[70rem]/models:block">
         <p
           className="truncate leading-5 text-neutral-700 dark:text-neutral-300"
           title={model.providerName}
@@ -188,36 +194,39 @@ export function ModelListRow({
         </p>
         <p className="truncate text-xs leading-4 text-neutral-500">{PROTOCOL_LABEL[model.kind]}</p>
       </div>
-      <div className="col-start-1 row-start-2 min-w-0 xl:col-auto xl:row-auto">
-        <div className="flex items-center gap-1.5">
-          {CAPABILITIES.map(({ key, label }) => (
+      <div className="col-span-2 col-start-1 row-start-2 min-w-0 space-y-1.5 @min-[40rem]/models:col-span-1 @min-[70rem]/models:col-auto @min-[70rem]/models:row-auto">
+        {/* 标签整体换行，避免中文能力名在窄列中被拆成单字。 */}
+        {enabledCapabilities.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1">
+            {enabledCapabilities.map(({ key, label }) => (
+              <span
+                key={key}
+                title={`${label}已开启`}
+                className={clsx(
+                  'inline-flex shrink-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[11px] leading-4',
+                  key === 'image_generation'
+                    ? 'bg-sky-50 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300'
+                    : 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300',
+                )}
+              >
+                {label}
+              </span>
+            ))}
+          </div>
+        )}
+        {model.capabilities.reasoning ? (
+          <p className="flex min-w-0 items-center gap-1 text-xs leading-4 text-neutral-500 dark:text-neutral-400">
+            <span className="shrink-0">思考</span>
             <span
-              key={key}
-              title={`${label}：${model.capabilities[key] ? '已开启' : '未开启'}`}
-              className={clsx(
-                'text-xs leading-5',
-                model.capabilities[key]
-                  ? 'text-neutral-600 dark:text-neutral-300'
-                  : 'text-neutral-300 dark:text-neutral-700',
-              )}
+              title={model.defaultEffort ?? '未设默认'}
+              className="truncate font-medium text-neutral-600 dark:text-neutral-300"
             >
-              {label}
+              {model.defaultEffort ?? '未设默认'}
             </span>
-          ))}
-          {model.capabilities.x_search && (
-            <span title="X 搜索已开启" className="text-xs leading-5 text-sky-600 dark:text-sky-400">
-              X
-            </span>
-          )}
-          {model.kind === 'image' && (
-            <span className="text-xs leading-5 text-sky-600 dark:text-sky-400">生图</span>
-          )}
-        </div>
-        <p className="hidden truncate text-xs leading-4 text-neutral-500 xl:block">
-          {model.capabilities.reasoning
-            ? `思考 ${model.defaultEffort ?? '未设默认'}`
-            : '不启用思考'}
-        </p>
+          </p>
+        ) : enabledCapabilities.length === 0 ? (
+          <span className="text-xs text-neutral-500 dark:text-neutral-400">纯文本</span>
+        ) : null}
       </div>
       <button
         type="button"
@@ -231,14 +240,14 @@ export function ModelListRow({
         ]
           .filter(Boolean)
           .join(' · ')}
-        className="col-start-2 row-start-2 min-w-0 rounded text-right text-xs leading-[18px] tabular-nums hover:text-sky-600 xl:col-auto xl:row-auto xl:text-left dark:hover:text-sky-400"
+        className="col-span-2 col-start-1 row-start-3 min-w-0 rounded text-left text-xs leading-[18px] tabular-nums hover:text-sky-600 @min-[40rem]/models:col-span-1 @min-[40rem]/models:col-start-2 @min-[40rem]/models:row-start-2 @min-[40rem]/models:text-right @min-[70rem]/models:col-auto @min-[70rem]/models:row-auto @min-[70rem]/models:text-left dark:hover:text-sky-400"
       >
         <span className="block truncate text-neutral-800 dark:text-neutral-200">
           {model.kind === 'image'
             ? imagePriceLabel
             : `${priceText(pricing.input)} / ${priceText(pricing.output)} · 百万`}
         </span>
-        <span className="hidden truncate text-neutral-500 xl:block">
+        <span className="hidden truncate text-neutral-500 @min-[70rem]/models:block">
           {model.kind === 'image'
             ? imagePricing?.mode === 'per_request'
               ? '按次计价'
@@ -268,13 +277,13 @@ export function ModelListRow({
         onClick={onAccess}
         aria-label={`配置 ${model.displayName} 的可用用户，当前${accessLabel}`}
         className={clsx(
-          'col-start-1 row-start-3 min-h-8 truncate rounded text-left text-xs hover:text-sky-600 xl:col-auto xl:row-auto',
+          'col-start-1 row-start-4 min-h-8 truncate rounded text-left text-xs hover:text-sky-600 @min-[40rem]/models:row-start-3 @min-[70rem]/models:col-auto @min-[70rem]/models:row-auto',
           model.accessMode === 'all' ? 'text-neutral-500' : 'text-sky-700 dark:text-sky-300',
         )}
       >
         {accessLabel}
       </button>
-      <div className="col-start-2 row-start-1 flex justify-end xl:col-auto xl:row-auto xl:justify-start">
+      <div className="col-start-2 row-start-1 flex justify-end @min-[70rem]/models:col-auto @min-[70rem]/models:row-auto @min-[70rem]/models:justify-start">
         {!batchMode && (
           <Toggle
             checked={model.enabled}
@@ -284,7 +293,7 @@ export function ModelListRow({
           />
         )}
       </div>
-      <div className="col-start-2 row-start-3 flex justify-end xl:col-auto xl:row-auto">
+      <div className="col-start-2 row-start-4 flex justify-end @min-[40rem]/models:row-start-3 @min-[70rem]/models:col-auto @min-[70rem]/models:row-auto">
         {!batchMode && (
           <>
             <IconButton

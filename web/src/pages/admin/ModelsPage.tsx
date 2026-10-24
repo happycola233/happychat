@@ -346,7 +346,7 @@ export default function ModelsPage() {
   )
 
   return (
-    <div className="mx-auto w-full space-y-4">
+    <div className="@container/models mx-auto w-full space-y-4">
       <PageHeader
         title="模型"
         description="比较模型能力、价格与权限，点击名称或价格即可编辑。"
