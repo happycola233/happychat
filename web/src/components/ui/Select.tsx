@@ -13,6 +13,8 @@ import { placeSelectMenu, type SelectMenuCoords } from './selectMenuPosition'
 export interface SelectOption {
   value: string
   label: string
+  /** 补充选项身份的信息，同时显示在菜单和已选结果中。 */
+  description?: string
 }
 
 /** 与原生 change 事件同形，现有 `e.target.value` 调用点不用改。 */
@@ -251,10 +253,18 @@ export function Select({
         size === 'md'
           ? 'min-h-9 rounded-lg px-3 text-[13px] leading-4'
           : 'min-h-8 rounded-lg px-2.5 text-xs',
+        selected?.description && 'py-2',
         open && 'border-sky-500 ring-2 ring-sky-500/15 dark:border-sky-400 dark:ring-sky-400/20',
       )}
     >
-      <span className="min-w-0 flex-1 truncate">{displayLabel}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate">{displayLabel}</span>
+        {selected?.description && (
+          <span className="mt-0.5 block text-xs leading-4 text-neutral-500 [overflow-wrap:anywhere] dark:text-neutral-400">
+            {selected.description}
+          </span>
+        )}
+      </span>
       <ChevronDown
         aria-hidden="true"
         className={clsx(
@@ -312,7 +322,16 @@ export function Select({
                 active && 'bg-sky-50 text-sky-800 dark:bg-sky-500/15 dark:text-sky-100',
               )}
             >
-              <span className="whitespace-nowrap">{option.label}</span>
+              <span className={option.description ? 'min-w-0 flex-1' : 'whitespace-nowrap'}>
+                <span className={option.description ? 'block [overflow-wrap:anywhere]' : undefined}>
+                  {option.label}
+                </span>
+                {option.description && (
+                  <span className="mt-0.5 block text-xs leading-4 text-neutral-500 [overflow-wrap:anywhere] dark:text-neutral-400">
+                    {option.description}
+                  </span>
+                )}
+              </span>
               <span className="inline-flex w-4 shrink-0 justify-center">
                 {active && <Check className="h-4 w-4 text-sky-500 dark:text-sky-400" />}
               </span>

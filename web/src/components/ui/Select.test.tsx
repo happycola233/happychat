@@ -49,4 +49,19 @@ describe('Select', () => {
     expect(html).toContain('min-h-9')
     expect(html).not.toContain('<select')
   })
+
+  it('收起后保留所选项的补充信息，避免同名选项丢失身份', () => {
+    const html = renderToStaticMarkup(
+      <Select
+        value="second"
+        options={[
+          { value: 'first', label: 'GPT Test', description: '供应商一 · gpt-test' },
+          { value: 'second', label: 'GPT Test', description: '供应商二 · gpt-test' },
+        ]}
+      />,
+    )
+
+    expect(html).toContain('供应商二 · gpt-test')
+    expect(html).not.toContain('供应商一 · gpt-test')
+  })
 })

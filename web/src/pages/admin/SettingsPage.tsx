@@ -19,6 +19,7 @@ import { APP_VERSION } from '../../lib/buildInfo'
 import { toast } from '../../store/toast'
 import { RetrySettings } from './RetrySettings'
 import { ContextSuggestionSettings } from './ContextSuggestionSettings'
+import { TitleModelSelect } from './TitleModelSelect'
 
 /** 只读信息行（「关于」卡片用）。 */
 function InfoRow({ label, value }: { label: string; value: string }) {
@@ -131,7 +132,6 @@ export default function SettingsPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : '保存失败'),
   })
 
-  const textModels = (models ?? []).filter((m) => m.kind !== 'image')
   const promptIsDefault = titleDraft?.prompt.trim() === DEFAULT_TITLE_PROMPT
   const titleDirty = Boolean(
     config && titleDraft && JSON.stringify(titleDraft) !== JSON.stringify(toTitleDraft(config)),
@@ -296,18 +296,11 @@ export default function SettingsPage() {
 
                 {titleDraft.enabled && (
                   <>
-                    <label className="block">
-                      <span className="mb-1.5 block text-xs text-neutral-500">标题模型</span>
-                      <Select
-                        className="w-full"
-                        value={titleDraft.modelId}
-                        onChange={(e) => patchTitleDraft({ modelId: e.target.value })}
-                        options={[
-                          { value: '', label: '自动（首个可用文本模型）' },
-                          ...textModels.map((m) => ({ value: m.id, label: m.displayName })),
-                        ]}
-                      />
-                    </label>
+                    <TitleModelSelect
+                      models={models ?? []}
+                      value={titleDraft.modelId}
+                      onChange={(modelId) => patchTitleDraft({ modelId })}
+                    />
 
                     <div>
                       <div className="mb-1.5 flex items-center justify-between gap-2">
