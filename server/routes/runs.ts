@@ -55,7 +55,7 @@ function terminalTypeFor(state: string): string {
 }
 
 function terminalDataFor(
-  run: Pick<typeof runs.$inferSelect, 'state' | 'errorMessage' | 'errorCode'>,
+  run: Pick<typeof runs.$inferSelect, 'state' | 'errorMessage' | 'errorCode' | 'incompleteReason'>,
   terminalReason?: string | null,
 ): Record<string, unknown> {
   if (run.state === 'failed') {
@@ -67,6 +67,9 @@ function terminalDataFor(
       ...(terminalErrorCode ? { code: terminalErrorCode } : {}),
       ...(discardPartialOutput ? { discardPartialOutput: true } : {}),
     } satisfies RunErrorData
+  }
+  if (run.state === 'incomplete') {
+    return { state: run.state, incompleteReason: run.incompleteReason }
   }
   return { state: run.state } satisfies RunSimpleTerminalData
 }

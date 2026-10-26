@@ -157,6 +157,39 @@ describe('GET /api/runs/:id/stream', () => {
     ])
   })
 
+  it.each(['max_output_tokens', 'max_tokens', 'model_context_window_exceeded'])(
+    '缺少终态事件时仍从 run 快照恢复截断原因 %s',
+    async (incompleteReason) => {
+      const conversation = dbClient.db
+        .insert(schema.conversations)
+        .values({ userId: 'run-route-user' })
+        .returning()
+        .get()
+      const run = dbClient.db
+        .insert(schema.runs)
+        .values({
+          conversationId: conversation.id,
+          userId: 'run-route-user',
+          state: 'incomplete',
+          incompleteReason,
+          finishedAt: new Date(),
+        })
+        .returning()
+        .get()
+      const response = await app.request(`/api/runs/${run.id}/stream`, {
+        headers: { Cookie: userCookie },
+      })
+      expect(parseSseEvents(await response.text())).toEqual([
+        {
+          type: 'run.done',
+          seq: 0,
+          createdAt: run.finishedAt!.getTime(),
+          data: { state: 'incomplete', incompleteReason },
+        },
+      ])
+    },
+  )
+
   it.each(['refusal', 'content_filter'] as const)(
     '从审计快照还原 %s 的代码与部分输出作废标记',
     async (terminalReason) => {

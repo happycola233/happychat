@@ -61,7 +61,7 @@ describe('modelProtocolMigration', () => {
     expect(migrated.thinking).toEqual(thinking)
   })
 
-  it('从 Anthropic 切换到 Chat 时迁移旧 max_tokens 字段', () => {
+  it('从 Anthropic 切换到 Chat 时保留明确配置的 max_tokens，不擅自改名', () => {
     const migrated = JSON.parse(
       migrateHardParamsFromAnthropic(
         JSON.stringify({ max_tokens: 4096, custom_gateway_field: true }),
@@ -70,10 +70,10 @@ describe('modelProtocolMigration', () => {
     ) as Record<string, unknown>
 
     expect(migrated).toMatchObject({
-      max_completion_tokens: 4096,
+      max_tokens: 4096,
       custom_gateway_field: true,
     })
-    expect(migrated).not.toHaveProperty('max_tokens')
+    expect(migrated).not.toHaveProperty('max_completion_tokens')
   })
 
   it('离开 Anthropic 时移除本次切换自动填入的 max_output_tokens', () => {

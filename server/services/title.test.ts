@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { eq } from 'drizzle-orm'
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import type { ModelPricing, QuotaRule } from '@shared/types/domain'
 import { costUsd } from '@shared/util/cost'
 
@@ -156,6 +156,37 @@ async function readTitleResult(userId: string, conversationId: string) {
 }
 
 describe('标题总结', () => {
+  it.each([
+    ['chat', 'opaque-alias', 'max_tokens'],
+    ['chat', 'deepseek-flash', 'max_completion_tokens'],
+    ['responses', 'opaque-alias', 'max_output_tokens'],
+  ] as const)(
+    '%s 标题任务按配置原名发送 %s 的 %s，不根据模型名称选择',
+    async (kind, upstreamId, field) => {
+      const { conversationId, modelId } = await createFixture(kind)
+      onTestFinished(async () => {
+        await dbClient.db
+          .update(schema.models)
+          .set({ enabled: false })
+          .where(eq(schema.models.id, modelId))
+      })
+      await dbClient.db
+        .update(schema.models)
+        .set({ modelId: upstreamId, defaultParams: { [field]: 256 } })
+        .where(eq(schema.models.id, modelId))
+      await appConfig.updateAppConfig({ titleModelId: modelId })
+      await title.maybeGenerateTitle(conversationId)
+      const body = (kind === 'chat' ? providerMocks.createChat : providerMocks.createResponse).mock
+        .calls[0]![0]
+      expect(body[field]).toBe(256)
+      expect(body).not.toHaveProperty(
+        field === 'max_tokens' ? 'max_completion_tokens' : 'max_tokens',
+      )
+      expect(body).not.toHaveProperty('reasoning_effort')
+      expect(body).not.toHaveProperty('reasoning')
+    },
+  )
+
   it('写入标题并把上游用量记为 kind=title 的用量日志', async () => {
     const { userId, conversationId, modelId } = await createFixture()
     await bindPolicy(userId, [

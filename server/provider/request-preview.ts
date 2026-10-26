@@ -27,8 +27,6 @@ const USER_PARAMETER_KEYS: Record<string, string> = {
   reasoning: 'reasoning_effort',
   output_config: 'reasoning_effort',
   thinking: 'reasoning_effort',
-  max_tokens: 'max_output_tokens',
-  max_completion_tokens: 'max_output_tokens',
 }
 const DYNAMIC_FIELDS = new Set(['input', 'messages', 'prompt', 'images', 'prompt_cache_key'])
 
@@ -128,10 +126,11 @@ export function buildRequestPreview(
   // 三种文本客户端会在最终发送时强制 stream=true，高级 JSON 不会关闭 SSE。
   if (model.kind !== 'image') body.stream = true
   const parameters = Object.keys(body).map((name) => {
-    const hardValue =
-      model.hardParams?.[name] ??
-      (name === 'max_completion_tokens' ? model.hardParams?.max_tokens : undefined)
-    const userKey = USER_PARAMETER_KEYS[name] ?? name
+    const hardValue = model.hardParams?.[name]
+    const userKey =
+      model.kind === 'anthropic' && name === 'max_tokens'
+        ? 'max_output_tokens'
+        : (USER_PARAMETER_KEYS[name] ?? name)
     const imageKey = name === 'size' || name === 'quality' || name === 'background' ? name : null
     const userValue = imageKey
       ? input.userParams?.image?.[imageKey]

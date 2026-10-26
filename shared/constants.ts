@@ -43,8 +43,5 @@ You need to summarize the conversation between user and assistant into a short t
 {content}
 </content>`
 
-/** 开启思考时，max_output_tokens 的下限（为思考 token 预留预算） */
-export const REASONING_MIN_OUTPUT_TOKENS = 25_000
-
 /** 用户指定跳过冒烟测试、且默认不启用的上游模型 */
 export const EXCLUDED_MODEL_IDS: readonly string[] = ['gpt-5.3-codex-spark', 'codex-auto-review']

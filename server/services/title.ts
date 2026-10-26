@@ -11,7 +11,7 @@ import { db } from '../db/client'
 import { conversations, models, providers, runs, usageLogs } from '../db/schema'
 import { mapAnthropicUsage, type AnthropicUsage } from '../provider/anthropic'
 import { classifyAnthropicTerminal } from '../provider/anthropic-terminal'
-import { mapChatUsage } from '../provider/chat'
+import { buildChatBody, mapChatUsage } from '../provider/chat'
 import type { ChatChunk } from '../provider/chat'
 import { classifyChatTerminal } from '../provider/chat-terminal'
 import { providerClientFromRow } from '../provider/client'
@@ -22,6 +22,7 @@ import {
   type UpstreamResponseTimingObserver,
 } from '../provider/response-timing'
 import { classifyResponsesTerminal } from '../provider/responses-terminal'
+import { buildResponseBody } from '../provider/params'
 import { buildPath, getConversationMessages } from './conversations'
 import { getAppConfig } from './appConfig'
 import { conversationEvents } from './conversation-events'
@@ -92,10 +93,16 @@ async function callTitleModel(
 ): Promise<TitleModelResult> {
   const client = providerClientFromRow(p, responseTimingObserver)
   if (m.kind === 'chat') {
+    const configuredBody = buildChatBody({ model: m, messages: [], stream: false })
+    const outputParams = Object.fromEntries(
+      ['max_completion_tokens', 'max_tokens', 'reasoning_effort']
+        .filter((field) => configuredBody[field] !== undefined)
+        .map((field) => [field, configuredBody[field]]),
+    )
     const resp = (await client.createChat({
       model: m.modelId,
       messages: [{ role: 'user', content: prompt }],
-      max_completion_tokens: 512,
+      ...outputParams,
       stream: false,
     })) as {
       choices?: {
@@ -147,10 +154,21 @@ async function callTitleModel(
       ...titleTerminalResult(classifyAnthropicTerminal(resp.stop_reason)),
     }
   }
+  const configuredBody = buildResponseBody({
+    model: m,
+    input: [],
+    instructions: null,
+    stream: false,
+  })
+  const outputParams = Object.fromEntries(
+    ['max_output_tokens', 'reasoning']
+      .filter((field) => configuredBody[field] !== undefined)
+      .map((field) => [field, configuredBody[field]]),
+  )
   const resp = await client.createResponse({
     model: m.modelId,
     input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: prompt }] }],
-    max_output_tokens: 1024,
+    ...outputParams,
     store: false,
   })
   const parsed = parseResponse(resp)

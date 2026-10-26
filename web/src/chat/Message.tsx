@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import type { MessageCostDisplayDTO, MessageDTO } from '@shared/types/api'
 import type { UrlCitation } from '@shared/types/domain'
+import { incompleteRunMessage } from '@shared/util/incompleteRun'
 import { liveStepsFromPersisted, type LiveMessage } from '../sse/eventReducer'
 import { useModels } from '../hooks/useModels'
 import { useSettings } from '../store/settings'
@@ -16,6 +17,7 @@ import type { ImageEditSource } from './imageSource'
 import { ProgressiveImageStage } from './ProgressiveImageStage'
 import { RetryStatus } from './RetryStatus'
 import { RunErrorNotice } from './RunErrorNotice'
+import { RunInterruptionNotice } from './RunInterruptionNotice'
 import { attachmentDraftsFromContent } from './attachmentDraft'
 import { MessageEditForm, type MessageEditSubmit } from './MessageEditForm'
 import type { AttachmentInputSupport } from './attachmentInput'
@@ -203,6 +205,18 @@ export function Message({
   const error =
     live?.error ?? (message.status === 'error' ? (message.errorMessage ?? '生成失败') : null)
   const errorDetail = live?.error ? live.errorDetail : message.errorDetail
+  const interruption = live
+    ? live.status === 'incomplete'
+      ? incompleteRunMessage(live.incompleteReason)
+      : null
+    : message.status === 'interrupted' && message.errorMessage !== '已停止生成'
+      ? message.errorMessage
+      : null
+  const hasAnswer =
+    Boolean(text.trim()) ||
+    (live
+      ? live.imageGenerations.some((image) => image.status === 'done' && image.attachmentId)
+      : message.content.some((part) => part.type === 'image_result'))
   const liveStopped = Boolean(live?.status === 'canceled' && !text)
   const persistedStopped = Boolean(
     !live && message.status === 'interrupted' && message.errorMessage === '已停止生成' && !text,
@@ -254,6 +268,7 @@ export function Message({
           onOpenContextSettings={onOpenContextSettings}
         />
       ) : null}
+      {interruption && <RunInterruptionNotice message={interruption} hasAnswer={hasAnswer} />}
       {imageLive ? (
         <>
           <ProgressiveImageStage

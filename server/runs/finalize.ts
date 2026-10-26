@@ -11,6 +11,7 @@ import type {
 import { RUN_EVENT_TYPE } from '@shared/types/events'
 import type { RunRetrySummary } from '@shared/types/retry'
 import { calculateRequestCost } from '@shared/util/cost'
+import { incompleteRunMessage } from '@shared/util/incompleteRun'
 import { isReasoningEnabled, requestedReasoningEffort } from '@shared/util/reasoning'
 import { db } from '../db/client'
 import { conversations, errorLogs, messages, runs, usageLogs } from '../db/schema'
@@ -162,7 +163,7 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
         errorMessage:
           a.errorMessage ??
           (a.state === 'incomplete'
-            ? '生成因长度限制被截断'
+            ? incompleteRunMessage(a.incompleteReason)
             : a.state === 'canceled'
               ? '已停止生成'
               : null),

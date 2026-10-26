@@ -4,12 +4,21 @@ import {
   MODEL_ACCESS_USER_LIMIT,
   modelAccessUpdateSchema,
   modelCreateSchema,
+  modelParamsSchema,
   modelTagsSchema,
   modelUpdateSchema,
   reasoningEffortOptionsSchema,
 } from './model-config'
 
 describe('reasoning effort schemas', () => {
+  it.each(['max_completion_tokens', 'max_tokens'] as const)(
+    'accepts the exact native Chat field %s',
+    (field) => {
+      expect(modelParamsSchema.parse({ [field]: 128 })).toEqual({ [field]: 128 })
+      expect(modelParamsSchema.safeParse({ [field]: -1 }).success).toBe(false)
+      expect(modelParamsSchema.safeParse({ [field]: 1.5 }).success).toBe(false)
+    },
+  )
   it.each(['max', 'turbo-v2', 'provider.custom'])(
     'accepts the custom upstream value %s',
     (value) => {

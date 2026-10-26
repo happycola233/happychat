@@ -331,7 +331,32 @@ describe('buildResponseBody', () => {
       })
 
       expect(body.reasoning).toEqual({ effort: reasoningEffort })
-      expect(body.max_output_tokens).toBe(25_000)
+      expect(body).not.toHaveProperty('max_output_tokens')
+    },
+  )
+
+  it.each([
+    [undefined, 4096, null, 4096],
+    [2048, 4096, null, 2048],
+    [2048, 4096, { max_output_tokens: 1024 }, 1024],
+  ])(
+    'preserves explicit output limits while thinking is enabled',
+    (requested, configured, hardParams, expected) => {
+      const body = buildResponseBody({
+        model: model({
+          capabilities: { ...model().capabilities, reasoning: true },
+          allowedEfforts: ['max'],
+          defaultEffort: 'max',
+          defaultParams: { max_output_tokens: configured },
+          hardParams,
+        }),
+        input: [],
+        instructions: null,
+        userParams: { max_output_tokens: requested },
+        stream: true,
+      })
+      expect(body.reasoning).toEqual({ effort: 'max' })
+      expect(body.max_output_tokens).toBe(expected)
     },
   )
 

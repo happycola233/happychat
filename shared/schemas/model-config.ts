@@ -143,6 +143,8 @@ export const modelParamsSchema = z.object({
   top_p: z.number().min(0).max(1).optional(),
   verbosity: z.enum(['low', 'medium', 'high']).optional(),
   max_output_tokens: z.number().int().positive().optional(),
+  max_completion_tokens: z.number().int().positive().optional(),
+  max_tokens: z.number().int().positive().optional(),
   reasoning_effort: effortSchema.optional(),
   web_search: z.boolean().optional(),
   x_search: z.boolean().optional(),

@@ -1,4 +1,3 @@
-import { REASONING_MIN_OUTPUT_TOKENS } from '@shared/constants'
 import type { MessageUsage, ModelParams } from '@shared/types/domain'
 import { effectiveReasoningEffort } from '@shared/util/reasoning'
 import { commentaryTextsOf } from '@shared/util/processTrack'
@@ -141,22 +140,16 @@ export function buildChatBody(o: BuildChatBodyOptions): Record<string, unknown> 
     body.reasoning_effort = effort
   }
 
-  let maxOut = userParams?.max_output_tokens ?? defaults.max_output_tokens
-  if (effort && effort !== 'none') maxOut = Math.max(maxOut ?? 0, REASONING_MIN_OUTPUT_TOKENS)
-  if (maxOut !== undefined && maxOut > 0) body.max_completion_tokens = maxOut
+  // 两个字段分别按原名发送，不猜测模型品牌，也不互相改名或删除。
+  for (const field of ['max_completion_tokens', 'max_tokens'] as const) {
+    const value = userParams?.[field] ?? defaults[field]
+    if (value !== undefined) body[field] = value
+  }
 
   if (stream) body.stream_options = { include_usage: true }
   applyPromptCacheKey(body, promptCacheKey)
   // 与 Responses 一致：高级 JSON 最终优先，可覆盖 key 并透传任意上游参数。
-  if (isPlainObject(model.hardParams)) {
-    const hardParams = { ...model.hardParams }
-    // 兼容升级前保存的 Chat 配置；绝不能同时发送新旧两个输出上限字段。
-    if (hardParams.max_completion_tokens === undefined && hardParams.max_tokens !== undefined) {
-      hardParams.max_completion_tokens = hardParams.max_tokens
-    }
-    delete hardParams.max_tokens
-    mergeDeep(body, hardParams)
-  }
+  if (isPlainObject(model.hardParams)) mergeDeep(body, model.hardParams)
   return body
 }
 

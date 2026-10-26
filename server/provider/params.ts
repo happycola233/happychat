@@ -1,4 +1,3 @@
-import { REASONING_MIN_OUTPUT_TOKENS } from '@shared/constants'
 import type { ModelParams } from '@shared/types/domain'
 import { effectiveReasoningEffort } from '@shared/util/reasoning'
 import { effectiveWebSearchEnabled, effectiveXSearchEnabled } from '@shared/util/searchTools'
@@ -161,10 +160,9 @@ export function buildResponseBody(o: BuildBodyOptions): Record<string, unknown> 
 
   if (tools.length > 0) body.tools = tools
 
-  // max_output_tokens：开启思考时保证下限预算
-  let maxOut = userParams?.max_output_tokens ?? defaults.max_output_tokens
-  if (effort && effort !== 'none') maxOut = Math.max(maxOut ?? 0, REASONING_MIN_OUTPUT_TOKENS)
-  if (maxOut !== undefined && maxOut > 0) body.max_output_tokens = maxOut
+  // 输出上限包含思考与正文；未配置时沿用上游默认，不因开启思考而暗设或抬高上限。
+  const maxOutputTokens = userParams?.max_output_tokens ?? defaults.max_output_tokens
+  if (maxOutputTokens !== undefined) body.max_output_tokens = maxOutputTokens
 
   // 应用默认值先写入；高级 JSON 最终合并，可显式覆盖 key 并透传任意上游参数。
   body.store = false

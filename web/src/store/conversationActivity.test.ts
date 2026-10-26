@@ -39,7 +39,12 @@ describe('conversation activity', () => {
   })
 
   it('records completion only for the matching run outside the visible conversation', () => {
-    const stream = { runId: 'run-1', status: 'completed' as const }
+    const stream = {
+      ...initialLive(),
+      runId: 'run-1',
+      text: '回复正文',
+      status: 'completed' as const,
+    }
     const base = {
       conversationId: 'conversation-1',
       runId: 'run-1',
@@ -63,10 +68,55 @@ describe('conversation activity', () => {
       shouldRecordBackgroundCompletion({
         ...base,
         currentConversationId: 'conversation-2',
-        stream: { runId: 'run-1', status: 'failed' },
+        stream: { ...stream, status: 'failed' },
       }),
     ).toBe(false)
   })
+
+  it('uses the currently viewed conversation after the original page has unmounted', () => {
+    const store = useConversationActivityStore.getState()
+    const background = {
+      conversationId: 'conversation-1',
+      runId: 'run-1',
+      stream: { ...initialLive(), runId: 'run-1', status: 'completed' as const, text: '回复正文' },
+    }
+    // 回调比页面寿命更长：执行时读取共享状态，不能捕获原页面的 currentConversationId。
+    const onTerminal = () =>
+      shouldRecordBackgroundCompletion({
+        ...background,
+        currentConversationId: useConversationActivityStore.getState().currentConversationId,
+      })
+    store.setCurrentConversation('conversation-1')
+    store.setCurrentConversation(undefined)
+    expect(onTerminal()).toBe(true)
+    store.setCurrentConversation('conversation-1')
+    expect(onTerminal()).toBe(false)
+    store.setCurrentConversation('conversation-2')
+    expect(onTerminal()).toBe(true)
+  })
+
+  it.each(['completed', 'incomplete'] as const)(
+    'does not advertise a %s response with only thinking as a new reply',
+    (status) => {
+      const stream = {
+        ...initialLive(),
+        runId: 'run-1',
+        status,
+        text: '  ',
+        processSteps: [
+          { kind: 'reasoning' as const, id: 'reasoning-1', partKey: null, text: '仅有思考' },
+        ],
+      }
+      expect(
+        shouldRecordBackgroundCompletion({
+          currentConversationId: 'other',
+          conversationId: 'conversation-1',
+          runId: 'run-1',
+          stream,
+        }),
+      ).toBe(false)
+    },
+  )
 
   it('normalizes streamed text for a compact notification preview', () => {
     const stream = {
@@ -122,7 +172,7 @@ describe('conversation activity', () => {
 
   it('clears both the unread dot and pending notice when the conversation is viewed', () => {
     useConversationActivityStore.getState().recordBackgroundCompletion(notice())
-    useConversationActivityStore.getState().markViewed('conversation-1')
+    useConversationActivityStore.getState().setCurrentConversation('conversation-1')
 
     expect(useConversationActivityStore.getState().unreadRunByConversation).toEqual({})
     expect(useConversationActivityStore.getState().completionNotices).toEqual([])

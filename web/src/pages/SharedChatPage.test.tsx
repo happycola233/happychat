@@ -41,3 +41,25 @@ describe('shared user message', () => {
     expect(html).toContain(LONG_URL)
   })
 })
+
+describe('shared interrupted replies', () => {
+  it('keeps truncation explanations in a shared snapshot without an answer', () => {
+    const html = renderToStaticMarkup(
+      <SharedMessage
+        m={{
+          ...userMessage(''),
+          role: 'assistant',
+          status: 'interrupted',
+          content: [],
+          errorMessage: '生成因长度限制被截断',
+        }}
+        token="share-token"
+        showCost={false}
+        costDisplay={{ currency: 'USD', usdToCnyRate: null }}
+      />,
+    )
+    expect(html).toContain('run-interruption-notice')
+    expect(html).toContain('生成因长度限制被截断')
+    expect(html).toContain('尚未生成最终回复。')
+  })
+})

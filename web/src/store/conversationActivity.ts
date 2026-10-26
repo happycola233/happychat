@@ -21,6 +21,9 @@ export interface ConversationCompletionNotice {
 }
 
 interface ConversationActivityStore {
+  /** 页面间共用当前会话，持续运行的 SSE 回调不能依赖旧 ChatView 实例的 ref。 */
+  currentConversationId: string | undefined
+  setCurrentConversation: (conversationId: string | undefined) => void
   /** 值为最后一次尚未查看的完成 run id；状态只在当前浏览器会话内存在。 */
   unreadRunByConversation: Record<string, string>
   completionNotices: ConversationCompletionNotice[]
@@ -53,12 +56,16 @@ export function shouldRecordBackgroundCompletion({
   currentConversationId: string | undefined
   conversationId: string
   runId: string
-  stream: ({ runId: string } & Pick<LiveMessage, 'status'>) | undefined
+  stream:
+    | ({ runId: string } & Pick<LiveMessage, 'status' | 'text' | 'imageGenerations'>)
+    | undefined
 }): boolean {
   return (
     currentConversationId !== conversationId &&
     stream?.runId === runId &&
-    isNotifiableCompletionStatus(stream.status)
+    isNotifiableCompletionStatus(stream.status) &&
+    (Boolean(stream.text.trim()) ||
+      stream.imageGenerations.some((image) => image.status === 'done' && image.attachmentId))
   )
 }
 
@@ -80,6 +87,11 @@ export function completionPreviewFromStream(
 }
 
 export const useConversationActivityStore = create<ConversationActivityStore>((set, get) => ({
+  currentConversationId: undefined,
+  setCurrentConversation: (conversationId) => {
+    set({ currentConversationId: conversationId })
+    if (conversationId) get().markViewed(conversationId)
+  },
   unreadRunByConversation: {},
   completionNotices: [],
   recordBackgroundCompletion: (notice) => {
@@ -150,5 +162,6 @@ export const useConversationActivityStore = create<ConversationActivityStore>((s
         completionNotices: state.completionNotices.filter((notice) => notice.id !== noticeId),
       }
     }),
-  reset: () => set({ unreadRunByConversation: {}, completionNotices: [] }),
+  reset: () =>
+    set({ currentConversationId: undefined, unreadRunByConversation: {}, completionNotices: [] }),
 }))

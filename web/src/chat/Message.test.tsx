@@ -222,6 +222,62 @@ describe('assistant citation source chips', () => {
   })
 })
 
+describe('assistant interrupted output', () => {
+  it.each(['max_output_tokens', 'max_tokens', 'model_context_window_exceeded'])(
+    'shows %s immediately from the terminal SSE event, before the history refresh',
+    (incompleteReason) => {
+      const live = reduceEvent(initialLive(), {
+        type: 'run.done',
+        seq: 2,
+        data: {
+          state: 'incomplete',
+          incompleteReason,
+          text: '',
+          processSteps: [{ kind: 'reasoning', text: '已有思考' }],
+        },
+      })
+      const html = renderMessage(assistantMessage('streaming', { content: [] }), { live })
+      expect(html).toContain('run-interruption-notice')
+      expect(html).toContain(
+        incompleteReason === 'model_context_window_exceeded' ? '上下文长度上限' : '输出长度上限',
+      )
+      expect(html).toContain('尚未生成最终回复。')
+      expect(html).toContain('aria-label="重新生成"')
+      expect(html).not.toContain('run-error-notice')
+    },
+  )
+
+  it('keeps the saved truncation notice visible after reload, including legacy messages', () => {
+    const html = renderMessage(
+      assistantMessage('interrupted', {
+        content: [],
+        processSteps: [{ kind: 'reasoning', text: '已有思考' }],
+        errorMessage: '生成因长度限制被截断',
+      }),
+    )
+    expect(html).toContain('生成因长度限制被截断')
+    expect(html).toContain('尚未生成最终回复。')
+  })
+
+  it('preserves partial answers and does not describe them as absent', () => {
+    const html = renderMessage(
+      assistantMessage('interrupted', {
+        errorMessage: '已达到输出长度上限，回复未完成。',
+      }),
+    )
+    expect(html).toContain('输出长度上限')
+    expect(html).toContain('回答')
+    expect(html).not.toContain('尚未生成最终回复')
+  })
+
+  it('does not add an interruption notice to completed replies or manual stops', () => {
+    expect(renderMessage(assistantMessage())).not.toContain('run-interruption-notice')
+    expect(
+      renderMessage(assistantMessage('interrupted', { content: [], errorMessage: '已停止生成' })),
+    ).not.toContain('run-interruption-notice')
+  })
+})
+
 describe('assistant failure explanation', () => {
   const failed = (errorMessage: string, errorDetail?: MessageErrorDetail) =>
     assistantMessage('error', { content: [], errorMessage, errorDetail })

@@ -235,7 +235,11 @@ export function RequestPreview({ draft }: { draft: PreviewDraft }) {
             className={`${inputClass} mt-2 min-h-24 font-mono text-xs`}
             value={userParamsText}
             onChange={(event) => setUserParamsText(event.target.value)}
-            placeholder={'例如 {"temperature":0.5,"max_output_tokens":4096}'}
+            placeholder={
+              draft.kind === 'chat'
+                ? '例如 {"max_completion_tokens":4096} 或 {"max_tokens":4096}'
+                : '例如 {"temperature":0.5,"max_output_tokens":4096}'
+            }
             spellCheck={false}
           />
           <p className="mt-1.5 leading-5 text-neutral-400">

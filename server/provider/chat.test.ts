@@ -404,14 +404,14 @@ describe('buildChatBody', () => {
     })
 
     expect(body.reasoning_effort).toBe('max')
-    expect(body.max_completion_tokens).toBe(25_000)
+    expect(body).not.toHaveProperty('max_completion_tokens')
     expect(body).not.toHaveProperty('max_tokens')
   })
 
-  it('maps the configured output limit to max_completion_tokens', () => {
+  it('sends the configured max_completion_tokens without renaming it', () => {
     const body = buildChatBody({
       model: model({
-        defaultParams: { max_output_tokens: 4096 },
+        defaultParams: { max_completion_tokens: 4096 },
       }),
       messages: [],
       stream: false,
@@ -421,7 +421,69 @@ describe('buildChatBody', () => {
     expect(body).not.toHaveProperty('max_tokens')
   })
 
-  it('migrates a legacy hard max_tokens override without sending both fields', () => {
+  it.each(['deepseek-flash', 'gpt-test', 'vendor-alias-without-brand'])(
+    '%s preserves the explicitly chosen limit fields regardless of its name',
+    (modelId) => {
+      const configuredModel = model({ modelId, defaultParams: { max_tokens: 64 } })
+      expect(buildChatBody({ model: configuredModel, messages: [], stream: true })).toMatchObject({
+        max_tokens: 64,
+      })
+      const overridden = buildChatBody({
+        model: { ...configuredModel, hardParams: { max_completion_tokens: 128 } },
+        messages: [],
+        stream: true,
+      })
+      expect(overridden.max_tokens).toBe(64)
+      expect(overridden.max_completion_tokens).toBe(128)
+      const unspecified = buildChatBody({
+        model: { ...configuredModel, defaultParams: {} },
+        messages: [],
+        stream: true,
+      })
+      expect(unspecified).not.toHaveProperty('max_tokens')
+      expect(unspecified).not.toHaveProperty('max_completion_tokens')
+    },
+  )
+
+  it('does not delete either hard parameter when both fields are explicitly configured', () => {
+    const body = buildChatBody({
+      model: model({
+        modelId: 'deepseek-flash',
+        hardParams: { max_tokens: 512, max_completion_tokens: 1024 },
+      }),
+      messages: [],
+      stream: true,
+    })
+    expect(body.max_tokens).toBe(512)
+    expect(body.max_completion_tokens).toBe(1024)
+  })
+
+  it.each([
+    [undefined, 4096, null, 4096],
+    [2048, 4096, null, 2048],
+    [2048, 4096, { max_completion_tokens: 1024 }, 1024],
+  ])(
+    'preserves explicit output limits while thinking is enabled',
+    (requested, configured, hardParams, expected) => {
+      const body = buildChatBody({
+        model: model({
+          capabilities: { ...model().capabilities, reasoning: true },
+          allowedEfforts: ['max'],
+          defaultEffort: 'max',
+          defaultParams: { max_completion_tokens: configured },
+          hardParams,
+        }),
+        messages: [],
+        userParams: { max_completion_tokens: requested },
+        stream: true,
+      })
+      expect(body.reasoning_effort).toBe('max')
+      expect(body.max_completion_tokens).toBe(expected)
+      expect(body).not.toHaveProperty('max_tokens')
+    },
+  )
+
+  it('keeps each advanced-JSON limit under its original field name', () => {
     const legacyBody = buildChatBody({
       model: model({ hardParams: { max_tokens: 2048 } }),
       messages: [],
@@ -433,10 +495,10 @@ describe('buildChatBody', () => {
       stream: false,
     })
 
-    expect(legacyBody.max_completion_tokens).toBe(2048)
-    expect(legacyBody).not.toHaveProperty('max_tokens')
+    expect(legacyBody.max_tokens).toBe(2048)
+    expect(legacyBody).not.toHaveProperty('max_completion_tokens')
     expect(explicitBody.max_completion_tokens).toBe(4096)
-    expect(explicitBody).not.toHaveProperty('max_tokens')
+    expect(explicitBody.max_tokens).toBe(2048)
   })
 
   it('lets advanced hard params override the generated key and pass arbitrary upstream fields', () => {

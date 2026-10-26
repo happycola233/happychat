@@ -86,7 +86,7 @@ describe('upstream request preview', () => {
       ).body,
     ).not.toHaveProperty('tools')
   })
-  it('uses Chat Completions message structure and max_tokens migration', () => {
+  it('uses Chat Completions message structure and preserves max_tokens', () => {
     const result = buildRequestPreview(
       provider,
       requestPreviewSchema.parse({
@@ -98,13 +98,54 @@ describe('upstream request preview', () => {
     )
     expect(result.url).toMatch(/\/chat\/completions$/)
     expect(result.body).toMatchObject({
-      max_completion_tokens: 1234,
+      max_tokens: 1234,
       stream_options: { include_usage: true },
     })
-    expect(result.body).not.toHaveProperty('max_tokens')
+    expect(result.body).not.toHaveProperty('max_completion_tokens')
     expect(JSON.stringify(result.body.messages)).toContain('data:image/png;base64,⟪图片内容⟫')
     expect(JSON.stringify(result.body.messages)).toContain('document.pdf')
   })
+  it('does not reinterpret a limit by model name and shows its actual source', () => {
+    const result = buildRequestPreview(
+      provider,
+      requestPreviewSchema.parse({
+        model: {
+          ...baseModel,
+          modelId: 'deepseek-flash',
+          kind: 'chat',
+          hardParams: { max_completion_tokens: 64 },
+        },
+      }),
+    )
+    expect(result.body.max_completion_tokens).toBe(64)
+    expect(result.body).not.toHaveProperty('max_tokens')
+    expect(result.parameters).toContainEqual(
+      expect.objectContaining({ name: 'max_completion_tokens', source: '高级 JSON' }),
+    )
+  })
+
+  it.each(['max_completion_tokens', 'max_tokens'] as const)(
+    'tracks the native %s source through user overrides',
+    (field) => {
+      const result = buildRequestPreview(
+        provider,
+        requestPreviewSchema.parse({
+          model: {
+            ...baseModel,
+            kind: 'chat',
+            modelId: 'arbitrary-alias',
+            defaultParams: { [field]: 256 },
+          },
+          userParams: { [field]: 128 },
+        }),
+      )
+      expect(result.body[field]).toBe(128)
+      expect(result.parameters).toContainEqual(
+        expect.objectContaining({ name: field, source: '用户参数' }),
+      )
+    },
+  )
+
   it('uses Anthropic system, messages and thinking rules', () => {
     const input = requestPreviewSchema.parse({
       model: {

@@ -19,6 +19,7 @@ import { MessageTimeLabel } from '../chat/MessageTimeLabel'
 import { Spinner } from '../components/ui/Spinner'
 import { formatShortDate } from '../lib/format'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
+import { RunInterruptionNotice } from '../chat/RunInterruptionNotice'
 import { forceSystemTheme, refreshTheme } from '../lib/theme'
 import { resolveSharedDocumentTitle } from './sharedDocumentTitle'
 
@@ -302,6 +303,12 @@ export function SharedMessage({
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{m.errorMessage}</span>
         </div>
+      )}
+      {m.status === 'interrupted' && m.errorMessage && m.errorMessage !== '已停止生成' && (
+        <RunInterruptionNotice
+          message={m.errorMessage}
+          hasAnswer={Boolean(text.trim()) || m.content.some((part) => part.type === 'image_result')}
+        />
       )}
       {text && <Markdown text={text} />}
       <SharedAttachmentParts content={m.content} token={token} />

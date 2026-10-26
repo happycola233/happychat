@@ -204,7 +204,6 @@ export default function ChatView() {
     [],
   )
   const clearStream = useStreamStore((s) => s.clear)
-  const markConversationViewed = useConversationActivityStore((s) => s.markViewed)
   const [optimisticUser, setOptimisticUser] = useState<string | null>(null)
   const [imageSources, setImageSources] = useState<ImageEditSource[]>([])
   const [contextOpen, setContextOpen] = useState(false)
@@ -252,16 +251,15 @@ export default function ChatView() {
   // 只在路由提交后更新；cleanup 同时覆盖参数切换和离开 ChatView，避免迟到响应劫持导航。
   useLayoutEffect(() => {
     currentConversationIdRef.current = id
+    useConversationActivityStore.getState().setCurrentConversation(id)
     return () => {
       // 新会话发送成功后会先乐观写入目标 id，再等待 Router 提交；旧 effect 的 cleanup
       // 不能把这个更晚的值清掉，否则极快的回复会被误判成后台完成。
       if (currentConversationIdRef.current === id) currentConversationIdRef.current = undefined
+      const activity = useConversationActivityStore.getState()
+      if (activity.currentConversationId === id) activity.setCurrentConversation(undefined)
     }
   }, [id])
-
-  useEffect(() => {
-    if (id) markConversationViewed(id)
-  }, [id, markConversationViewed])
 
   const allMessages = detail?.messages ?? []
   const messages = detail ? buildPath(allMessages, detail.conversation.activeLeafId) : []
@@ -447,7 +445,7 @@ export default function ChatView() {
         .finish(runId, ['failed', 'interrupted', 'canceled'].includes(terminalStream.status))
       if (
         shouldRecordBackgroundCompletion({
-          currentConversationId: currentConversationIdRef.current,
+          currentConversationId: useConversationActivityStore.getState().currentConversationId,
           conversationId: convId,
           runId,
           stream: terminalStream,
@@ -558,7 +556,10 @@ export default function ChatView() {
     const convId = res.conversation.id
     // 创建新会话时 Router 通过 startTransition 提交；先把逻辑上的当前会话切过去，
     // 防止极快终态在路由参数更新前误弹“后台回复完成”。
-    if (id !== convId) currentConversationIdRef.current = convId
+    if (id !== convId) {
+      currentConversationIdRef.current = convId
+      useConversationActivityStore.getState().setCurrentConversation(convId)
+    }
     activeRunRecoveryGateRef.current.reset()
     const runModel = models?.find((m) => m.id === res.assistantMessage.modelId)
     const lastParams = getConversationRunPrefs(runModel, requestParams)

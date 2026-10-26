@@ -102,6 +102,8 @@ export interface LiveMessage {
   reasoningEnabled: boolean
   annotations: UrlCitation[]
   status: LiveStatus
+  /** 输出或上下文预算耗尽的原因；run.done 之后立即可见，不依赖详情补刷。 */
+  incompleteReason: string | null
   error?: string
   errorDetail?: MessageErrorDetail
   imageStatus?: 'generating' | 'done'
@@ -128,6 +130,7 @@ export const initialLive = (
   reasoningEnabled,
   annotations: [],
   status: 'streaming',
+  incompleteReason: null,
   imageGenerations: [],
   imagePreviewIndex: null,
   imagePreviewUpdatedAt: null,
@@ -620,6 +623,7 @@ export function reduceEvent(s: LiveMessage, ev: WireEvent): LiveMessage {
         processSteps: finalProcessSteps(completed.processSteps, ev.data.processSteps),
         annotations: finalAnnotations(ev.data.annotations, completed.annotations),
         status: (str(ev.data.state) as LiveStatus) || 'completed',
+        incompleteReason: str(ev.data.incompleteReason) || null,
         retry: undefined,
       }
     }

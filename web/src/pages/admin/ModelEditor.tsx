@@ -39,6 +39,7 @@ import {
   validateReasoningEffortDrafts,
 } from './reasoningEffortDrafts'
 import { Field, SmallField } from './FormField'
+import { ChatOutputTokenFields } from './ChatOutputTokenFields'
 import {
   migrateDefaultParamsFromAnthropic,
   migrateDefaultParamsToAnthropic,
@@ -932,14 +933,14 @@ function ModelEditorForm({
           </FormSection>
 
           {/* ============ 文本模型默认参数 ============ */}
-          {(kind === 'responses' || kind === 'anthropic') && (
+          {kind !== 'image' && (
             <FormSection
               title="默认参数"
               hidden={section !== 'capabilities'}
               hint={
                 kind === 'anthropic'
                   ? '输出上限包含思考与正文，默认使用模型支持的最大值。可按需调低；实际用量以生成结果为准。'
-                  : '用户未覆盖时使用；留空表示交给上游默认。'
+                  : '用户未覆盖时使用；留空表示交给上游默认。输出上限包含思考与正文，开启思考不会额外设置上限。'
               }
             >
               <div className="grid grid-cols-2 items-end gap-x-3 gap-y-2.5 lg:grid-cols-4">
@@ -987,39 +988,43 @@ function ModelEditorForm({
                     />
                   </SmallField>
                 )}
-                <SmallField
-                  label={
-                    kind === 'anthropic' ? (
-                      <span className="whitespace-nowrap">
-                        max_output_tokens{' '}
-                        <span className="text-rose-500 dark:text-rose-400" aria-hidden="true">
-                          *
+                {kind === 'chat' ? (
+                  <ChatOutputTokenFields params={params} onChange={setParams} />
+                ) : (
+                  <SmallField
+                    label={
+                      kind === 'anthropic' ? (
+                        <span className="whitespace-nowrap">
+                          max_output_tokens{' '}
+                          <span className="text-rose-500 dark:text-rose-400" aria-hidden="true">
+                            *
+                          </span>
+                          <span className="sr-only">（必填）</span>
                         </span>
-                        <span className="sr-only">（必填）</span>
-                      </span>
-                    ) : (
-                      'max_output_tokens'
-                    )
-                  }
-                >
-                  <input
-                    className={compactFieldClass}
-                    type="number"
-                    min={1}
-                    step={1}
-                    required={kind === 'anthropic'}
-                    value={params.max_output_tokens ?? ''}
-                    onChange={(e) => {
-                      autoFilledAnthropicMaxOutputTokensRef.current = false
-                      setParams((p) => ({ ...p, max_output_tokens: numOrUndef(e.target.value) }))
-                    }}
-                    placeholder={
-                      kind === 'anthropic'
-                        ? String(anthropicDefaultMaxOutputTokens(modelId))
-                        : '默认'
+                      ) : (
+                        'max_output_tokens'
+                      )
                     }
-                  />
-                </SmallField>
+                  >
+                    <input
+                      className={compactFieldClass}
+                      type="number"
+                      min={1}
+                      step={1}
+                      required={kind === 'anthropic'}
+                      value={params.max_output_tokens ?? ''}
+                      onChange={(e) => {
+                        autoFilledAnthropicMaxOutputTokensRef.current = false
+                        setParams((p) => ({ ...p, max_output_tokens: numOrUndef(e.target.value) }))
+                      }}
+                      placeholder={
+                        kind === 'anthropic'
+                          ? String(anthropicDefaultMaxOutputTokens(modelId))
+                          : '默认'
+                      }
+                    />
+                  </SmallField>
+                )}
               </div>
             </FormSection>
           )}

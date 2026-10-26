@@ -281,6 +281,119 @@ async function drain(run: Promise<void>, ms = 3000) {
 }
 
 describe('整次生成自动重试与审计', () => {
+  it.each([
+    ['responses', 'max_output_tokens'],
+    ['chat', 'max_output_tokens'],
+    ['anthropic', 'max_tokens'],
+    ['anthropic', 'model_context_window_exceeded'],
+  ] as const)('%s 的 %s 在实时终态、回放与历史消息中保留同一原因', async (kind, reason) => {
+    const ctx = fixture(kind, true)
+    const protocol = reasoningProtocol(kind)
+    const ending =
+      kind === 'responses'
+        ? [
+            {
+              type: 'response.incomplete',
+              response: {
+                status: 'incomplete',
+                incomplete_details: { reason },
+                output: [
+                  { type: 'reasoning', summary: [{ type: 'summary_text', text: '已有思考' }] },
+                ],
+                usage: {
+                  input_tokens: 3,
+                  output_tokens: 4,
+                  output_tokens_details: { reasoning_tokens: 4 },
+                  total_tokens: 7,
+                },
+              },
+            },
+          ]
+        : kind === 'chat'
+          ? [
+              {
+                choices: [{ delta: {}, finish_reason: 'length' }],
+                usage: {
+                  prompt_tokens: 3,
+                  completion_tokens: 4,
+                  completion_tokens_details: { reasoning_tokens: 4 },
+                  total_tokens: 7,
+                },
+              },
+            ]
+          : [
+              { type: 'content_block_stop', index: 0 },
+              {
+                type: 'message_delta',
+                delta: { stop_reason: reason },
+                usage: { output_tokens: 4 },
+              },
+              { type: 'message_stop' },
+            ]
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(sse(...protocol.opening, protocol.reasoning('已有思考'), ...ending))
+    vi.stubGlobal('fetch', fetch)
+    await drain(engines[kind](ctx))
+    const saved = snapshot(ctx)
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(saved.run).toMatchObject({ state: 'incomplete', incompleteReason: reason })
+    expect(saved.message).toMatchObject({
+      status: 'interrupted',
+      processSteps: [{ kind: 'reasoning', text: '已有思考' }],
+      errorMessage:
+        reason === 'model_context_window_exceeded'
+          ? '已达到模型的上下文长度上限，回复未完成。'
+          : '已达到输出长度上限，回复未完成。',
+    })
+    expect(saved.live).toMatchObject({ status: 'incomplete', incompleteReason: reason, text: '' })
+    expect(saved.message.content.every((part) => part.type === 'output_text' && !part.text)).toBe(
+      true,
+    )
+    expect(saved.events.at(-1)).toMatchObject({
+      type: 'run.done',
+      data: { incompleteReason: reason, text: '' },
+    })
+    expect(saved.logs[0]).toMatchObject({ outcome: 'incomplete', terminalReason: reason })
+    expect(saved.errors).toHaveLength(0)
+  })
+
+  it.each(['responses', 'chat', 'anthropic', 'image'] as const)(
+    '%s 的 max_tokens 参数错误仍进入错误提示，不与正常截断混淆',
+    async (kind) => {
+      const ctx = fixture(kind)
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: {
+              type: 'invalid_request_error',
+              code: 'invalid_max_tokens',
+              message: 'max_tokens exceeds the model output limit',
+            },
+          }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+      vi.stubGlobal('fetch', fetch)
+      await drain(engines[kind](ctx))
+      const saved = snapshot(ctx)
+      expect(fetch).toHaveBeenCalledTimes(1)
+      expect(saved.run.state).toBe('failed')
+      expect(saved.message).toMatchObject({
+        status: 'error',
+        errorMessage: expect.stringContaining('max_tokens'),
+      })
+      expect(saved.live).toMatchObject({
+        status: 'failed',
+        error: expect.stringContaining('max_tokens'),
+      })
+      expect(saved.events.at(-1)).toMatchObject({
+        type: 'run.error',
+        data: { code: 'invalid_max_tokens' },
+      })
+    },
+  )
+
   it('每次失败保存独立的上游请求起点与实际重试时刻，耗时不包含此前请求或退避', async () => {
     await setPolicy({
       initialDelaySeconds: 5,

@@ -128,6 +128,9 @@ export interface ModelParams {
   top_p?: number
   verbosity?: 'low' | 'medium' | 'high'
   max_output_tokens?: number
+  /** Chat Completions 的两个独立上游字段，由管理员按供应商文档选择。 */
+  max_completion_tokens?: number
+  max_tokens?: number
   reasoning_effort?: ReasoningEffort
   web_search?: boolean
   x_search?: boolean
