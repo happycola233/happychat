@@ -859,6 +859,97 @@ describe('整次生成自动重试与审计', () => {
     expect(snapshot(ctx).logs[0]?.firstTokenLatencyMs).toBeNull()
   })
 
+  it('成批交付的响应在实时终态、快照与历史读取中都保留未知思考时长', async () => {
+    await setPolicy({ enabled: false })
+    const ctx = fixture('responses', true)
+    const upstream = controlledSse()
+    const requestStartedAt = Date.now()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(upstream.response))
+    const task = engines.responses(ctx)
+    await vi.advanceTimersByTimeAsync(60000)
+    upstream.push(
+      { type: 'response.created' },
+      { type: 'response.reasoning_summary_text.delta', delta: '测试思考摘要' },
+    )
+    await vi.advanceTimersByTimeAsync(417)
+    upstream.push(delta('测试回答'), {
+      ...done,
+      response: {
+        ...done.response,
+        created_at: Math.floor(requestStartedAt / 1000) + 10,
+        completed_at: Math.floor(requestStartedAt / 1000) + 59,
+      },
+    })
+    await vi.advanceTimersByTimeAsync(0)
+    await task
+
+    const saved = snapshot(ctx)
+    expect(saved.run.state).toBe('completed')
+    expect(saved.events.find((event) => event.type === 'answer.started')?.data).toMatchObject({
+      reasoningDurationMs: 417,
+    })
+    expect(saved.live.reasoningDurationMs).toBeNull()
+    expect(saved.message.reasoningDurationMs).toBeNull()
+    expect(saved.message.generationDurationMs).toBe(60417)
+    const { getReasoningTimingSnapshot } = await import('../services/run-timing-snapshot')
+    expect(
+      (await getReasoningTimingSnapshot(ctx.run.id, saved.run.finishedAt)).reasoningDurationMs,
+    ).toBeNull()
+
+    // 旧消息曾固化错误秒数；现算的未知值必须覆盖它，不能被 ?? 回退重新引入。
+    const legacyMessage = { ...saved.message, reasoningDurationMs: 417 }
+    const { getMessageTimingByMessageId, toMessageDTO } = await import('../services/conversations')
+    const timings = await getMessageTimingByMessageId([legacyMessage])
+    expect(
+      toMessageDTO(legacyMessage, timings.get(legacyMessage.id)).reasoningDurationMs,
+    ).toBeNull()
+  })
+
+  it('只有 commentary 与生成图时，恢复、结算和历史都计时到回复结束', async () => {
+    await setPolicy({ enabled: false })
+    const ctx = fixture('responses', true)
+    const upstream = controlledSse({ type: 'response.created' })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(upstream.response))
+    const task = engines.responses(ctx)
+    await vi.advanceTimersByTimeAsync(45)
+    upstream.push(
+      {
+        type: 'response.output_item.added',
+        item: { id: 'progress', type: 'message', phase: 'commentary' },
+      },
+      { ...delta('正在处理图片'), item_id: 'progress' },
+    )
+    await vi.advanceTimersByTimeAsync(2955)
+    const { getReasoningTimingSnapshot } = await import('../services/run-timing-snapshot')
+    expect((await getReasoningTimingSnapshot(ctx.run.id)).reasoningDurationMs).toBeNull()
+    expect(snapshot(ctx).live.answerStarted).toBe(false)
+    upstream.push({
+      type: 'response.output_item.added',
+      item: { id: 'image', type: 'image_generation_call' },
+    })
+    await vi.advanceTimersByTimeAsync(1000)
+    upstream.push(
+      {
+        type: 'response.output_item.done',
+        item: { id: 'image', type: 'image_generation_call', result: 'aW1hZ2U=' },
+      },
+      done,
+    )
+    await vi.advanceTimersByTimeAsync(0)
+    await task
+
+    const saved = snapshot(ctx)
+    expect(saved.run.state).toBe('completed')
+    expect(saved.message.content.some((part) => part.type === 'image_result')).toBe(true)
+    expect(saved.events.some((event) => event.type === 'answer.started')).toBe(false)
+    expect(saved.message.reasoningDurationMs).toBe(4000)
+    expect(saved.live.reasoningDurationMs).toBe(4000)
+    const { getMessageTimingByMessageId } = await import('../services/conversations')
+    expect(
+      (await getMessageTimingByMessageId([saved.message])).get(saved.message.id),
+    ).toMatchObject({ reasoningDurationMs: 4000 })
+  })
+
   it.each([
     { status: 520, format: 'html', message: '上游服务暂时不可用（HTTP 520）。' },
     { status: 520, format: 'json', message: '上游服务暂时不可用（HTTP 520）。' },

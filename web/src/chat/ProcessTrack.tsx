@@ -294,10 +294,13 @@ function completedSegmentsOf(
 ): string[] {
   const searchPhrases = searchSummaryPhrases(actions)
   if (durationMs !== null && durationMs !== undefined) {
-    return [`已思考 ${Math.max(0, Math.floor(durationMs / 1000))}s`, ...searchPhrases]
+    return [
+      durationMs < 1000 ? '已思考若干秒' : `已思考 ${Math.floor(durationMs / 1000)}s`,
+      ...searchPhrases,
+    ]
   }
+  if (hasReasoning) return ['已思考若干秒', ...searchPhrases]
   if (searchPhrases.length > 0) return [`已${searchPhrases[0]}`, ...searchPhrases.slice(1)]
-  if (hasReasoning) return ['已完成思考']
   return [hasCommentary ? '已完成处理' : '已完成']
 }
 

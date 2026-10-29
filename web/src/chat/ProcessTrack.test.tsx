@@ -12,6 +12,28 @@ const reasoningStep = (text: string): LiveProcessStep => ({
 })
 
 describe('ProcessTrack', () => {
+  it.each([null, undefined, 0, 417])('时长 %s 不足以显示整秒时保留思考与检索汇总', (durationMs) => {
+    const html = renderToStaticMarkup(
+      <ProcessTrack
+        steps={[
+          reasoningStep('正在整理结果'),
+          ...liveStepsFromPersisted([
+            { kind: 'search', action: { type: 'search', queries: ['测试资料'] } },
+          ]),
+        ]}
+        status="completed"
+        startedAt={null}
+        durationMs={durationMs}
+        reasoningEnabled
+        answerStarted
+      />,
+    )
+
+    expect(html.match(/已思考若干秒/g)).toHaveLength(2)
+    expect(html).toContain('搜索 1 个关键词')
+    expect(html).not.toContain('已思考 0s')
+  })
+
   it('把 reasoning 小节平铺到统一时间线并保留完成页脚', () => {
     const html = renderToStaticMarkup(
       <ProcessTrack

@@ -78,6 +78,87 @@ describe('reasoning timing helpers', () => {
     expect(computeReasoningDurationMs(events)).toBe(4200)
   })
 
+  it('keeps timing an image reply with commentary and no final text until completion', () => {
+    const events = [
+      ev('response.created', 1, 1000),
+      {
+        ...ev('response.output_item.added', 2, 1040),
+        data: { item: { id: 'progress', type: 'message', phase: 'commentary' } },
+      },
+      {
+        ...ev('response.output_text.delta', 3, 1045),
+        data: { item_id: 'progress', delta: '进展' },
+      },
+      ev('response.reasoning_summary_text.delta', 4, 5000),
+      ev('image.generation.completed', 5, 400000),
+      ev('run.done', 6, 420000),
+    ]
+
+    expect(computeReasoningDurationMs(events.slice(0, 4))).toBeNull()
+    expect(computeReasoningDurationMs(events, new Date(419000))).toBe(418000)
+  })
+
+  it('uses final item phases to exclude commentary from legacy text timing', () => {
+    const events = [
+      ev('response.created', 1, 1000),
+      {
+        ...ev('response.output_text.delta', 2, 1045),
+        data: { item_id: 'progress', delta: '进展' },
+      },
+      {
+        ...ev('response.output_item.done', 3, 2000),
+        data: { item: { id: 'progress', type: 'message', phase: 'commentary' } },
+      },
+      { ...ev('response.output_text.delta', 4, 5000), data: { item_id: 'answer', delta: '回答' } },
+      ev('run.done', 5, 7000),
+    ]
+
+    expect(computeReasoningDurationMs(events)).toBe(4000)
+  })
+
+  it('does not report event delivery time as reasoning time for a buffered response', () => {
+    const events = [
+      ev('response.created', 1, 70000),
+      ev('response.reasoning_summary_text.delta', 2, 70300),
+      ev('answer.started', 3, 70417),
+      {
+        ...ev('response.completed', 4, 70500),
+        data: { response: { created_at: 20, completed_at: 69 } },
+      },
+    ]
+
+    expect(reasoningStartedAtMs(events)).toBe(70000)
+    expect(computeReasoningDurationMs(events, new Date(70600))).toBeNull()
+  })
+
+  it('allows second-resolution timestamps and clock offsets on a normally streamed response', () => {
+    const events = [
+      ev('response.created', 1, 1000),
+      ev('answer.started', 2, 6500),
+      {
+        ...ev('response.completed', 3, 10400),
+        data: { response: { created_at: 10000, completed_at: 10010 } },
+      },
+    ]
+
+    expect(computeReasoningDurationMs(events)).toBe(5500)
+  })
+
+  it('does not carry an earlier buffered attempt into replacement content timing', () => {
+    const events = [
+      ev('response.created', 1, 70000),
+      {
+        ...ev('response.completed', 2, 70500),
+        data: { response: { created_at: 20, completed_at: 69 } },
+      },
+      ev('run.output_reset', 3, 80000),
+      ev('response.created', 4, 80000),
+      ev('answer.started', 5, 85000),
+    ]
+
+    expect(computeReasoningDurationMs(events)).toBe(5000)
+  })
+
   it('ignores answer.started that was reclassified from raw reasoning commentary', () => {
     const events = [
       ev('response.created', 1, 1000),

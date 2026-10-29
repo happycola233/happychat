@@ -43,6 +43,24 @@ describe('shared user message', () => {
 })
 
 describe('shared interrupted replies', () => {
+  it.each([null, 45])('分享快照缺少可靠思考时长（%s）时显示若干秒', (reasoningDurationMs) => {
+    const html = renderToStaticMarkup(
+      <SharedMessage
+        m={{
+          ...userMessage(''),
+          role: 'assistant',
+          processSteps: [{ kind: 'reasoning', text: '测试思考摘要' }],
+          reasoningDurationMs,
+        }}
+        token="share-token"
+        showCost={false}
+        costDisplay={{ currency: 'USD', usdToCnyRate: null }}
+      />,
+    )
+    expect(html).toContain('已思考若干秒')
+    expect(html).not.toContain('已思考 0s')
+  })
+
   it('keeps truncation explanations in a shared snapshot without an answer', () => {
     const html = renderToStaticMarkup(
       <SharedMessage

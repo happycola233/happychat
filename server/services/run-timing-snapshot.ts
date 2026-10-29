@@ -1,19 +1,44 @@
-import { and, asc, desc, eq, gt, inArray, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, notInArray, sql } from 'drizzle-orm'
 import { RUN_EVENT_TYPE } from '@shared/types/events'
 import { db } from '../db/client'
 import { runEvents } from '../db/schema'
 import {
   computeReasoningDurationMs,
+  reasoningCommentaryItemIds,
+  REASONING_CONTEXT_EVENT_TYPES,
   REASONING_END_EVENT_TYPES,
   REASONING_START_EVENT_TYPES,
   type ReasoningTimingEvent,
 } from './reasoning-timing'
 import { computeFirstTokenLatencyMs, FIRST_OUTPUT_TOKEN_EVENT_TYPE } from './run-timing'
 
+/** 计时只读取边界元数据，避免把终态全文、工具结果和所有 delta 文本重复载入内存。 */
+export const reasoningTimingEventColumns = {
+  type: runEvents.type,
+  sequenceNumber: runEvents.sequenceNumber,
+  createdAt: runEvents.createdAt,
+  data: sql<string>`json_object(
+    'delta', case when json_extract(${runEvents.data}, '$.delta') = '' then '' end,
+    'item_id', json_extract(${runEvents.data}, '$.item_id'),
+    'itemId', json_extract(${runEvents.data}, '$.itemId'),
+    'phase', json_extract(${runEvents.data}, '$.phase'),
+    'item', json_object(
+      'id', json_extract(${runEvents.data}, '$.item.id'),
+      'type', json_extract(${runEvents.data}, '$.item.type'),
+      'phase', json_extract(${runEvents.data}, '$.item.phase')
+    ),
+    'response', json_object(
+      'created_at', json_extract(${runEvents.data}, '$.response.created_at'),
+      'completed_at', json_extract(${runEvents.data}, '$.response.completed_at')
+    )
+  )`.mapWith((value) => JSON.parse(value) as Record<string, unknown>),
+}
+
 async function firstTimingEvent(
   runId: string,
   types: readonly string[],
   afterSequenceNumber?: number,
+  excludedItemIds: ReadonlySet<string> = new Set(),
 ): Promise<ReasoningTimingEvent | null> {
   const conditions = [
     eq(runEvents.runId, runId),
@@ -24,14 +49,16 @@ async function firstTimingEvent(
   if (afterSequenceNumber !== undefined) {
     conditions.push(gt(runEvents.sequenceNumber, afterSequenceNumber))
   }
+  if (excludedItemIds.size) {
+    conditions.push(
+      notInArray(sql`coalesce(json_extract(${runEvents.data}, '$.item_id'), '')`, [
+        ...excludedItemIds,
+      ]),
+    )
+  }
 
   const [event] = await db
-    .select({
-      type: runEvents.type,
-      sequenceNumber: runEvents.sequenceNumber,
-      createdAt: runEvents.createdAt,
-      data: runEvents.data,
-    })
+    .select(reasoningTimingEventColumns)
     .from(runEvents)
     .where(and(...conditions))
     .orderBy(asc(runEvents.sequenceNumber))
@@ -45,12 +72,7 @@ async function timingEvents(
   afterSequenceNumber: number,
 ): Promise<ReasoningTimingEvent[]> {
   return db
-    .select({
-      type: runEvents.type,
-      sequenceNumber: runEvents.sequenceNumber,
-      createdAt: runEvents.createdAt,
-      data: runEvents.data,
-    })
+    .select(reasoningTimingEventColumns)
     .from(runEvents)
     .where(
       and(
@@ -87,8 +109,8 @@ export async function getReasoningTimingSnapshot(
   if (!start) return { upstreamStartedAt: null, reasoningDurationMs: null }
   const processLifecycle = await timingEvents(
     runId,
-    [RUN_EVENT_TYPE.answerStarted, RUN_EVENT_TYPE.outputItemReclassified, RUN_EVENT_TYPE.retry],
-    start.sequenceNumber,
+    [RUN_EVENT_TYPE.answerStarted, RUN_EVENT_TYPE.retry, ...REASONING_CONTEXT_EVENT_TYPES],
+    reset?.sequenceNumber ?? -1,
   )
   const hasAnswerStarted = processLifecycle.some(
     (event) => event.type === RUN_EVENT_TYPE.answerStarted,
@@ -99,6 +121,7 @@ export async function getReasoningTimingSnapshot(
         runId,
         REASONING_END_EVENT_TYPES.filter((type) => type !== RUN_EVENT_TYPE.answerStarted),
         start.sequenceNumber,
+        reasoningCommentaryItemIds(processLifecycle),
       )
   return {
     upstreamStartedAt: start.createdAt.getTime(),

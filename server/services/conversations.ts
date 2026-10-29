@@ -31,10 +31,12 @@ import {
 import { removeUpload, uploadFileExists } from '../storage/files'
 import {
   computeReasoningDurationMs,
+  reasoningStartedAtMs,
   REASONING_TIMING_EVENT_TYPES,
   type ReasoningTimingEvent,
 } from './reasoning-timing'
 import { computeGenerationDurationMs } from './run-timing'
+import { reasoningTimingEventColumns } from './run-timing-snapshot'
 import { getAppConfig } from './appConfig'
 
 export type ConvRow = typeof conversations.$inferSelect
@@ -128,7 +130,7 @@ export function toMessageDTO(
     modelLabel,
     runId: m.runId,
     processSteps: processStepsOf(m),
-    reasoningDurationMs: timing?.reasoningDurationMs ?? m.reasoningDurationMs ?? null,
+    reasoningDurationMs: timing ? timing.reasoningDurationMs : (m.reasoningDurationMs ?? null),
     generationDurationMs: timing?.generationDurationMs ?? m.generationDurationMs ?? null,
     annotations: m.annotations,
     usage:
@@ -385,16 +387,13 @@ export async function getMessageTimingByMessageId(
       .map((row) => row.runId),
   )
 
-  const reasoningByRun = new Map<string, number>()
+  const reasoningByRun = new Map<string, number | null>()
   const finishedAtByRun = new Map(runRows.map((row) => [row.runId, row.finishedAt]))
   if (reasoningRunIds.size > 0) {
     const eventRows = await db
       .select({
         runId: runEvents.runId,
-        type: runEvents.type,
-        sequenceNumber: runEvents.sequenceNumber,
-        createdAt: runEvents.createdAt,
-        data: runEvents.data,
+        ...reasoningTimingEventColumns,
       })
       .from(runEvents)
       .where(
@@ -412,19 +411,23 @@ export async function getMessageTimingByMessageId(
       byRun.set(ev.runId, items)
     }
     for (const runId of reasoningRunIds) {
-      const duration = computeReasoningDurationMs(
-        byRun.get(runId) ?? [],
-        finishedAtByRun.get(runId) ?? null,
-      )
-      if (duration !== null) reasoningByRun.set(runId, duration)
+      const events = byRun.get(runId) ?? []
+      // 有事件时现算的 null 表示无法可靠计时，不能再取旧快照中的错误秒数。
+      if (reasoningStartedAtMs(events) === null) continue
+      const duration = computeReasoningDurationMs(events, finishedAtByRun.get(runId) ?? null)
+      reasoningByRun.set(runId, duration)
     }
   }
 
   for (const m of rows) {
     if (!m.runId) continue
     const snapshot = timings.get(m.id)
+    const measuredReasoningDurationMs = reasoningByRun.get(m.runId)
     timings.set(m.id, {
-      reasoningDurationMs: reasoningByRun.get(m.runId) ?? snapshot?.reasoningDurationMs ?? null,
+      reasoningDurationMs:
+        measuredReasoningDurationMs !== undefined
+          ? measuredReasoningDurationMs
+          : (snapshot?.reasoningDurationMs ?? null),
       generationDurationMs: generationByRun.get(m.runId) ?? snapshot?.generationDurationMs ?? null,
     })
   }

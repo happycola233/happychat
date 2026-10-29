@@ -262,6 +262,8 @@
 
 ---
 
+- **计时可信度与无文字终答**：`reasoning-timing.ts` 结合 `output_item.added/done` 的最终 phase 与 reclassified 事件识别 commentary；缺少 `answer.started` 时也只允许非 commentary 的非空 delta 作为旧流的终答首字。只有进展与生成图的回复沿用无终答口径，到回复结束为止（包含检索、生图等待）。若 Responses 终态 `completed_at - created_at` 比本站观测的事件跨度长超过 1 秒，判定事件曾被缓冲，`reasoningDurationMs` 返回 null；比较跨度以免受机器时钟差影响，1 秒仅容许上游秒级时间戳量化误差。结算、恢复和历史读取共用此逻辑，现算 null 必须覆盖旧快照中的错误秒数；`run-timing-snapshot.ts` 的共享 SQL 投影只读取 phase、item id、重试阶段与时间戳，不加载终态全文。`ProcessTrack` 对未知且有思考摘要、或小于 1 秒的耗时显示「已思考若干秒」，仍保留检索汇总；分享页复用同一组件，旧分享快照中的不足一秒数值也不再显示为 0s。
+
 ### 5.8 管理端进行中的请求与即时错误审计
 
 - **逐次请求耗时**：`RetryAttemptFailure.requestStartedAt` 取该次尝试首次实际 POST 的网络边界，`failedAt - requestStartedAt` 表示持续多久后失败，不混入此前尝试或退避；`retriedAt` 在下一次实际 POST 开始时写回上一条失败记录，区分真实等待与 `nextRetryAt` 计划等待。Responses 参数降级和 Anthropic 续跑仍属于同一次尝试。`RetryAuditDetails` 分别展示开始/失败/再次发起时刻、单次请求耗时、实际或计划等待时长；活跃列表折叠摘要也显示上一次请求失败前耗时，并将当前尝试已用时与整个生成的已用时区分。字段随现有 JSON 审计保存，无需新增列；旧记录没有起点时显示“请求耗时未记录”，不按整个 run 的起点猜测。
