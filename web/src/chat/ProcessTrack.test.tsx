@@ -24,7 +24,7 @@ describe('ProcessTrack', () => {
         status="completed"
         startedAt={null}
         durationMs={durationMs}
-        reasoningEnabled
+        reasoningStarted
         answerStarted
       />,
     )
@@ -34,6 +34,23 @@ describe('ProcessTrack', () => {
     expect(html).not.toContain('已思考 0s')
   })
 
+  it('没有思考摘要且耗时未知时仍按是否开始思考显示若干秒', () => {
+    const render = (reasoningStarted: boolean) =>
+      renderToStaticMarkup(
+        <ProcessTrack
+          steps={[]}
+          status="completed"
+          startedAt={null}
+          durationMs={null}
+          reasoningStarted={reasoningStarted}
+          answerStarted
+        />,
+      )
+
+    expect(render(true)).toContain('已思考若干秒')
+    expect(render(false)).toBe('')
+  })
+
   it('把 reasoning 小节平铺到统一时间线并保留完成页脚', () => {
     const html = renderToStaticMarkup(
       <ProcessTrack
@@ -41,7 +58,7 @@ describe('ProcessTrack', () => {
         status="completed"
         startedAt={null}
         durationMs={3500}
-        reasoningEnabled
+        reasoningStarted
         answerStarted
       />,
     )
@@ -60,7 +77,7 @@ describe('ProcessTrack', () => {
         steps={[reasoningStep('**分析 edge cases**\n\nbody')]}
         status="working"
         startedAt={1000}
-        reasoningEnabled
+        reasoningStarted
         answerStarted={false}
       />,
     )
@@ -77,7 +94,7 @@ describe('ProcessTrack', () => {
         steps={[{ kind: 'commentary', id: 'commentary-1', text: '我正在核对官方文档。' }]}
         status="working"
         startedAt={1000}
-        reasoningEnabled={false}
+        reasoningStarted={false}
         answerStarted={false}
       />,
     )
@@ -99,7 +116,7 @@ describe('ProcessTrack', () => {
         steps={steps}
         status="completed"
         startedAt={null}
-        reasoningEnabled={false}
+        reasoningStarted={false}
         answerStarted
       />,
     )
@@ -121,7 +138,7 @@ describe('ProcessTrack', () => {
         steps={[reasoningStep(''), searchStep]}
         status="completed"
         startedAt={null}
-        reasoningEnabled
+        reasoningStarted
         answerStarted
       />,
     )
@@ -131,7 +148,7 @@ describe('ProcessTrack', () => {
         status="completed"
         startedAt={null}
         durationMs={1000}
-        reasoningEnabled
+        reasoningStarted
         answerStarted
       />,
     )
@@ -160,7 +177,7 @@ describe('ProcessTrack', () => {
         steps={steps}
         status="working"
         startedAt={1000}
-        reasoningEnabled={false}
+        reasoningStarted={false}
         answerStarted={false}
       />,
     )
@@ -201,7 +218,7 @@ describe('ProcessTrack', () => {
         status="stopped"
         startedAt={null}
         durationMs={3500}
-        reasoningEnabled
+        reasoningStarted
         answerStarted={false}
       />,
     )

@@ -95,6 +95,36 @@ describe('assistant message branch action', () => {
     expect(thinkingHtml).not.toContain('animate-bounce')
   })
 
+  it('keeps a summary-less thinking track when the final timing is unknown', () => {
+    const events = [
+      { type: 'run.created', data: { reasoningEnabled: true } },
+      { type: 'response.created', data: {} },
+      { type: 'answer.started', data: { reasoningDurationMs: 3255 } },
+      { type: 'run.done', data: { state: 'completed', text: '回答', reasoningDurationMs: null } },
+    ]
+    const done = events.reduce(
+      (live, event, seq) => reduceEvent(live, { ...event, seq, createdAt: 1000 + seq }),
+      initialLive(),
+    )
+    expect(renderMessage(assistantMessage(), { live: done })).toContain('已思考若干秒')
+
+    const persisted = assistantMessage('complete', { reasoningStarted: true })
+    expect(renderMessage(persisted)).toContain('已思考若干秒')
+    expect(renderMessage(assistantMessage())).not.toContain('data-testid="process-track"')
+  })
+
+  it('does not report thinking when the upstream never responded', () => {
+    const failed = [
+      { type: 'run.created', data: { reasoningEnabled: true } },
+      { type: 'run.error', data: { message: '上游失败' } },
+    ].reduce(
+      (live, event, seq) => reduceEvent(live, { ...event, seq, createdAt: 1000 + seq }),
+      initialLive(),
+    )
+    const html = renderMessage(assistantMessage('error', { content: [] }), { live: failed })
+    expect(html).not.toContain('data-testid="process-track"')
+  })
+
   it.each(['waiting', 'attempting'] as const)(
     'freezes retained thinking while retry is %s',
     (phase) => {

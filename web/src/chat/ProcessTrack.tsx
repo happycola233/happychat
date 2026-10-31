@@ -64,7 +64,8 @@ interface Props {
   status: ProcessTrackStatus
   startedAt: number | null
   durationMs?: number | null
-  reasoningEnabled: boolean
+  /** 开启思考且上游已开始响应；耗时未知时仍据此显示思考状态。 */
+  reasoningStarted: boolean
   answerStarted: boolean
   /** 开启时只在答案开始前自动展开；用户手动开合后永久让位。 */
   autoExpand?: boolean
@@ -289,7 +290,7 @@ function SummaryFooter({ label }: { label: string }) {
 function completedSegmentsOf(
   durationMs: number | null | undefined,
   actions: SearchAction[],
-  hasReasoning: boolean,
+  reasoned: boolean,
   hasCommentary: boolean,
 ): string[] {
   const searchPhrases = searchSummaryPhrases(actions)
@@ -299,7 +300,7 @@ function completedSegmentsOf(
       ...searchPhrases,
     ]
   }
-  if (hasReasoning) return ['已思考若干秒', ...searchPhrases]
+  if (reasoned) return ['已思考若干秒', ...searchPhrases]
   if (searchPhrases.length > 0) return [`已${searchPhrases[0]}`, ...searchPhrases.slice(1)]
   return [hasCommentary ? '已完成处理' : '已完成']
 }
@@ -341,7 +342,7 @@ export function ProcessTrack({
   status,
   startedAt,
   durationMs,
-  reasoningEnabled,
+  reasoningStarted,
   answerStarted,
   autoExpand = false,
   stickyTopClassName = 'top-0',
@@ -435,20 +436,22 @@ export function ProcessTrack({
   const completedSegments = completedSegmentsOf(
     durationMs,
     searchActions,
-    hasReasoning,
+    hasReasoning || reasoningStarted,
     hasCommentary,
   )
-  const showThinkingTimer = status === 'working' && !activeSearch && reasoningEnabled
+  const showThinkingTimer = status === 'working' && !activeSearch && reasoningStarted
   const segments =
     status === 'stopped'
       ? ['已停止思考']
       : status === 'working' && activeSearch
         ? [activeSearchLabelOf(searchSteps)]
         : completedSegments
-  const activelyWorking = status === 'working' && (activeSearch || reasoningEnabled)
+  const activelyWorking = status === 'working' && (activeSearch || reasoningStarted)
   const animateRows = status === 'working'
+  // 结束后耗时未知但已开始思考，状态行同样以「已思考」开头，不再按纯检索放前置图标。
   const pureSearch =
     durationMs == null &&
+    !(reasoningStarted && status !== 'working') &&
     !hasReasoningStep &&
     visibleSteps.length > 0 &&
     visibleSteps.every((step) => step.kind === 'search')
@@ -456,13 +459,7 @@ export function ProcessTrack({
     searchActions.length > 0 && searchActions.every((action) => isXSearchActionType(action.type))
   const label = completedSegments.join(' · ')
 
-  if (
-    visibleSteps.length === 0 &&
-    durationMs == null &&
-    !(status === 'working' && reasoningEnabled)
-  ) {
-    return null
-  }
+  if (visibleSteps.length === 0 && durationMs == null && !reasoningStarted) return null
 
   return (
     <div ref={cardRef} className="hc-reasoning" data-testid="process-track">

@@ -61,6 +61,21 @@ describe('shared interrupted replies', () => {
     expect(html).not.toContain('已思考 0s')
   })
 
+  it.each([
+    { reasoningStarted: true, expected: true },
+    { reasoningStarted: undefined, expected: false },
+  ])('没有思考摘要的未知时长按快照标记显示（%o）', ({ reasoningStarted, expected }) => {
+    const html = renderToStaticMarkup(
+      <SharedMessage
+        m={{ ...userMessage('回答'), role: 'assistant', reasoningStarted }}
+        token="share-token"
+        showCost={false}
+        costDisplay={{ currency: 'USD', usdToCnyRate: null }}
+      />,
+    )
+    expect(html.includes('已思考若干秒')).toBe(expected)
+  })
+
   it('keeps truncation explanations in a shared snapshot without an answer', () => {
     const html = renderToStaticMarkup(
       <SharedMessage

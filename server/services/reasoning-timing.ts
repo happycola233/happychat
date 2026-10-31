@@ -84,9 +84,14 @@ export function reasoningCommentaryItemIds(events: ReasoningTimingEvent[]): Set<
   return ids
 }
 
+/** 秒级时间戳量化误差（≤1 秒）之外，再留出短回复上常见的网关首包等待。 */
+const BUFFERED_TIMING_MIN_GAP_MS = 3000
+
 /**
- * 上游完整处理跨度明显长于本站收到事件的跨度，说明事件曾被缓冲，无法据此计时。
- * 比较时长而非两台机器的绝对时间；容许上游秒级时间戳最多一秒的量化误差。
+ * 上游完整处理跨度远长于本站收到事件的跨度，说明事件曾被网关攒到末尾集中送达，无法据此计时。
+ * 比较时长而非两台机器的绝对时间。created_at 在首个事件送达前就已打点，网关排队与首包等待
+ * 实测可达数秒，按设计也不计入思考耗时，因此仅凭差值不能判定缓冲；集中送达会把本站观测
+ * 跨度压缩到上游跨度的一小部分，故还要求观测跨度不足上游的一半。
  */
 function hasBufferedResponseTiming(events: ReasoningTimingEvent[], startedAt: Date): boolean {
   return events.some((event) => {
@@ -99,9 +104,14 @@ function hasBufferedResponseTiming(events: ReasoningTimingEvent[], startedAt: Da
     const response = record(event.data?.response)
     if (typeof response?.created_at !== 'number' || typeof response.completed_at !== 'number')
       return false
+    // 部分兼容上游（如 xAI）固定返回 created_at: 0，无法据此推算处理跨度。
+    if (response.created_at <= 0) return false
     const upstreamDurationMs = (response.completed_at - response.created_at) * 1000
     const observedDurationMs = event.createdAt.getTime() - startedAt.getTime()
-    return upstreamDurationMs - observedDurationMs > 1000
+    return (
+      upstreamDurationMs - observedDurationMs > BUFFERED_TIMING_MIN_GAP_MS &&
+      observedDurationMs < upstreamDurationMs / 2
+    )
   })
 }
 

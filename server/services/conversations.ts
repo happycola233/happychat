@@ -69,6 +69,8 @@ export async function getConversationAttachments(
 /** 消息展示计时：优先使用仍存在的 run 数据，独立分支等场景回退到消息快照。 */
 export interface MessageTiming {
   reasoningDurationMs: number | null
+  /** 有思考起点但无法可靠计时时，reasoningDurationMs 为 null 而本字段仍为 true。 */
+  reasoningStarted: boolean
   generationDurationMs: number | null
 }
 
@@ -131,6 +133,7 @@ export function toMessageDTO(
     runId: m.runId,
     processSteps: processStepsOf(m),
     reasoningDurationMs: timing ? timing.reasoningDurationMs : (m.reasoningDurationMs ?? null),
+    reasoningStarted: timing ? timing.reasoningStarted : m.reasoningDurationMs !== null,
     generationDurationMs: timing?.generationDurationMs ?? m.generationDurationMs ?? null,
     annotations: m.annotations,
     usage:
@@ -336,6 +339,8 @@ export async function getMessageTimingByMessageId(
     if (message.reasoningDurationMs === null && message.generationDurationMs === null) continue
     timings.set(message.id, {
       reasoningDurationMs: message.reasoningDurationMs,
+      // 快照只能存秒数；无 run 可追溯时，未知时长无法与未思考区分。
+      reasoningStarted: message.reasoningDurationMs !== null,
       generationDurationMs: message.generationDurationMs,
     })
   }
@@ -422,12 +427,13 @@ export async function getMessageTimingByMessageId(
   for (const m of rows) {
     if (!m.runId) continue
     const snapshot = timings.get(m.id)
-    const measuredReasoningDurationMs = reasoningByRun.get(m.runId)
+    // 只有找到思考起点的推理 run 才会现算，因此现算结果即使为 null 也代表已开始思考。
+    const recomputed = reasoningByRun.has(m.runId)
     timings.set(m.id, {
-      reasoningDurationMs:
-        measuredReasoningDurationMs !== undefined
-          ? measuredReasoningDurationMs
-          : (snapshot?.reasoningDurationMs ?? null),
+      reasoningDurationMs: recomputed
+        ? (reasoningByRun.get(m.runId) ?? null)
+        : (snapshot?.reasoningDurationMs ?? null),
+      reasoningStarted: recomputed || (snapshot?.reasoningStarted ?? false),
       generationDurationMs: generationByRun.get(m.runId) ?? snapshot?.generationDurationMs ?? null,
     })
   }

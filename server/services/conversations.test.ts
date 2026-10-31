@@ -144,6 +144,33 @@ describe('reasoning timing helpers', () => {
     expect(computeReasoningDurationMs(events)).toBe(5500)
   })
 
+  it('does not treat gateway wait before the first event as buffering', () => {
+    // 上游在 created_at 打点后约 1.7 秒才送达 response.created，之后事件正常流式到达。
+    const events = [
+      ev('response.created', 1, 624451),
+      ev('answer.started', 2, 627706),
+      {
+        ...ev('response.completed', 3, 627783),
+        data: { response: { created_at: 623, completed_at: 628 } },
+      },
+    ]
+
+    expect(computeReasoningDurationMs(events)).toBe(3255)
+  })
+
+  it('ignores a placeholder created_at when checking for buffering', () => {
+    const events = [
+      ev('response.created', 1, 1000),
+      ev('answer.started', 2, 3000),
+      {
+        ...ev('response.completed', 3, 4000),
+        data: { response: { created_at: 0, completed_at: 1784608398 } },
+      },
+    ]
+
+    expect(computeReasoningDurationMs(events)).toBe(2000)
+  })
+
   it('does not carry an earlier buffered attempt into replacement content timing', () => {
     const events = [
       ev('response.created', 1, 70000),

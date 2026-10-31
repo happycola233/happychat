@@ -900,9 +900,11 @@ describe('整次生成自动重试与审计', () => {
     const legacyMessage = { ...saved.message, reasoningDurationMs: 417 }
     const { getMessageTimingByMessageId, toMessageDTO } = await import('../services/conversations')
     const timings = await getMessageTimingByMessageId([legacyMessage])
-    expect(
-      toMessageDTO(legacyMessage, timings.get(legacyMessage.id)).reasoningDurationMs,
-    ).toBeNull()
+    // 未知时长仍要让界面显示「已思考若干秒」，不能与未思考混为一谈。
+    expect(toMessageDTO(legacyMessage, timings.get(legacyMessage.id))).toMatchObject({
+      reasoningDurationMs: null,
+      reasoningStarted: true,
+    })
   })
 
   it('只有 commentary 与生成图时，恢复、结算和历史都计时到回复结束', async () => {

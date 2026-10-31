@@ -233,6 +233,11 @@ export interface MessageDTO {
   processSteps: ProcessStep[]
   /** 从上游开始响应到第一段正文输出的耗时；无可靠事件或快照时为 null。 */
   reasoningDurationMs: number | null
+  /**
+   * 开启思考且上游已开始响应；耗时无法可靠计时（reasoningDurationMs 为 null）时据此保留思考状态。
+   * 旧分享快照没有该字段，按耗时是否存在推断。
+   */
+  reasoningStarted?: boolean
   /** 整次生成的墙钟耗时；优先由 run 起止时间计算，无 run 时可使用消息快照。 */
   generationDurationMs: number | null
   annotations: UrlCitation[] | null

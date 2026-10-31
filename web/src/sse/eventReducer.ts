@@ -1,3 +1,4 @@
+import type { MessageDTO } from '@shared/types/api'
 import type {
   MessageErrorDetail,
   ProcessStep,
@@ -88,6 +89,13 @@ export function liveStepsFromPersisted(steps: ProcessStep[] | null | undefined):
       action: step.action,
     }
   })
+}
+
+/** 旧分享快照没有 reasoningStarted，只能按是否有思考耗时推断。 */
+export function persistedReasoningStarted(
+  message: Pick<MessageDTO, 'reasoningStarted' | 'reasoningDurationMs'>,
+): boolean {
+  return message.reasoningStarted ?? message.reasoningDurationMs !== null
 }
 
 export interface LiveMessage {

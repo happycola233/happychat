@@ -3,7 +3,11 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 import type { MessageCostDisplayDTO, MessageDTO } from '@shared/types/api'
 import type { UrlCitation } from '@shared/types/domain'
 import { incompleteRunMessage } from '@shared/util/incompleteRun'
-import { liveStepsFromPersisted, type LiveMessage } from '../sse/eventReducer'
+import {
+  liveStepsFromPersisted,
+  persistedReasoningStarted,
+  type LiveMessage,
+} from '../sse/eventReducer'
 import { useModels } from '../hooks/useModels'
 import { useSettings } from '../store/settings'
 import { CollapsibleUserMessageText } from './MessageContent'
@@ -229,12 +233,13 @@ export function Message({
         : streaming && !live?.answerStarted && !text && live?.upstreamStartedAt
           ? 'working'
           : 'completed'
-  const reasoningEnabled = live?.reasoningEnabled ?? message.reasoningDurationMs !== null
+  // 无法可靠计时的回复耗时为 null，仍要保留「已思考若干秒」，不能据耗时判断是否思考过。
+  const reasoningStarted = live
+    ? live.reasoningEnabled && live.upstreamStartedAt !== null
+    : persistedReasoningStarted(message)
   const reasoningDurationMs = live ? live.reasoningDurationMs : message.reasoningDurationMs
   const showProcessTrack =
-    steps.length > 0 ||
-    reasoningDurationMs !== null ||
-    Boolean(processStatus === 'working' && reasoningEnabled && !live?.retry)
+    steps.length > 0 || reasoningDurationMs !== null || (reasoningStarted && !live?.retry)
   // 流结束后保留原图片舞台，用入库附件补齐最终帧；避免卸载打断 partial → final 的淡入。
   const imageLive = live
     ? live.imageStatus || live.imageGenerations.length
@@ -256,7 +261,7 @@ export function Message({
           status={processStatus}
           startedAt={live?.upstreamStartedAt ?? null}
           durationMs={reasoningDurationMs}
-          reasoningEnabled={reasoningEnabled}
+          reasoningStarted={reasoningStarted}
           answerStarted={live?.answerStarted ?? true}
           autoExpand={defaultExpandReasoning}
         />

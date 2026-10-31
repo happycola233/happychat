@@ -13,7 +13,7 @@ import { FileAttachmentIcon } from '../chat/icons'
 import { Markdown } from '../chat/Markdown'
 import { ProcessTrack, type ProcessTrackStatus } from '../chat/ProcessTrack'
 import { safeCitationUrl, SHOW_CITATION_SOURCE_CHIPS } from '../chat/citationDisplay'
-import { liveStepsFromPersisted } from '../sse/eventReducer'
+import { liveStepsFromPersisted, persistedReasoningStarted } from '../sse/eventReducer'
 import { CopyMessageButton, MessageUsageStats } from '../chat/MessageMeta'
 import { MessageTimeLabel } from '../chat/MessageTimeLabel'
 import { Spinner } from '../components/ui/Spinner'
@@ -280,7 +280,9 @@ export function SharedMessage({
   }
 
   const steps = liveStepsFromPersisted(m.processSteps)
-  const showProcessTrack = steps.length > 0 || m.reasoningDurationMs !== null
+  const reasoningStarted = persistedReasoningStarted(m)
+  // 有思考耗时必然已开始思考；耗时未知时也要保留「已思考若干秒」。
+  const showProcessTrack = steps.length > 0 || reasoningStarted
 
   return (
     <div className="space-y-2">
@@ -290,9 +292,7 @@ export function SharedMessage({
           status={processStatus(m, text)}
           startedAt={null}
           durationMs={m.reasoningDurationMs}
-          reasoningEnabled={
-            m.reasoningDurationMs !== null || steps.some((step) => step.kind === 'reasoning')
-          }
+          reasoningStarted={reasoningStarted}
           answerStarted
           autoExpand={false}
           stickyTopClassName={SHARE_REASONING_STICKY_TOP_CLASS}
