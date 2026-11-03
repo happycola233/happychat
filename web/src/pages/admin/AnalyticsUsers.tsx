@@ -25,7 +25,7 @@ import {
 
 type SortKey = 'requests' | 'cost' | 'totalTokens'
 
-export function AnalyticsUsers({ rows }: { rows: UserStatDTO[] }) {
+export function AnalyticsUsers({ rows, costLabel }: { rows: UserStatDTO[]; costLabel: string }) {
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState<SortKey>('requests')
   const [page, setPage] = useState(1)
@@ -62,7 +62,7 @@ export function AnalyticsUsers({ rows }: { rows: UserStatDTO[] }) {
             className="w-36 shrink-0"
             options={[
               { value: 'requests', label: '按请求排序' },
-              { value: 'cost', label: '按成本排序' },
+              { value: 'cost', label: `按${costLabel}排序` },
               { value: 'totalTokens', label: '按 Token 排序' },
             ]}
             value={sort}
@@ -81,7 +81,7 @@ export function AnalyticsUsers({ rows }: { rows: UserStatDTO[] }) {
             <table className={tableEl}>
               <thead className={tableHead}>
                 <tr>
-                  {['用户', '请求', 'Token', '预估成本', '非失败率', ''].map((label) => (
+                  {['用户', '请求', 'Token', costLabel, '非失败率', ''].map((label) => (
                     <th key={label} scope="col" className={th}>
                       {label}
                     </th>

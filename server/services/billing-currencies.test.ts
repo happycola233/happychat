@@ -62,7 +62,6 @@ beforeAll(async () => {
     .insert(schema.models)
     .values({
       id: 'm',
-      providerId: 'p',
       modelId: 'billing',
       displayName: 'Billing model',
       capabilities: {
@@ -77,6 +76,7 @@ beforeAll(async () => {
       pricing: { currency: 'CNY', input: 7 },
     })
     .run()
+  client.db.insert(schema.modelRoutes).values({ modelId: 'm', providerId: 'p' }).run()
   client.db.insert(schema.quotaPolicies).values({ id: 'q', name: 'Billing quota', rules: [] }).run()
   client.db.insert(schema.userQuotas).values({ userId: 'u', policyId: 'q' }).run()
 })
@@ -110,7 +110,6 @@ afterAll(() => {
 async function log(nativePricing: ModelPricing) {
   const snapshot = await pricing.freezeModelPricing({
     kind: 'chat',
-    providerId: 'p',
     pricing: nativePricing,
   })
   const cost = calculateRequestCost(tokens, snapshot, 'chat', [], Date.now())
@@ -199,7 +198,6 @@ describe('双币种账单与额度的一致性', () => {
     await expect(
       pricing.freezeModelPricing({
         kind: 'chat',
-        providerId: 'p',
         pricing: { currency: 'CNY', input: 7 },
       }),
     ).rejects.toMatchObject({ status: 503 })
@@ -222,7 +220,6 @@ describe('双币种账单与额度的一致性', () => {
       .run()
     const frozen = await pricing.freezeModelPricing({
       kind: 'responses',
-      providerId: 'p',
       pricing: { currency: 'USD', imagePricingModelId: 'm', input: 1 },
     })
     client.db

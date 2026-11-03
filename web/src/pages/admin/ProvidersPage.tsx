@@ -176,7 +176,7 @@ export default function ProvidersPage() {
                       to={`/admin/models?providerId=${encodeURIComponent(p.id)}`}
                       className="inline-flex min-h-7 shrink-0 items-center rounded-md bg-neutral-100 px-2 text-xs text-neutral-500 hover:text-sky-600 dark:bg-neutral-800 dark:hover:text-sky-300"
                     >
-                      {p.modelCount} 个模型
+                      {p.modelCount} 个模型使用
                     </Link>
                     <span
                       className={clsx(
@@ -278,7 +278,12 @@ export default function ProvidersPage() {
                   onClick={() => {
                     void askConfirm({
                       title: '删除供应商？',
-                      description: `供应商「${p.name}」及其下全部模型配置将被永久删除，且无法恢复。`,
+                      description:
+                        p.exclusiveModelCount > 0
+                          ? `供应商「${p.name}」及其 ${p.modelCount} 条模型线路将被删除。其中 ${p.exclusiveModelCount} 个模型只有这一条线路，删除后用户将无法使用，直到为它们添加新线路。模型配置本身会保留。`
+                          : p.modelCount > 0
+                            ? `供应商「${p.name}」及其 ${p.modelCount} 条模型线路将被删除；这些模型还有其他线路，会继续可用。`
+                            : `供应商「${p.name}」将被删除，且无法恢复。`,
                       confirmLabel: '删除',
                       tone: 'danger',
                     }).then((ok) => {

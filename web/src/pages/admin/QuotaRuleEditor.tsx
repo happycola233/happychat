@@ -2,7 +2,8 @@ import { fieldLabelClass, inputClass } from '../../components/ui/controlStyles'
 import { clsx } from 'clsx'
 import { Minus, Plus } from 'lucide-react'
 import type { AdminModelDTO, AdminModelGroupDTO } from '@shared/types/api'
-import { describeQuotaRule, isQuotaRuleNoOp } from '@shared/util/quota'
+import type { QuotaMetric } from '@shared/types/domain'
+import { describeQuotaRule, isQuotaCostMetric, isQuotaRuleNoOp } from '@shared/util/quota'
 import { QUOTA_DURATION_PRESET_HOURS, QUOTA_MAX_RULE_PRIORITY } from '@shared/util/quota'
 import { describeQuotaHours } from '@shared/util/quotaWindow'
 import { Checkbox } from '../../components/ui/Checkbox'
@@ -14,8 +15,26 @@ import {
   type QuotaScopeType,
   type QuotaWindowChoice,
 } from './quotaRuleDrafts'
+import { describeModelRoutes } from './modelRoutes'
 
 const FIELD_LABEL_CLASS = fieldLabelClass
+
+/** 计量口径与用尽后的影响；生图类计量只停用生图，不影响文字对话。 */
+const QUOTA_METRIC_OPTIONS: { value: QuotaMetric; label: string; description: string }[] = [
+  { value: 'cost', label: '消费金额', description: '文字与生图合计，用尽后范围内模型都不可用' },
+  { value: 'chat_cost', label: '文字消费', description: '只计文字部分，用尽后对话模型不可用' },
+  {
+    value: 'image_cost',
+    label: '生图消费',
+    description: '只计生图部分，用尽后只停用生图，文字对话不受影响',
+  },
+  {
+    value: 'images',
+    label: '生图张数',
+    description: '按生成的图片张数计，用尽后只停用生图，文字对话不受影响',
+  },
+  { value: 'requests', label: '请求次数', description: '每次成功请求计 1 次' },
+]
 const SEGMENT_CLASS =
   'flex items-center gap-0.5 rounded-lg bg-neutral-100 p-0.5 dark:bg-neutral-800'
 
@@ -198,24 +217,17 @@ export function QuotaRuleEditor({
           </div>
         </div>
         <div>
-          <span className={FIELD_LABEL_CLASS}>计量口径</span>
-          <div className={SEGMENT_CLASS}>
-            <SegmentButton
-              active={draft.metric === 'cost'}
-              onClick={() => patch({ metric: 'cost' })}
-            >
-              消费金额
-            </SegmentButton>
-            <SegmentButton
-              active={draft.metric === 'requests'}
-              onClick={() => patch({ metric: 'requests' })}
-            >
-              请求次数
-            </SegmentButton>
-          </div>
+          <Select
+            label="计量口径"
+            size="md"
+            className="w-full"
+            value={draft.metric}
+            onChange={(event) => patch({ metric: event.target.value as QuotaMetric })}
+            options={QUOTA_METRIC_OPTIONS}
+          />
         </div>
 
-        {draft.metric === 'cost' && (
+        {isQuotaCostMetric(draft.metric) && (
           <div>
             <span className={FIELD_LABEL_CLASS}>额度币种</span>
             <div className={SEGMENT_CLASS}>
@@ -264,7 +276,7 @@ export function QuotaRuleEditor({
                   ? models.map((model) => ({
                       id: model.id,
                       label: model.displayName,
-                      hint: model.providerName,
+                      hint: describeModelRoutes(model),
                     }))
                   : groups.map((group) => ({
                       id: group.id,
@@ -303,7 +315,7 @@ export function QuotaRuleEditor({
             </div>
           ) : (
             <div className="relative">
-              {draft.metric === 'cost' && (
+              {isQuotaCostMetric(draft.metric) && (
                 <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-neutral-400">
                   {draft.currency === 'CNY' ? '¥' : '$'}
                 </span>
@@ -312,15 +324,17 @@ export function QuotaRuleEditor({
                 value={draft.limitInput}
                 onChange={(event) => patch({ limitInput: event.target.value })}
                 inputMode="decimal"
-                placeholder={draft.metric === 'cost' ? '10' : '300'}
+                placeholder={
+                  isQuotaCostMetric(draft.metric) ? '10' : draft.metric === 'images' ? '20' : '300'
+                }
                 className={clsx(
                   `${inputClass} pr-10 tabular-nums`,
-                  draft.metric === 'cost' ? 'pl-7' : 'pl-3',
+                  isQuotaCostMetric(draft.metric) ? 'pl-7' : 'pl-3',
                 )}
               />
-              {draft.metric === 'requests' && (
+              {!isQuotaCostMetric(draft.metric) && (
                 <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-neutral-400">
-                  次
+                  {draft.metric === 'images' ? '张' : '次'}
                 </span>
               )}
             </div>

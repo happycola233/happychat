@@ -1,14 +1,15 @@
 import { and, desc, eq } from 'drizzle-orm'
 import { DEFAULT_TITLE_PROMPT } from '@shared/constants'
-import type { MessageUsage, UsageOutcome } from '@shared/types/domain'
+import type { MessageUsage, ModelPricing, UsageOutcome } from '@shared/types/domain'
 import { textFromContent } from '@shared/util/contentText'
 import { summarizeArtifactBlocks } from '@shared/util/artifactBlocks'
-import { calculateRequestCost, createRequestPricingSnapshot } from '@shared/util/cost'
-import { freezeModelPricing } from './model-pricing'
+import { calculateRequestCost, imageCostAmounts } from '@shared/util/cost'
+import { freezeRunPricing } from './model-pricing'
+import { isRouteFault, orderRouteCandidates, routeHealth, type RouteTarget } from './model-routes'
 import { anthropicModelProfile } from '@shared/util/anthropic'
 import { titleLocaleFromBrowser } from '@shared/util/titleLocale'
 import { db } from '../db/client'
-import { conversations, models, providers, runs, usageLogs } from '../db/schema'
+import { conversations, models, runs, usageLogs } from '../db/schema'
 import { mapAnthropicUsage, type AnthropicUsage } from '../provider/anthropic'
 import { classifyAnthropicTerminal } from '../provider/anthropic-terminal'
 import { buildChatBody, mapChatUsage } from '../provider/chat'
@@ -26,11 +27,10 @@ import { buildResponseBody } from '../provider/params'
 import { buildPath, getConversationMessages } from './conversations'
 import { getAppConfig } from './appConfig'
 import { conversationEvents } from './conversation-events'
-import { getFirstRunnableTextModel, getRunnableModel } from './models'
+import { getFirstRunnableTextModel, getRunnableModel, type RunnableModel } from './models'
 import { computeGenerationDurationMs } from './run-timing'
 
 type ModelRow = typeof models.$inferSelect
-type ProviderRow = typeof providers.$inferSelect
 
 /** 清洗模型输出为标题：去引号/取首行/去尾标点/限长。 */
 export function cleanTitle(raw: string): string {
@@ -44,7 +44,7 @@ export function cleanTitle(raw: string): string {
 async function resolveTitleModel(
   titleModelId: string | null,
   userId: string,
-): Promise<{ model: ModelRow; provider: ProviderRow } | null> {
+): Promise<RunnableModel | null> {
   if (titleModelId) {
     const preferred = await getRunnableModel(titleModelId, userId)
     if (preferred && preferred.model.kind !== 'image') return preferred
@@ -87,11 +87,11 @@ function titleTerminalResult(terminal: {
 
 async function callTitleModel(
   m: ModelRow,
-  p: ProviderRow,
+  target: RouteTarget,
   prompt: string,
   responseTimingObserver: UpstreamResponseTimingObserver,
 ): Promise<TitleModelResult> {
-  const client = providerClientFromRow(p, responseTimingObserver)
+  const client = providerClientFromRow(target.provider, responseTimingObserver)
   if (m.kind === 'chat') {
     const configuredBody = buildChatBody({ model: m, messages: [], stream: false })
     const outputParams = Object.fromEntries(
@@ -100,7 +100,7 @@ async function callTitleModel(
         .map((field) => [field, configuredBody[field]]),
     )
     const resp = (await client.createChat({
-      model: m.modelId,
+      model: target.upstreamModelId,
       messages: [{ role: 'user', content: prompt }],
       ...outputParams,
       stream: false,
@@ -125,7 +125,7 @@ async function callTitleModel(
   }
   if (m.kind === 'anthropic') {
     const body: Record<string, unknown> = {
-      model: m.modelId,
+      model: target.upstreamModelId,
       messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
       max_tokens: 512,
     }
@@ -166,7 +166,7 @@ async function callTitleModel(
       .map((field) => [field, configuredBody[field]]),
   )
   const resp = await client.createResponse({
-    model: m.modelId,
+    model: target.upstreamModelId,
     input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: prompt }] }],
     ...outputParams,
     store: false,
@@ -192,7 +192,8 @@ async function logTitleUsage(
   conversationId: string,
   userId: string,
   model: ModelRow,
-  provider: ProviderRow,
+  target: RouteTarget,
+  costPricing: ModelPricing,
   usage: MessageUsage,
   success: boolean,
   errorType: string | null,
@@ -209,17 +210,31 @@ async function logTitleUsage(
     [],
     requestStartedAt,
   )
+  const upstreamCost = calculateRequestCost(
+    { ...usage, imageTokens: 0 },
+    costPricing,
+    model.kind,
+    [],
+    requestStartedAt,
+  )
+  const imageCost = imageCostAmounts(costBreakdown)
   await db.insert(usageLogs).values({
     costUsd: costBreakdown.totalUsd,
     costCny: costBreakdown.totalCny,
     costBreakdown,
+    imageCostUsd: imageCost.usd,
+    imageCostCny: imageCost.cny,
+    upstreamCostUsd: upstreamCost.totalUsd,
+    upstreamCostCny: upstreamCost.totalCny,
+    upstreamCostBreakdown: upstreamCost,
     userId,
     modelId: model.id,
-    providerId: provider.id,
-    modelLabel: model.modelId,
+    providerId: target.provider.id,
+    routeId: target.route.id,
+    modelLabel: target.upstreamModelId,
     modelDisplayName: model.displayName,
-    providerLabel: provider.name,
-    pricingSnapshot: createRequestPricingSnapshot(model.pricing, model.kind),
+    providerLabel: target.provider.name,
+    pricingSnapshot: model.pricing,
     conversationId,
     kind: 'title',
     inputTokens: usage.inputTokens,
@@ -310,44 +325,65 @@ export async function maybeGenerateTitle(conversationId: string, runId?: string)
     const prompt = (cfg.titlePrompt || DEFAULT_TITLE_PROMPT)
       .replaceAll('{locale}', titleLocale)
       .replaceAll('{content}', content)
-    const upstreamResponseTiming = new UpstreamResponseLatencyTracker()
-    const titleStartedAt = new Date()
-    resolved.model.pricing = await freezeModelPricing(resolved.model)
-    let result: TitleModelResult
-    try {
-      result = await callTitleModel(
-        resolved.model,
-        resolved.provider,
-        prompt,
-        upstreamResponseTiming,
-      )
-    } catch (error) {
-      console.error('标题模型调用失败:', error)
-      const { errorType, terminalReason } = titleCallError(error)
-      result = {
-        text: '',
-        usage: EMPTY_USAGE,
-        success: false,
-        errorType,
-        outcome: 'failed',
-        terminalReason,
-      }
-    }
-    await logTitleUsage(
-      conversationId,
-      conv.userId,
+    const pricing = await freezeRunPricing(
       resolved.model,
-      resolved.provider,
-      result.usage,
-      result.success,
-      result.errorType,
-      result.outcome,
-      result.terminalReason,
-      upstreamResponseTiming.latencyMs,
-      computeGenerationDurationMs(titleStartedAt, new Date()),
-      titleStartedAt.getTime(),
+      resolved.routes.map((target) => ({
+        id: target.route.id,
+        costPricing: target.route.costPricing,
+      })),
     )
-    const title = (result.success ? cleanTitle(result.text) : '') || fallback
+    resolved.model.pricing = pricing.billing
+    let result: TitleModelResult | null = null
+    // 与对话相同的线路调度；每次上游调用各记一条审计。只有线路级故障才换下一条线路。
+    for (const target of orderRouteCandidates(resolved.routes)) {
+      const upstreamResponseTiming = new UpstreamResponseLatencyTracker()
+      const titleStartedAt = new Date()
+      let routeFault = false
+      try {
+        result = await callTitleModel(resolved.model, target, prompt, upstreamResponseTiming)
+        routeHealth.recordSuccess(target.route.id)
+      } catch (error) {
+        console.error('标题模型调用失败:', error)
+        const { errorType, terminalReason } = titleCallError(error)
+        result = {
+          text: '',
+          usage: EMPTY_USAGE,
+          success: false,
+          errorType,
+          outcome: 'failed',
+          terminalReason,
+        }
+        routeFault =
+          !(error instanceof UpstreamError) ||
+          isRouteFault({
+            errorType: error.type ?? null,
+            errorCode: error.code ?? null,
+            httpStatus: error.status || null,
+          })
+        if (routeFault)
+          routeHealth.recordFailure(
+            target.route.id,
+            error instanceof Error ? error.message : '标题生成失败',
+          )
+      }
+      await logTitleUsage(
+        conversationId,
+        conv.userId,
+        resolved.model,
+        target,
+        pricing.costByRoute.get(target.route.id) ?? pricing.billing,
+        result.usage,
+        result.success,
+        result.errorType,
+        result.outcome,
+        result.terminalReason,
+        upstreamResponseTiming.latencyMs,
+        computeGenerationDurationMs(titleStartedAt, new Date()),
+        titleStartedAt.getTime(),
+      )
+      if (!routeFault) break
+    }
+    const title = (result?.success ? cleanTitle(result.text) : '') || fallback
     const updatedAt = new Date()
     await db
       .update(conversations)

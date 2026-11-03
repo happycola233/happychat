@@ -91,7 +91,6 @@ async function createModel() {
   })
   await dbClient.db.insert(schema.models).values({
     id: modelId,
-    providerId,
     modelId: `upstream-${n}`,
     displayName: `Model ${n}`,
     pricing: PRICING,
@@ -105,6 +104,7 @@ async function createModel() {
       artifacts: false,
     },
   })
+  await dbClient.db.insert(schema.modelRoutes).values({ modelId, providerId })
   return modelId
 }
 

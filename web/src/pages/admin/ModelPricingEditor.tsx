@@ -90,22 +90,18 @@ function PricingTableEditor({
   kind,
   pricing,
   onChange,
-  providerId,
-  models,
+  imageSources,
   hideImage = false,
   allowSource = true,
 }: {
   kind: ModelKind
   pricing: ModelPricing
   onChange: (pricing: ModelPricing) => void
-  providerId: string
-  models: AdminModelDTO[]
+  imageSources: AdminModelDTO[]
   hideImage?: boolean
   allowSource?: boolean
 }) {
-  const sources = models.filter(
-    (model) => model.providerId === providerId && model.kind === 'image',
-  )
+  const sources = imageSources.filter((model) => model.kind === 'image')
   const source = sources.find((model) => model.id === pricing.imagePricingModelId)
   const imagePricing = source
     ? normalizeModelPricing(source.pricing, 'image').imageGeneration
@@ -159,35 +155,37 @@ function PricingTableEditor({
           ) : (
             <>
               <div className={gridClass}>
-                {allowSource && kind === 'responses' && (
-                  <Select
-                    label="生图定价来源"
-                    className="w-full"
-                    value={pricing.imagePricingModelId ?? ''}
-                    options={[
-                      { value: '', label: '自定义生图定价' },
-                      ...sources.map((model) => ({
-                        value: model.id,
-                        label: `使用 ${model.displayName} 的定价`,
-                      })),
-                      ...(pricing.imagePricingModelId && !source
-                        ? [
-                            {
-                              value: pricing.imagePricingModelId,
-                              label: '定价来源已不可用，请重新选择',
-                            },
-                          ]
-                        : []),
-                    ]}
-                    onChange={(e) =>
-                      onChange({
-                        ...pricing,
-                        imagePricingModelId: e.target.value || undefined,
-                        imageGeneration: e.target.value ? undefined : { mode: 'per_image' },
-                      })
-                    }
-                  />
-                )}
+                {allowSource &&
+                  kind === 'responses' &&
+                  (sources.length > 0 || Boolean(pricing.imagePricingModelId)) && (
+                    <Select
+                      label="生图定价来源"
+                      className="w-full"
+                      value={pricing.imagePricingModelId ?? ''}
+                      options={[
+                        { value: '', label: '自定义生图定价' },
+                        ...sources.map((model) => ({
+                          value: model.id,
+                          label: `使用 ${model.displayName} 的定价`,
+                        })),
+                        ...(pricing.imagePricingModelId && !source
+                          ? [
+                              {
+                                value: pricing.imagePricingModelId,
+                                label: '定价来源已不可用，请重新选择',
+                              },
+                            ]
+                          : []),
+                      ]}
+                      onChange={(e) =>
+                        onChange({
+                          ...pricing,
+                          imagePricingModelId: e.target.value || undefined,
+                          imageGeneration: e.target.value ? undefined : { mode: 'per_image' },
+                        })
+                      }
+                    />
+                  )}
                 {!pricing.imagePricingModelId && (
                   <fieldset className="min-w-0">
                     <legend className="mb-1.5 text-xs text-neutral-500">计价方式</legend>
@@ -410,12 +408,15 @@ function PricingTableEditor({
   )
 }
 
+/**
+ * 一套完整价目表的编辑器；用户计价与线路成本价共用。
+ * imageSources 为可引用其定价的纯生图模型（Responses 生图工具核价）；线路成本价不提供引用。
+ */
 export function ModelPricingEditor(props: {
   kind: ModelKind
   pricing: ModelPricing
   onChange: (pricing: ModelPricing) => void
-  providerId: string
-  models: AdminModelDTO[]
+  imageSources: AdminModelDTO[]
 }) {
   const { pricing, onChange } = props
   return (

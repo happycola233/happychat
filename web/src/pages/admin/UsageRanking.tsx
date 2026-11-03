@@ -13,10 +13,13 @@ export function UsageRanking({
   title,
   rows,
   onSelect,
+  costLabel,
 }: {
   title: string
   rows: UsageBreakdownDTO[]
   onSelect: (id: string) => void
+  /** 当前金额口径的短称（成本 / 计费）。 */
+  costLabel: string
 }) {
   const [metric, setMetric] = useState<Metric>('cost')
   const [expanded, setExpanded] = useState(false)
@@ -34,7 +37,7 @@ export function UsageRanking({
           value={metric}
           onChange={(event) => setMetric(event.target.value as Metric)}
           options={[
-            { value: 'cost', label: '按成本' },
+            { value: 'cost', label: `按${costLabel}` },
             { value: 'requests', label: '按请求' },
             { value: 'totalTokens', label: '按 Token' },
           ]}

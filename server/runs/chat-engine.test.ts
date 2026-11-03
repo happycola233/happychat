@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { eq } from 'drizzle-orm'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { runOnSingleRoute } from '../testing/model-routes'
 
 let temporaryDirectory: string
 let dbClient: typeof import('../db/client')
@@ -104,7 +105,6 @@ async function createFixture() {
   const [model] = await dbClient.db
     .insert(schema.models)
     .values({
-      providerId: provider.id,
       modelId: 'gpt-chat-test',
       displayName: 'GPT Chat Test',
       kind: 'chat',
@@ -204,7 +204,7 @@ describe('runChatEngine', () => {
       )
     vi.stubGlobal('fetch', fetchMock)
     try {
-      await chatEngine.runChatEngine(fixture)
+      await runOnSingleRoute(dbClient.db, schema, chatEngine.runChatEngine, fixture)
       const { storedRun, storedMessage } = await readResult(fixture)
       expect(storedRun?.state).toBe('completed')
       expect(storedMessage?.content).toEqual([{ type: 'output_text', text: 'recovered' }])
@@ -252,7 +252,7 @@ describe('runChatEngine', () => {
       ),
     )
 
-    await chatEngine.runChatEngine(fixture)
+    await runOnSingleRoute(dbClient.db, schema, chatEngine.runChatEngine, fixture)
 
     const { storedRun, storedMessage, usageLog } = await readResult(fixture)
     expect(storedRun).toMatchObject({ state: 'completed', errorMessage: null })
@@ -282,7 +282,7 @@ describe('runChatEngine', () => {
         ),
     )
 
-    await chatEngine.runChatEngine(fixture)
+    await runOnSingleRoute(dbClient.db, schema, chatEngine.runChatEngine, fixture)
 
     const { storedRun, storedMessage } = await readResult(fixture)
     expect(storedRun).toMatchObject({
@@ -306,7 +306,7 @@ describe('runChatEngine', () => {
         ),
     )
 
-    await chatEngine.runChatEngine(fixture)
+    await runOnSingleRoute(dbClient.db, schema, chatEngine.runChatEngine, fixture)
 
     const { storedRun, storedMessage, usageLog } = await readResult(fixture)
     expect(storedRun).toMatchObject({ state: 'completed', errorMessage: null })
@@ -328,7 +328,7 @@ describe('runChatEngine', () => {
       ),
     )
 
-    await chatEngine.runChatEngine(fixture)
+    await runOnSingleRoute(dbClient.db, schema, chatEngine.runChatEngine, fixture)
 
     const { storedRun, storedMessage } = await readResult(fixture)
     expect(storedRun).toMatchObject({ state: 'completed', errorMessage: null })
@@ -352,7 +352,7 @@ describe('runChatEngine', () => {
         ),
     )
 
-    await chatEngine.runChatEngine(fixture)
+    await runOnSingleRoute(dbClient.db, schema, chatEngine.runChatEngine, fixture)
 
     const { storedRun, storedMessage } = await readResult(fixture)
     expect(storedRun).toMatchObject({ state: 'completed', errorMessage: null })
@@ -394,7 +394,7 @@ describe('runChatEngine', () => {
     const fixture = await createFixture()
     vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValue(chatSseResponse(events)))
 
-    await chatEngine.runChatEngine(fixture)
+    await runOnSingleRoute(dbClient.db, schema, chatEngine.runChatEngine, fixture)
 
     const { storedRun, storedMessage, usageLog } = await readResult(fixture)
     expect(storedRun).toMatchObject({ state: 'failed' })
@@ -423,7 +423,7 @@ describe('runChatEngine', () => {
       ),
     )
 
-    await chatEngine.runChatEngine(fixture)
+    await runOnSingleRoute(dbClient.db, schema, chatEngine.runChatEngine, fixture)
 
     const { storedRun, storedMessage, usageLog } = await readResult(fixture)
     expect(storedRun).toMatchObject({ state: 'failed' })
@@ -447,7 +447,7 @@ describe('runChatEngine', () => {
       vi.fn<typeof fetch>().mockResolvedValue(rawSseResponse('data: {"choices":\n\n')),
     )
 
-    await chatEngine.runChatEngine(fixture)
+    await runOnSingleRoute(dbClient.db, schema, chatEngine.runChatEngine, fixture)
 
     const { storedRun, storedMessage, usageLog } = await readResult(fixture)
     expect(storedRun).toMatchObject({ state: 'failed' })
@@ -465,7 +465,7 @@ describe('runChatEngine', () => {
         .mockResolvedValue(chatSseResponse([chatChunk({ content: 'partial' })], { done: false })),
     )
 
-    await chatEngine.runChatEngine(fixture)
+    await runOnSingleRoute(dbClient.db, schema, chatEngine.runChatEngine, fixture)
 
     const { storedRun, storedMessage, usageLog } = await readResult(fixture)
     expect(storedRun).toMatchObject({ state: 'failed' })

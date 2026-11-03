@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, type RefObject } from 'react'
 import { clsx } from 'clsx'
 import type { AdminModelDTO } from '@shared/types/api'
 import { SearchField } from '../../components/ui/SearchField'
+import { describeModelRoutes } from './modelRoutes'
 
 export function ModelEditorNavigation({
   models,
@@ -24,7 +25,9 @@ export function ModelEditorNavigation({
   const activeRef = useRef<HTMLButtonElement>(null)
   const keyword = search.trim().toLowerCase()
   const matches = models.filter((model) =>
-    `${model.displayName} ${model.modelId} ${model.providerName}`.toLowerCase().includes(keyword),
+    `${model.displayName} ${model.modelId} ${describeModelRoutes(model)}`
+      .toLowerCase()
+      .includes(keyword),
   )
   useLayoutEffect(() => {
     const navigation = navigationRef.current!
@@ -71,7 +74,7 @@ export function ModelEditorNavigation({
             <span className="min-w-0">
               <span className="block truncate text-xs font-medium">{model.displayName}</span>
               <span className="block truncate text-[11px] leading-4 text-neutral-500">
-                {model.providerName} · {model.modelId}
+                {describeModelRoutes(model)} · {model.modelId}
               </span>
             </span>
           </button>

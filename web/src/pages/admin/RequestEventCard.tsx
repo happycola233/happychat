@@ -54,11 +54,17 @@ export function RequestEventCard({ row }: { row: UsageLogDTO }) {
           { label: '总耗时', value: formatRequestLatency(row.durationMs) },
           { label: 'Tokens', value: formatInt(row.totalTokens) },
           {
-            label: '成本',
+            label: '成本 / 计费',
             value: (
-              <CostBreakdown breakdown={row.costBreakdown} display={row.costDisplay}>
-                {formatCurrency(row.cost)}
-              </CostBreakdown>
+              <>
+                <CostBreakdown breakdown={row.costBreakdown} display={row.costDisplay}>
+                  {formatCurrency(row.cost)}
+                </CostBreakdown>
+                <span className="text-neutral-400"> / </span>
+                <CostBreakdown breakdown={row.billedCostBreakdown} display={row.costDisplay}>
+                  {formatCurrency(row.billedCost)}
+                </CostBreakdown>
+              </>
             ),
           },
         ].map((metric) => (

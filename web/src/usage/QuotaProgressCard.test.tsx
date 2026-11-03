@@ -37,6 +37,7 @@ const quota = (rules: QuotaBucketUsageDTO[]): MyQuotaDTO => ({
   paused: false,
   unlimited: false,
   allModelsBlocked: false,
+  imageGenerationBlockedModelIds: [],
   policyName: 'Pro',
   warnThreshold: 0.8,
   blockedModelIds: [],

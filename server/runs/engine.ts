@@ -38,11 +38,11 @@ import {
   redactProviderOpaqueContent,
 } from '../provider/opaque-content'
 import { reconcileFinalResponse } from './final-response'
-import type { FinalizeArgs } from './finalize'
+import type { AttemptResult } from './finalize'
 import { removeGeneratedImageAttachments, storeGeneratedImageAttachment } from './generated-images'
 import { buildReasoningReplayContext } from './reasoning-replay-capture'
 import { streamResponseWithFallback } from './response-stream-fallback'
-import type { EngineContext } from './types'
+import type { EngineContext, RunExecution } from './types'
 import { executeRun, type RunAttemptRuntime } from './execute-run'
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '')
@@ -116,14 +116,14 @@ interface MutableAnswerPart {
 }
 
 /** 驱动单个 run：流式调用上游 → 逐事件持久化到 run_events + 发射 → 终结。 */
-export async function runEngine(ctx: EngineContext): Promise<void> {
-  await executeRun(ctx, runResponseAttempt)
+export async function runEngine(execution: RunExecution): Promise<void> {
+  await executeRun(execution, runResponseAttempt)
 }
 
 async function runResponseAttempt(
   ctx: EngineContext,
   runtime: RunAttemptRuntime,
-): Promise<FinalizeArgs> {
+): Promise<AttemptResult> {
   const { startedAt, persistEmit, upstreamResponseTiming, recordError } = runtime
   const sensitiveProviderContent = new Set(collectProviderOpaqueStrings(ctx.body))
   let text = ''
@@ -942,12 +942,11 @@ async function runResponseAttempt(
     ...imageContentParts,
   ]
 
-  const result: FinalizeArgs = {
+  const result: AttemptResult = {
     run: ctx.run,
     assistantMessage: ctx.assistantMessage,
     conversation: ctx.conversation,
     model: ctx.model,
-    provider: ctx.provider,
     state,
     text,
     processSteps: collectProcessSteps(),

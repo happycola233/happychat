@@ -1,6 +1,7 @@
 import type { AnalyticsSeriesPoint } from '@shared/types/api'
-import type { UsageLogKind, UsageResult } from '@shared/types/domain'
+import type { CostBasis, UsageLogKind, UsageResult } from '@shared/types/domain'
 import { RANGE_PRESETS, type RangeKey } from '../../lib/dateRange'
+import { formatCurrency } from '../../lib/format'
 import { REQUEST_RESULT_LABELS } from './requestOutcome'
 
 export function readDashboardFilters(params: URLSearchParams) {
@@ -16,7 +17,15 @@ export function readDashboardFilters(params: URLSearchParams) {
     resultSel: (result && Object.hasOwn(REQUEST_RESULT_LABELS, result) ? result : '') as
       | UsageResult
       | '',
+    // 金额口径：默认上游真实成本，切换到用户计费可对照收入。
+    costBasis: (params.get('basis') === 'billed' ? 'billed' : 'upstream') as CostBasis,
   }
+}
+
+/** 金额口径在界面上的短称。 */
+export const COST_BASIS_LABELS: Record<CostBasis, string> = {
+  upstream: '成本',
+  billed: '计费',
 }
 
 export function dashboardHref(
@@ -77,4 +86,11 @@ export function comparisonLabel(current: number, previous: number) {
   const change = ((current - previous) / previous) * 100
   if (Math.abs(change) < 0.05) return '与上一时段持平'
   return `${change > 0 ? '↑' : '↓'} ${Math.abs(change).toFixed(1)}% 较上一时段`
+}
+
+/** 计费减成本即毛利；没有计费金额时不计算比例。 */
+export function marginLabel(billed: number, cost: number): string {
+  const margin = billed - cost
+  const ratio = billed > 0 ? `（${Math.round((margin / billed) * 100)}%）` : ''
+  return `毛利 ${formatCurrency(margin)}${ratio}`
 }

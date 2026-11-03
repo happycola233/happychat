@@ -302,3 +302,55 @@ export function calculateRequestCost(
   }
   return result
 }
+
+/**
+ * 合并多次上游调用各自结算的费用（如故障转移时每条线路按自己的成本价结算）。
+ * 人民币合计只要有一笔无法折算就整体置空，与单次结算的口径一致。
+ */
+export function mergeRequestCosts(costs: RequestCostBreakdown[]): RequestCostBreakdown {
+  const statusRank: Record<RequestCostBreakdown['imageStatus'], number> = {
+    complete: 0,
+    missing_pricing: 1,
+    missing_usage: 2,
+  }
+  const merged: RequestCostBreakdown = {
+    chatUsd: 0,
+    imageUsd: 0,
+    totalUsd: 0,
+    totalCny: 0,
+    imageCount: 0,
+    imageStatus: 'complete',
+    charges: [],
+  }
+  for (const cost of costs) {
+    merged.chatUsd += cost.chatUsd
+    merged.imageUsd += cost.imageUsd
+    merged.totalUsd += cost.totalUsd
+    merged.imageCount += cost.imageCount
+    merged.totalCny =
+      merged.totalCny === null || cost.totalCny == null ? null : merged.totalCny! + cost.totalCny
+    if (statusRank[cost.imageStatus] > statusRank[merged.imageStatus])
+      merged.imageStatus = cost.imageStatus
+    merged.charges!.push(...(cost.charges ?? []))
+    merged.exchangeRate ??= cost.exchangeRate
+  }
+  return merged
+}
+
+/** 计费金额中的生图部分（美元与可确定时的人民币），供生图额度聚合。 */
+export function imageCostAmounts(cost: RequestCostBreakdown): {
+  usd: number
+  cny: number | null
+} {
+  if (cost.totalCny == null) return { usd: cost.imageUsd, cny: null }
+  const rate = cost.exchangeRate?.usdToCny
+  const cny = (cost.charges ?? [])
+    .filter((charge) => charge.kind === 'image')
+    .reduce(
+      // 合计可折算时，美元费用要么有汇率，要么金额为 0。
+      (sum, charge) =>
+        sum + (charge.currency === 'CNY' ? charge.amount : charge.amount * (rate ?? 0)),
+      0,
+    )
+  return { usd: cost.imageUsd, cny }
+}

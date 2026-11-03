@@ -73,7 +73,6 @@ async function createFixture() {
   await dbClient.db.insert(schema.models).values([
     {
       id: modelA,
-      providerId,
       modelId: `upstream-a-${n}`,
       displayName: `Model A${n}`,
       capabilities,
@@ -82,7 +81,6 @@ async function createFixture() {
     },
     {
       id: modelB,
-      providerId,
       modelId: `upstream-b-${n}`,
       displayName: `Model B${n}`,
       capabilities,
@@ -91,6 +89,8 @@ async function createFixture() {
       sort: 200,
     },
   ])
+  await dbClient.db.insert(schema.modelRoutes).values({ modelId: modelA, providerId })
+  await dbClient.db.insert(schema.modelRoutes).values({ modelId: modelB, providerId })
   return { userId, providerId, groupId, modelA, modelB }
 }
 
@@ -213,26 +213,22 @@ describe('额度快照与拦截', () => {
     const { userId, modelA } = await createFixture()
     await bindPolicy(userId, [monthlyCost(2)])
     await logUsage(userId, modelA, { costUsd: 1 })
-    await dbClient.db
-      .insert(schema.usageLogs)
-      .values({
-        userId,
-        modelId: modelA,
-        pricingSnapshot: PRICING,
-        inputTokens: 1000,
-        costUsd: 0,
-        generatedImageCount: 1,
-      })
+    await dbClient.db.insert(schema.usageLogs).values({
+      userId,
+      modelId: modelA,
+      pricingSnapshot: PRICING,
+      inputTokens: 1000,
+      costUsd: 0,
+      generatedImageCount: 1,
+    })
     expect((await quota.checkQuota(userId, modelA)).ok).toBe(true)
-    await dbClient.db
-      .insert(schema.usageLogs)
-      .values({
-        userId,
-        modelId: modelA,
-        pricingSnapshot: PRICING,
-        costUsd: 1,
-        generatedImageCount: 2,
-      })
+    await dbClient.db.insert(schema.usageLogs).values({
+      userId,
+      modelId: modelA,
+      pricingSnapshot: PRICING,
+      costUsd: 1,
+      generatedImageCount: 2,
+    })
     expect((await quota.checkQuota(userId, modelA)).ok).toBe(false)
   })
 
@@ -974,5 +970,99 @@ describe('默认策略', () => {
     await dbClient.db
       .delete(schema.quotaPolicies)
       .where(eq(schema.quotaPolicies.id, `default-policy-${userId}`))
+  })
+})
+
+describe('生图与文字分开计量', () => {
+  const dailyRule = (metric: QuotaRule['metric'], value: number, id: string): QuotaRule => ({
+    id,
+    label: null,
+    scope: { type: 'all' },
+    metric,
+    limit: { kind: 'amount', value },
+    window: { type: 'calendar', period: 'day' },
+    priority: 0,
+  })
+
+  /** 在通用夹具上把模型 A 改为 Responses、模型 B 改为纯生图模型。 */
+  async function createImageFixture() {
+    const fixture = await createFixture()
+    await dbClient.db
+      .update(schema.models)
+      .set({ kind: 'image' })
+      .where(eq(schema.models.id, fixture.modelB))
+    return fixture
+  }
+
+  async function logImages(userId: string, modelId: string, images: number, imageCostUsd: number) {
+    await dbClient.db.insert(schema.usageLogs).values({
+      userId,
+      modelId,
+      kind: 'chat',
+      pricingSnapshot: PRICING,
+      costUsd: imageCostUsd + 1,
+      imageCostUsd,
+      generatedImageCount: images,
+    })
+  }
+
+  it('生图张数用尽只停用生图：纯生图模型不可用，Responses 模型去掉生图工具', async () => {
+    const { userId, modelA, modelB } = await createImageFixture()
+    await bindPolicy(userId, [dailyRule('images', 2, 'images')])
+    await logImages(userId, modelB, 2, 0.4)
+
+    const snapshot = await quota.getQuotaSnapshot(userId)
+    expect(snapshot.rules[0]).toMatchObject({ used: 2, blocked: true })
+    // 其他用例创建的模型同样对该用户可见，只断言本夹具的两个模型。
+    expect(snapshot.blockedModelIds).toContain(modelB)
+    expect(snapshot.blockedModelIds).not.toContain(modelA)
+    expect(snapshot.imageGenerationBlockedModelIds).toContain(modelA)
+    const admission = await quota.prepareQuotaAdmission(userId, modelA)
+    expect(admission).toMatchObject({ check: { ok: true }, imageGenerationBlocked: true })
+    const blocked = await quota.prepareQuotaAdmission(userId, modelB)
+    expect(blocked.check).toMatchObject({ ok: false })
+    if (!blocked.check.ok) expect(blocked.check.message).toContain('生图张数已用尽（2 张 / 2 张）')
+  })
+
+  it('文字消费与生图消费从同一份计费金额中拆分', async () => {
+    const { userId, modelA, modelB } = await createImageFixture()
+    await bindPolicy(userId, [
+      dailyRule('chat_cost', 1, 'chat'),
+      dailyRule('image_cost', 10, 'image'),
+      dailyRule('cost', 100, 'all'),
+    ])
+    // 一次带生图的对话：总 3.5，其中生图 2.5、文字 1。
+    await logImages(userId, modelA, 1, 2.5)
+    const snapshot = await quota.getQuotaSnapshot(userId)
+    const used = Object.fromEntries(snapshot.rules.map((rule) => [rule.ruleId, rule.used]))
+    expect(used).toEqual({ chat: 1, image: 2.5, all: 3.5 })
+    // 文字额度用尽只影响非生图模型，纯生图模型照常可用。
+    expect(snapshot.blockedModelIds).toContain(modelA)
+    expect(snapshot.blockedModelIds).not.toContain(modelB)
+    expect((await quota.prepareQuotaAdmission(userId, modelB)).check.ok).toBe(true)
+  })
+
+  it('不向用户展示金额时只返回占比，拦截文案不含金额', async () => {
+    const { userId, modelA } = await createFixture()
+    await appConfig.updateAppConfig({ showCost: false })
+    await bindPolicy(userId, [{ ...monthlyCost(8), currency: 'USD' }])
+    await logUsage(userId, modelA, { costUsd: 2 })
+    const mine = await quota.getMyQuota(userId)
+    expect(mine.rules[0]).toMatchObject({
+      amountHidden: true,
+      used: 25,
+      effectiveLimit: 100,
+      remaining: 75,
+      limit: { kind: 'amount', value: 100 },
+      grants: [],
+    })
+    expect(JSON.stringify(mine)).not.toContain('"currency"')
+    await logUsage(userId, modelA, { costUsd: 6 })
+    const blocked = await quota.prepareQuotaAdmission(userId, modelA)
+    expect(blocked.check.ok).toBe(false)
+    if (!blocked.check.ok) {
+      expect(blocked.check.message).toContain('消费金额额度已用尽')
+      expect(blocked.check.message).not.toContain('$')
+    }
   })
 })

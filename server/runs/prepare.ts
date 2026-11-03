@@ -24,8 +24,9 @@ import { buildImageBody, buildImageEditBody, buildResponseBody } from '../provid
 import { promptCacheKeyForConversation } from '../provider/promptCache'
 import type { AnthropicReplayContextV1, ProviderReplayContext } from '../provider/reasoning-replay'
 import { buildPath, getConversationMessages, getOwnedConversation } from '../services/conversations'
-import { getRunnableModel } from '../services/models'
-import { freezeModelPricing } from '../services/model-pricing'
+import { getRunnableModel, type RunnableModel } from '../services/models'
+import { freezeRunPricing } from '../services/model-pricing'
+import { orderRouteCandidates } from '../services/model-routes'
 import {
   activateQuotaCyclesInTransaction,
   prepareQuotaAdmission,
@@ -33,7 +34,16 @@ import {
 } from '../services/quota'
 import { fileInputMime, isImageMime, isSupportedFileInputMime } from '@shared/util/fileTypes'
 import { toDataUrl, uploadFileExists } from '../storage/files'
-import type { ConvRow, ImageOperation, ModelRow, MsgRow, ProviderRow, RunRow } from './types'
+import type {
+  ConvRow,
+  ImageOperation,
+  ModelRow,
+  MsgRow,
+  RunRoute,
+  RunRoutePlan,
+  RunRow,
+  RunTask,
+} from './types'
 import { appendAppProtocols } from './appProtocols'
 import { buildRuntimeContext } from './runtimeContext'
 
@@ -51,16 +61,9 @@ export interface ImageSourceRef {
 
 const IMAGE_EDIT_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp'])
 
-export interface PreparedRun {
+export interface PreparedRun extends RunTask {
   ok: true
-  conversation: ConvRow
   userMessage: MsgRow | null
-  assistantMessage: MsgRow
-  run: RunRow
-  model: ModelRow
-  provider: ProviderRow
-  body: Record<string, unknown>
-  imageOperation?: ImageOperation
 }
 export type PrepareError = { ok: false; status: 400 | 404 | 429; message: string; code: string }
 export type PrepareResult = PreparedRun | PrepareError
@@ -353,10 +356,18 @@ async function resolveImageUrls(parts: ContentPart[]): Promise<string[]> {
     .filter((url): url is string => Boolean(url))
 }
 
+/**
+ * 线路只改变请求体的 model 字段与私有上下文回放：显式配置了上游模型 ID 的线路覆盖
+ * 构建结果（包括高级 JSON 写入的 model），未配置时保持按模型配置构建的原样。
+ */
+function withRouteModel(body: Record<string, unknown>, route: RunRoute): Record<string, unknown> {
+  return route.route.upstreamModelId ? { ...body, model: route.route.upstreamModelId } : body
+}
+
 async function createAssistantAndRun(opts: {
   conversation: ConvRow
   model: ModelRow
-  provider: ProviderRow
+  candidates: RunRoute[]
   parentMessageId: string
   userParams?: ModelParams
   contextAttachments?: ContextAttachmentSelection
@@ -364,17 +375,18 @@ async function createAssistantAndRun(opts: {
   idempotencyKey?: string
   quotaCycleClaims: QuotaCycleClaim[]
   queuedMessageId?: string
+  stripImageGenerationTool: boolean
 }): Promise<{
   conversation: ConvRow
   assistantMessage: MsgRow
   run: RunRow
-  body: Record<string, unknown>
+  routing: RunRoutePlan
   imageOperation?: ImageOperation
 }> {
   const {
     conversation: conv,
     model,
-    provider,
+    candidates,
     parentMessageId,
     userParams,
     contextAttachments,
@@ -393,7 +405,7 @@ async function createAssistantAndRun(opts: {
   const all = await getConversationMessages(conv.id)
   const path = buildPath(all, parentMessageId)
 
-  let body: Record<string, unknown>
+  let buildBody: (route: RunRoute) => Record<string, unknown>
   let imageOperation: ImageOperation | undefined
   let instructions: string | null = null
   if (model.kind === 'image') {
@@ -411,48 +423,45 @@ async function createAssistantAndRun(opts: {
     )
     const currentContext = withExtraContextAttachments(selected.messages, selected.extraAttachments)
     const imageUrls = await resolveImageUrls(currentContext.at(-1)?.content ?? [])
-    if (imageUrls.length > 0) {
-      body = buildImageEditBody(model, prompt, imageUrls, effectiveUserParams)
-      imageOperation = 'edit'
-    } else {
-      body = buildImageBody(model, prompt, effectiveUserParams)
-      imageOperation = 'generate'
-    }
+    imageOperation = imageUrls.length > 0 ? 'edit' : 'generate'
+    // 生图请求没有私有上下文，各线路只差 model 字段。
+    const imageBody =
+      imageOperation === 'edit'
+        ? buildImageEditBody(model, prompt, imageUrls, effectiveUserParams)
+        : buildImageBody(model, prompt, effectiveUserParams)
+    buildBody = (route) => withRouteModel(imageBody, route)
   } else {
     // 先按当前分支选出上下文，再读文件，避免被省略的历史附件仍耗费磁盘 / base64 开销。
     const selected = selectContext(path, contextPolicy, path.length - 1, contextAttachments, all)
     const selectedPath = withExtraContextAttachments(selected.messages, selected.extraAttachments)
     const attMap = await resolveAttachments(selectedPath)
-    const pathMessages = selectedPath.map((m) => {
-      const reasoningItems =
-        model.kind === 'responses' && m.role === 'assistant'
-          ? selectReasoningReplayItems({
-              enabled: model.replayProviderContext,
-              context: m.providerReplayContext,
-              providerId: provider.id,
-              providerBaseUrl: provider.baseUrl,
-              upstreamModelId: model.modelId,
-            })
-          : undefined
-      const anthropicContent =
-        model.kind === 'anthropic' && m.role === 'assistant'
-          ? selectAnthropicReplayContent({
-              enabled: model.replayProviderContext,
-              context: m.providerReplayContext,
-              providerId: provider.id,
-              providerBaseUrl: provider.baseUrl,
-              upstreamModelId: model.modelId,
-            })
-          : undefined
-      return {
-        role: m.role,
-        content: m.content,
-        processSteps: processStepsOf(m),
-        runtimeContext: m.runtimeContext,
-        ...(reasoningItems ? { reasoningItems } : {}),
-        ...(anthropicContent ? { anthropicContent } : {}),
-      }
-    })
+    // 私有上下文只能回到同一供应商、Base URL 与上游模型；切换线路时按目标线路重新门控。
+    const pathMessagesFor = (route: RunRoute) =>
+      selectedPath.map((m) => {
+        const replaySource = {
+          enabled: model.replayProviderContext,
+          context: m.providerReplayContext,
+          providerId: route.provider.id,
+          providerBaseUrl: route.provider.baseUrl,
+          upstreamModelId: route.upstreamModelId,
+        }
+        const reasoningItems =
+          model.kind === 'responses' && m.role === 'assistant'
+            ? selectReasoningReplayItems(replaySource)
+            : undefined
+        const anthropicContent =
+          model.kind === 'anthropic' && m.role === 'assistant'
+            ? selectAnthropicReplayContent(replaySource)
+            : undefined
+        return {
+          role: m.role,
+          content: m.content,
+          processSteps: processStepsOf(m),
+          runtimeContext: m.runtimeContext,
+          ...(reasoningItems ? { reasoningItems } : {}),
+          ...(anthropicContent ? { anthropicContent } : {}),
+        }
+      })
     // 始终读取模型当前提示词：管理员更新后，旧会话的下一次请求立即生效。
     // runs.instructions 仅保存本次最终值，不参与后续请求选择。
     instructions = model.defaultSystemPrompt
@@ -471,36 +480,54 @@ async function createAssistantAndRun(opts: {
     instructions = appendAppProtocols(instructions, { artifacts: model.capabilities.artifacts })
     // 文本会话始终使用稳定路由 key；其他上游参数仅由通用 hardParams 显式提供。
     const promptCacheKey = promptCacheKeyForConversation(conv.id)
-    if (model.kind === 'chat') {
-      const chatMessages = buildChatMessages(pathMessages, attMap, instructions)
-      body = buildChatBody({
-        model,
-        messages: chatMessages,
-        userParams: effectiveUserParams,
-        stream: true,
-        promptCacheKey,
-      })
-    } else if (model.kind === 'anthropic') {
-      body = buildAnthropicBody({
-        model,
-        messages: buildAnthropicMessages(pathMessages, attMap),
-        instructions,
-        userParams: effectiveUserParams,
-        stream: true,
-      })
-    } else {
-      body = buildResponseBody({
-        model,
-        input: buildInput(pathMessages, attMap),
-        instructions,
-        userParams: effectiveUserParams,
-        stream: true,
-        promptCacheKey,
-      })
+    const finalInstructions = instructions
+    buildBody = (route) => {
+      const pathMessages = pathMessagesFor(route)
+      let body: Record<string, unknown>
+      if (model.kind === 'chat') {
+        body = buildChatBody({
+          model,
+          messages: buildChatMessages(pathMessages, attMap, finalInstructions),
+          userParams: effectiveUserParams,
+          stream: true,
+          promptCacheKey,
+        })
+      } else if (model.kind === 'anthropic') {
+        body = buildAnthropicBody({
+          model,
+          messages: buildAnthropicMessages(pathMessages, attMap),
+          instructions: finalInstructions,
+          userParams: effectiveUserParams,
+          stream: true,
+        })
+      } else {
+        body = buildResponseBody({
+          model,
+          input: buildInput(pathMessages, attMap),
+          instructions: finalInstructions,
+          userParams: effectiveUserParams,
+          stream: true,
+          promptCacheKey,
+        })
+        if (opts.stripImageGenerationTool) body = withoutImageGenerationTool(body)
+      }
+      return withRouteModel(body, route)
     }
   }
 
-  // 请求体构建可能因模型参数或附件内容无效而失败，必须在创建 worker 状态前完成。
+  // 各线路的请求体只在实际尝试时构建一次；首选线路先构建，参数或附件无效时在创建
+  // worker 状态前失败。其余线路共用已读入的附件字符串，不重复读盘。
+  const bodies = new Map<string, Record<string, unknown>>()
+  const bodyFor = (route: RunRoute) => {
+    let body = bodies.get(route.route.id)
+    if (!body) {
+      body = buildBody(route)
+      bodies.set(route.route.id, body)
+    }
+    return body
+  }
+  bodyFor(candidates[0]!)
+  const routing: RunRoutePlan = { candidates, bodyFor }
   const requestAt = new Date()
   const persisted = db.transaction(
     (tx) => {
@@ -581,9 +608,18 @@ async function createAssistantAndRun(opts: {
     conversation: persisted.updatedConversation,
     assistantMessage: persisted.assistantMessage,
     run: persisted.run,
-    body,
+    routing,
     imageOperation,
   }
+}
+
+/** 生图额度用尽时移除 Responses 生图工具：文字对话照常进行，只是本轮不能生成图片。 */
+function withoutImageGenerationTool(body: Record<string, unknown>): Record<string, unknown> {
+  if (!Array.isArray(body.tools)) return body
+  const tools = body.tools.filter((tool) => !(isRecord(tool) && tool.type === 'image_generation'))
+  if (tools.length === body.tools.length) return body
+  const { tools: _tools, ...rest } = body
+  return tools.length > 0 ? { ...rest, tools } : rest
 }
 
 export interface PrepareArgs {
@@ -611,9 +647,16 @@ export interface PrepareArgs {
 async function prepareQuotaOrError(
   userId: string,
   modelDbId: string,
-): Promise<{ ok: true; cycleClaims: QuotaCycleClaim[] } | PrepareError> {
+): Promise<
+  { ok: true; cycleClaims: QuotaCycleClaim[]; imageGenerationBlocked: boolean } | PrepareError
+> {
   const admission = await prepareQuotaAdmission(userId, modelDbId)
-  if (admission.check.ok) return { ok: true, cycleClaims: admission.cycleClaims }
+  if (admission.check.ok)
+    return {
+      ok: true,
+      cycleClaims: admission.cycleClaims,
+      imageGenerationBlocked: admission.imageGenerationBlocked,
+    }
   return {
     ok: false,
     status: 429,
@@ -622,14 +665,30 @@ async function prepareQuotaOrError(
   }
 }
 
+/**
+ * 冻结用户计价与各线路成本价（共用一份汇率），再按优先级、权重与熔断状态排出
+ * 本次请求的候选线路顺序；之后改价或调整线路只影响新请求。
+ */
+async function scheduleRoutes({ model, routes }: RunnableModel): Promise<RunRoute[]> {
+  const pricing = await freezeRunPricing(
+    model,
+    routes.map((target) => ({ id: target.route.id, costPricing: target.route.costPricing })),
+  )
+  model.pricing = pricing.billing
+  return orderRouteCandidates(routes).map((target) => ({
+    ...target,
+    costPricing: pricing.costByRoute.get(target.route.id) ?? null,
+  }))
+}
+
 export async function prepareRun(args: PrepareArgs): Promise<PrepareResult> {
   const runnable = await getRunnableModel(args.modelId, args.userId)
   if (!runnable)
     return { ok: false, status: 400, message: '所选模型不可用', code: 'model_unavailable' }
-  const { model, provider } = runnable
+  const { model } = runnable
   const quotaAdmission = await prepareQuotaOrError(args.userId, model.id)
   if (!quotaAdmission.ok) return quotaAdmission
-  model.pricing = await freezeModelPricing(model)
+  const candidates = await scheduleRoutes(runnable)
   if (model.kind === 'image' && !args.text.trim()) {
     return {
       ok: false,
@@ -888,11 +947,11 @@ export async function prepareRun(args: PrepareArgs): Promise<PrepareResult> {
   conv = persistedTurn.conversation
   const { userMessage } = persistedTurn
 
-  const { conversation, assistantMessage, run, body, imageOperation } = await createAssistantAndRun(
-    {
+  const { conversation, assistantMessage, run, routing, imageOperation } =
+    await createAssistantAndRun({
       conversation: conv,
       model,
-      provider,
+      candidates,
       parentMessageId: userMessage.id,
       userParams: normalizedParams.params,
       contextAttachments: args.contextAttachments,
@@ -900,8 +959,8 @@ export async function prepareRun(args: PrepareArgs): Promise<PrepareResult> {
       idempotencyKey: args.idempotencyKey,
       quotaCycleClaims: quotaAdmission.cycleClaims,
       queuedMessageId: args.queuedMessageId,
-    },
-  )
+      stripImageGenerationTool: quotaAdmission.imageGenerationBlocked,
+    })
 
   return {
     ok: true,
@@ -910,8 +969,7 @@ export async function prepareRun(args: PrepareArgs): Promise<PrepareResult> {
     assistantMessage,
     run,
     model,
-    provider,
-    body,
+    routing,
     imageOperation,
   }
 }
@@ -943,10 +1001,10 @@ export async function prepareRegenerate(args: RegenerateArgs): Promise<PrepareRe
   const runnable = await getRunnableModel(modelDbId, args.userId)
   if (!runnable)
     return { ok: false, status: 400, message: '所选模型不可用', code: 'model_unavailable' }
-  const { model, provider } = runnable
+  const { model } = runnable
   const quotaAdmission = await prepareQuotaOrError(args.userId, model.id)
   if (!quotaAdmission.ok) return quotaAdmission
-  model.pricing = await freezeModelPricing(model)
+  const candidates = await scheduleRoutes(runnable)
   const reasoningParams = normalizeReasoningParamsForModel(model, args.params)
   if (!reasoningParams.ok) return reasoningParams
   const normalizedParams = normalizeImageParamsForModel(model, reasoningParams.params)
@@ -974,19 +1032,19 @@ export async function prepareRegenerate(args: RegenerateArgs): Promise<PrepareRe
     if (attachmentValidationError) return attachmentValidationError
   }
 
-  const { conversation, assistantMessage, run, body, imageOperation } = await createAssistantAndRun(
-    {
+  const { conversation, assistantMessage, run, routing, imageOperation } =
+    await createAssistantAndRun({
       conversation: conv,
       model,
-      provider,
+      candidates,
       parentMessageId: oldAssistant.parentId,
       userParams: normalizedParams.params,
       contextAttachments: args.contextAttachments,
       clientLocale: args.clientLocale,
       idempotencyKey: args.idempotencyKey,
       quotaCycleClaims: quotaAdmission.cycleClaims,
-    },
-  )
+      stripImageGenerationTool: quotaAdmission.imageGenerationBlocked,
+    })
 
   return {
     ok: true,
@@ -995,8 +1053,7 @@ export async function prepareRegenerate(args: RegenerateArgs): Promise<PrepareRe
     assistantMessage,
     run,
     model,
-    provider,
-    body,
+    routing,
     imageOperation,
   }
 }

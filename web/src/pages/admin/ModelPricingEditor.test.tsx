@@ -10,8 +10,7 @@ describe('image pricing presentation', () => {
         kind="image"
         pricing={{ imageGeneration: { mode: 'per_image', price: 0.05 } }}
         onChange={() => {}}
-        providerId="provider"
-        models={[]}
+        imageSources={[]}
       />,
     )
     expect(html).toContain('默认每张价格（USD / 张）')
@@ -24,8 +23,7 @@ describe('image pricing presentation', () => {
         kind="responses"
         pricing={{ imageGeneration: { mode: 'tokens' } }}
         onChange={() => {}}
-        providerId="provider"
-        models={[]}
+        imageSources={[]}
       />,
     )
     for (const label of ['聊天费用', '文字提示词输入', '参考图片输入', '图片输出', '缓存价格'])
@@ -37,8 +35,7 @@ describe('image pricing presentation', () => {
         kind="responses"
         pricing={{ currency: 'CNY', imageGeneration: { mode: 'per_request', price: 0.5 } }}
         onChange={() => {}}
-        providerId="provider"
-        models={[]}
+        imageSources={[]}
       />,
     )
     expect(html).toContain('聊天费用')

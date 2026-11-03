@@ -14,6 +14,8 @@ import {
   groupQuotaBucketsByRule,
   isQuotaBucketAdjustable,
   isQuotaBucketResettable,
+  isQuotaCostMetric,
+  QUOTA_METRIC_NOUNS,
 } from '@shared/util/quota'
 import { describeQuotaWindow } from '@shared/util/quotaWindow'
 import {
@@ -72,7 +74,7 @@ function describeBucket(rule: QuotaBucketUsageDTO): string {
   const target = rule.bucketLabel ?? formatQuotaTargetLabels(rule.targetLabels)
   const prefix = target ? `${target} · ` : ''
   if (rule.limit.kind === 'unlimited') return `${prefix}豁免`
-  return `${prefix}${describeQuotaWindow(rule.window)}${rule.metric === 'cost' ? '消费' : '请求'}`
+  return `${prefix}${describeQuotaWindow(rule.window)}${QUOTA_METRIC_NOUNS[rule.metric]}`
 }
 
 /** 预览里的一条桶用量（保存后会立即生效的真实数字）。 */
@@ -486,7 +488,13 @@ export function UserQuotaDialog({
                               disabled={draft.limitUnlimited}
                               onChange={(event) => patch({ limitInput: event.target.value })}
                               inputMode="decimal"
-                              placeholder={rule.metric === 'cost' ? '新的金额上限' : '新的次数上限'}
+                              placeholder={
+                                isQuotaCostMetric(rule.metric)
+                                  ? '新的金额上限'
+                                  : rule.metric === 'images'
+                                    ? '新的张数上限'
+                                    : '新的次数上限'
+                              }
                               className={`${inputClass} tabular-nums`}
                             />
                           </div>
@@ -698,7 +706,7 @@ export function UserQuotaDialog({
                     (rule) => ({
                       value: rule.ruleId,
                       label: `${describeQuotaWindow(rule.window)}${
-                        rule.metric === 'cost' ? '消费' : '请求'
+                        QUOTA_METRIC_NOUNS[rule.metric]
                       } · ${formatQuotaLimit(rule.metric, rule.limit, rule.currency)}`,
                     }),
                   ),
@@ -714,7 +722,9 @@ export function UserQuotaDialog({
                 placeholder={
                   grantRule?.metric === 'requests'
                     ? '增加次数'
-                    : `增加金额（${grantRule?.currency === 'CNY' ? '¥' : '$'}）`
+                    : grantRule?.metric === 'images'
+                      ? '增加张数'
+                      : `增加金额（${grantRule?.currency === 'CNY' ? '¥' : '$'}）`
                 }
                 className={`${inputClass} tabular-nums`}
               />

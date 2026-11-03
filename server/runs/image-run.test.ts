@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { runOnSingleRoute } from '../testing/model-routes'
 
 let tmpDir: string
 let dbClient: typeof import('../db/client')
@@ -67,7 +68,6 @@ async function createFixture() {
   const [model] = await dbClient.db
     .insert(schema.models)
     .values({
-      providerId: provider.id,
       modelId: `image-model-${suffix}`,
       displayName: 'Image model',
       kind: 'image',
@@ -126,7 +126,7 @@ describe('runImageEngine audit outcome', () => {
       data: [{ b64_json: 'iVBORw0KGgo=' }, { b64_json: 'iVBORw0KGgo=' }],
       usage: { input_tokens: 5000, output_tokens: 5000 },
     })
-    await imageRun.runImageEngine({
+    await runOnSingleRoute(dbClient.db, schema, imageRun.runImageEngine, {
       ...fixture,
       body: { prompt: 'synthetic fixture', size: '1024x1024', quality: 'high' },
       abortController: new AbortController(),
@@ -216,7 +216,7 @@ describe('runImageEngine audit outcome', () => {
         }
       })
       const engine = await import('./engine')
-      await engine.runEngine({
+      await runOnSingleRoute(dbClient.db, schema, engine.runEngine, {
         ...fixture,
         body: { tools: [{ type: 'image_generation', model: 'image-test' }] },
         abortController: new AbortController(),
@@ -239,7 +239,7 @@ describe('runImageEngine audit outcome', () => {
   )
 
   it.each(['per_image', 'per_request'] as const)(
-    'freezes a same-provider %s price reference before the stream',
+    'freezes a %s price reference before the stream',
     async (mode) => {
       const fixture = await createFixture()
       dbClient.db
@@ -248,12 +248,15 @@ describe('runImageEngine audit outcome', () => {
         .where(eq(schema.models.id, fixture.model.id))
         .run()
       const pricingService = await import('../services/model-pricing')
+      // 引用来源只要求是纯生图模型，与线路所在供应商无关；非 Responses 模型不能引用。
       expect(
         pricingService.validImagePricingSource(
           { imagePricingModelId: fixture.model.id },
-          'other-provider',
           'responses',
         ),
+      ).toBe(true)
+      expect(
+        pricingService.validImagePricingSource({ imagePricingModelId: fixture.model.id }, 'chat'),
       ).toBe(false)
       fixture.model = {
         ...fixture.model,
@@ -282,7 +285,11 @@ describe('runImageEngine audit outcome', () => {
         }
       })
       const engine = await import('./engine')
-      await engine.runEngine({ ...fixture, body: {}, abortController: new AbortController() })
+      await runOnSingleRoute(dbClient.db, schema, engine.runEngine, {
+        ...fixture,
+        body: {},
+        abortController: new AbortController(),
+      })
       const log = dbClient.db
         .select()
         .from(schema.usageLogs)
@@ -321,7 +328,7 @@ describe('runImageEngine audit outcome', () => {
       },
     })
 
-    await imageRun.runImageEngine({
+    await runOnSingleRoute(dbClient.db, schema, imageRun.runImageEngine, {
       ...fixture,
       body: { prompt: 'cat' },
       abortController: new AbortController(),
@@ -369,7 +376,7 @@ describe('runImageEngine audit outcome', () => {
       }),
     )
 
-    await imageRun.runImageEngine({
+    await runOnSingleRoute(dbClient.db, schema, imageRun.runImageEngine, {
       ...fixture,
       body: { prompt: 'cat' },
       abortController: new AbortController(),
@@ -413,7 +420,7 @@ describe('runImageEngine audit outcome', () => {
     abortController.abort()
     providerMocks.createImage.mockRejectedValue(new Error('aborted'))
 
-    await imageRun.runImageEngine({
+    await runOnSingleRoute(dbClient.db, schema, imageRun.runImageEngine, {
       ...fixture,
       body: { prompt: 'cat' },
       abortController,

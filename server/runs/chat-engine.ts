@@ -5,22 +5,22 @@ import { classifyChatTerminal } from '../provider/chat-terminal'
 import { providerClientFromRow } from '../provider/client'
 import { UpstreamError } from '../provider/errors'
 import { collectProviderOpaqueStrings } from '../provider/opaque-content'
-import type { FinalizeArgs } from './finalize'
-import type { EngineContext } from './types'
+import type { AttemptResult } from './finalize'
+import type { EngineContext, RunExecution } from './types'
 import { executeRun, type RunAttemptRuntime } from './execute-run'
 
 /**
  * chat/completions 引擎：消费 chat 流，把 delta 翻译成与 Responses 一致的合成事件
  * （response.output_text.delta / response.reasoning_summary_text.delta），前端 reducer 无需改动。
  */
-export async function runChatEngine(ctx: EngineContext): Promise<void> {
-  await executeRun(ctx, runChatAttempt)
+export async function runChatEngine(execution: RunExecution): Promise<void> {
+  await executeRun(execution, runChatAttempt)
 }
 
 async function runChatAttempt(
   ctx: EngineContext,
   runtime: RunAttemptRuntime,
-): Promise<FinalizeArgs> {
+): Promise<AttemptResult> {
   const { startedAt, persistEmit, upstreamResponseTiming, recordError } = runtime
   let text = ''
   let reasoning = ''
@@ -164,7 +164,6 @@ async function runChatAttempt(
     assistantMessage: ctx.assistantMessage,
     conversation: ctx.conversation,
     model: ctx.model,
-    provider: ctx.provider,
     state,
     text,
     ...(discardPartialOutput ? { content: [] } : {}),

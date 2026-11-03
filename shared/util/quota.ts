@@ -86,8 +86,37 @@ function normalizeLimit(value: unknown): QuotaLimit | null {
   return null
 }
 
+const QUOTA_METRICS: readonly QuotaMetric[] = [
+  'requests',
+  'cost',
+  'chat_cost',
+  'image_cost',
+  'images',
+]
+
 function normalizeMetric(value: unknown): QuotaMetric | null {
-  return value === 'requests' || value === 'cost' ? value : null
+  return QUOTA_METRICS.includes(value as QuotaMetric) ? (value as QuotaMetric) : null
+}
+
+/** 金额类计量：用规则币种累计，临时额度可跨币种折算。 */
+export function isQuotaCostMetric(metric: QuotaMetric): boolean {
+  return metric === 'cost' || metric === 'chat_cost' || metric === 'image_cost'
+}
+
+/**
+ * 一条已用尽的规则对某类模型的影响：
+ * - block：整个模型不可用；
+ * - image_only：只停用生图（Responses 模型去掉生图工具，文字对话照常）；
+ * - none：该计量与此类模型无关。
+ */
+export function quotaMetricEffect(
+  metric: QuotaMetric,
+  kind: 'responses' | 'chat' | 'anthropic' | 'image',
+): 'block' | 'image_only' | 'none' {
+  if (metric === 'requests' || metric === 'cost') return 'block'
+  if (metric === 'chat_cost') return kind === 'image' ? 'none' : 'block'
+  if (kind === 'image') return 'block'
+  return kind === 'responses' ? 'image_only' : 'none'
 }
 
 function normalizeLabel(value: unknown): string | null {
@@ -117,7 +146,7 @@ function normalizeQuotaRule(value: unknown): QuotaRule | null {
     label: normalizeLabel(value.label),
     scope,
     metric,
-    ...(metric === 'cost' && value.currency === 'CNY' ? { currency: 'CNY' as const } : {}),
+    ...(isQuotaCostMetric(metric) && value.currency === 'CNY' ? { currency: 'CNY' as const } : {}),
     limit,
     window,
     priority: normalizePriority(value.priority),
@@ -270,13 +299,26 @@ export function formatQuotaCost(value: number, currency: CostCurrency = 'USD'): 
   return `${symbol}${value.toFixed(2)}`
 }
 
-/** 按规则币种显示金额；次数显示为「300 次」。 */
+/** 按规则币种显示金额；次数显示为「300 次」，生图张数显示为「20 张」。 */
 export function formatQuotaAmount(
   metric: QuotaMetric,
   value: number,
   currency: CostCurrency = 'USD',
 ): string {
-  return metric === 'cost' ? formatQuotaCost(value, currency) : `${Math.round(value)} 次`
+  if (isQuotaCostMetric(metric)) return formatQuotaCost(value, currency)
+  return `${Math.round(value)} ${metric === 'images' ? '张' : '次'}`
+}
+
+/**
+ * 用户端额度数字：站点不向用户展示金额时，服务端已把金额类额度换算成占比
+ * （上限记为 100），这里统一显示为百分比。
+ */
+export function formatQuotaBucketAmount(
+  bucket: { metric: QuotaMetric; currency?: CostCurrency; amountHidden?: boolean },
+  value: number,
+): string {
+  if (bucket.amountHidden) return `${Math.round(value * 10) / 10}%`
+  return formatQuotaAmount(bucket.metric, value, bucket.currency)
 }
 
 /** 上限文案；豁免显式显示为「豁免（不限额）」而不是一个大数字。 */
@@ -293,6 +335,18 @@ export function formatQuotaLimit(
 export const QUOTA_METRIC_LABELS: Record<QuotaMetric, string> = {
   requests: '请求次数',
   cost: '消费金额',
+  chat_cost: '文字消费',
+  image_cost: '生图消费',
+  images: '生图张数',
+}
+
+/** 列表与提示里的短称，如「每日消费」「每日生图」。 */
+export const QUOTA_METRIC_NOUNS: Record<QuotaMetric, string> = {
+  requests: '请求',
+  cost: '消费',
+  chat_cost: '文字消费',
+  image_cost: '生图消费',
+  images: '生图',
 }
 
 export interface QuotaScopeNames {
@@ -449,6 +503,5 @@ export function describeQuotaRuleGroupTitle(buckets: QuotaGroupTitleBucket[]): s
           : '全部模型'
       : describeQuotaBucketScope(first)
   if (first.limit.kind === 'unlimited') return scope
-  const metric = first.metric === 'cost' ? '消费' : '请求'
-  return `${describeQuotaWindow(first.window)}${metric} · ${scope}`
+  return `${describeQuotaWindow(first.window)}${QUOTA_METRIC_NOUNS[first.metric]} · ${scope}`
 }

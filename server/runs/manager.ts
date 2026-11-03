@@ -3,7 +3,7 @@ import type { ModelParams } from '@shared/types/domain'
 import type { RetryAuditSummary, RunRetrySummary } from '@shared/types/retry'
 import { isReasoningEnabled, requestedReasoningEffort } from '@shared/util/reasoning'
 import { db } from '../db/client'
-import { errorLogs, messages, models, providers, runs, usageLogs } from '../db/schema'
+import { errorLogs, messages, modelRoutes, models, providers, runs, usageLogs } from '../db/schema'
 import { computeGenerationDurationMs } from '../services/run-timing'
 import {
   getFirstTokenLatencySnapshot,
@@ -13,7 +13,7 @@ import { runChatEngine } from './chat-engine'
 import { runAnthropicEngine } from './anthropic-engine'
 import { runEngine } from './engine'
 import { runImageEngine } from './image-run'
-import type { EngineContext } from './types'
+import type { RunTask } from './types'
 import { saveRunErrorAudit } from './error-audit'
 
 /** 进程内 run 管理器单例：保活生成（客户端断开不影响），支持中止。 */
@@ -28,22 +28,22 @@ class RunManager {
     }
   }
 
-  start(ctx: Omit<EngineContext, 'abortController'>): void {
+  start(task: RunTask): void {
     const ac = new AbortController()
-    this.active.set(ctx.run.id, ac)
+    this.active.set(task.run.id, ac)
     const engine =
-      ctx.model.kind === 'image'
+      task.model.kind === 'image'
         ? runImageEngine
-        : ctx.model.kind === 'anthropic'
+        : task.model.kind === 'anthropic'
           ? runAnthropicEngine
-          : ctx.model.kind === 'chat'
+          : task.model.kind === 'chat'
             ? runChatEngine
             : runEngine
-    void engine({ ...ctx, abortController: ac })
+    void engine({ ...task, abortController: ac })
       .catch((e) => console.error('run engine 未捕获错误:', e))
       .finally(() => {
-        this.active.delete(ctx.run.id)
-        this.settledListeners.forEach((listener) => listener(ctx.conversation.id))
+        this.active.delete(task.run.id)
+        this.settledListeners.forEach((listener) => listener(task.conversation.id))
       })
   }
 
@@ -73,8 +73,16 @@ export async function recoverInterruptedRuns(): Promise<void> {
     const [model] = r.modelId
       ? await db.select().from(models).where(eq(models.id, r.modelId)).limit(1)
       : []
-    const [provider] = model
-      ? await db.select().from(providers).where(eq(providers.id, model.providerId)).limit(1)
+    // 进行中的快照记录了当时尝试的供应商与线路；尚未发起上游调用的 queued run 没有归属。
+    const [provider] = r.progress?.providerId
+      ? await db.select().from(providers).where(eq(providers.id, r.progress.providerId)).limit(1)
+      : []
+    const [route] = r.progress?.routeId
+      ? await db
+          .select({ id: modelRoutes.id })
+          .from(modelRoutes)
+          .where(eq(modelRoutes.id, r.progress.routeId))
+          .limit(1)
       : []
     const generationDurationMs = computeGenerationDurationMs(r.startedAt, finishedAt)
     const [reasoningDurationMs, firstTokenLatencyMs] = await Promise.all([
@@ -131,6 +139,7 @@ export async function recoverInterruptedRuns(): Promise<void> {
               userId: r.userId,
               modelId: model?.id ?? null,
               providerId: provider?.id ?? null,
+              routeId: route?.id ?? null,
               modelLabel: r.progress?.modelLabel ?? model?.modelId ?? null,
               modelDisplayName: r.progress?.modelDisplayName ?? model?.displayName ?? null,
               providerLabel: r.progress?.providerLabel ?? provider?.name ?? null,

@@ -136,7 +136,9 @@ export default function QuotasPage() {
   // 用量排行必须用可比时间窗：无限额度用户的快照没有计量桶，不能拿额度 used 相加。
   const { data: userStats, isLoading: loadingUserStats } = useQuery({
     queryKey: ['admin', 'quota', 'user-stats', usageRange, currency],
-    queryFn: () => getUserStats({ ...rangeToFilter(usageRange), kind: 'chat', currency }),
+    // 与额度对比要用计费口径，而不是上游成本。
+    queryFn: () =>
+      getUserStats({ ...rangeToFilter(usageRange), kind: 'chat', currency, costBasis: 'billed' }),
     enabled: view === 'users',
   })
 

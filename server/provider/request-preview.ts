@@ -123,6 +123,8 @@ export function buildRequestPreview(
       promptCacheKey,
     })
   }
+  // 与实际发送一致：线路显式指定的上游模型 ID 覆盖 model 字段（包括高级 JSON 写入的值）。
+  if (input.route.upstreamModelId) body.model = input.route.upstreamModelId
   // 三种文本客户端会在最终发送时强制 stream=true，高级 JSON 不会关闭 SSE。
   if (model.kind !== 'image') body.stream = true
   const parameters = Object.keys(body).map((name) => {

@@ -13,7 +13,7 @@ import type { ModelPricing, UsageLogKind, UsageResult } from '@shared/types/doma
 import type { RetryAuditSummary } from '@shared/types/retry'
 import { getCostReader, type CostReader } from './cost-reader'
 import { legacyExchangeRate } from './exchange-rates'
-import type { CostCurrency } from '@shared/types/domain'
+import type { CostBasis, CostCurrency } from '@shared/types/domain'
 import { requestedReasoningEffort } from '@shared/util/reasoning'
 import { resolveUsageResult } from '@shared/util/usageOutcome'
 import { db } from '../db/client'
@@ -38,6 +38,8 @@ import {
 
 export interface StatsFilter {
   currency?: CostCurrency
+  /** 金额口径；省略时为上游真实成本。概览始终同时返回两种口径。 */
+  costBasis?: CostBasis
   from?: number
   to?: number
   providerId?: string
@@ -130,6 +132,8 @@ function sumCost(
 const TOKEN_SUMS = {
   costUsd: sql<number | null>`sum(${usageLogs.costUsd})`,
   costCny: sql<number | null>`sum(${usageLogs.costCny})`,
+  upstreamCostUsd: sql<number | null>`sum(${usageLogs.upstreamCostUsd})`,
+  upstreamCostCny: sql<number | null>`sum(${usageLogs.upstreamCostCny})`,
   inputTokens: sql<number>`coalesce(sum(${usageLogs.inputTokens}),0)`,
   cacheWriteTokens: sql<number>`coalesce(sum(${usageLogs.cacheWriteTokens}),0)`,
   cachedTokens: sql<number>`coalesce(sum(${usageLogs.cachedTokens}),0)`,
@@ -140,7 +144,10 @@ const TOKEN_SUMS = {
 // ============================ 概览 ============================
 
 async function usageSummary(filter: StatsFilter) {
-  const readCost = await getCostReader(filter.currency)
+  const [readUpstreamCost, readBilledCost] = await Promise.all([
+    getCostReader(filter.currency, 'upstream'),
+    getCostReader(filter.currency, 'billed'),
+  ])
   const conds = usageConds(filter)
   const [agg] = await db
     .select({
@@ -164,8 +171,14 @@ async function usageSummary(filter: StatsFilter) {
       usageLogs.pricingSnapshot,
       sql`${usageLogs.costUsd} is null`,
       sql`${usageLogs.costCny} is null`,
+      sql`${usageLogs.upstreamCostUsd} is null`,
+      sql`${usageLogs.upstreamCostCny} is null`,
     )
-  return { ...agg!, cost: sumCost(byPricing, readCost) }
+  return {
+    ...agg!,
+    cost: sumCost(byPricing, readUpstreamCost),
+    billedCost: sumCost(byPricing, readBilledCost),
+  }
 }
 
 export async function getOverview(filter: StatsFilter): Promise<OverviewDTO> {
@@ -237,6 +250,7 @@ export async function getOverview(filter: StatsFilter): Promise<OverviewDTO> {
           requests: previous.requests,
           tokens: previous.tokens,
           cost: previous.cost,
+          billedCost: previous.billedCost,
           activeUsers: previous.activeUsers,
         }
       : null,
@@ -249,6 +263,7 @@ export async function getOverview(filter: StatsFilter): Promise<OverviewDTO> {
       rpm: (rate?.requests ?? 0) / 60,
       tpm: (rate?.tokens ?? 0) / 60,
       cost: agg.cost,
+      billedCost: agg.billedCost,
       activeUsers: agg.activeUsers,
       failedRequests: requests - agg.successes,
       avgDurationMs: agg.avgDurationMs,
@@ -272,7 +287,7 @@ async function countRows(
 // ============================ 分析（时间序列）============================
 
 export async function getAnalytics(filter: StatsFilter): Promise<AnalyticsDTO> {
-  const readCost = await getCostReader(filter.currency)
+  const readCost = await getCostReader(filter.currency, filter.costBasis ?? 'upstream')
   const bucket = autoBucket(filter)
   const size = bucketMs(bucket)
   const conds = usageConds(filter)
@@ -291,6 +306,8 @@ export async function getAnalytics(filter: StatsFilter): Promise<AnalyticsDTO> {
       imageTokens: TOKEN_SUMS.imageTokens,
       costUsd: TOKEN_SUMS.costUsd,
       costCny: TOKEN_SUMS.costCny,
+      upstreamCostUsd: TOKEN_SUMS.upstreamCostUsd,
+      upstreamCostCny: TOKEN_SUMS.upstreamCostCny,
       reasoningTokens: sql<number>`coalesce(sum(${usageLogs.reasoningTokens}),0)`,
     })
     .from(usageLogs)
@@ -300,6 +317,8 @@ export async function getAnalytics(filter: StatsFilter): Promise<AnalyticsDTO> {
       usageLogs.pricingSnapshot,
       sql`${usageLogs.costUsd} is null`,
       sql`${usageLogs.costCny} is null`,
+      sql`${usageLogs.upstreamCostUsd} is null`,
+      sql`${usageLogs.upstreamCostCny} is null`,
     )
     .orderBy(asc(bucketExpr))
 
@@ -334,7 +353,7 @@ export async function getAnalytics(filter: StatsFilter): Promise<AnalyticsDTO> {
 
 /** 按价格快照结算后再合并对象，改价或删除模型不会改变历史排行。 */
 async function usageBreakdown(filter: StatsFilter) {
-  const readCost = await getCostReader(filter.currency)
+  const readCost = await getCostReader(filter.currency, filter.costBasis ?? 'upstream')
   const rows = await db
     .select({
       modelId: usageLogs.modelId,
@@ -359,6 +378,8 @@ async function usageBreakdown(filter: StatsFilter) {
       usageLogs.pricingSnapshot,
       sql`${usageLogs.costUsd} is null`,
       sql`${usageLogs.costCny} is null`,
+      sql`${usageLogs.upstreamCostUsd} is null`,
+      sql`${usageLogs.upstreamCostCny} is null`,
     )
   const modelRows = new Map<string, UsageBreakdownDTO>()
   const providerRows = new Map<string, UsageBreakdownDTO>()
@@ -403,7 +424,7 @@ async function usageBreakdown(filter: StatsFilter) {
 // ============================ 分用户统计 ============================
 
 export async function getUserStats(filter: StatsFilter): Promise<UserStatDTO[]> {
-  const readCost = await getCostReader(filter.currency)
+  const readCost = await getCostReader(filter.currency, filter.costBasis ?? 'upstream')
   const conds = usageConds(filter)
 
   // 每用户基础聚合
@@ -436,6 +457,8 @@ export async function getUserStats(filter: StatsFilter): Promise<UserStatDTO[]> 
       imageTokens: TOKEN_SUMS.imageTokens,
       costUsd: TOKEN_SUMS.costUsd,
       costCny: TOKEN_SUMS.costCny,
+      upstreamCostUsd: TOKEN_SUMS.upstreamCostUsd,
+      upstreamCostCny: TOKEN_SUMS.upstreamCostCny,
     })
     .from(usageLogs)
     .where(whereOf(conds))
@@ -446,6 +469,8 @@ export async function getUserStats(filter: StatsFilter): Promise<UserStatDTO[]> 
       usageLogs.pricingSnapshot,
       sql`${usageLogs.costUsd} is null`,
       sql`${usageLogs.costCny} is null`,
+      sql`${usageLogs.upstreamCostUsd} is null`,
+      sql`${usageLogs.upstreamCostCny} is null`,
     )
 
   const costByUser = new Map<string, number>()
@@ -524,7 +549,11 @@ export async function getUserStats(filter: StatsFilter): Promise<UserStatDTO[]> 
 // ============================ 请求事件（分页）============================
 
 export async function listUsageEvents(filter: StatsFilter): Promise<Paginated<UsageLogDTO>> {
-  const readCost = await getCostReader(filter.currency)
+  // 请求事件同时列出上游成本与用户计费，不随统计口径切换。
+  const [readCost, readBilledCost] = await Promise.all([
+    getCostReader(filter.currency, 'upstream'),
+    getCostReader(filter.currency, 'billed'),
+  ])
   const legacyRate = legacyExchangeRate()
   const conds = usageConds(filter)
   const page = filter.page ?? 1
@@ -621,12 +650,15 @@ export async function listUsageEvents(filter: StatsFilter): Promise<Paginated<Us
         success: log.success,
         errorType: log.errorType,
         cost: readCost(log, log.pricingSnapshot),
+        billedCost: readBilledCost(log, log.pricingSnapshot),
         costDisplay: {
           currency: filter.currency ?? 'USD',
           usdToCnyRate: log.pricingSnapshot?.exchangeRate?.usdToCny ?? legacyRate?.usdToCny ?? null,
           legacyRateAt: legacyRate?.fetchedAt,
         },
-        costBreakdown: log.costBreakdown,
+        costBreakdown: log.upstreamCostBreakdown ?? log.costBreakdown,
+        billedCostBreakdown: log.costBreakdown,
+        routeId: log.routeId,
         reasoningEffort,
         durationMs,
         upstreamResponseLatencyMs: log.upstreamResponseLatencyMs,

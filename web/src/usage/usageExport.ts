@@ -11,7 +11,10 @@ function csvCell(value: string | number): string {
 }
 
 export function buildUsageCsv(
-  stats: Pick<UsageStatsDTO, 'trend' | 'byModel' | 'heatmap' | 'windowStart' | 'windowEnd'>,
+  stats: Pick<
+    UsageStatsDTO,
+    'trend' | 'byModel' | 'heatmap' | 'windowStart' | 'windowEnd' | 'costHidden'
+  >,
   kind: UsageExportKind,
   timeZone?: string,
 ): string {
@@ -66,7 +69,23 @@ export function buildUsageCsv(
               day.cost,
             ]),
           ]
-  return '\uFEFF' + table.map((row) => row.map(csvCell).join(',')).join('\r\n')
+  // 站点不向用户展示金额时，服务端已把花费置 0，导出也不包含这些列。
+  const hidden = stats.costHidden
+    ? new Set(
+        table[0]!.flatMap((header, index) => (String(header).includes('花费') ? [index] : [])),
+      )
+    : new Set<number>()
+  return (
+    '\uFEFF' +
+    table
+      .map((row) =>
+        row
+          .filter((_, index) => !hidden.has(index))
+          .map(csvCell)
+          .join(','),
+      )
+      .join('\r\n')
+  )
 }
 
 export function downloadUsageCsv(stats: UsageStatsDTO, kind: UsageExportKind, timeZone?: string) {

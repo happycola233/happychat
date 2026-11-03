@@ -20,7 +20,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { clsx } from 'clsx'
-import { Boxes, Layers3, ListChecks, Plus, Search } from 'lucide-react'
+import { ArrowDownUp, Boxes, Layers3, ListChecks, Plus, Search } from 'lucide-react'
 import type { AdminModelDTO, AdminModelGroupDTO } from '@shared/types/api'
 import * as adminApi from '../../api/admin'
 import { ModelGroupGlyph } from '../../components/ModelIcon'
@@ -37,6 +37,8 @@ import { toast } from '../../store/toast'
 import { ModelAccessDialog } from './ModelAccessDialog'
 import { ModelEditor, type ModelEditorSection } from './ModelEditor'
 import { AssignGroupDialog, BatchIconDialog, ModelBatchToolbar } from './ModelBatchTools'
+import { modelProviderIds } from './modelRoutes'
+import { ModelConfigTransferDialog } from './ModelConfigTransferDialog'
 
 const ROW_INSET_X = 'px-2 sm:px-3'
 const ROW_GAP_X = 'gap-2 sm:gap-3'
@@ -85,6 +87,16 @@ export default function ModelsPage() {
     queryKey: ['admin', 'providers'],
     queryFn: adminApi.listProviders,
   })
+  // 全部线路的运行状况，列表里每条线路一个状态点；熔断状态在内存中，定时刷新。
+  const { data: routeHealthList } = useQuery({
+    queryKey: ['admin', 'route-health', 'all'],
+    queryFn: () => adminApi.getRouteHealth(),
+    refetchInterval: 30_000,
+  })
+  const routeHealth = useMemo(
+    () => new Map((routeHealthList ?? []).map((item) => [item.routeId, item])),
+    [routeHealthList],
+  )
   const [editorOpen, setEditorOpen] = useState(false)
   const [editorSearch, setEditorSearch] = useState('')
   const [editorModel, setEditorModel] = useState<AdminModelDTO | null>(null)
@@ -97,6 +109,7 @@ export default function ModelsPage() {
   const [groupView, setGroupView] = useState(false)
   const [batchMode, setBatchMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [transferOpen, setTransferOpen] = useState(false)
   const [assignOpen, setAssignOpen] = useState(false)
   const [batchIconOpen, setBatchIconOpen] = useState(false)
 
@@ -219,7 +232,8 @@ export default function ModelsPage() {
   const providerOptions = useMemo<SelectOption[]>(() => {
     const seen = new Map<string, string>()
     for (const provider of providers ?? []) seen.set(provider.id, provider.name)
-    for (const m of models ?? []) seen.set(m.providerId, m.providerName)
+    for (const m of models ?? [])
+      for (const route of m.routes) seen.set(route.providerId, route.providerName)
     return [
       { value: '', label: '全部供应商' },
       ...[...seen].map(([value, label]) => ({ value, label })),
@@ -231,7 +245,7 @@ export default function ModelsPage() {
     () =>
       (models ?? []).filter(
         (m) =>
-          (!providerFilter || m.providerId === providerFilter) &&
+          (!providerFilter || modelProviderIds(m).includes(providerFilter)) &&
           (!groupFilter ||
             (groupFilter === 'ungrouped' ? !m.groupId : m.groupId === groupFilter)) &&
           (statusFilter === 'all' || m.enabled === (statusFilter === 'enabled')) &&
@@ -317,6 +331,7 @@ export default function ModelsPage() {
     <ModelListRow
       key={m.id}
       model={m}
+      routeHealth={routeHealth}
       sortable={sortable}
       batchMode={batchMode}
       selected={selectedIds.has(m.id)}
@@ -351,11 +366,42 @@ export default function ModelsPage() {
         title="模型"
         description="比较模型能力、价格与权限，点击名称或价格即可编辑。"
         actions={
-          <Button onClick={openCreate}>
-            <Plus className="h-4 w-4" /> 添加模型
-          </Button>
+          <>
+            <Button variant="secondary" onClick={() => setTransferOpen(true)}>
+              <ArrowDownUp className="h-4 w-4" /> 导入 / 导出
+            </Button>
+            <Button onClick={openCreate}>
+              <Plus className="h-4 w-4" /> 添加模型
+            </Button>
+          </>
         }
       />
+      {transferOpen && (
+        <ModelConfigTransferDialog
+          onClose={() => setTransferOpen(false)}
+          scopes={[
+            { key: 'all', label: `全部模型（${models?.length ?? 0} 个）` },
+            ...(filtered.length !== (models?.length ?? 0)
+              ? [
+                  {
+                    key: 'filtered',
+                    label: `当前筛选结果（${filtered.length} 个）`,
+                    ids: filtered.map((model) => model.id),
+                  },
+                ]
+              : []),
+            ...(batchMode && selectedIds.size > 0
+              ? [
+                  {
+                    key: 'selected',
+                    label: `已选中的模型（${selectedIds.size} 个）`,
+                    ids: [...selectedIds],
+                  },
+                ]
+              : []),
+          ]}
+        />
+      )}
 
       {/*
         工具栏统一控件高度（h-9）；「分组显示 / 批量管理」用同规格的开关按钮，

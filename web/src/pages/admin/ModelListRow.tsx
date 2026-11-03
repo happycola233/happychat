@@ -2,7 +2,7 @@ import { clsx } from 'clsx'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { Copy, GripVertical, SlidersHorizontal, Trash2 } from 'lucide-react'
-import type { AdminModelDTO } from '@shared/types/api'
+import type { AdminModelDTO, ModelRouteHealthDTO } from '@shared/types/api'
 import type { ModelCapabilities } from '@shared/types/domain'
 import { normalizeModelPricing } from '@shared/util/cost'
 import { ModelIconMark, DEFAULT_MODEL_ICON_TONE_CLASS } from '../../components/ModelIcon'
@@ -11,6 +11,7 @@ import { Checkbox } from '../../components/ui/Checkbox'
 import { IconButton } from '../../components/ui/IconButton'
 import { Toggle } from '../../components/ui/Toggle'
 import type { ModelEditorSection } from './ModelEditor'
+import { runnableRoutes } from './modelRoutes'
 
 /** 按列表实际宽度切换布局，兼顾侧栏展开与收起；表头和行共用列宽。 */
 const MODEL_COLUMNS =
@@ -38,9 +39,9 @@ export function ModelListHeader() {
       )}
     >
       <span className="pl-7">模型 / ID</span>
-      <span>供应商 / 接口</span>
+      <span>线路 / 接口</span>
       <span>能力 / 默认思考</span>
-      <span>基础定价</span>
+      <span>用户计价</span>
       <span>可用用户</span>
       <span>启用</span>
       <span className="text-right">操作</span>
@@ -48,8 +49,79 @@ export function ModelListHeader() {
   )
 }
 
+const HEALTH_DOT: Record<ModelRouteHealthDTO['state'] | 'unknown', string> = {
+  healthy: 'bg-emerald-500',
+  degraded: 'bg-amber-500',
+  cooling: 'bg-red-500',
+  unknown: 'bg-neutral-300 dark:bg-neutral-600',
+}
+const HEALTH_LABEL: Record<ModelRouteHealthDTO['state'] | 'unknown', string> = {
+  healthy: '正常',
+  degraded: '最近有失败',
+  cooling: '暂停使用中',
+  unknown: '暂无数据',
+}
+
+/** 线路摘要：首选供应商 + 其余条数，每条可调度线路一个状态点；悬停查看完整线路。 */
+function RouteSummary({
+  model,
+  health,
+  onEdit,
+}: {
+  model: AdminModelDTO
+  health: Map<string, ModelRouteHealthDTO>
+  onEdit: () => void
+}) {
+  const runnable = [...runnableRoutes(model)].sort((a, b) => b.priority - a.priority)
+  const primary = runnable[0]
+  const detail = model.routes
+    .map(
+      (route) =>
+        `${route.providerName}${route.upstreamModelId ? ` → ${route.upstreamModelId}` : ''} · 优先级 ${route.priority} · 权重 ${route.weight}${route.enabled && route.providerEnabled ? '' : ' · 已停用'}`,
+    )
+    .join('\n')
+  return (
+    <button
+      type="button"
+      onClick={onEdit}
+      title={detail}
+      className="block w-full min-w-0 text-left"
+    >
+      <span className="flex min-w-0 items-center gap-1.5 leading-5">
+        {primary ? (
+          <span className="truncate text-neutral-700 hover:text-sky-600 dark:text-neutral-300 dark:hover:text-sky-400">
+            {primary.providerName}
+          </span>
+        ) : (
+          <span className="truncate text-amber-600 dark:text-amber-400">
+            {model.routes.length ? '线路均已停用' : '未配置线路'}
+          </span>
+        )}
+        {runnable.length > 1 && (
+          <span className="shrink-0 rounded bg-neutral-100 px-1 text-[11px] tabular-nums text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+            +{runnable.length - 1}
+          </span>
+        )}
+        <span className="flex shrink-0 items-center gap-0.5">
+          {runnable.map((route) => {
+            const state = health.get(route.id)?.state ?? 'unknown'
+            return (
+              <span
+                key={route.id}
+                className={clsx('h-1.5 w-1.5 rounded-full', HEALTH_DOT[state])}
+                aria-label={`${route.providerName}：${HEALTH_LABEL[state]}`}
+              />
+            )
+          })}
+        </span>
+      </span>
+    </button>
+  )
+}
+
 export function ModelListRow({
   model,
+  routeHealth,
   sortable,
   batchMode,
   selected,
@@ -63,6 +135,7 @@ export function ModelListRow({
   onDelete,
 }: {
   model: AdminModelDTO
+  routeHealth: Map<string, ModelRouteHealthDTO>
   sortable: boolean
   batchMode: boolean
   selected: boolean
@@ -199,17 +272,17 @@ export function ModelListRow({
             title={`${model.modelId}${model.description ? ` · ${model.description}` : ''}`}
           >
             {model.modelId}
-            <span className="@min-[70rem]/models:hidden"> · {model.providerName}</span>
+            <span className="@min-[70rem]/models:hidden">
+              {' · '}
+              {runnableRoutes(model).length > 1
+                ? `${runnableRoutes(model).length} 条线路`
+                : (runnableRoutes(model)[0]?.providerName ?? '无可用线路')}
+            </span>
           </p>
         </div>
       </div>
       <div className="hidden min-w-0 @min-[70rem]/models:block">
-        <p
-          className="truncate leading-5 text-neutral-700 dark:text-neutral-300"
-          title={model.providerName}
-        >
-          {model.providerName}
-        </p>
+        <RouteSummary model={model} health={routeHealth} onEdit={() => onEdit('routes')} />
         <p className="truncate text-xs leading-4 text-neutral-500">{PROTOCOL_LABEL[model.kind]}</p>
       </div>
       <div className="col-span-2 col-start-1 row-start-2 min-w-0 space-y-1.5 @min-[40rem]/models:col-span-1 @min-[70rem]/models:col-auto @min-[70rem]/models:row-auto">

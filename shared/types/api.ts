@@ -95,7 +95,10 @@ export interface ProviderDTO {
   hasApiKey: boolean
   apiKeyMask: string | null
   extraHeaderCount?: number
+  /** 通过线路使用该供应商的模型数。 */
   modelCount: number
+  /** 只有这一条供应商线路的模型数；删除供应商后这些模型将没有可用线路。 */
+  exclusiveModelCount: number
   createdAt: number
 }
 
@@ -129,10 +132,47 @@ export interface ModelDTO {
   defaultParams: ModelParams | null
 }
 
-/** 管理员可见的完整模型配置 */
-export interface AdminModelDTO extends ModelDTO {
+/** 模型的一条上游线路（管理端）。 */
+export interface ModelRouteDTO {
+  id: string
   providerId: string
   providerName: string
+  providerProtocol: ProviderProtocol
+  /** 供应商被停用时该线路不参与调度。 */
+  providerEnabled: boolean
+  /** null=沿用模型 ID。 */
+  upstreamModelId: string | null
+  priority: number
+  weight: number
+  enabled: boolean
+  /** 上游真实成本价；null=与用户计价相同。 */
+  costPricing: ModelPricing | null
+}
+
+/**
+ * 线路运行状况：熔断状态来自进程内实时记录（重启后清零），
+ * 近 24 小时指标来自用量日志。
+ */
+export interface ModelRouteHealthDTO {
+  routeId: string
+  /** healthy=正常；degraded=最近有连续失败；cooling=熔断冷却中，暂时排到最后尝试。 */
+  state: 'healthy' | 'degraded' | 'cooling'
+  consecutiveFailures: number
+  cooldownUntil: number | null
+  lastFailureAt: number | null
+  lastFailureMessage: string | null
+  lastSuccessAt: number | null
+  /** 近 24 小时由该线路最终承接的请求。 */
+  recentRequests: number
+  recentFailures: number
+  /** 近 24 小时成功响应的平均上游首响应耗时。 */
+  recentAvgLatencyMs: number | null
+}
+
+/** 管理员可见的完整模型配置 */
+export interface AdminModelDTO extends ModelDTO {
+  /** 按展示顺序排列的全部线路（含停用）。 */
+  routes: ModelRouteDTO[]
   enabled: boolean
   /** 用户端开放范围；与 enabled 全局总开关相互独立。 */
   accessMode: ModelAccessMode
@@ -426,7 +466,10 @@ export interface ActiveRequestsDTO extends Paginated<ActiveRequestDTO> {
 
 export interface UsageLogDTO {
   costDisplay?: MessageCostDisplayDTO
+  /** 上游真实成本明细（按实际线路成本价结算）；迁移前的记录与计费明细相同。 */
   costBreakdown?: RequestCostBreakdown | null
+  /** 用户计费明细（额度与用户可见金额的口径）。 */
+  billedCostBreakdown?: RequestCostBreakdown | null
   retrySummary?: import('./retry').RunRetrySummary | null
   id: string
   /** 对话生成对应的 run；标题总结及 run 已被级联删除的历史事件为 null。 */
@@ -437,6 +480,8 @@ export interface UsageLogDTO {
   username: string | null
   providerId: string | null
   providerLabel: string | null
+  /** 最终承接请求的线路；线路删除或迁移前无法归属的记录为 null。 */
+  routeId: string | null
   /** 请求时的上游模型 ID 快照。 */
   modelLabel: string | null
   /** 请求时的模型外显名称；迁移前记录在模型仍存在时由当前配置补齐。 */
@@ -461,7 +506,10 @@ export interface UsageLogDTO {
   /** 旧额度/聚合兼容字段；请求事件状态不得再直接使用它。 */
   success: boolean
   errorType: string | null
+  /** 上游真实成本。 */
   cost: number
+  /** 用户计费金额。 */
+  billedCost: number
   /** 该次请求保存的原始 reasoning_effort 值，不映射为模型配置的展示描述。 */
   reasoningEffort: string | null
   /** 从生成引擎开始到 run 终态的墙钟耗时；关联 run 不存在时为 null。 */
@@ -489,7 +537,13 @@ export interface Paginated<T> {
 export interface OverviewDTO {
   bucket: 'hour' | 'day'
   /** 紧邻所选区间的等长上一时段；全部时间不比较。 */
-  previous: { requests: number; tokens: number; cost: number; activeUsers: number } | null
+  previous: {
+    requests: number
+    tokens: number
+    cost: number
+    billedCost: number
+    activeUsers: number
+  } | null
   outcomes: { result: UsageResult; count: number }[]
   totals: {
     requests: number
@@ -499,7 +553,10 @@ export interface OverviewDTO {
     cacheRate: number // cached / input，0-1
     rpm: number // 最近 60 分钟请求/分
     tpm: number // 最近 60 分钟 token/分
+    /** 上游真实成本（按各线路成本价结算）。 */
     cost: number
+    /** 按用户计价的计费金额；与成本之差即毛利。 */
+    billedCost: number
     users: number
     conversations: number
     messages: number
@@ -701,6 +758,11 @@ export interface QuotaBucketUsageDTO {
   /** 下次整段重置时刻；滚动窗口、永久累计和未启动的首次请求周期为 null */
   periodEnd: number | null
   grants: QuotaGrantDTO[]
+  /**
+   * 站点不向用户展示金额：金额类额度已换算为占比（上限 100、已用为百分比），
+   * 界面只显示百分比。仅出现在用户端视图。
+   */
+  amountHidden?: boolean
   /** 规则当前失效（如引用了已删除的分组）：不参与拦截，管理端标注 */
   invalid: boolean
   /** 桶内模型全部被更高优先级规则接管：不计量也不拦截，管理端标注 */
@@ -724,6 +786,8 @@ export interface MyQuotaDTO {
   rules: QuotaBucketUsageDTO[]
   /** 额度已用尽、当前不可用的模型（DB id） */
   blockedModelIds: string[]
+  /** 生图额度已用尽：这些模型仍可对话，但本轮不会生成图片。 */
+  imageGenerationBlockedModelIds: string[]
 }
 
 /** 管理端用户限额列表的一行。 */
@@ -818,6 +882,8 @@ export interface UsageStatsDTO {
   windowEnd: number
   /** 趋势分桶粒度，由视图派生 */
   granularity: UsageTrendGranularity
+  /** 站点不向用户展示金额：所有金额字段已置 0，界面隐藏花费相关内容。 */
+  costHidden?: boolean
   /** 热力图覆盖天数；恒为「近一年」视角，与 view 无关 */
   rangeDays: number
   totals: {
@@ -938,4 +1004,53 @@ export interface PublicShareDTO {
   /** false 时用户上传的图片/文件已被属主排除，页面以文字占位显示 */
   attachmentsIncluded: boolean
   owner: { name: string | null; avatarUrl: string | null }
+}
+
+// ===================== 模型配置导入导出 =====================
+
+/** 导出的模型配置文档（不含 API Key 与用户名单）。 */
+export interface ModelConfigDocumentDTO {
+  format: string
+  version: number
+  exportedAt: string
+  /** 只读参考：线路可引用的供应商。 */
+  providers: {
+    id: string
+    name: string
+    protocol: ProviderProtocol
+    baseUrl: string
+    enabled: boolean
+  }[]
+  /** 只读参考：已有分组。 */
+  groups: { id: string; name: string }[]
+  models: import('../schemas/model-config-transfer').ModelConfigEntry[]
+}
+
+export type ModelConfigImportAction = 'create' | 'update' | 'unchanged' | 'error'
+
+export interface ModelConfigImportItemDTO {
+  /** 在文档 models 数组中的下标。 */
+  index: number
+  action: ModelConfigImportAction
+  /** 更新的模型 ID，或已应用的新建模型 ID；预览中的新建模型为 null。 */
+  id: string | null
+  label: string
+  /** 将发生变化的字段（中文名）。 */
+  changes: string[]
+  errors: string[]
+  /** 不阻止导入的提示。 */
+  notes: string[]
+}
+
+export interface ModelConfigImportPreviewDTO {
+  /** 没有任何错误，可以应用。 */
+  valid: boolean
+  /** 本次请求已提交到数据库（仅应用且无错误时为 true）。 */
+  applied: boolean
+  /** 文档本身的问题（格式标识、版本、数量）。 */
+  documentErrors: string[]
+  /** 导入时会新建的分组名称。 */
+  groupsToCreate: string[]
+  items: ModelConfigImportItemDTO[]
+  summary: Record<ModelConfigImportAction, number>
 }

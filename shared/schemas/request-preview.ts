@@ -1,8 +1,7 @@
 import { z } from 'zod'
-import { modelCreateSchema, modelParamsSchema } from './model-config'
+import { modelCreateSchema, modelParamsSchema, modelRouteInputSchema } from './model-config'
 
 export const requestPreviewModelSchema = modelCreateSchema.pick({
-  providerId: true,
   modelId: true,
   displayName: true,
   kind: true,
@@ -19,6 +18,8 @@ export const requestPreviewModelSchema = modelCreateSchema.pick({
 
 export const requestPreviewSchema = z.object({
   model: requestPreviewModelSchema,
+  /** 预览按哪条线路发送：决定供应商协议、地址、请求头与 model 字段。 */
+  route: modelRouteInputSchema.pick({ providerId: true, upstreamModelId: true }),
   userParams: modelParamsSchema.strict().optional(),
   includeHistory: z.boolean().default(true),
   includeImage: z.boolean().default(false),

@@ -10,6 +10,7 @@ import { LoadError } from '../../components/ui/LoadError'
 import { SearchField } from '../../components/ui/SearchField'
 import { Spinner } from '../../components/ui/Spinner'
 import { toast } from '../../store/toast'
+import { describeModelRoutes } from './modelRoutes'
 
 export function GroupModelsDialog({
   group,
@@ -38,7 +39,9 @@ export function GroupModelsDialog({
   const candidates = (models ?? []).filter(
     (model) =>
       model.groupId !== group.id &&
-      `${model.displayName} ${model.modelId} ${model.providerName}`.toLowerCase().includes(keyword),
+      `${model.displayName} ${model.modelId} ${describeModelRoutes(model)}`
+        .toLowerCase()
+        .includes(keyword),
   )
   const allSelected =
     candidates.length > 0 && candidates.every((model) => selected.includes(model.id))
@@ -123,7 +126,7 @@ export function GroupModelsDialog({
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-medium">{model.displayName}</span>
                     <span className="block truncate text-xs text-neutral-400">
-                      {model.modelId} · {model.providerName}
+                      {model.modelId} · {describeModelRoutes(model)}
                     </span>
                   </span>
                   <span className="max-w-28 truncate text-xs text-neutral-500">

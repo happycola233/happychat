@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { ZERO_COST, ensureRunRoute } from '../testing/model-routes'
 import type { ContentPart } from '@shared/types/domain'
 import type { FinalizeArgs } from './finalize'
 
@@ -51,7 +52,6 @@ describe('finalizeRun terminal snapshots', () => {
     const [model] = await dbClient.db
       .insert(schema.models)
       .values({
-        providerId: provider.id,
         modelId: 'finalize-model',
         displayName: 'Finalize model',
         capabilities: {
@@ -152,7 +152,8 @@ describe('finalizeRun terminal snapshots', () => {
       assistantMessage,
       conversation,
       model,
-      provider,
+      route: ensureRunRoute(dbClient.db, schema, model, provider),
+      upstreamCost: ZERO_COST,
       state: 'completed',
       text: '回答',
       processSteps,
@@ -253,7 +254,8 @@ describe('finalizeRun terminal snapshots', () => {
       assistantMessage: failedMessage,
       conversation,
       model,
-      provider,
+      route: ensureRunRoute(dbClient.db, schema, model, provider),
+      upstreamCost: ZERO_COST,
       state: 'failed',
       text: '',
       processSteps: [],
@@ -382,7 +384,8 @@ describe('finalizeRun terminal snapshots', () => {
         assistantMessage: terminalMessage,
         conversation,
         model,
-        provider,
+        route: ensureRunRoute(dbClient.db, schema, model, provider),
+        upstreamCost: ZERO_COST,
         state: terminal.state,
         text: terminal.state === 'incomplete' ? '部分回答' : '',
         processSteps: [],
@@ -449,7 +452,7 @@ describe('finalizeRun terminal snapshots', () => {
         run: rollbackRun,
         assistantMessage: rollbackMessage,
         // usage_logs.provider_id 的外键失败，用来验证前面的 run/message 更新会一起回滚。
-        provider: { ...provider, id: 'missing-provider' },
+        route: { ...completedArgs.route, provider: { ...provider, id: 'missing-provider' } },
         persistEmit: (type) => {
           rollbackEvents.push(type)
           return 0
@@ -542,7 +545,6 @@ describe('finalizeRun generated image audit', () => {
     const model = dbClient.db
       .insert(schema.models)
       .values({
-        providerId: provider.id,
         modelId: `routed-model-${suffix}`,
         displayName: 'Routed model',
         kind: 'responses',
@@ -559,6 +561,10 @@ describe('finalizeRun generated image audit', () => {
       })
       .returning()
       .get()
+    dbClient.db
+      .insert(schema.modelRoutes)
+      .values({ modelId: model.id, providerId: provider.id })
+      .run()
     const conversation = dbClient.db
       .insert(schema.conversations)
       .values({
@@ -607,7 +613,8 @@ describe('finalizeRun generated image audit', () => {
       assistantMessage,
       conversation,
       model,
-      provider,
+      route: ensureRunRoute(dbClient.db, schema, model, provider),
+      upstreamCost: ZERO_COST,
       state: testCase.state,
       text: '',
       content: testCase.content,

@@ -5,6 +5,8 @@ import {
   modelAccessUpdateSchema,
   modelCreateSchema,
   modelParamsSchema,
+  modelRouteInputSchema,
+  modelRoutesSchema,
   modelTagsSchema,
   modelUpdateSchema,
   reasoningEffortOptionsSchema,
@@ -124,7 +126,7 @@ describe('model access schema', () => {
 
 describe('reasoning replay model config', () => {
   const createInput = {
-    providerId: 'provider-1',
+    routes: [{ providerId: 'provider-1' }],
     modelId: 'gpt-test',
     displayName: 'GPT Test',
   }
@@ -144,10 +146,52 @@ describe('reasoning replay model config', () => {
     expect(modelUpdateSchema.parse({})).toEqual({})
   })
 
-  it('accepts changing the provider on an existing model and rejects an empty provider', () => {
-    expect(modelUpdateSchema.parse({ providerId: 'provider-2' })).toEqual({
-      providerId: 'provider-2',
+  it('accepts replacing routes on an existing model and rejects an empty provider', () => {
+    expect(modelUpdateSchema.parse({ routes: [{ providerId: 'provider-2' }] })).toEqual({
+      routes: [
+        {
+          providerId: 'provider-2',
+          upstreamModelId: null,
+          priority: 0,
+          weight: 1,
+          enabled: true,
+          costPricing: null,
+        },
+      ],
     })
-    expect(modelUpdateSchema.safeParse({ providerId: '' }).success).toBe(false)
+    expect(modelUpdateSchema.safeParse({ routes: [{ providerId: '' }] }).success).toBe(false)
+  })
+})
+
+describe('model route schema', () => {
+  it('normalizes an empty upstream model ID to the model ID fallback', () => {
+    expect(modelRouteInputSchema.parse({ providerId: 'p', upstreamModelId: '  ' })).toMatchObject({
+      upstreamModelId: null,
+    })
+  })
+
+  it('requires at least one route and rejects duplicated route ids', () => {
+    expect(modelRoutesSchema.safeParse([]).success).toBe(false)
+    expect(
+      modelRoutesSchema.safeParse([
+        { id: 'r1', providerId: 'a' },
+        { id: 'r1', providerId: 'b' },
+      ]).success,
+    ).toBe(false)
+  })
+
+  it('bounds priority and weight', () => {
+    expect(modelRouteInputSchema.safeParse({ providerId: 'p', priority: 100 }).success).toBe(false)
+    expect(modelRouteInputSchema.safeParse({ providerId: 'p', weight: 0 }).success).toBe(false)
+    expect(modelRouteInputSchema.safeParse({ providerId: 'p', weight: 1.5 }).success).toBe(false)
+  })
+
+  it('requires cost prices to be written directly instead of referencing a model', () => {
+    expect(
+      modelRouteInputSchema.safeParse({
+        providerId: 'p',
+        costPricing: { imagePricingModelId: 'image-model' },
+      }).success,
+    ).toBe(false)
   })
 })

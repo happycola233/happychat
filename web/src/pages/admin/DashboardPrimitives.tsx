@@ -39,7 +39,7 @@ export function MetricStrip({
   items: { label: string; value: ReactNode; hint: ReactNode }[]
 }) {
   return (
-    <dl className="grid grid-cols-2 gap-x-5 gap-y-5 border-b border-neutral-100 pb-5 lg:grid-cols-4 dark:border-neutral-800">
+    <dl className="grid grid-cols-2 gap-x-5 gap-y-5 border-b border-neutral-100 pb-5 lg:grid-cols-[repeat(auto-fit,minmax(9rem,1fr))] dark:border-neutral-800">
       {items.map((item) => (
         <div key={item.label} className="min-w-0">
           <dt className="text-xs text-neutral-500 dark:text-neutral-400">{item.label}</dt>

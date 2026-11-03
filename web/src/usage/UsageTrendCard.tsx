@@ -6,7 +6,12 @@ import { Button } from '../components/ui/Button'
 import { SegmentedControl } from '../components/ui/SegmentedControl'
 import { formatInt } from '../lib/format'
 import { UsageSection, UsageSectionFooter, UsageValue } from './UsagePrimitives'
-import { formatUsageMetric, USAGE_METRICS, type UsageMetric } from './usagePresentation'
+import {
+  formatUsageMetric,
+  USAGE_METRICS,
+  usageMetricsFor,
+  type UsageMetric,
+} from './usagePresentation'
 
 /** 请求、Token、花费分别作图，避免量级不同导致同轴曲线失真。 */
 export function UsageTrendCard({
@@ -44,7 +49,7 @@ export function UsageTrendCard({
           label="趋势指标"
           value={metric}
           onChange={setMetric}
-          options={USAGE_METRICS}
+          options={usageMetricsFor(stats.costHidden)}
         />
       }
     >

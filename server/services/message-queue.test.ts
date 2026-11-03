@@ -62,7 +62,6 @@ beforeEach(async () => {
     .insert(schema.models)
     .values({
       id: 'model',
-      providerId: 'provider',
       modelId: 'synthetic-model',
       displayName: '测试模型',
       kind: 'chat',
@@ -77,6 +76,7 @@ beforeEach(async () => {
       },
     })
     .run()
+  client.db.insert(schema.modelRoutes).values({ modelId: 'model', providerId: 'provider' }).run()
   const { createSession } = await import('../auth/session')
   const login = new Hono().get('/', async (c) => {
     await createSession(c, 'owner')

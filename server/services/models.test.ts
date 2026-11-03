@@ -39,6 +39,27 @@ afterAll(() => {
   if (tmpDir) rmSync(tmpDir, { recursive: true, force: true })
 })
 
+/** 单条默认线路（沿用模型 ID、成本价跟随用户计价）。 */
+function routeTo(providerId: string) {
+  return {
+    providerId,
+    upstreamModelId: null,
+    priority: 0,
+    weight: 1,
+    enabled: true,
+    costPricing: null,
+  }
+}
+
+/** 模型当前唯一线路的供应商与模型类型。 */
+async function storedRouting(modelId: string) {
+  return dbClient.db
+    .select({ providerId: schema.modelRoutes.providerId, kind: schema.models.kind })
+    .from(schema.models)
+    .innerJoin(schema.modelRoutes, eq(schema.modelRoutes.modelId, schema.models.id))
+    .where(eq(schema.models.id, modelId))
+}
+
 async function createFixture(
   options: {
     sort?: number
@@ -75,7 +96,6 @@ async function createFixture(
   })
   await dbClient.db.insert(schema.models).values({
     id: modelId,
-    providerId,
     modelId: `upstream-model-${n}`,
     displayName: `Model ${n}`,
     kind: options.kind ?? 'responses',
@@ -90,6 +110,7 @@ async function createFixture(
       artifacts: false,
     },
   })
+  await dbClient.db.insert(schema.modelRoutes).values({ modelId, providerId })
 
   return { adminId, userId, providerId, modelId }
 }
@@ -104,7 +125,7 @@ describe('model user access', () => {
     }
     const created = await modelServices.createModel(
       modelCreateSchema.parse({
-        providerId: fixture.providerId,
+        routes: [{ providerId: fixture.providerId }],
         modelId: 'notice-test-model',
         displayName: '提示模型',
         usageNotice,
@@ -154,7 +175,7 @@ describe('model user access', () => {
   it('persists the explicit replay setting when an administrator creates a model', async () => {
     const fixture = await createFixture()
     const result = await modelServices.createModel({
-      providerId: fixture.providerId,
+      routes: [routeTo(fixture.providerId)],
       modelId: `created-upstream-${fixtureSeq}`,
       displayName: 'Created replay model',
       tags: [],
@@ -229,7 +250,7 @@ describe('model user access', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.model).toMatchObject({
-      providerId: fixture.providerId,
+      routes: [{ providerId: fixture.providerId, upstreamModelId: null, priority: 0, weight: 1 }],
       modelId: expect.stringMatching(/^upstream-model-/),
       description: '用于验证副本的模型',
       tags: [{ label: '测试', color: '#38bdf8' }],
@@ -285,24 +306,23 @@ describe('model user access', () => {
     ])
 
     expect(
-      await modelServices.updateModel(fixture.modelId, { providerId: openAiProviderId }),
+      await modelServices.updateModel(fixture.modelId, { routes: [routeTo(openAiProviderId)] }),
     ).toEqual({ ok: true })
     expect(
       (await modelServices.listAdminModels()).find((model) => model.id === fixture.modelId),
-    ).toMatchObject({ providerId: openAiProviderId, providerName: 'Target OpenAI Provider' })
+    ).toMatchObject({
+      routes: [{ providerId: openAiProviderId, providerName: 'Target OpenAI Provider' }],
+    })
 
     expect(
-      await modelServices.updateModel(fixture.modelId, { providerId: anthropicProviderId }),
+      await modelServices.updateModel(fixture.modelId, { routes: [routeTo(anthropicProviderId)] }),
     ).toEqual({ ok: false, code: 'provider_protocol_mismatch' })
-    const [storedBeforeMigration] = await dbClient.db
-      .select({ providerId: schema.models.providerId, kind: schema.models.kind })
-      .from(schema.models)
-      .where(eq(schema.models.id, fixture.modelId))
+    const [storedBeforeMigration] = await storedRouting(fixture.modelId)
     expect(storedBeforeMigration).toEqual({ providerId: openAiProviderId, kind: 'responses' })
 
     expect(
       await modelServices.updateModel(fixture.modelId, {
-        providerId: anthropicProviderId,
+        routes: [routeTo(anthropicProviderId)],
         kind: 'anthropic',
         defaultParams: { max_output_tokens: 16_000 },
         capabilities: {
@@ -316,22 +336,16 @@ describe('model user access', () => {
         },
       }),
     ).toEqual({ ok: true })
-    const [storedAfterMigration] = await dbClient.db
-      .select({ providerId: schema.models.providerId, kind: schema.models.kind })
-      .from(schema.models)
-      .where(eq(schema.models.id, fixture.modelId))
+    const [storedAfterMigration] = await storedRouting(fixture.modelId)
     expect(storedAfterMigration).toEqual({
       providerId: anthropicProviderId,
       kind: 'anthropic',
     })
 
     expect(
-      await modelServices.updateModel(fixture.modelId, { providerId: 'missing-provider' }),
+      await modelServices.updateModel(fixture.modelId, { routes: [routeTo('missing-provider')] }),
     ).toEqual({ ok: false, code: 'provider_missing' })
-    const [afterMissingProvider] = await dbClient.db
-      .select({ providerId: schema.models.providerId, kind: schema.models.kind })
-      .from(schema.models)
-      .where(eq(schema.models.id, fixture.modelId))
+    const [afterMissingProvider] = await storedRouting(fixture.modelId)
     expect(afterMissingProvider).toEqual({
       providerId: anthropicProviderId,
       kind: 'anthropic',
@@ -341,7 +355,7 @@ describe('model user access', () => {
   it('removes Web/X Search capability and defaults from newly created Chat models', async () => {
     const fixture = await createFixture()
     const result = await modelServices.createModel({
-      providerId: fixture.providerId,
+      routes: [routeTo(fixture.providerId)],
       modelId: `created-chat-${fixtureSeq}`,
       displayName: 'Created Chat model',
       tags: [],
@@ -435,7 +449,7 @@ describe('model user access', () => {
   it('rejects a model whose configured icon does not exist', async () => {
     const fixture = await createFixture()
     const result = await modelServices.createModel({
-      providerId: fixture.providerId,
+      routes: [routeTo(fixture.providerId)],
       modelId: `missing-icon-${fixtureSeq}`,
       displayName: 'Missing icon model',
       tags: [],
@@ -465,7 +479,7 @@ describe('model user access', () => {
   it('rejects a model engine that does not match its provider protocol', async () => {
     const fixture = await createFixture()
     const result = await modelServices.createModel({
-      providerId: fixture.providerId,
+      routes: [routeTo(fixture.providerId)],
       modelId: 'claude-sonnet-5',
       displayName: 'Mismatched Claude',
       tags: [],
@@ -500,7 +514,7 @@ describe('model user access', () => {
       .where(eq(schema.providers.id, fixture.providerId))
 
     const result = await modelServices.createModel({
-      providerId: fixture.providerId,
+      routes: [routeTo(fixture.providerId)],
       modelId: 'claude-sonnet-5',
       displayName: 'Claude without max tokens',
       tags: [],
@@ -535,7 +549,7 @@ describe('model user access', () => {
       .where(eq(schema.providers.id, fixture.providerId))
 
     const result = await modelServices.createModel({
-      providerId: fixture.providerId,
+      routes: [routeTo(fixture.providerId)],
       modelId: 'claude-haiku-4-5',
       displayName: 'Claude with invalid thinking budget',
       tags: [],

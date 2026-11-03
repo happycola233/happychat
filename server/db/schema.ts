@@ -333,16 +333,17 @@ export const modelIcons = sqliteTable('model_icons', {
   createdAt: createdAt(),
 })
 
+/**
+ * 用户可见的模型配置（能力、参数、提示词、用户计价）。实际由哪个供应商承接请求
+ * 由 model_routes 决定：一个模型可有多条线路，运行时按优先级/权重选路并故障转移。
+ */
 export const models = sqliteTable(
   'models',
   {
     usageNotice: text('usage_notice', { mode: 'json' }).$type<ModelUsageNotice>(),
     id: pk(),
-    providerId: text('provider_id')
-      .notNull()
-      .references(() => providers.id, { onDelete: 'cascade' }),
-    // 上游模型 id，如 gpt-5.5。同一供应商下允许多条同 id 记录：
-    // 参数/提示词不同的配置视为不同的模型实例（对用户表现为两个模型）。
+    // 规范模型 ID，如 gpt-5.5：线路未单独指定上游模型 ID 时直接作为请求体 model 字段，
+    // 同时用于品牌图标识别与协议预设。同 ID 允许多条配置（参数/提示词不同即不同模型）。
     modelId: text('model_id').notNull(),
     displayName: text('display_name').notNull(),
     // 用户可见的模型简介（模型选择器 ⓘ 展示）；null=未配置。
@@ -361,6 +362,7 @@ export const models = sqliteTable(
     defaultSystemPrompt: text('default_system_prompt'),
     defaultParams: text('default_params', { mode: 'json' }).$type<ModelParams>(),
     hardParams: text('hard_params', { mode: 'json' }).$type<ModelHardParams>(),
+    // 用户计价：额度扣减、用户可见金额与「计费」统计口径；上游真实成本在各条线路上。
     pricing: text('pricing', { mode: 'json' }).$type<ModelPricing>(),
     // 旧记录为 string[]，新记录写 {value,description}[]；读取时由共享 helper 统一归一化。
     allowedEfforts: text('allowed_efforts', { mode: 'json' }).$type<
@@ -378,8 +380,42 @@ export const models = sqliteTable(
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  // 同 id 多实例：不再有 (provider_id, model_id) 唯一约束，仅保留供应商查询索引。
-  (t) => [index('models_provider_idx').on(t.providerId), index('models_group_idx').on(t.groupId)],
+  (t) => [index('models_group_idx').on(t.groupId)],
+)
+
+/**
+ * 模型的上游线路：供应商（Base URL + Key）× 上游模型 ID × 成本价 × 调度参数。
+ *
+ * - 同一模型的全部线路必须使用与 models.kind 兼容的供应商协议，请求体只有 model 字段与
+ *   私有上下文回放随线路变化；
+ * - priority 越大越先尝试，同档按 weight 加权随机分流；连续失败的线路短暂熔断后排到最后；
+ * - cost_pricing 为 null 表示上游成本与用户计价相同，不必重复填写。
+ * 删除供应商只删除它的线路，模型配置与用户名单保留（没有可用线路时用户端不可选）。
+ */
+export const modelRoutes = sqliteTable(
+  'model_routes',
+  {
+    id: pk(),
+    modelId: text('model_id')
+      .notNull()
+      .references(() => models.id, { onDelete: 'cascade' }),
+    providerId: text('provider_id')
+      .notNull()
+      .references(() => providers.id, { onDelete: 'cascade' }),
+    // 发送给该供应商的 model 字段；null=沿用 models.model_id。
+    upstreamModelId: text('upstream_model_id'),
+    priority: integer('priority').notNull().default(0),
+    weight: integer('weight').notNull().default(1),
+    enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+    costPricing: text('cost_pricing', { mode: 'json' }).$type<ModelPricing>(),
+    sort: integer('sort').notNull().default(0),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    index('model_routes_model_idx').on(t.modelId, t.sort),
+    index('model_routes_provider_idx').on(t.providerId),
+  ],
 )
 
 /**
@@ -750,16 +786,27 @@ export const usageLogs = sqliteTable(
     runId: text('run_id').references(() => runs.id, { onDelete: 'set null' }),
     userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),
     modelId: text('model_id').references(() => models.id, { onDelete: 'set null' }),
+    // 最终承接（产出可见结果或最后一次尝试）的供应商与线路。
     providerId: text('provider_id').references(() => providers.id, { onDelete: 'set null' }),
-    // 冗余存储以便模型/用户删除或模型改名后仍可按请求时名称审计。
+    routeId: text('route_id').references(() => modelRoutes.id, { onDelete: 'set null' }),
+    // 冗余存储以便模型/用户删除或模型改名后仍可按请求时名称审计；modelLabel 为实际上游模型 ID。
     modelLabel: text('model_label'),
     modelDisplayName: text('model_display_name'),
     providerLabel: text('provider_label'),
-    // 请求发起时的价格快照；后续改价或删除模型不得改写历史成本。
+    // 用户计价快照与计费金额（额度、用户可见金额、计费统计口径）；后续改价不得改写历史。
     pricingSnapshot: text('pricing_snapshot', { mode: 'json' }).$type<ModelPricing>(),
     costUsd: real('cost_usd'),
     costCny: real('cost_cny'),
     costBreakdown: text('cost_breakdown', { mode: 'json' }).$type<RequestCostBreakdown>(),
+    // 计费金额中的生图部分，供「生图消费 / 文字消费」额度直接聚合。
+    imageCostUsd: real('image_cost_usd'),
+    imageCostCny: real('image_cost_cny'),
+    // 上游真实成本：按每次尝试实际所走线路的成本价分别结算后相加，仅管理端可见。
+    upstreamCostUsd: real('upstream_cost_usd'),
+    upstreamCostCny: real('upstream_cost_cny'),
+    upstreamCostBreakdown: text('upstream_cost_breakdown', {
+      mode: 'json',
+    }).$type<RequestCostBreakdown>(),
     imageUsage: text('image_usage', { mode: 'json' }).$type<ImageGenerationUsage[]>(),
     conversationId: text('conversation_id'),
     // 请求类型：两者都进入成本/审计统计；只有 chat 会被用户额度规则聚合。
@@ -795,6 +842,7 @@ export const usageLogs = sqliteTable(
     index('usage_logs_user_quota_idx').on(t.userId, t.quotaAt),
     index('usage_logs_created_idx').on(t.createdAt),
     index('usage_logs_provider_idx').on(t.providerId),
+    index('usage_logs_route_created_idx').on(t.routeId, t.createdAt),
     index('usage_logs_outcome_created_idx').on(t.outcome, t.createdAt),
   ],
 )

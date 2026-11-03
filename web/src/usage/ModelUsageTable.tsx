@@ -13,6 +13,7 @@ import {
   formatUsageMetric,
   usageModelKey,
   USAGE_METRICS,
+  usageMetricsFor,
   type UsageMetric,
 } from './usagePresentation'
 
@@ -22,9 +23,12 @@ const VISIBLE_MODEL_COUNT = 6
 export function ModelUsageTable({
   rows,
   viewLabel,
+  costHidden,
 }: {
   rows: UsageModelStatDTO[]
   viewLabel?: string
+  /** 站点不向用户展示金额：不显示花费列，也不能按花费排序。 */
+  costHidden?: boolean
 }) {
   const { data: models = [] } = useModels()
   const [search, setSearch] = useState('')
@@ -86,7 +90,7 @@ export function ModelUsageTable({
             aria-label="模型排序"
             value={metric}
             className="w-32 shrink-0"
-            options={USAGE_METRICS.map((item) => ({
+            options={usageMetricsFor(costHidden).map((item) => ({
               value: item.value,
               label: '按' + item.label + '排序',
             }))}
@@ -134,13 +138,15 @@ export function ModelUsageTable({
                   >
                     Token
                   </th>
-                  <th
-                    scope="col"
-                    aria-sort={metric === 'cost' ? 'descending' : 'none'}
-                    className="rounded-r-lg px-3 py-2.5 font-medium"
-                  >
-                    花费
-                  </th>
+                  {!costHidden && (
+                    <th
+                      scope="col"
+                      aria-sort={metric === 'cost' ? 'descending' : 'none'}
+                      className="rounded-r-lg px-3 py-2.5 font-medium"
+                    >
+                      花费
+                    </th>
+                  )}
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-200/50 dark:divide-neutral-800">
@@ -154,13 +160,15 @@ export function ModelUsageTable({
                     </th>
                     <td className="px-3 py-3.5">{number(row, 'requests')}</td>
                     <td className="px-3 py-3.5">{number(row, 'totalTokens')}</td>
-                    <td className="px-3 py-3.5">
-                      {number(row, 'cost')}
-                      <div className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-                        {row.requests ? formatUsageMetric(row.cost / row.requests, 'cost') : '$0'} /
-                        次
-                      </div>
-                    </td>
+                    {!costHidden && (
+                      <td className="px-3 py-3.5">
+                        {number(row, 'cost')}
+                        <div className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+                          {row.requests ? formatUsageMetric(row.cost / row.requests, 'cost') : '$0'}{' '}
+                          / 次
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -171,11 +179,10 @@ export function ModelUsageTable({
               <li key={usageModelKey(row)} className="py-4 first:pt-0 last:pb-0">
                 {modelIdentity(row)}
                 <dl className="mt-3 grid grid-cols-3 gap-2 text-xs text-neutral-700 dark:text-neutral-200">
-                  {USAGE_METRICS.map((item) => (
+                  {usageMetricsFor(costHidden).map((item) => (
                     <div key={item.value}>
                       <dt className="mb-1.5 text-neutral-500 dark:text-neutral-400">
                         {item.label}
-                        {item.value === 'cost' ? '' : ''}
                       </dt>
                       <dd className="font-medium">{number(row, item.value)}</dd>
                     </div>

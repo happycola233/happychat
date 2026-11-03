@@ -20,6 +20,7 @@ import type {
 } from '@shared/schemas/quota'
 import {
   isQuotaBucketResettable,
+  isQuotaCostMetric,
   normalizeQuotaRules,
   normalizeUserQuotaOverrides,
   quotaRuleRequiresBucketKey,
@@ -455,13 +456,13 @@ export async function createQuotaGrant(
   if (!found.ok) return found
   if (found.rule.limit.kind === 'unlimited') return { ok: false, code: 'unlimited_rule' }
   if (!found.bucket.periodActive) return { ok: false, code: 'period_not_started' }
-  // 次数没有小数：赠送 1.5 次既无法达成也无法展示。
-  if (found.rule.metric === 'requests' && !Number.isInteger(input.amount)) {
+  // 次数与张数没有小数：赠送 1.5 次既无法达成也无法展示。
+  if (!isQuotaCostMetric(found.rule.metric) && !Number.isInteger(input.amount)) {
     return { ok: false, code: 'amount_not_integer' }
   }
 
   const exchangeRate =
-    found.rule.metric === 'cost' && storedExchangeRate() ? await getExchangeRate() : null
+    isQuotaCostMetric(found.rule.metric) && storedExchangeRate() ? await getExchangeRate() : null
   const now = new Date()
   const expiresAt = adjustmentExpiresAt(found.rule, found.bucket.periodEnd, now)
 

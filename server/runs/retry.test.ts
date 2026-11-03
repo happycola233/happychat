@@ -12,14 +12,16 @@ import {
   onTestFinished,
   vi,
 } from 'vitest'
+import { insertModelRoute, runOnSingleRoute, runRouteOf } from '../testing/model-routes'
+import type { RunRoute } from './types'
 import { DEFAULT_RETRY_POLICY, type RetryPolicy } from '@shared/schemas/retry'
-import type { ModelKind } from '@shared/types/domain'
+import type { ModelKind, ModelPricing } from '@shared/types/domain'
 import { initialLive, reduceEvent, reduceEvents } from '../../web/src/sse/eventReducer'
 
 let directory: string
 let client: typeof import('../db/client')
 let schema: typeof import('../db/schema')
-let engines: Record<ModelKind, (ctx: import('./types').EngineContext) => Promise<void>>
+let engines: Record<ModelKind, (ctx: Parameters<typeof runOnSingleRoute>[3]) => Promise<void>>
 let config: typeof import('../services/appConfig')
 let stats: typeof import('../services/stats')
 let activeRequests: typeof import('../services/active-requests')
@@ -42,11 +44,15 @@ beforeAll(async () => {
   stats = await import('../services/stats')
   activeRequests = await import('../services/active-requests')
   monitor = await import('../services/request-monitor-events')
+  const onSingleRoute =
+    (engine: Parameters<typeof runOnSingleRoute>[2]) =>
+    (ctx: Parameters<typeof runOnSingleRoute>[3]) =>
+      runOnSingleRoute(client.db, schema, engine, ctx)
   engines = {
-    responses: (await import('./engine')).runEngine,
-    chat: (await import('./chat-engine')).runChatEngine,
-    anthropic: (await import('./anthropic-engine')).runAnthropicEngine,
-    image: (await import('./image-run')).runImageEngine,
+    responses: onSingleRoute((await import('./engine')).runEngine),
+    chat: onSingleRoute((await import('./chat-engine')).runChatEngine),
+    anthropic: onSingleRoute((await import('./anthropic-engine')).runAnthropicEngine),
+    image: onSingleRoute((await import('./image-run')).runImageEngine),
   }
 })
 beforeEach(async () => {
@@ -97,7 +103,6 @@ function fixture(kind: ModelKind = 'responses', reasoning = false) {
   const model = client.db
     .insert(schema.models)
     .values({
-      providerId: provider.id,
       modelId: 'test-model',
       displayName: 'Retry model',
       kind,
@@ -115,6 +120,7 @@ function fixture(kind: ModelKind = 'responses', reasoning = false) {
     })
     .returning()
     .get()
+  insertModelRoute(client.db, schema, model.id, provider.id)
   const conversation = client.db
     .insert(schema.conversations)
     .values({ userId: user.id, title: 'Retry test', modelId: model.id })
@@ -1690,5 +1696,133 @@ describe('整次生成自动重试与审计', () => {
     await drain(engines.image(ctx))
     expect(fetch).toHaveBeenCalledTimes(3)
     expect(snapshot(ctx).logs[0]?.retrySummary?.failures[0]?.stage).toBe('before_output')
+  })
+})
+
+describe('多线路故障转移', () => {
+  async function routedFixture(options: { backupCostPricing?: ModelPricing | null } = {}) {
+    const ctx = fixture()
+    client.db
+      .update(schema.models)
+      .set({ pricing: { input: 1_000_000, output: 1_000_000 } })
+      .where(eq(schema.models.id, ctx.model.id))
+      .run()
+    const model = { ...ctx.model, pricing: { input: 1_000_000, output: 1_000_000 } }
+    const backupProvider = client.db
+      .insert(schema.providers)
+      .values({ name: 'Backup provider', baseUrl: 'https://backup.test/v1', apiKey: 'backup-key' })
+      .returning()
+      .get()
+    const primaryRoute = client.db
+      .update(schema.modelRoutes)
+      .set({ upstreamModelId: 'vendor/test-model', priority: 10 })
+      .where(eq(schema.modelRoutes.modelId, model.id))
+      .returning()
+      .get()!
+    const backupRoute = insertModelRoute(client.db, schema, model.id, backupProvider.id, {
+      costPricing: options.backupCostPricing ?? null,
+    })
+    const { provider: _provider, body: _body, ...base } = ctx
+    const execution = {
+      ...base,
+      model,
+      routing: {
+        candidates: [
+          runRouteOf(primaryRoute, ctx.provider, model),
+          runRouteOf(backupRoute, backupProvider, model),
+        ],
+        bodyFor: (route: RunRoute) => ({ model: route.upstreamModelId, input: [], stream: true }),
+      },
+    }
+    return { ctx, execution, primaryRoute, backupRoute, backupProvider }
+  }
+  const unavailable = () =>
+    new Response(JSON.stringify({ error: { type: 'server_error', message: 'down' } }), {
+      status: 503,
+    })
+
+  it('线路级故障立即切到下一条线路，即使未开启自动重试', async () => {
+    await setPolicy({ enabled: false })
+    const { ctx, execution, primaryRoute, backupRoute, backupProvider } = await routedFixture({
+      backupCostPricing: { input: 500_000, output: 500_000 },
+    })
+    const fetch = vi.fn().mockResolvedValueOnce(unavailable()).mockResolvedValueOnce(success())
+    vi.stubGlobal('fetch', fetch)
+    const { runEngine } = await import('./engine')
+    const { routeHealth } = await import('../services/model-routes')
+    await drain(runEngine(execution))
+
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(String(fetch.mock.calls[0]![0])).toContain('example.test')
+    expect(JSON.parse(fetch.mock.calls[0]![1].body).model).toBe('vendor/test-model')
+    expect(String(fetch.mock.calls[1]![0])).toContain('backup.test')
+    expect(JSON.parse(fetch.mock.calls[1]![1].body).model).toBe('test-model')
+    const { logs, live } = snapshot(ctx)
+    expect(live.text).toBe('新回答')
+    expect(logs).toHaveLength(1)
+    expect(logs[0]).toMatchObject({
+      outcome: 'completed',
+      routeId: backupRoute.id,
+      providerId: backupProvider.id,
+      providerLabel: 'Backup provider',
+      modelLabel: 'test-model',
+      // 计费按模型用户价：10 输入 + 2 输出 Token，每百万 1,000,000。
+      costUsd: 12,
+      // 成本按实际线路成本价：备用线路每百万 500,000。
+      upstreamCostUsd: 6,
+    })
+    expect(logs[0]?.retrySummary?.failures[0]).toMatchObject({
+      routeId: primaryRoute.id,
+      providerLabel: 'Retry provider',
+      upstreamModelId: 'vendor/test-model',
+      httpStatus: 503,
+      nextAction: 'failover',
+      stopReason: null,
+    })
+    expect(routeHealth.snapshot(primaryRoute.id).consecutiveFailures).toBe(1)
+    expect(routeHealth.snapshot(backupRoute.id).lastSuccessAt).not.toBeNull()
+  })
+
+  it('请求本身的错误不切换线路', async () => {
+    await setPolicy({ enabled: false })
+    const { ctx, execution, primaryRoute } = await routedFixture()
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({ error: { type: 'invalid_request_error', message: 'bad parameter' } }),
+          { status: 400 },
+        ),
+      )
+    vi.stubGlobal('fetch', fetch)
+    const { runEngine } = await import('./engine')
+    const { routeHealth } = await import('../services/model-routes')
+    await drain(runEngine(execution))
+
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(snapshot(ctx).logs[0]).toMatchObject({ outcome: 'failed', routeId: primaryRoute.id })
+    expect(routeHealth.snapshot(primaryRoute.id).consecutiveFailures).toBe(0)
+  })
+
+  it('一轮线路都失败后按重试策略退避，再从首选线路开始新一轮', async () => {
+    await setPolicy({ enabled: true, maxRetries: 1 })
+    const { ctx, execution, primaryRoute, backupRoute } = await routedFixture()
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(unavailable())
+      .mockResolvedValueOnce(unavailable())
+      .mockResolvedValueOnce(success())
+    vi.stubGlobal('fetch', fetch)
+    const { runEngine } = await import('./engine')
+    await drain(runEngine(execution), 6000)
+
+    expect(fetch).toHaveBeenCalledTimes(3)
+    const summary = snapshot(ctx).logs[0]?.retrySummary
+    expect(summary?.attempts).toBe(3)
+    expect(summary?.failures.map((failure) => [failure.routeId, failure.nextAction])).toEqual([
+      [primaryRoute.id, 'failover'],
+      [backupRoute.id, 'retry'],
+    ])
+    expect(snapshot(ctx).logs[0]?.routeId).toBe(primaryRoute.id)
   })
 })

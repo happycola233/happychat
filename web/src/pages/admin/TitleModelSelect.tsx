@@ -1,12 +1,13 @@
 import { Link } from 'react-router-dom'
 import type { AdminModelDTO } from '@shared/types/api'
 import { Select } from '../../components/ui/Select'
+import { describeModelRoutes } from './modelRoutes'
 
-type TitleModel = Pick<AdminModelDTO, 'id' | 'displayName' | 'providerName' | 'modelId' | 'kind'>
+type TitleModel = Pick<AdminModelDTO, 'id' | 'displayName' | 'routes' | 'modelId' | 'kind'>
 
 /** 按可见信息判断重名，也覆盖两个供应商恰好同名的情况。 */
 const modelIdentity = (model: TitleModel) =>
-  JSON.stringify([model.displayName, model.providerName, model.modelId])
+  JSON.stringify([model.displayName, describeModelRoutes(model), model.modelId])
 
 export function TitleModelSelect({
   models,
@@ -39,7 +40,7 @@ export function TitleModelSelect({
             value: model.id,
             label: model.displayName,
             description: [
-              model.providerName,
+              describeModelRoutes(model),
               model.modelId,
               // UUID v7 的前缀是时间；取随机尾段区分实例，避免列表排序变化后编号跟着变化。
               identityCounts.get(modelIdentity(model))! > 1 ? `配置 ${model.id.slice(-8)}` : null,

@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { eq } from 'drizzle-orm'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { runOnSingleRoute } from '../testing/model-routes'
 
 let tmpDir: string
 let dbClient: typeof import('../db/client')
@@ -60,7 +61,6 @@ async function createEngineFixture(input: unknown[] = []) {
   const [model] = await dbClient.db
     .insert(schema.models)
     .values({
-      providerId: provider.id,
       modelId: 'gpt-engine-test',
       displayName: `Engine model ${sequence}`,
       replayProviderContext: true,
@@ -173,7 +173,7 @@ describe('runEngine reasoning replay privacy and terminal handling', () => {
       ),
     )
 
-    await engine.runEngine(fixture)
+    await runOnSingleRoute(dbClient.db, schema, engine.runEngine, fixture)
 
     const storedMessage = await dbClient.db.query.messages.findFirst({
       where: eq(schema.messages.id, fixture.assistantMessage.id),
@@ -283,7 +283,7 @@ describe('runEngine reasoning replay privacy and terminal handling', () => {
       ),
     )
 
-    await engine.runEngine(fixture)
+    await runOnSingleRoute(dbClient.db, schema, engine.runEngine, fixture)
 
     const storedMessage = await dbClient.db.query.messages.findFirst({
       where: eq(schema.messages.id, fixture.assistantMessage.id),
@@ -401,7 +401,7 @@ describe('runEngine reasoning replay privacy and terminal handling', () => {
     const unsubscribe = emitter.runEmitter.subscribe(fixture.run.id, (event) => {
       emitted.push({ type: event.type, data: event.data })
     })
-    await engine.runEngine(fixture)
+    await runOnSingleRoute(dbClient.db, schema, engine.runEngine, fixture)
     unsubscribe()
 
     const storedMessage = await dbClient.db.query.messages.findFirst({
@@ -461,7 +461,7 @@ describe('runEngine reasoning replay privacy and terminal handling', () => {
       ),
     )
 
-    await engine.runEngine(fixture)
+    await runOnSingleRoute(dbClient.db, schema, engine.runEngine, fixture)
 
     const storedMessage = await dbClient.db.query.messages.findFirst({
       where: eq(schema.messages.id, fixture.assistantMessage.id),
@@ -525,7 +525,7 @@ describe('runEngine reasoning replay privacy and terminal handling', () => {
     const unsubscribe = emitter.runEmitter.subscribe(fixture.run.id, (event) => {
       emitted.push({ type: event.type, data: event.data })
     })
-    await engine.runEngine(fixture)
+    await runOnSingleRoute(dbClient.db, schema, engine.runEngine, fixture)
     unsubscribe()
 
     const storedMessage = await dbClient.db.query.messages.findFirst({
@@ -635,7 +635,7 @@ describe('runEngine reasoning replay privacy and terminal handling', () => {
     const unsubscribe = emitter.runEmitter.subscribe(fixture.run.id, (event) => {
       emitted.push({ type: event.type, data: event.data })
     })
-    await engine.runEngine(fixture)
+    await runOnSingleRoute(dbClient.db, schema, engine.runEngine, fixture)
     unsubscribe()
 
     const storedMessage = await dbClient.db.query.messages.findFirst({
@@ -666,7 +666,7 @@ describe('runEngine reasoning replay privacy and terminal handling', () => {
       vi.fn(async () => sseResponse(events)),
     )
 
-    await engine.runEngine(fixture)
+    await runOnSingleRoute(dbClient.db, schema, engine.runEngine, fixture)
 
     const storedRun = await dbClient.db.query.runs.findFirst({
       where: eq(schema.runs.id, fixture.run.id),
@@ -752,7 +752,7 @@ describe('runEngine reasoning replay privacy and terminal handling', () => {
       const unsubscribe = emitter.runEmitter.subscribe(fixture.run.id, (event) => {
         emitted.push({ type: event.type, data: event.data })
       })
-      await engine.runEngine(fixture)
+      await runOnSingleRoute(dbClient.db, schema, engine.runEngine, fixture)
       unsubscribe()
 
       const storedRun = await dbClient.db.query.runs.findFirst({
@@ -820,7 +820,7 @@ describe('runEngine reasoning replay privacy and terminal handling', () => {
       ),
     )
 
-    await engine.runEngine(fixture)
+    await runOnSingleRoute(dbClient.db, schema, engine.runEngine, fixture)
 
     const storedRun = await dbClient.db.query.runs.findFirst({
       where: eq(schema.runs.id, fixture.run.id),
@@ -868,7 +868,7 @@ describe('runEngine reasoning replay privacy and terminal handling', () => {
       ),
     )
 
-    await engine.runEngine(fixture)
+    await runOnSingleRoute(dbClient.db, schema, engine.runEngine, fixture)
 
     const storedRun = await dbClient.db.query.runs.findFirst({
       where: eq(schema.runs.id, fixture.run.id),
@@ -926,7 +926,7 @@ describe('runEngine reasoning replay privacy and terminal handling', () => {
       ),
     )
 
-    await engine.runEngine(fixture)
+    await runOnSingleRoute(dbClient.db, schema, engine.runEngine, fixture)
 
     const storedRun = await dbClient.db.query.runs.findFirst({
       where: eq(schema.runs.id, fixture.run.id),
@@ -995,7 +995,7 @@ describe('runEngine reasoning replay privacy and terminal handling', () => {
         ),
       )
 
-      await engine.runEngine(fixture)
+      await runOnSingleRoute(dbClient.db, schema, engine.runEngine, fixture)
 
       const storedMessage = dbClient.db
         .select()
@@ -1056,7 +1056,7 @@ describe('runEngine reasoning replay privacy and terminal handling', () => {
     )
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
 
-    await engine.runEngine(fixture)
+    await runOnSingleRoute(dbClient.db, schema, engine.runEngine, fixture)
 
     expect(attemptedBodies).toHaveLength(2)
     expect(JSON.stringify(attemptedBodies[0])).toContain(historyCiphertext)

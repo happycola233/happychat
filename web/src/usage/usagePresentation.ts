@@ -17,6 +17,11 @@ export const USAGE_METRICS: { value: UsageMetric; label: string }[] = [
   { value: 'cost', label: '花费' },
 ]
 
+/** 站点不向用户展示金额时去掉「花费」指标。 */
+export function usageMetricsFor(costHidden: boolean | undefined) {
+  return costHidden ? USAGE_METRICS.filter((item) => item.value !== 'cost') : USAGE_METRICS
+}
+
 /** URL 是输入边界；未知窗口与没有选择时都使用本月。 */
 export function readUsageView(value: string | null): UsageStatsView {
   return USAGE_VIEWS.find((option) => option.value === value)?.value ?? 'month'

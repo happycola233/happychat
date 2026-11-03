@@ -67,7 +67,6 @@ beforeAll(async () => {
   modelId = 'quota-route-model'
   await dbClient.db.insert(schema.models).values({
     id: modelId,
-    providerId: 'quota-route-provider',
     modelId: 'upstream',
     displayName: '测试模型',
     pricing: PRICING,
@@ -81,6 +80,9 @@ beforeAll(async () => {
       artifacts: false,
     },
   })
+  await dbClient.db
+    .insert(schema.modelRoutes)
+    .values({ modelId, providerId: 'quota-route-provider' })
 
   adminCookie = await cookieFor(adminId)
   userCookie = await cookieFor(userId)

@@ -7,6 +7,7 @@ import type {
 } from '@shared/types/api'
 import type {
   EffectiveQuotaRule,
+  ModelKind,
   ModelPricing,
   QuotaAdjustmentKind,
   QuotaMetric,
@@ -17,8 +18,11 @@ import type { CostCurrency } from '@shared/types/domain'
 import { legacyExchangeRate, requireExchangeRate } from './exchange-rates'
 import {
   evaluateQuotaLimit,
+  QUOTA_METRIC_LABELS,
   formatQuotaAmount,
+  isQuotaCostMetric,
   isQuotaUnlimited,
+  quotaMetricEffect,
   normalizeQuotaRules,
   normalizeUserQuotaOverrides,
   resolveEffectiveQuota,
@@ -31,7 +35,6 @@ import {
   modelGroups,
   modelUserAccess,
   models,
-  providers,
   quotaAdjustments,
   quotaCycles,
   quotaPolicies,
@@ -41,7 +44,7 @@ import {
   users,
 } from '../db/schema'
 import { getAppConfig } from './appConfig'
-import { accessJoinForUser, accessibleToUser } from './models'
+import { accessJoinForUser, accessibleToUser, modelIsRunnable } from './models'
 
 /** 限额相关的全局配置切片；快照与判定只依赖这几项。 */
 export type QuotaConfig = Pick<
@@ -52,6 +55,7 @@ export type QuotaConfig = Pick<
   | 'quotaWarnThreshold'
   | 'quotaWarningMessage'
   | 'quotaExhaustedMessage'
+  | 'showCost'
 >
 
 /** 参与判定的用户级配置（无 user_quotas 行时即为等价默认值）。 */
@@ -88,6 +92,7 @@ interface QuotaModelRow {
   id: string
   displayName: string
   groupId: string | null
+  kind: ModelKind
 }
 
 /** 一个额度桶：规则 + 具体目标 + 参与统计的模型集合（null=全部模型）。 */
@@ -107,12 +112,8 @@ interface QuotaBucket {
   shadowed: boolean
 }
 
-interface UsageAggregate {
-  totalRequests: number
-  totalCost: number
-  requestsByModel: Map<string, number>
-  costByModel: Map<string, number>
-}
+/** 按模型聚合的各计量用量；key 为模型 DB id（已删除模型的历史用量记在空字符串下）。 */
+type UsageAggregate = Record<'requests' | 'cost' | 'imageCost' | 'images', Map<string, number>>
 
 interface QuotaCycleRow {
   ruleId: string
@@ -133,6 +134,7 @@ export async function getQuotaConfig(): Promise<QuotaConfig> {
     quotaWarnThreshold: config.quotaWarnThreshold,
     quotaWarningMessage: config.quotaWarningMessage,
     quotaExhaustedMessage: config.quotaExhaustedMessage,
+    showCost: config.showCost,
   }
 }
 
@@ -166,11 +168,15 @@ export async function getUserQuotaBinding(userId: string): Promise<UserQuotaBind
 /** 该用户当前可用的模型（与用户端模型列表口径逐字一致，避免桶里出现看不到的模型）。 */
 async function listQuotaModels(userId: string): Promise<QuotaModelRow[]> {
   return db
-    .select({ id: models.id, displayName: models.displayName, groupId: models.groupId })
+    .select({
+      id: models.id,
+      displayName: models.displayName,
+      groupId: models.groupId,
+      kind: models.kind,
+    })
     .from(models)
-    .innerJoin(providers, eq(models.providerId, providers.id))
     .leftJoin(modelUserAccess, accessJoinForUser(userId))
-    .where(and(eq(models.enabled, true), eq(providers.enabled, true), accessibleToUser()))
+    .where(and(modelIsRunnable(), accessibleToUser()))
     .orderBy(models.sort, models.displayName)
 }
 
@@ -243,6 +249,9 @@ async function aggregateUsageSince(
       pricingSnapshot: usageLogs.pricingSnapshot,
       costUsd: sql<number | null>`sum(${usageLogs.costUsd})`,
       costCny: sql<number | null>`sum(${usageLogs.costCny})`,
+      imageCostUsd: sql<number>`coalesce(sum(${usageLogs.imageCostUsd}),0)`,
+      imageCostCny: sql<number | null>`sum(${usageLogs.imageCostCny})`,
+      images: sql<number>`coalesce(sum(${usageLogs.generatedImageCount}),0)`,
       requests: sql<number>`count(*)`,
       inputTokens: sql<number>`coalesce(sum(${usageLogs.inputTokens}),0)`,
       cacheWriteTokens: sql<number>`coalesce(sum(${usageLogs.cacheWriteTokens}),0)`,
@@ -257,13 +266,14 @@ async function aggregateUsageSince(
       usageLogs.pricingSnapshot,
       sql`${usageLogs.costUsd} is null`,
       sql`${usageLogs.costCny} is null`,
+      sql`${usageLogs.imageCostCny} is null`,
     )
 
   const aggregate: UsageAggregate = {
-    totalRequests: 0,
-    totalCost: 0,
-    requestsByModel: new Map(),
-    costByModel: new Map(),
+    requests: new Map(),
+    cost: new Map(),
+    imageCost: new Map(),
+    images: new Map(),
   }
   const add = (map: Map<string, number>, key: string, value: number) =>
     map.set(key, (map.get(key) ?? 0) + value)
@@ -274,11 +284,18 @@ async function aggregateUsageSince(
       currency === 'CNY'
         ? costCny(row, row.pricingSnapshot as ModelPricing | null, legacyRate)
         : costUsd(row, row.pricingSnapshot as ModelPricing | null)
+    // 生图部分单独成列；迁移前更早的日志没有拆分，按 0 计入生图、全部计入文字。
+    const imageCost =
+      currency === 'CNY'
+        ? (row.imageCostCny ??
+          row.imageCostUsd *
+            ((row.pricingSnapshot as ModelPricing | null)?.exchangeRate?.usdToCny ?? legacyRate))
+        : row.imageCostUsd
     const key = modelKey(row.modelId)
-    aggregate.totalRequests += row.requests
-    aggregate.totalCost += cost
-    add(aggregate.requestsByModel, key, row.requests)
-    add(aggregate.costByModel, key, cost)
+    add(aggregate.requests, key, row.requests)
+    add(aggregate.cost, key, cost)
+    add(aggregate.imageCost, key, imageCost)
+    add(aggregate.images, key, row.images)
   }
 
   const pendingConditions: SQL[] = [
@@ -291,10 +308,7 @@ async function aggregateUsageSince(
     .from(runs)
     .where(and(...pendingConditions))
     .groupBy(runs.modelId)
-  for (const row of pending) {
-    aggregate.totalRequests += row.requests
-    add(aggregate.requestsByModel, modelKey(row.modelId), row.requests)
-  }
+  for (const row of pending) add(aggregate.requests, modelKey(row.modelId), row.requests)
 
   return aggregate
 }
@@ -304,9 +318,15 @@ function sumUsage(
   modelIds: string[] | null,
   metric: QuotaMetric,
 ): number {
-  const byModel = metric === 'cost' ? aggregate.costByModel : aggregate.requestsByModel
-  if (!modelIds) return metric === 'cost' ? aggregate.totalCost : aggregate.totalRequests
-  return modelIds.reduce((sum, id) => sum + (byModel.get(id) ?? 0), 0)
+  const total = (map: Map<string, number>) =>
+    modelIds
+      ? modelIds.reduce((sum, id) => sum + (map.get(id) ?? 0), 0)
+      : [...map.values()].reduce((sum, value) => sum + value, 0)
+  if (metric === 'requests') return total(aggregate.requests)
+  if (metric === 'images') return total(aggregate.images)
+  if (metric === 'image_cost') return total(aggregate.imageCost)
+  if (metric === 'chat_cost') return Math.max(0, total(aggregate.cost) - total(aggregate.imageCost))
+  return total(aggregate.cost)
 }
 
 /** 调整记录的作用目标：桶的规则 id、桶 key 与当前周期起点。 */
@@ -518,6 +538,8 @@ export interface QuotaSnapshot {
   rules: QuotaBucketUsageDTO[]
   /** 额度已用尽、当前不可用的模型；`enforcementPaused` 时为空（暂停期间不拦截） */
   blockedModelIds: string[]
+  /** 仍可对话、但生图额度已用尽而本轮不提供生图工具的模型 */
+  imageGenerationBlockedModelIds: string[]
   /** 当前限额是否阻塞该用户可用的全部模型；没有可用模型时为 false */
   allModelsBlocked: boolean
 }
@@ -583,7 +605,9 @@ export async function getQuotaSnapshot(
   if (
     rules.some(
       (rule) =>
-        rule.metric === 'cost' && rule.currency === 'CNY' && rule.limit.kind !== 'unlimited',
+        isQuotaCostMetric(rule.metric) &&
+        rule.currency === 'CNY' &&
+        rule.limit.kind !== 'unlimited',
     )
   )
     await requireExchangeRate()
@@ -596,6 +620,7 @@ export async function getQuotaSnapshot(
       unlimited: true,
       rules: [],
       blockedModelIds: [],
+      imageGenerationBlockedModelIds: [],
       allModelsBlocked: false,
     }
   }
@@ -728,7 +753,7 @@ export async function getQuotaSnapshot(
         : grantRows.reduce((sum, row) => {
             const amount = row.amount ?? 0
             if (
-              row.metric !== 'cost' ||
+              !isQuotaCostMetric(row.metric) ||
               (row.currency ?? 'USD') === (bucket.rule.currency ?? 'USD')
             )
               return sum + amount
@@ -767,16 +792,20 @@ export async function getQuotaSnapshot(
       shadowed: bucket.shadowed,
     }
   })
-  // 4) 派生「哪些模型当前不可用」：per-model 规则耗尽只影响自己
+  // 4) 派生「哪些模型当前不可用」：per-model 规则耗尽只影响自己；生图计量只停用生图。
   const blockedModelIds: string[] = []
+  const imageGenerationBlockedModelIds: string[] = []
   if (!paused) {
     for (const model of modelRows) {
-      const blocked = usageRules.some(
-        (rule) =>
-          rule.blocked &&
-          (rule.effectiveModelIds === null || rule.effectiveModelIds.includes(model.id)),
-      )
-      if (blocked) blockedModelIds.push(model.id)
+      const effects = usageRules
+        .filter(
+          (rule) =>
+            rule.blocked &&
+            (rule.effectiveModelIds === null || rule.effectiveModelIds.includes(model.id)),
+        )
+        .map((rule) => quotaMetricEffect(rule.metric, model.kind))
+      if (effects.includes('block')) blockedModelIds.push(model.id)
+      else if (effects.includes('image_only')) imageGenerationBlockedModelIds.push(model.id)
     }
   }
 
@@ -797,6 +826,7 @@ export async function getQuotaSnapshot(
     unlimited,
     rules: usageRules,
     blockedModelIds,
+    imageGenerationBlockedModelIds,
     allModelsBlocked,
   }
 }
@@ -814,6 +844,7 @@ export async function getMyQuota(userId: string): Promise<MyQuotaDTO> {
       warnThreshold: config.quotaWarnThreshold,
       rules: [],
       blockedModelIds: [],
+      imageGenerationBlockedModelIds: [],
     }
   }
   const snapshot = await getQuotaSnapshot(userId, { config })
@@ -828,8 +859,11 @@ export async function getMyQuota(userId: string): Promise<MyQuotaDTO> {
     warnThreshold: config.quotaWarnThreshold,
     // 用户只看实际生效的额度；完全被接管的桶仍留在管理快照中解释配置。
     // 顺序与策略 / 专属规则的展示顺序一致，不再按紧张程度重排。
-    rules: snapshot.rules.filter((rule) => !rule.shadowed),
+    rules: snapshot.rules
+      .filter((rule) => !rule.shadowed)
+      .map((rule) => (config.showCost ? rule : hideQuotaAmounts(rule))),
     blockedModelIds: snapshot.blockedModelIds,
+    imageGenerationBlockedModelIds: snapshot.imageGenerationBlockedModelIds,
   }
 }
 
@@ -850,19 +884,46 @@ export function formatQuotaResetTime(periodEnd: number | null, timezone: string)
   }
 }
 
-/** 拦截文案：说清哪条限制、用了多少、什么时候恢复。 */
-export function describeQuotaBlock(bucket: QuotaBucketUsageDTO, timezone: string): string {
+/**
+ * 不向用户展示金额时，把金额类额度换算成占比：上限记为 100、已用为百分比，
+ * 并去掉真实上限与赠送明细。换算在服务端完成，接口里不会出现具体金额。
+ */
+export function hideQuotaAmounts(rule: QuotaBucketUsageDTO): QuotaBucketUsageDTO {
+  if (!isQuotaCostMetric(rule.metric) || rule.effectiveLimit === null) return rule
+  const used = Math.round((rule.percent ?? 0) * 1000) / 10
+  return {
+    ...rule,
+    currency: undefined,
+    limit: { kind: 'amount', value: 100 },
+    used,
+    granted: 0,
+    effectiveLimit: 100,
+    remaining: Math.max(0, 100 - used),
+    grants: [],
+    amountHidden: true,
+  }
+}
+
+/** 拦截文案：说清哪条限制、用了多少、什么时候恢复；不展示金额时只说明已用尽。 */
+export function describeQuotaBlock(
+  bucket: QuotaBucketUsageDTO,
+  timezone: string,
+  showAmounts = true,
+): string {
   const target = bucket.bucketLabel ? `${bucket.bucketLabel} 的` : ''
-  const metricLabel = bucket.metric === 'cost' ? '消费额度' : '请求次数'
+  const metricLabel = isQuotaCostMetric(bucket.metric)
+    ? `${QUOTA_METRIC_LABELS[bucket.metric]}额度`
+    : QUOTA_METRIC_LABELS[bucket.metric]
   const used = formatQuotaAmount(bucket.metric, bucket.used, bucket.currency)
   const limit = formatQuotaAmount(bucket.metric, bucket.effectiveLimit ?? 0, bucket.currency)
+  const amounts = showAmounts || !isQuotaCostMetric(bucket.metric) ? `（${used} / ${limit}）` : ''
   const reset = formatQuotaResetTime(bucket.periodEnd, timezone)
   const tail = reset
     ? `，将于 ${reset} 重置`
     : bucket.window.type === 'rolling'
       ? '，请稍后再试或联系管理员'
       : '，请联系管理员调整额度'
-  return `${target}${describeQuotaWindow(bucket.window)}${metricLabel}已用尽（${used} / ${limit}）${tail}`
+  return `${target}${describeQuotaWindow(bucket.window)}${metricLabel}已用尽${amounts}${tail}`
 }
 
 export type QuotaCheckResult =
@@ -879,6 +940,8 @@ export interface QuotaCycleClaim {
 export interface PreparedQuotaAdmission {
   check: QuotaCheckResult
   cycleClaims: QuotaCycleClaim[]
+  /** 放行但本轮不提供生图工具（生图额度已用尽的对话模型）。 */
+  imageGenerationBlocked: boolean
 }
 
 type QuotaTransaction = Parameters<Parameters<DB['transaction']>[0]>[0]
@@ -1009,29 +1072,42 @@ export async function prepareQuotaAdmission(
   const needsCycleClaims = binding.rules.some(
     (rule) => rule.window.type === 'anchored' && rule.limit.kind === 'amount',
   )
-  if (!shouldEnforce && !needsCycleClaims) return { check: { ok: true }, cycleClaims: [] }
+  if (!shouldEnforce && !needsCycleClaims)
+    return { check: { ok: true }, cycleClaims: [], imageGenerationBlocked: false }
 
   const snapshot = await getQuotaSnapshot(userId, { config, binding })
   const cycleClaims = cycleClaimsForModel(snapshot, modelDbId)
   if (!shouldEnforce || !snapshot.blockedModelIds.includes(modelDbId)) {
-    return { check: { ok: true }, cycleClaims }
+    return {
+      check: { ok: true },
+      cycleClaims,
+      imageGenerationBlocked:
+        shouldEnforce && snapshot.imageGenerationBlockedModelIds.includes(modelDbId),
+    }
   }
 
+  const [model] = await db
+    .select({ kind: models.kind })
+    .from(models)
+    .where(eq(models.id, modelDbId))
+    .limit(1)
   const blockingBuckets = snapshot.rules.filter((rule) => {
-    if (!rule.blocked) return false
+    if (!rule.blocked || (model && quotaMetricEffect(rule.metric, model.kind) !== 'block'))
+      return false
     const modelIds = rule.effectiveModelIds
     return modelIds === null || modelIds.includes(modelDbId)
   })
   const bucket = sortQuotaBucketsBySeverity(blockingBuckets)[0]
-  if (!bucket) return { check: { ok: true }, cycleClaims }
+  if (!bucket) return { check: { ok: true }, cycleClaims, imageGenerationBlocked: false }
   return {
     check: {
       ok: false,
-      message: describeQuotaBlock(bucket, config.quotaTimezone),
+      message: describeQuotaBlock(bucket, config.quotaTimezone, config.showCost),
       ruleId: bucket.ruleId,
       bucketKey: bucket.bucketKey,
     },
     cycleClaims: [],
+    imageGenerationBlocked: false,
   }
 }
 

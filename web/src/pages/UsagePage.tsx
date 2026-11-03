@@ -98,11 +98,12 @@ export default function UsagePage() {
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">使用情况</h1>
             <p className="mt-1.5 text-sm leading-6 text-neutral-500 dark:text-neutral-400">
-              了解你的用量与花费{quota?.enabled ? '，查看可用额度' : ''}
+              {stats?.costHidden ? '了解你的用量' : '了解你的用量与花费'}
+              {quota?.enabled ? '，查看可用额度' : ''}
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <BillingCurrencySelect />
+            {!stats?.costHidden && <BillingCurrencySelect />}
             <Button
               variant="ghost"
               onClick={refresh}
@@ -161,8 +162,13 @@ export default function UsagePage() {
                 <UsageSummary stats={stats} />
                 {quota?.enabled && <QuotaProgressCard quota={quota} />}
                 <UsageTrendCard stats={stats} viewLabel={viewLabel} timeZone={timezone} />
-                <ModelUsageTable rows={stats.byModel} viewLabel={viewLabel} />
+                <ModelUsageTable
+                  rows={stats.byModel}
+                  viewLabel={viewLabel}
+                  costHidden={stats.costHidden}
+                />
                 <UsageHeatmap
+                  costHidden={stats.costHidden}
                   cells={stats.heatmap}
                   currentStreak={stats.totals.currentStreak}
                   longestStreak={stats.totals.longestStreak}

@@ -28,6 +28,7 @@ import {
   RefreshButton,
 } from './DashboardPrimitives'
 import {
+  COST_BASIS_LABELS,
   dashboardHref,
   EMPTY_ANALYTICS_POINT,
   fillTimeBuckets,
@@ -35,6 +36,7 @@ import {
   summarizeAnalytics,
 } from './dashboardData'
 import { UsageRanking } from './UsageRanking'
+import { modelProviderIds } from './modelRoutes'
 
 const TOKEN_SERIES: SeriesDef[] = [
   { key: 'inputTokens', name: '输入', color: '#0284c7' },
@@ -61,7 +63,8 @@ type ChartMode = keyof typeof CHART_MODES
 export default function AnalyticsPage() {
   const currency = useBillingCurrency((state) => state.currency)
   const [params, setParams] = useSearchParams()
-  const { rangeKey, providerId, modelId, userId, kindSel } = readDashboardFilters(params)
+  const { rangeKey, providerId, modelId, userId, kindSel, costBasis } = readDashboardFilters(params)
+  const costLabel = COST_BASIS_LABELS[costBasis]
   const [chartMode, setChartMode] = useState<ChartMode>('tokens')
   const updateFilters = (patch: Record<string, string>) =>
     setParams(
@@ -87,9 +90,20 @@ export default function AnalyticsPage() {
     modelId: modelId || undefined,
     userId: userId || undefined,
     kind: kindSel || undefined,
+    costBasis,
   })
   const analytics = useQuery({
-    queryKey: ['admin', 'analytics', rangeKey, providerId, modelId, userId, kindSel, currency],
+    queryKey: [
+      'admin',
+      'analytics',
+      rangeKey,
+      providerId,
+      modelId,
+      userId,
+      kindSel,
+      currency,
+      costBasis,
+    ],
     queryFn: () => getAnalytics(buildQuery()),
   })
   const userStats = useQuery({
@@ -102,6 +116,7 @@ export default function AnalyticsPage() {
       userId,
       kindSel,
       currency,
+      costBasis,
     ],
     queryFn: () => getUserStats(buildQuery()),
   })
@@ -180,6 +195,19 @@ export default function AnalyticsPage() {
         description="追踪用量变化，了解成本花在哪里。"
         actions={
           <>
+            <Select
+              aria-label="金额口径"
+              size="sm"
+              className="w-32"
+              value={costBasis}
+              onChange={(event) =>
+                updateFilters({ basis: event.target.value === 'billed' ? 'billed' : '' })
+              }
+              options={[
+                { value: 'upstream', label: '上游成本', description: '按各线路成本价结算' },
+                { value: 'billed', label: '用户计费', description: '按用户计价，即额度口径' },
+              ]}
+            />
             <BillingCurrencySelect />
             <DateRangePicker value={rangeKey} onChange={(range) => updateFilters({ range })} />
             <RefreshButton busy={analytics.isFetching || userStats.isFetching} onClick={refresh} />
@@ -204,7 +232,7 @@ export default function AnalyticsPage() {
           options={[
             { value: '', label: '全部模型' },
             ...(models.data ?? [])
-              .filter((m) => !providerId || m.providerId === providerId)
+              .filter((m) => !providerId || modelProviderIds(m).includes(providerId))
               .map((m) => ({ value: m.id, label: m.displayName })),
           ]}
           onChange={(event) => updateFilters({ modelId: event.target.value })}
@@ -286,12 +314,15 @@ export default function AnalyticsPage() {
                     : '暂无输入 Token',
                 },
                 {
-                  label: '预估成本',
+                  label: costBasis === 'billed' ? '用户计费' : '上游成本',
                   value: formatCurrency(totals.cost),
-                  hint: '按请求时的模型价格估算',
+                  hint:
+                    costBasis === 'billed'
+                      ? '按请求时的用户计价结算'
+                      : '按请求时实际线路的成本价结算',
                 },
                 {
-                  label: '平均单次成本',
+                  label: `平均单次${costLabel}`,
                   value: totals.requests ? formatCurrency(totals.cost / totals.requests) : '—',
                   hint: `${data.models.length} 个模型 · ${data.providers.length} 个供应商`,
                 },
@@ -327,7 +358,7 @@ export default function AnalyticsPage() {
                             className={`min-h-8 rounded-md px-2.5 text-xs transition focus-visible:outline-sky-500 ${mode === chartMode ? 'bg-sky-100 text-sky-800 dark:bg-sky-500/15 dark:text-sky-300' : 'text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800'}`}
                             onClick={() => setChartMode(mode)}
                           >
-                            {CHART_MODES[mode].label}
+                            {mode === 'cost' ? costLabel : CHART_MODES[mode].label}
                           </button>
                         ))}
                       </div>
@@ -336,7 +367,11 @@ export default function AnalyticsPage() {
                     <TrendChart
                       data={series}
                       bucket={data.bucket}
-                      series={CHART_MODES[chartMode].series}
+                      series={
+                        chartMode === 'cost'
+                          ? [{ ...CHART_MODES.cost.series[0]!, name: costLabel }]
+                          : CHART_MODES[chartMode].series
+                      }
                       valueFormat={CHART_MODES[chartMode].format}
                       height={225}
                       timeZone="UTC"
@@ -395,11 +430,13 @@ export default function AnalyticsPage() {
                 <div className="grid gap-4 lg:grid-cols-2">
                   <UsageRanking
                     title="模型用量排行"
+                    costLabel={costLabel}
                     rows={data.models}
                     onSelect={(id) => updateFilters({ modelId: id })}
                   />
                   <UsageRanking
                     title="供应商用量排行"
+                    costLabel={costLabel}
                     rows={data.providers}
                     onSelect={(id) => updateFilters({ providerId: id, modelId: '' })}
                   />
@@ -415,6 +452,7 @@ export default function AnalyticsPage() {
       {userStats.data && (
         <AnalyticsUsers
           key={`${rangeKey}:${providerId}:${modelId}:${userId}:${kindSel}`}
+          costLabel={costLabel}
           rows={userStats.data}
         />
       )}

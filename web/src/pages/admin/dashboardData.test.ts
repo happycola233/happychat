@@ -58,10 +58,14 @@ describe('dashboard data', () => {
       providerId: '',
       kindSel: 'title',
       resultSel: 'refused',
+      costBasis: 'upstream',
     })
-    expect(readDashboardFilters(new URLSearchParams('range=no&kind=no&result=toString'))).toEqual(
-      expect.objectContaining({ rangeKey: '7d', kindSel: '', resultSel: '' }),
+    expect(
+      readDashboardFilters(new URLSearchParams('range=no&kind=no&result=toString&basis=x')),
+    ).toEqual(
+      expect.objectContaining({ rangeKey: '7d', kindSel: '', resultSel: '', costBasis: 'upstream' }),
     )
+    expect(readDashboardFilters(new URLSearchParams('basis=billed')).costBasis).toBe('billed')
   })
   it('does not show infinite growth from an empty previous period', () => {
     expect(comparisonLabel(3, 0)).toBe('上一时段为 0')

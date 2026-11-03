@@ -94,7 +94,6 @@ async function createFixture(kind: 'responses' | 'chat' | 'anthropic' = 'respons
   })
   await dbClient.db.insert(schema.models).values({
     id: modelId,
-    providerId,
     modelId: 'gpt-test',
     displayName: 'GPT Test',
     kind,
@@ -109,6 +108,7 @@ async function createFixture(kind: 'responses' | 'chat' | 'anthropic' = 'respons
       artifacts: false,
     },
   })
+  await dbClient.db.insert(schema.modelRoutes).values({ modelId, providerId })
   const [conversation] = await dbClient.db
     .insert(schema.conversations)
     .values({ userId, modelId })

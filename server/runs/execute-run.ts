@@ -1,8 +1,9 @@
 import { and, eq, inArray } from 'drizzle-orm'
-import type { ModelParams } from '@shared/types/domain'
+import type { ModelParams, RequestCostBreakdown } from '@shared/types/domain'
 import { RUN_EVENT_TYPE, type RetryFailureNotice, type RunRetryData } from '@shared/types/events'
 import type { RetryAttemptFailure, RetryFailureStage } from '@shared/types/retry'
 import type { RunProgress } from '@shared/types/run-progress'
+import { calculateRequestCost, mergeRequestCosts } from '@shared/util/cost'
 import { isReasoningEnabled } from '@shared/util/reasoning'
 import { db } from '../db/client'
 import { runEvents, runs } from '../db/schema'
@@ -14,6 +15,7 @@ import {
   type UpstreamResponseTimingObserver,
 } from '../provider/response-timing'
 import { getAppConfig } from '../services/appConfig'
+import { isRouteFault, routeHealth } from '../services/model-routes'
 import { requestMonitorEvents } from '../services/request-monitor-events'
 import { resolveModelPricing } from '../services/model-pricing'
 import { runEmitter } from './emitter'
@@ -22,9 +24,9 @@ import {
   redactProviderOpaqueContent,
 } from '../provider/opaque-content'
 import { sanitizeEventData } from './event-sanitize'
-import { finalizeRun, type FinalizeArgs } from './finalize'
+import { finalizeRun, type AttemptResult } from './finalize'
 import { removeGeneratedImageAttachments } from './generated-images'
-import type { EngineContext } from './types'
+import type { EngineContext, RunExecution, RunRoute } from './types'
 import { saveRunErrorAudit } from './error-audit'
 
 export interface RunAttemptRuntime {
@@ -37,6 +39,9 @@ export interface RunAttemptRuntime {
     sensitiveValues?: readonly string[],
   ) => void
 }
+
+/** 协议引擎实现的单次尝试；返回值交给编排器决定重试、换线路或结算。 */
+export type RunAttempt = (ctx: EngineContext, runtime: RunAttemptRuntime) => Promise<AttemptResult>
 
 /** 连接通知和空占位不算输出；思考、检索进展和图片同正文一样属于已经展示的内容。 */
 function isOutput(type: string, data: Record<string, unknown>): boolean {
@@ -77,17 +82,35 @@ function retryFailureNotice(failure: RetryAttemptFailure): RetryFailureNotice {
 /**
  * 一次用户生成只有一个 run、一个结算入口和一份重试预算。
  * 各次尝试使用全新的协议累积器；新输出到达前保留旧内容，避免失败重连把回答清空。
+ *
+ * 线路调度：候选线路按 prepare 阶段排好的顺序依次尝试。线路级故障（见 isRouteFault）
+ * 立即切换到本轮尚未尝试的下一条线路，不等待、不占重试次数；本轮线路都失败后才按
+ * 自动重试策略退避，并以最新熔断状态重新开始一轮。只有一条线路时与单供应商行为一致。
  */
 export async function executeRun(
-  ctx: EngineContext,
-  executeAttempt: (ctx: EngineContext, runtime: RunAttemptRuntime) => Promise<FinalizeArgs>,
+  execution: RunExecution,
+  executeAttempt: RunAttempt,
 ): Promise<void> {
-  ctx = { ...ctx, model: { ...ctx.model, pricing: resolveModelPricing(ctx.model) } }
+  const model = { ...execution.model, pricing: resolveModelPricing(execution.model) }
+  const { candidates } = execution.routing
   const policy = (await getAppConfig()).upstreamRetry
   const startedAt = new Date()
   const deadline = startedAt.getTime() + policy.maxElapsedSeconds * 1000
   const timing = new UpstreamResponseLatencyTracker()
-  const sensitiveContent = new Set(collectProviderOpaqueStrings(ctx.body))
+  const sensitiveContent = new Set<string>()
+  // 每条线路的请求体只在实际尝试时构建；其中的私有密文同样参与日志脱敏。
+  const attemptContext = (route: RunRoute, abortController: AbortController): EngineContext => {
+    const body = execution.routing.bodyFor(route)
+    collectProviderOpaqueStrings(body).forEach((value) => sensitiveContent.add(value))
+    return {
+      ...execution,
+      model: { ...model, modelId: route.upstreamModelId },
+      route,
+      provider: route.provider,
+      body,
+      abortController,
+    }
+  }
   let sequence = 0
   const emit = (type: string, data: Record<string, unknown>, observedAt = new Date()): number => {
     collectProviderOpaqueStrings(data).forEach((value) => sensitiveContent.add(value))
@@ -95,16 +118,19 @@ export async function executeRun(
     const sequenceNumber = sequence++
     db.insert(runEvents)
       .values({
-        runId: ctx.run.id,
+        runId: execution.run.id,
         sequenceNumber,
         type,
         data: sanitizedData,
         createdAt: observedAt,
       })
       .run()
-    db.update(runs).set({ lastSequenceNumber: sequenceNumber }).where(eq(runs.id, ctx.run.id)).run()
+    db.update(runs)
+      .set({ lastSequenceNumber: sequenceNumber })
+      .where(eq(runs.id, execution.run.id))
+      .run()
     runEmitter.emit({
-      runId: ctx.run.id,
+      runId: execution.run.id,
       sequenceNumber,
       type,
       data: sanitizedData,
@@ -113,43 +139,61 @@ export async function executeRun(
     return sequenceNumber
   }
   emit(RUN_EVENT_TYPE.created, {
-    runId: ctx.run.id,
-    conversationId: ctx.conversation.id,
-    assistantMessageId: ctx.assistantMessage.id,
+    runId: execution.run.id,
+    conversationId: execution.conversation.id,
+    assistantMessageId: execution.assistantMessage.id,
     startedAt: startedAt.getTime(),
-    reasoningEnabled: isReasoningEnabled(ctx.model, ctx.run.requestParams as ModelParams | null),
+    reasoningEnabled: isReasoningEnabled(model, execution.run.requestParams as ModelParams | null),
   })
-  db.update(runs).set({ state: 'running', startedAt }).where(eq(runs.id, ctx.run.id)).run()
+  db.update(runs).set({ state: 'running', startedAt }).where(eq(runs.id, execution.run.id)).run()
+
+  const rounds = policy.enabled ? policy.maxRetries + 1 : 1
+  const maxAttempts = rounds * candidates.length
+  // 每轮按最新熔断状态重排（稳定排序，保留 prepare 阶段的优先级与权重顺序）。
+  const roundOrder = () =>
+    [...candidates].sort(
+      (a, b) =>
+        Number(routeHealth.isCooling(a.route.id)) - Number(routeHealth.isCooling(b.route.id)),
+    )
+  let round = 1
+  let roundRoutes = candidates
+  let routeIndex = 0
+  let route = candidates[0]!
 
   const failures: RetryAttemptFailure[] = []
+  const upstreamCosts: RequestCostBreakdown[] = []
   let attempt = 1
-  let visibleResult: FinalizeArgs | null = null
+  let visibleResult: AttemptResult | null = null
   let visibleAttachments = new Set<string>()
-  let totalUsage: FinalizeArgs['usage'] | null = null
+  let totalUsage: AttemptResult['usage'] | null = null
   let totalImageTokens = 0
-  const imageUsage: NonNullable<FinalizeArgs['imageUsage']> = []
-  let result: FinalizeArgs
+  const imageUsage: NonNullable<AttemptResult['imageUsage']> = []
+  let result: AttemptResult
+  const routeProgress = (target: RunRoute) => ({
+    modelLabel: target.upstreamModelId,
+    providerId: target.provider.id,
+    providerLabel: target.provider.name,
+    routeId: target.route.id,
+  })
   let progress: RunProgress = {
     phase: 'connecting',
     attempt: 1,
-    maxAttempts: policy.enabled ? policy.maxRetries + 1 : 1,
+    maxAttempts,
     requestStartedAt: null,
     updatedAt: startedAt.getTime(),
     nextRetryAt: null,
     upstreamResponseLatencyMs: null,
-    modelLabel: ctx.model.modelId,
-    modelDisplayName: ctx.model.displayName,
-    providerId: ctx.provider.id,
-    providerLabel: ctx.provider.name,
+    modelDisplayName: model.displayName,
+    ...routeProgress(route),
   }
   // 只在阶段切换时写轻量快照并通知管理端，不为每个 delta 增加写入或刷新。
   const saveProgress = (patch: Partial<RunProgress>) => {
     progress = { ...progress, ...patch, updatedAt: Date.now() }
-    db.update(runs).set({ progress }).where(eq(runs.id, ctx.run.id)).run()
+    db.update(runs).set({ progress }).where(eq(runs.id, execution.run.id)).run()
     requestMonitorEvents.notify()
   }
   const saveRunningError = () => {
-    saveRunErrorAudit(db, ctx.run.id, ctx.run.userId, {
+    saveRunErrorAudit(db, execution.run.id, execution.run.userId, {
       attempts: attempt,
       outcome: 'running',
       failures,
@@ -164,11 +208,12 @@ export async function executeRun(
       attempt,
       requestStartedAt: null,
       nextRetryAt: null,
+      ...routeProgress(route),
     })
     const controller = new AbortController()
-    const cancel = () => controller.abort(ctx.abortController.signal.reason)
-    if (ctx.abortController.signal.aborted) cancel()
-    else ctx.abortController.signal.addEventListener('abort', cancel, { once: true })
+    const cancel = () => controller.abort(execution.abortController.signal.reason)
+    if (execution.abortController.signal.aborted) cancel()
+    else execution.abortController.signal.addEventListener('abort', cancel, { once: true })
     let cancelTimeout: (() => void) | undefined
     let timedOut: 'first_output_timeout' | 'stream_idle_timeout' | null = null
     let receivedHeaders = false
@@ -182,11 +227,13 @@ export async function executeRun(
     const attachments = new Set<string>()
     const previousFailure = failures.at(-1)
     const previousStage = previousFailure?.stage
+    // 还有备用线路时，即使未开启自动重试也启用等待超时，否则卡死的线路永远不会切走。
+    const timeoutsEnabled = policy.enabled || routeIndex < roundRoutes.length - 1
     if (previousFailure)
       emit(RUN_EVENT_TYPE.retry, {
         phase: 'attempting',
         attempt,
-        maxAttempts: policy.maxRetries + 1,
+        maxAttempts,
         nextRetryAt: null,
         stage: previousStage,
         lastFailure: retryFailureNotice(previousFailure),
@@ -194,7 +241,7 @@ export async function executeRun(
 
     const armTimeout = () => {
       cancelTimeout?.()
-      if (!policy.enabled || (outputObserved && policy.streamIdleTimeoutSeconds === 0)) return
+      if (!timeoutsEnabled || (outputObserved && policy.streamIdleTimeoutSeconds === 0)) return
       const duration = outputObserved
         ? policy.streamIdleTimeoutSeconds * 1000
         : Math.min(policy.attemptTimeoutSeconds * 1000, Math.max(0, deadline - Date.now()))
@@ -214,7 +261,7 @@ export async function executeRun(
           .from(runEvents)
           .where(
             and(
-              eq(runEvents.runId, ctx.run.id),
+              eq(runEvents.runId, execution.run.id),
               inArray(runEvents.type, ['image.generation.partial', 'image.generation.completed']),
             ),
           )
@@ -248,7 +295,7 @@ export async function executeRun(
           emit(RUN_EVENT_TYPE.retry, {
             phase: 'connected',
             attempt,
-            maxAttempts: policy.maxRetries + 1,
+            maxAttempts,
             nextRetryAt: null,
             stage: previousStage,
           } satisfies RunRetryData)
@@ -259,51 +306,48 @@ export async function executeRun(
     }
 
     try {
-      result = await executeAttempt(
-        { ...ctx, abortController: controller },
-        {
-          startedAt,
-          persistEmit,
-          recordError: (error, sensitiveValues = []) => {
-            // 协议引擎可能消费了未下发的私有字段，诊断原文也必须使用同一脱敏集合。
-            sensitiveValues.forEach((value) => sensitiveContent.add(value))
-            retryAfter = error?.retryAfterMs ?? 0
-            rawErrorMessage = error?.rawMessage
-          },
-          upstreamResponseTiming: {
-            onRequestStart(at) {
-              timing.onRequestStart(at)
-              if (attemptRequestStartedAt === null) {
-                attemptRequestStartedAt = at
-                saveProgress({ requestStartedAt: at })
-                if (previousFailure) {
-                  previousFailure.retriedAt = at
-                  saveRunningError()
-                }
-                armTimeout()
+      result = await executeAttempt(attemptContext(route, controller), {
+        startedAt,
+        persistEmit,
+        recordError: (error, sensitiveValues = []) => {
+          // 协议引擎可能消费了未下发的私有字段，诊断原文也必须使用同一脱敏集合。
+          sensitiveValues.forEach((value) => sensitiveContent.add(value))
+          retryAfter = error?.retryAfterMs ?? 0
+          rawErrorMessage = error?.rawMessage
+        },
+        upstreamResponseTiming: {
+          onRequestStart(at) {
+            timing.onRequestStart(at)
+            if (attemptRequestStartedAt === null) {
+              attemptRequestStartedAt = at
+              saveProgress({ requestStartedAt: at })
+              if (previousFailure) {
+                previousFailure.retriedAt = at
+                saveRunningError()
               }
-            },
-            onResponseHeaders(sample) {
-              receivedHeaders = sample.ok
-              responseHttpStatus = sample.status ?? null
-              timing.onResponseHeaders(sample)
-              saveProgress({
-                phase: outputObserved ? 'streaming' : sample.ok ? 'waiting_output' : 'connecting',
-                upstreamResponseLatencyMs: timing.latencyMs,
-              })
-            },
-            get latencyMs() {
-              return timing.latencyMs
-            },
+              armTimeout()
+            }
+          },
+          onResponseHeaders(sample) {
+            receivedHeaders = sample.ok
+            responseHttpStatus = sample.status ?? null
+            timing.onResponseHeaders(sample)
+            saveProgress({
+              phase: outputObserved ? 'streaming' : sample.ok ? 'waiting_output' : 'connecting',
+              upstreamResponseLatencyMs: timing.latencyMs,
+            })
+          },
+          get latencyMs() {
+            return timing.latencyMs
           },
         },
-      )
+      })
     } finally {
       cancelTimeout?.()
-      ctx.abortController.signal.removeEventListener('abort', cancel)
+      execution.abortController.signal.removeEventListener('abort', cancel)
     }
 
-    if (timedOut && result.state === 'canceled' && !ctx.abortController.signal.aborted) {
+    if (timedOut && result.state === 'canceled' && !execution.abortController.signal.aborted) {
       result = {
         ...result,
         state: 'failed',
@@ -314,18 +358,33 @@ export async function executeRun(
           timedOut === 'first_output_timeout' ? '等待首次输出超时。' : '上游长时间未继续输出。',
       }
     }
-    if (ctx.abortController.signal.aborted)
+    if (execution.abortController.signal.aborted)
       result = { ...result, state: 'canceled', errorMessage: null }
-    result.usage.billingSegments ??= [
-      { ...result.usage, startedAt: attemptRequestStartedAt ?? attemptStartedAt.getTime() },
-    ]
+    const attemptAt = attemptRequestStartedAt ?? attemptStartedAt.getTime()
+    result.usage.billingSegments ??= [{ ...result.usage, startedAt: attemptAt }]
+    const attemptImageUsage = (result.imageUsage ?? []).map((usage) => ({
+      ...usage,
+      startedAt: attemptAt,
+    }))
     totalUsage = totalUsage ? addMessageUsage(totalUsage, result.usage) : result.usage
     totalImageTokens += result.imageTokens ?? 0
-    imageUsage.push(
-      ...(result.imageUsage ?? []).map((usage) => ({
-        ...usage,
-        startedAt: attemptRequestStartedAt ?? attemptStartedAt.getTime(),
-      })),
+    imageUsage.push(...attemptImageUsage)
+    // 上游成本按本次实际所走线路的成本价单独结算，故障转移的多条线路分别计价后相加。
+    upstreamCosts.push(
+      calculateRequestCost(
+        {
+          billingSegments: result.usage.billingSegments,
+          inputTokens: result.usage.inputTokens,
+          cacheWriteTokens: result.usage.cacheWriteTokens,
+          cachedTokens: result.usage.cachedTokens,
+          outputTokens: result.usage.outputTokens,
+          imageTokens: result.imageTokens ?? 0,
+        },
+        route.costPricing ?? model.pricing,
+        model.kind,
+        attemptImageUsage,
+        attemptAt,
+      ),
     )
     // 成功的空回答及明确拒绝也必须替换旧内容；普通失败且没有新输出时保留上次内容。
     if (
@@ -339,35 +398,57 @@ export async function executeRun(
       visibleAttachments = attachments
     }
 
+    if (result.state === 'completed' || result.state === 'incomplete')
+      routeHealth.recordSuccess(route.route.id)
     if (result.state !== 'failed') break
     const stage: RetryFailureStage = outputObserved
       ? 'after_output'
       : receivedHeaders
         ? 'before_output'
         : 'connecting'
-    const { delayMs, stopReason } = retryDecision(
-      policy,
-      {
-        status: result.httpStatus ?? -1,
-        type: result.errorType ?? undefined,
-        code: result.errorCode ?? undefined,
-      },
-      attempt,
-      deadline,
-      stage,
-      retryAfter,
-    )
+    const httpStatus = responseHttpStatus ?? (result.httpStatus || null)
+    const message = redactProviderOpaqueContent(result.errorMessage ?? '生成失败', [
+      ...sensitiveContent,
+    ])
+    const routeFault = isRouteFault({
+      errorType: result.errorType ?? null,
+      errorCode: result.errorCode ?? null,
+      httpStatus: result.httpStatus ?? null,
+    })
+    if (routeFault) routeHealth.recordFailure(route.route.id, message)
+    // 换线路相当于重新生成：输出开始后是否允许，与同线路重试共用「输出后重试」开关。
+    const failover =
+      routeFault &&
+      routeIndex < roundRoutes.length - 1 &&
+      !(stage === 'after_output' && !policy.retryAfterOutput) &&
+      Date.now() < deadline
+    const decision = failover
+      ? { delayMs: 0, stopReason: null }
+      : retryDecision(
+          policy,
+          {
+            status: result.httpStatus ?? -1,
+            type: result.errorType ?? undefined,
+            code: result.errorCode ?? undefined,
+          },
+          round,
+          deadline,
+          stage,
+          retryAfter,
+        )
     const failure: RetryAttemptFailure = {
       attempt,
       stage,
+      routeId: route.route.id,
+      providerId: route.provider.id,
+      providerLabel: route.provider.name,
+      upstreamModelId: route.upstreamModelId,
       requestStartedAt: attemptRequestStartedAt,
       failedAt: Date.now(),
       errorType: result.errorType ?? null,
       errorCode: result.errorCode ?? null,
-      httpStatus: responseHttpStatus ?? (result.httpStatus || null),
-      message: redactProviderOpaqueContent(result.errorMessage ?? '生成失败', [
-        ...sensitiveContent,
-      ]),
+      httpStatus,
+      message,
       ...(rawErrorMessage
         ? {
             rawMessage: redactProviderOpaqueContent(rawErrorMessage, [...sensitiveContent]).slice(
@@ -376,38 +457,54 @@ export async function executeRun(
             ),
           }
         : {}),
-      nextRetryAt: stopReason ? null : Date.now() + delayMs,
-      stopReason,
+      nextRetryAt: decision.stopReason ? null : Date.now() + decision.delayMs,
+      stopReason: decision.stopReason,
+      ...(decision.stopReason ? {} : { nextAction: failover ? 'failover' : 'retry' }),
     }
     failures.push(failure)
     saveRunningError()
-    if (stopReason) break
+    if (decision.stopReason) break
+    attempt += 1
+    if (failover) {
+      routeIndex += 1
+      route = roundRoutes[routeIndex]!
+      continue
+    }
     saveProgress({ phase: 'retry_wait', nextRetryAt: failure.nextRetryAt })
     emit(RUN_EVENT_TYPE.retry, {
       phase: 'waiting',
-      attempt: attempt + 1,
-      maxAttempts: policy.maxRetries + 1,
+      attempt,
+      maxAttempts,
       nextRetryAt: failure.nextRetryAt,
       stage,
       lastFailure: retryFailureNotice(failure),
     } satisfies RunRetryData)
     try {
-      await waitForRetry(delayMs, ctx.abortController.signal)
+      await waitForRetry(decision.delayMs, execution.abortController.signal)
     } catch {
       failure.stopReason = 'canceled'
+      delete failure.nextAction
       result = { ...result, state: 'canceled', errorMessage: null }
+      attempt -= 1
       break
     }
     if (Date.now() >= deadline) {
       failure.stopReason = 'budget_exhausted'
+      delete failure.nextAction
+      attempt -= 1
       break
     }
-    attempt += 1
+    round += 1
+    roundRoutes = roundOrder()
+    routeIndex = 0
+    route = roundRoutes[0]!
   }
 
   const visible = visibleResult ?? result
   await finalizeRun({
     ...result,
+    model,
+    route,
     text: visible.text,
     content: visible.content,
     processSteps: visible.processSteps,
@@ -416,6 +513,7 @@ export async function executeRun(
     usage: totalUsage!,
     imageTokens: totalImageTokens,
     imageUsage,
+    upstreamCost: mergeRequestCosts(upstreamCosts),
     startedAt,
     upstreamResponseLatencyMs: timing.latencyMs,
     persistEmit: emit,

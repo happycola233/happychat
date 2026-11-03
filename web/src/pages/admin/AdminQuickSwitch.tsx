@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { ArrowUpRight, Boxes, Search, UserRound } from 'lucide-react'
+import { describeModelRoutes } from './modelRoutes'
 import { clsx } from 'clsx'
 import { listAdminModels, listUsers } from '../../api/admin'
 import { Modal } from '../../components/ui/Modal'
@@ -32,11 +33,15 @@ export function AdminQuickSwitch({
       })),
     ...(keyword
       ? (models ?? [])
-          .filter((model) => matches(`${model.displayName} ${model.modelId} ${model.providerName}`))
+          .filter((model) =>
+            matches(
+              `${model.displayName} ${model.modelId} ${model.routes.map((route) => route.providerName).join(' ')}`,
+            ),
+          )
           .slice(0, 8)
           .map((model) => ({
             title: model.displayName,
-            detail: `配置模型 · ${model.providerName}`,
+            detail: `配置模型 · ${describeModelRoutes(model)}`,
             href: `/admin/models?edit=${encodeURIComponent(model.id)}`,
             icon: Boxes,
           }))

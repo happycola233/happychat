@@ -2,7 +2,9 @@ import type { QuotaMetric, QuotaRule } from '@shared/types/domain'
 import {
   QUOTA_MAX_RULES_PER_POLICY,
   QUOTA_MAX_RULE_PRIORITY,
+  QUOTA_METRIC_LABELS,
   formatQuotaAmount,
+  isQuotaCostMetric,
 } from '@shared/util/quota'
 import { QUOTA_HOURLY_WINDOW_MAX_HOURS, describeQuotaHours } from '@shared/util/quotaWindow'
 import { createRandomUuid } from '../../lib/randomUuid'
@@ -95,8 +97,8 @@ export function ruleFromDraft(draft: QuotaRuleDraft): DraftResult {
   if (!draft.unlimited && (!draft.limitInput.trim() || !Number.isFinite(amount) || amount < 0)) {
     return { ok: false, message: '请填写不小于 0 的额度上限，或开启「豁免」' }
   }
-  if (!draft.unlimited && draft.metric === 'requests' && !Number.isInteger(amount)) {
-    return { ok: false, message: '请求次数上限必须是整数' }
+  if (!draft.unlimited && !isQuotaCostMetric(draft.metric) && !Number.isInteger(amount)) {
+    return { ok: false, message: '次数或张数上限必须是整数' }
   }
 
   const hours = Number(draft.durationHoursInput)
@@ -129,7 +131,9 @@ export function ruleFromDraft(draft: QuotaRuleDraft): DraftResult {
             ? { type: 'models', modelIds: draft.targetIds, mode: draft.mode }
             : { type: 'groups', groupIds: draft.targetIds, mode: draft.mode },
       metric: draft.metric,
-      ...(draft.metric === 'cost' && draft.currency === 'CNY' ? { currency: 'CNY' as const } : {}),
+      ...(isQuotaCostMetric(draft.metric) && draft.currency === 'CNY'
+        ? { currency: 'CNY' as const }
+        : {}),
       limit: draft.unlimited ? { kind: 'unlimited' } : { kind: 'amount', value: amount },
       window: windowFromDraft(draft, hours),
       priority,
@@ -219,7 +223,7 @@ function describeDraftLimit(draft: QuotaRuleDraft): { text: string; incomplete: 
   if (!draft.limitInput.trim() || !Number.isFinite(amount) || amount < 0) {
     return { text: '未设上限', incomplete: true }
   }
-  if (draft.metric === 'requests' && !Number.isInteger(amount)) {
+  if (!isQuotaCostMetric(draft.metric) && !Number.isInteger(amount)) {
     return { text: '未设上限', incomplete: true }
   }
   return { text: formatQuotaAmount(draft.metric, amount, draft.currency), incomplete: false }
@@ -238,11 +242,7 @@ export function summarizeQuotaRuleDraft(draft: QuotaRuleDraft): QuotaRuleDraftSu
     draft.scopeType === 'all' ? null : draft.mode === 'each' ? '各自独立' : '共享额度'
   const titled = Boolean(draft.label.trim())
   // 有备注时标题让给备注，第二行补回范围；没备注时标题就是范围，第二行不再重复。
-  const subtitle = [
-    titled ? scopeText : null,
-    draft.metric === 'cost' ? '消费金额' : '请求次数',
-    modeText,
-  ]
+  const subtitle = [titled ? scopeText : null, QUOTA_METRIC_LABELS[draft.metric], modeText]
     .filter(Boolean)
     .join(' · ')
 

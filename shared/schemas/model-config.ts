@@ -242,9 +242,57 @@ export const pricingSchema = z
     message: '请选择自定义生图定价或已有生图定价',
   })
 
+export const MODEL_ROUTE_MAX_COUNT = 20
+export const MODEL_ROUTE_PRIORITY_MAX = 99
+export const MODEL_ROUTE_WEIGHT_MAX = 100
+
+/** 线路成本价：与用户计价同构，但必须直接填写生图价格，不引用其他模型的计费价。 */
+export const routeCostPricingSchema = pricingSchema.refine(
+  (pricing) => !pricing.imagePricingModelId,
+  '成本价请直接填写生图价格',
+)
+
+/** 一条上游线路；id 用于更新时保留线路身份（请求审计按线路统计）。 */
+export const modelRouteInputSchema = z.object({
+  id: z.string().min(1).optional(),
+  providerId: z.string().min(1, '请选择供应商'),
+  // 空字符串与 null 都表示沿用模型 ID。
+  upstreamModelId: z
+    .string()
+    .trim()
+    .max(120, '上游模型 ID 不能超过 120 个字符')
+    .nullable()
+    .optional()
+    .transform((value) => value || null),
+  priority: z
+    .number()
+    .int('优先级必须是整数')
+    .min(0, '优先级不能小于 0')
+    .max(MODEL_ROUTE_PRIORITY_MAX, `优先级不能大于 ${MODEL_ROUTE_PRIORITY_MAX}`)
+    .default(0),
+  weight: z
+    .number()
+    .int('权重必须是整数')
+    .min(1, '权重至少为 1')
+    .max(MODEL_ROUTE_WEIGHT_MAX, `权重不能大于 ${MODEL_ROUTE_WEIGHT_MAX}`)
+    .default(1),
+  enabled: z.boolean().default(true),
+  costPricing: routeCostPricingSchema.nullable().default(null),
+})
+
+/** 完整替换模型的线路集合；数组顺序即展示顺序。 */
+export const modelRoutesSchema = z
+  .array(modelRouteInputSchema)
+  .min(1, '至少需要一条线路')
+  .max(MODEL_ROUTE_MAX_COUNT, `单个模型最多 ${MODEL_ROUTE_MAX_COUNT} 条线路`)
+  .refine((routes) => {
+    const ids = routes.flatMap((route) => (route.id ? [route.id] : []))
+    return new Set(ids).size === ids.length
+  }, '线路 ID 不能重复')
+
 export const modelUpdateSchema = z.object({
   usageNotice: modelUsageNoticeSchema.nullable().optional(),
-  providerId: z.string().min(1, '请选择所属供应商').optional(),
+  routes: modelRoutesSchema.optional(),
   modelId: z.string().trim().min(1).max(120).optional(),
   displayName: z.string().trim().min(1).max(MODEL_DISPLAY_NAME_MAX_LENGTH).optional(),
   description: modelDescriptionSchema.nullable().optional(),
@@ -276,10 +324,10 @@ const defaultCapabilities = {
   artifacts: false,
 }
 
-/** 手动添加模型：providerId + modelId 必填，其余给合理默认。 */
+/** 手动添加模型：线路 + modelId 必填，其余给合理默认。 */
 export const modelCreateSchema = z.object({
   usageNotice: modelUsageNoticeSchema.nullable().optional(),
-  providerId: z.string().min(1, '请选择所属供应商'),
+  routes: modelRoutesSchema,
   modelId: z.string().trim().min(1, '请填写模型 ID').max(120),
   displayName: z.string().trim().min(1, '请填写显示名称').max(MODEL_DISPLAY_NAME_MAX_LENGTH),
   description: modelDescriptionSchema.nullable().optional(),
@@ -341,6 +389,7 @@ export const modelAccessUpdateSchema = z.object({
 
 export type ProviderCreateInput = z.infer<typeof providerCreateSchema>
 export type ProviderUpdateInput = z.infer<typeof providerUpdateSchema>
+export type ModelRouteInput = z.infer<typeof modelRouteInputSchema>
 export type ModelUpdateInput = z.infer<typeof modelUpdateSchema>
 export type ModelCreateInput = z.infer<typeof modelCreateSchema>
 export type ModelImportInput = z.infer<typeof modelImportSchema>

@@ -9,12 +9,15 @@ const provider = {
   apiKey: 'private-secret',
   extraHeaders: { 'X-Gateway-Token': 'gateway-secret', 'OpenAI-Project': 'project-demo' },
 }
-const baseModel = { providerId: 'provider-demo', modelId: 'gpt-test', displayName: 'GPT Test' }
+const baseModel = { modelId: 'gpt-test', displayName: 'GPT Test' }
+/** 预览默认走演示供应商的线路；个别用例再覆盖 route。 */
+const parsePreview = (input: Record<string, unknown>) =>
+  requestPreviewSchema.parse({ route: { providerId: 'provider-demo' }, ...input })
 
 describe('upstream request preview', () => {
   it('shows the final merged parameters, fixed streaming and runtime instructions without accessing upstream', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch')
-    const input = requestPreviewSchema.parse({
+    const input = parsePreview({
       model: {
         ...baseModel,
         defaultSystemPrompt: 'You are {{model_name}}, speaking to {{current_user}}.',
@@ -45,7 +48,7 @@ describe('upstream request preview', () => {
     const preview = (artifacts: boolean) =>
       buildRequestPreview(
         provider,
-        requestPreviewSchema.parse({
+        parsePreview({
           model: {
             ...baseModel,
             capabilities: {
@@ -76,20 +79,18 @@ describe('upstream request preview', () => {
       defaultWebSearch: true,
       hardParams: { tools: [{ type: 'web_search', search_context_size: 'high' }] },
     }
-    expect(buildRequestPreview(provider, requestPreviewSchema.parse({ model })).body.tools).toEqual(
-      [{ type: 'web_search', search_context_size: 'high' }],
-    )
+    expect(buildRequestPreview(provider, parsePreview({ model })).body.tools).toEqual([
+      { type: 'web_search', search_context_size: 'high' },
+    ])
     expect(
-      buildRequestPreview(
-        provider,
-        requestPreviewSchema.parse({ model, userParams: { web_search: false } }),
-      ).body,
+      buildRequestPreview(provider, parsePreview({ model, userParams: { web_search: false } }))
+        .body,
     ).not.toHaveProperty('tools')
   })
   it('uses Chat Completions message structure and preserves max_tokens', () => {
     const result = buildRequestPreview(
       provider,
-      requestPreviewSchema.parse({
+      parsePreview({
         model: { ...baseModel, kind: 'chat', hardParams: { max_tokens: 1234 } },
         includeHistory: false,
         includeImage: true,
@@ -108,7 +109,7 @@ describe('upstream request preview', () => {
   it('does not reinterpret a limit by model name and shows its actual source', () => {
     const result = buildRequestPreview(
       provider,
-      requestPreviewSchema.parse({
+      parsePreview({
         model: {
           ...baseModel,
           modelId: 'deepseek-flash',
@@ -129,7 +130,7 @@ describe('upstream request preview', () => {
     (field) => {
       const result = buildRequestPreview(
         provider,
-        requestPreviewSchema.parse({
+        parsePreview({
           model: {
             ...baseModel,
             kind: 'chat',
@@ -147,7 +148,7 @@ describe('upstream request preview', () => {
   )
 
   it('uses Anthropic system, messages and thinking rules', () => {
-    const input = requestPreviewSchema.parse({
+    const input = parsePreview({
       model: {
         ...baseModel,
         kind: 'anthropic',
@@ -177,7 +178,7 @@ describe('upstream request preview', () => {
     expect(JSON.stringify(result.body.messages)).toContain('"media_type":"application/pdf"')
   })
   it('switches Images endpoints for reference images and keeps image overrides', () => {
-    const input = requestPreviewSchema.parse({
+    const input = parsePreview({
       model: {
         ...baseModel,
         kind: 'image',
@@ -211,7 +212,7 @@ describe('upstream request preview', () => {
     )
   })
   it('explains configured fields that the selected protocol omits', () => {
-    const input = requestPreviewSchema.parse({
+    const input = parsePreview({
       model: {
         ...baseModel,
         kind: 'anthropic',
@@ -237,7 +238,7 @@ describe('upstream request preview', () => {
         'Ocp-Apim-Subscription-Key': 'subscription-value',
       },
     }
-    const input = requestPreviewSchema.parse({
+    const input = parsePreview({
       model: {
         ...baseModel,
         hardParams: {
@@ -287,5 +288,14 @@ describe('upstream request preview', () => {
       echo: `prefix ${provider.apiKey} suffix`,
       arbitrary: 'opaque-auth-value',
     })
+  })
+  it('sends the route upstream model ID even when advanced JSON sets model', () => {
+    const model = { ...baseModel, hardParams: { model: 'json-model' } }
+    expect(buildRequestPreview(provider, parsePreview({ model })).body.model).toBe('json-model')
+    const routed = parsePreview({
+      model,
+      route: { providerId: 'provider-demo', upstreamModelId: 'vendor/gpt-test' },
+    })
+    expect(buildRequestPreview(provider, routed).body.model).toBe('vendor/gpt-test')
   })
 })

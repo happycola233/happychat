@@ -21,6 +21,7 @@ import {
   comparisonLabel,
   dashboardHref,
   fillTimeBuckets,
+  marginLabel,
   readDashboardFilters,
 } from './dashboardData'
 import {
@@ -70,7 +71,7 @@ export default function OverviewPage() {
       )
     : []
   const eventHref = (result = '') => dashboardHref('request-events', { range: rangeKey, result })
-  const change = (key: 'requests' | 'tokens' | 'cost' | 'activeUsers') =>
+  const change = (key: 'requests' | 'tokens' | 'cost' | 'billedCost' | 'activeUsers') =>
     overview?.previous && totals
       ? comparisonLabel(totals[key], overview.previous[key])
       : '全部时间累计'
@@ -107,9 +108,14 @@ export default function OverviewPage() {
                 hint: change('tokens'),
               },
               {
-                label: '预估成本',
+                label: '上游成本',
                 value: formatCurrency(totals.cost),
                 hint: change('cost'),
+              },
+              {
+                label: '用户计费',
+                value: formatCurrency(totals.billedCost),
+                hint: marginLabel(totals.billedCost, totals.cost),
               },
               {
                 label: '活跃用户',

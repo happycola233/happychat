@@ -6,6 +6,9 @@ export type Role = 'user' | 'assistant' | 'system'
 /** 模型定价、费用统计及金额额度使用的币种。 */
 export type CostCurrency = 'USD' | 'CNY'
 
+/** 管理端费用统计口径：upstream=按线路成本价结算的上游真实成本，billed=按用户计价的计费金额。 */
+export type CostBasis = 'upstream' | 'billed'
+
 /** 上游原生协议；决定鉴权头、版本路径与模型目录的解析方式。 */
 export type ProviderProtocol = 'openai' | 'anthropic'
 
@@ -274,11 +277,14 @@ export type ModelAccessMode = 'all' | 'selected'
 // ========================= 用户限额（配额）=========================
 
 /**
- * 限额计量口径。
+ * 限额计量口径（金额均为用户计价口径，按规则币种累计）。
  * - requests：成功请求次数（上游失败不计费，也不消耗用户额度）
- * - cost：按规则币种累计已结算消费。
+ * - cost：全部消费（文字 + 生图）
+ * - chat_cost：文字消费；用尽只停用非生图模型
+ * - image_cost：生图消费；用尽只停用生图（纯生图模型不可用，对话模型去掉生图工具）
+ * - images：生成图片张数；用尽效果同 image_cost
  */
-export type QuotaMetric = 'requests' | 'cost'
+export type QuotaMetric = 'requests' | 'cost' | 'chat_cost' | 'image_cost' | 'images'
 
 /**
  * 规则适用范围。

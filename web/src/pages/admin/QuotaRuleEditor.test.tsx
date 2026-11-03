@@ -9,8 +9,7 @@ const model = (id: string, displayName: string): AdminModelDTO =>
     id,
     modelId: `upstream-${id}`,
     displayName,
-    providerId: 'p1',
-    providerName: 'OpenAI',
+    routes: [],
     kind: 'responses',
     capabilities: {
       vision: false,

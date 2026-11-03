@@ -61,7 +61,6 @@ async function createModels() {
   await dbClient.db.insert(schema.models).values(
     ids.map((id) => ({
       id,
-      providerId: 'provider',
       modelId: id,
       displayName: id,
       capabilities: {
@@ -75,6 +74,9 @@ async function createModels() {
       },
     })),
   )
+  await dbClient.db
+    .insert(schema.modelRoutes)
+    .values(ids.map((id) => ({ modelId: id, providerId: 'provider' })))
   return ids
 }
 

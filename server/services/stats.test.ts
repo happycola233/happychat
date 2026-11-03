@@ -387,7 +387,6 @@ describe('cache-write cost integration', () => {
     const [model] = await dbClient.db
       .insert(schema.models)
       .values({
-        providerId: provider.id,
         modelId: `cache-cost-model-${uniqueId++}`,
         displayName: 'Cache Cost Model',
         capabilities: {
@@ -478,7 +477,6 @@ describe('historical cost snapshots', () => {
     const [model] = await dbClient.db
       .insert(schema.models)
       .values({
-        providerId: provider.id,
         modelId: modelLabel,
         displayName: 'Snapshot Cost Model',
         capabilities: {
@@ -607,7 +605,13 @@ describe('admin dashboard summaries', () => {
       from: start,
       to: start + HOUR_MS - 1,
     })
-    expect(result.previous).toEqual({ requests: 2, tokens: 125, cost: 0, activeUsers: 1 })
+    expect(result.previous).toEqual({
+      requests: 2,
+      tokens: 125,
+      cost: 0,
+      billedCost: 0,
+      activeUsers: 1,
+    })
     expect(result.totals).toEqual(
       expect.objectContaining({
         requests: 2,

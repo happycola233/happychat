@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { eq } from 'drizzle-orm'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { runOnSingleRoute } from '../testing/model-routes'
 
 let temporaryDirectory: string
 let dbClient: typeof import('../db/client')
@@ -62,7 +63,6 @@ async function createFixture() {
   const [model] = await dbClient.db
     .insert(schema.models)
     .values({
-      providerId: provider.id,
       modelId: 'claude-sonnet-5',
       displayName: 'Claude Sonnet 5',
       kind: 'anthropic',
@@ -199,7 +199,7 @@ describe('runAnthropicEngine', () => {
         ]),
       ),
     )
-    await anthropicEngine.runAnthropicEngine(fixture)
+    await runOnSingleRoute(dbClient.db, schema, anthropicEngine.runAnthropicEngine, fixture)
     const saved = dbClient.db
       .select()
       .from(schema.messages)
@@ -331,7 +331,7 @@ describe('runAnthropicEngine', () => {
         ]),
       )
     vi.stubGlobal('fetch', fetchMock)
-    await anthropicEngine.runAnthropicEngine(fixture)
+    await runOnSingleRoute(dbClient.db, schema, anthropicEngine.runAnthropicEngine, fixture)
     const continuation = JSON.parse(String(fetchMock.mock.calls[1]![1]!.body))
     expect(continuation).toMatchObject({
       container: 'container_dynamic',
@@ -482,7 +482,7 @@ describe('runAnthropicEngine', () => {
       )
     vi.stubGlobal('fetch', fetchMock)
 
-    await anthropicEngine.runAnthropicEngine(fixture)
+    await runOnSingleRoute(dbClient.db, schema, anthropicEngine.runAnthropicEngine, fixture)
 
     expect(fetchMock).toHaveBeenCalledTimes(2)
     const secondRequest = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as {
@@ -625,7 +625,7 @@ describe('runAnthropicEngine', () => {
         ),
     )
 
-    await anthropicEngine.runAnthropicEngine(fixture)
+    await runOnSingleRoute(dbClient.db, schema, anthropicEngine.runAnthropicEngine, fixture)
 
     const storedMessage = await dbClient.db.query.messages.findFirst({
       where: eq(schema.messages.id, fixture.assistantMessage.id),
@@ -730,7 +730,7 @@ describe('runAnthropicEngine', () => {
       )
     vi.stubGlobal('fetch', fetchMock)
 
-    await anthropicEngine.runAnthropicEngine({
+    await runOnSingleRoute(dbClient.db, schema, anthropicEngine.runAnthropicEngine, {
       ...fixture,
       body: {
         ...fixture.body,
@@ -841,7 +841,7 @@ describe('runAnthropicEngine', () => {
       ),
     )
 
-    await anthropicEngine.runAnthropicEngine(fixture)
+    await runOnSingleRoute(dbClient.db, schema, anthropicEngine.runAnthropicEngine, fixture)
 
     const storedMessage = await dbClient.db.query.messages.findFirst({
       where: eq(schema.messages.id, fixture.assistantMessage.id),
@@ -920,7 +920,7 @@ describe('runAnthropicEngine', () => {
       ),
     )
 
-    await anthropicEngine.runAnthropicEngine(fixture)
+    await runOnSingleRoute(dbClient.db, schema, anthropicEngine.runAnthropicEngine, fixture)
 
     const storedMessage = await dbClient.db.query.messages.findFirst({
       where: eq(schema.messages.id, fixture.assistantMessage.id),
@@ -1057,9 +1057,19 @@ describe('runAnthropicEngine', () => {
       )
     vi.stubGlobal('fetch', fetchMock)
 
-    await anthropicEngine.runAnthropicEngine(resolvedFixture)
-    await anthropicEngine.runAnthropicEngine(unresolvedServerFixture)
-    await anthropicEngine.runAnthropicEngine(unresolvedClientFixture)
+    await runOnSingleRoute(dbClient.db, schema, anthropicEngine.runAnthropicEngine, resolvedFixture)
+    await runOnSingleRoute(
+      dbClient.db,
+      schema,
+      anthropicEngine.runAnthropicEngine,
+      unresolvedServerFixture,
+    )
+    await runOnSingleRoute(
+      dbClient.db,
+      schema,
+      anthropicEngine.runAnthropicEngine,
+      unresolvedClientFixture,
+    )
 
     const [resolvedMessage, unresolvedServerMessage, unresolvedClientMessage] = await Promise.all([
       dbClient.db.query.messages.findFirst({
@@ -1121,7 +1131,7 @@ describe('runAnthropicEngine', () => {
     )
     vi.stubGlobal('fetch', fetchMock)
 
-    await anthropicEngine.runAnthropicEngine(fixture)
+    await runOnSingleRoute(dbClient.db, schema, anthropicEngine.runAnthropicEngine, fixture)
 
     const storedMessage = await dbClient.db.query.messages.findFirst({
       where: eq(schema.messages.id, fixture.assistantMessage.id),
@@ -1174,7 +1184,7 @@ describe('runAnthropicEngine', () => {
       ),
     )
 
-    await anthropicEngine.runAnthropicEngine(fixture)
+    await runOnSingleRoute(dbClient.db, schema, anthropicEngine.runAnthropicEngine, fixture)
 
     const storedMessage = await dbClient.db.query.messages.findFirst({
       where: eq(schema.messages.id, fixture.assistantMessage.id),

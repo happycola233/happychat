@@ -43,7 +43,6 @@ beforeAll(async () => {
   })
   await dbClient.db.insert(schema.models).values({
     id: modelId,
-    providerId,
     modelId: 'responses-test',
     displayName: 'Responses test',
     kind: 'responses',
@@ -57,6 +56,7 @@ beforeAll(async () => {
       artifacts: false,
     },
   })
+  await dbClient.db.insert(schema.modelRoutes).values({ modelId, providerId })
 })
 
 afterAll(() => {

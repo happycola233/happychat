@@ -233,21 +233,21 @@ export default function SettingsPage() {
                 </div>
               </Card>
 
-              <Card title="消息用量" className="sm:col-span-2">
+              <Card title="消费金额" className="sm:col-span-2">
                 <div className="space-y-4">
                   <div className="flex items-center justify-between gap-4">
                     <div>
                       <div className="text-sm text-neutral-800 dark:text-neutral-100">
-                        展示单次请求成本
+                        向用户展示金额
                       </div>
                       <div className="mt-0.5 text-xs leading-5 text-neutral-400 dark:text-neutral-500">
-                        在助手消息的用量明细末尾显示预估成本；成本为 0 时不显示。
+                        开启时，用户可以看到每条回复的费用、个人用量中的花费和额度的具体金额。关闭后这些金额都不再返回给用户，金额类额度只显示已用百分比，次数与张数照常显示。金额均按用户计价计算。
                       </div>
                     </div>
                     <Toggle
                       checked={config.showCost}
                       disabled={toggleCostVisibility.isPending}
-                      ariaLabel="展示单次请求成本"
+                      ariaLabel="向用户展示金额"
                       onChange={(value) => toggleCostVisibility.mutate(value)}
                     />
                   </div>

@@ -3,7 +3,7 @@ import type { ActiveRequestDTO, ActiveRequestsDTO } from '@shared/types/api'
 import type { RetryAuditSummary } from '@shared/types/retry'
 import { requestedReasoningEffort } from '@shared/util/reasoning'
 import { db } from '../db/client'
-import { errorLogs, models, providers, runs, users } from '../db/schema'
+import { errorLogs, modelRoutes, models, runs, users } from '../db/schema'
 import type { StatsFilter } from './stats'
 
 /** 活跃状态独立于用量账本，不能提前插入零 Token 的 usage_log 改变统计与额度。 */
@@ -18,9 +18,14 @@ export function listActiveRequests(filter: StatsFilter): ActiveRequestsDTO {
   if (filter.to != null) conditions.push(lte(runs.createdAt, new Date(filter.to)))
   if (filter.userId) conditions.push(eq(runs.userId, filter.userId))
   if (filter.modelId) conditions.push(eq(runs.modelId, filter.modelId))
+  // 已开始的请求按当前尝试的线路归属（故障转移后会变化）；尚在排队的请求按模型是否有
+  // 通往该供应商的线路归属。
   if (filter.providerId)
     conditions.push(
-      sql`coalesce(json_extract(${runs.progress}, '$.providerId'), ${models.providerId}) = ${filter.providerId}`,
+      sql`coalesce(json_extract(${runs.progress}, '$.providerId') = ${filter.providerId}, exists (
+        select 1 from ${modelRoutes}
+        where ${modelRoutes.modelId} = ${runs.modelId} and ${modelRoutes.providerId} = ${filter.providerId}
+      ))`,
     )
   const where = and(...conditions)
   const { total } = db
@@ -37,7 +42,6 @@ export function listActiveRequests(filter: StatsFilter): ActiveRequestsDTO {
       username: users.username,
       modelLabel: models.modelId,
       modelDisplayName: models.displayName,
-      providerLabel: providers.name,
       requestParams: runs.requestParams,
       createdAt: runs.createdAt,
       startedAt: runs.startedAt,
@@ -46,7 +50,6 @@ export function listActiveRequests(filter: StatsFilter): ActiveRequestsDTO {
     .from(runs)
     .leftJoin(users, eq(runs.userId, users.id))
     .leftJoin(models, eq(runs.modelId, models.id))
-    .leftJoin(providers, eq(models.providerId, providers.id))
     .where(where)
     .orderBy(desc(runs.createdAt), desc(runs.id))
     .limit(pageSize)
@@ -76,7 +79,7 @@ export function listActiveRequests(filter: StatsFilter): ActiveRequestsDTO {
       ...row,
       modelLabel: row.progress?.modelLabel ?? row.modelLabel,
       modelDisplayName: row.progress?.modelDisplayName ?? row.modelDisplayName,
-      providerLabel: row.progress?.providerLabel ?? row.providerLabel,
+      providerLabel: row.progress?.providerLabel ?? null,
       reasoningEffort: requestedReasoningEffort(requestParams),
       createdAt: row.createdAt.getTime(),
       startedAt: row.startedAt?.getTime() ?? null,

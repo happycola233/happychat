@@ -47,8 +47,12 @@ function JsonCode({ value }: { value: unknown }) {
 }
 
 type PreviewDraft = Omit<RequestPreviewInput['model'], 'hardParams'> & { hardParamsText: string }
+type PreviewRoute = RequestPreviewInput['route'] & { label: string }
 
-export function RequestPreview({ draft }: { draft: PreviewDraft }) {
+export function RequestPreview({ draft, routes }: { draft: PreviewDraft; routes: PreviewRoute[] }) {
+  const [routeIndex, setRouteIndex] = useState(0)
+  // 线路被删除后回到首条，避免索引越界。
+  const route = routes[routeIndex] ?? routes[0]
   const [tab, setTab] = useState<'body' | 'headers' | 'parameters'>('body')
   const [includeHistory, setIncludeHistory] = useState(true)
   const [includeImage, setIncludeImage] = useState(false)
@@ -60,6 +64,7 @@ export function RequestPreview({ draft }: { draft: PreviewDraft }) {
   const [copied, setCopied] = useState<'json' | 'curl' | null>(null)
   const serializedDraft = JSON.stringify({
     draft,
+    route: route ? { providerId: route.providerId, upstreamModelId: route.upstreamModelId } : null,
     includeHistory,
     includeImage,
     includeFile,
@@ -76,6 +81,7 @@ export function RequestPreview({ draft }: { draft: PreviewDraft }) {
   const validation = useMemo(() => {
     const state = JSON.parse(settledDraft) as {
       draft: PreviewDraft
+      route: RequestPreviewInput['route'] | null
       includeHistory: boolean
       includeImage: boolean
       includeFile: boolean
@@ -84,6 +90,7 @@ export function RequestPreview({ draft }: { draft: PreviewDraft }) {
       xSearch: string
       userParamsText: string
     }
+    if (!state.route) return { error: '请先在「线路」中选择供应商。' }
     let hardParams: unknown
     let userParams: Record<string, unknown>
     try {
@@ -103,6 +110,7 @@ export function RequestPreview({ draft }: { draft: PreviewDraft }) {
     if (state.webSearch) userParams.web_search = state.webSearch === 'on'
     if (state.xSearch) userParams.x_search = state.xSearch === 'on'
     const parsed = requestPreviewSchema.safeParse({
+      route: state.route,
       model: {
         ...state.draft,
         hardParams,
@@ -159,6 +167,18 @@ export function RequestPreview({ draft }: { draft: PreviewDraft }) {
         </p>
       </div>
       <div className="space-y-2">
+        {routes.length > 1 && (
+          <label className="flex min-w-0 items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
+            <span className="shrink-0">预览线路</span>
+            <Select
+              className="w-64 max-w-full"
+              size="sm"
+              value={String(routes.indexOf(route!))}
+              onChange={(event) => setRouteIndex(Number(event.target.value))}
+              options={routes.map((item, index) => ({ value: String(index), label: item.label }))}
+            />
+          </label>
+        )}
         <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs text-neutral-600 dark:text-neutral-300">
           {draft.kind !== 'image' && (
             <label className="flex cursor-pointer items-center gap-2">

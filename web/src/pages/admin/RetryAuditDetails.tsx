@@ -1,8 +1,7 @@
 import type { RetryAuditSummary, RetryFailureStage, RetryStopReason } from '@shared/types/retry'
 import { Badge } from '../../components/ui/Badge'
 import { formatDateTime } from '../../lib/format'
-import { retryFailureDurationLabel, retrySummaryLabel } from './retryAudit'
-import { formatRequestLatency } from './requestEventDisplay'
+import { retryFailureDurationLabel, retryNextStepLabel, retrySummaryLabel } from './retryAudit'
 
 const stageLabels: Record<RetryFailureStage, string> = {
   connecting: '请求建立阶段',
@@ -62,6 +61,12 @@ export function RetryAuditDetails({ summary }: { summary?: RetryAuditSummary | n
                 失败 <time>{formatDateTime(failure.failedAt)}</time>
               </span>
             </div>
+            {failure.providerLabel && (
+              <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
+                线路：{failure.providerLabel}
+                {failure.upstreamModelId && ` · ${failure.upstreamModelId}`}
+              </p>
+            )}
             <p className="break-words whitespace-pre-wrap">{failure.message}</p>
             <p className="break-all text-[11px] text-neutral-500 dark:text-neutral-400">
               {failure.errorCode || failure.errorType || '未知错误'}
@@ -69,13 +74,7 @@ export function RetryAuditDetails({ summary }: { summary?: RetryAuditSummary | n
               {failure.httpStatus === 200 && '（响应中报错）'}
             </p>
             <p className="text-neutral-500 dark:text-neutral-400">
-              {failure.stopReason
-                ? stopLabels[failure.stopReason]
-                : failure.retriedAt != null
-                  ? `等待 ${formatRequestLatency(Math.max(0, failure.retriedAt - failure.failedAt))}后重试 · ${formatDateTime(failure.retriedAt)}`
-                  : failure.nextRetryAt != null
-                    ? `计划等待 ${formatRequestLatency(Math.max(0, failure.nextRetryAt - failure.failedAt))}后重试`
-                    : ''}
+              {retryNextStepLabel(failure, stopLabels)}
             </p>
           </li>
         ))}

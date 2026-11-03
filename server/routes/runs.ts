@@ -114,15 +114,7 @@ runRoutes.post('/', jsonValidator(sendMessageSchema), async (c) => {
       return c.json({ error: { message: prepared.message, code: prepared.code } }, prepared.status)
     }
     waitMessageQueueForRun(prepared.conversation.id, prepared.run.id, prepared.assistantMessage.id)
-    runManager.start({
-      run: prepared.run,
-      assistantMessage: prepared.assistantMessage,
-      conversation: prepared.conversation,
-      model: prepared.model,
-      provider: prepared.provider,
-      body: prepared.body,
-      imageOperation: prepared.imageOperation,
-    })
+    runManager.start(prepared)
     return c.json({
       runId: prepared.run.id,
       conversation: toConversationDTO(prepared.conversation),
@@ -161,15 +153,7 @@ runRoutes.post('/regenerate', jsonValidator(regenerateSchema), async (c) => {
       return c.json({ error: { message: prepared.message, code: prepared.code } }, prepared.status)
     }
     waitMessageQueueForRun(prepared.conversation.id, prepared.run.id, prepared.assistantMessage.id)
-    runManager.start({
-      run: prepared.run,
-      assistantMessage: prepared.assistantMessage,
-      conversation: prepared.conversation,
-      model: prepared.model,
-      provider: prepared.provider,
-      body: prepared.body,
-      imageOperation: prepared.imageOperation,
-    })
+    runManager.start(prepared)
     return c.json({
       runId: prepared.run.id,
       conversation: toConversationDTO(prepared.conversation),

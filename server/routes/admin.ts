@@ -41,6 +41,7 @@ import {
   attachments,
   inviteCodes,
   modelIcons,
+  modelRoutes,
   models,
   providers,
   usageLogs,
@@ -110,8 +111,11 @@ import {
   reorderModels,
   updateModel,
   updateModelAccess,
-  type ModelConfigurationErrorCode,
+  MODEL_CONFIGURATION_ERROR_MESSAGES,
 } from '../services/models'
+import { getRouteHealth } from '../services/model-routes'
+import { exportModelConfig, importModelConfig } from '../services/model-config-transfer'
+import { modelConfigImportSchema } from '@shared/schemas/model-config-transfer'
 import {
   getProviderModelCatalog,
   importProviderModels,
@@ -175,8 +179,9 @@ adminRoutes.patch('/providers/:id', jsonValidator(providerUpdateSchema), async (
       if (input.protocol !== undefined && input.protocol !== existing.protocol) {
         const providerModels = tx
           .select({ kind: models.kind })
-          .from(models)
-          .where(eq(models.providerId, id))
+          .from(modelRoutes)
+          .innerJoin(models, eq(modelRoutes.modelId, models.id))
+          .where(eq(modelRoutes.providerId, id))
           .all()
         if (
           providerModels.some(
@@ -279,7 +284,7 @@ adminRoutes.post('/models/request-preview', jsonValidator(requestPreviewSchema),
   const provider = await db
     .select()
     .from(providers)
-    .where(eq(providers.id, input.model.providerId))
+    .where(eq(providers.id, input.route.providerId))
     .get()
   if (!provider) return c.json({ error: { message: '提供商不存在', code: 'not_found' } }, 404)
   if (!providerProtocolSupportsModelKind(provider.protocol, input.model.kind)) {
@@ -304,19 +309,41 @@ adminRoutes.post('/models/request-preview', jsonValidator(requestPreviewSchema),
   }
 })
 
-const MODEL_CONFIGURATION_ERROR_MESSAGES: Record<ModelConfigurationErrorCode, string> = {
-  invalid_image_pricing_source: '请选择同一供应商下的纯生图模型作为定价来源',
-  provider_missing: '所属供应商不存在',
-  provider_protocol_mismatch: '模型类型与所属供应商协议不匹配',
-  group_missing: '所选分组不存在，请刷新后重试',
-  icon_missing: '所选图标不存在，请刷新后重试',
-  anthropic_max_output_tokens_required: 'Anthropic Messages API 必须配置正整数 max_output_tokens',
-  anthropic_thinking_budget_conflict: 'Anthropic thinking.budget_tokens 必须小于最终 max_tokens',
-  invalid_default_effort: '默认思考等级必须包含在可用等级中',
-}
-
 adminRoutes.get('/models', async (c) => {
   return c.json({ models: await listAdminModels() })
+})
+
+/** 线路运行状况：实时熔断状态 + 近 24 小时请求指标；不传 routeIds 时返回全部线路。 */
+adminRoutes.get('/route-health', async (c) => {
+  const requested = c.req.query('routeIds')
+  const routeIds = requested
+    ? requested.split(',').filter(Boolean)
+    : (await listAdminModels()).flatMap((model) => model.routes.map((route) => route.id))
+  return c.json({ health: await getRouteHealth(routeIds) })
+})
+
+/** 导出模型配置 JSON；ids 为逗号分隔的模型 ID，省略时导出全部。 */
+adminRoutes.get('/model-config/export', async (c) => {
+  const ids = c.req.query('ids')?.split(',').filter(Boolean)
+  c.header('Cache-Control', 'no-store')
+  return c.json({ document: await exportModelConfig(ids) })
+})
+
+/** 预览导入：完整执行后回滚，返回逐项差异与问题。 */
+adminRoutes.post('/model-config/preview', jsonValidator(modelConfigImportSchema), async (c) => {
+  return c.json({ preview: await importModelConfig(c.req.valid('json').document, 'preview') })
+})
+
+/** 应用导入：全部条目在一个事务内生效，任一条出错则整份不生效。 */
+adminRoutes.post('/model-config/apply', jsonValidator(modelConfigImportSchema), async (c) => {
+  const preview = await importModelConfig(c.req.valid('json').document, 'apply')
+  if (!preview.applied) {
+    return c.json(
+      { error: { message: '配置中存在问题，未做任何修改', code: 'invalid_model_config' }, preview },
+      400,
+    )
+  }
+  return c.json({ preview })
 })
 
 /** 单个模型的完整用户访问名单（管理员配置面板按需加载，避免塞进模型列表响应）。 */

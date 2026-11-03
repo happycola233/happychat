@@ -4,7 +4,7 @@ import { timezoneSchema } from '@shared/schemas/app-config'
 import { requireUser } from '../auth/middleware'
 import { getAppConfig } from '../services/appConfig'
 import { getMyQuota } from '../services/quota'
-import { USAGE_STATS_MAX_DAYS, getMyUsageStats } from '../services/usage-stats'
+import { USAGE_STATS_MAX_DAYS, getMyUsageStats, withoutUsageCosts } from '../services/usage-stats'
 import type { AppEnv } from '../http/types'
 import { getExchangeRate, legacyExchangeRate } from '../services/exchange-rates'
 
@@ -51,5 +51,5 @@ quotaRoutes.get('/usage', async (c) => {
     view: parsed.data.view,
     weekStart: config.quotaWeekStart,
   })
-  return c.json({ stats })
+  return c.json({ stats: config.showCost ? stats : withoutUsageCosts(stats) })
 })

@@ -53,6 +53,15 @@ import { ModelEditorNavigation } from './ModelEditorNavigation'
 import { RequestPreview } from './RequestPreview'
 import { ModelUsageNoticeEditor } from './ModelUsageNoticeEditor'
 import { ModelPricingEditor } from './ModelPricingEditor'
+import { ModelRoutesEditor } from './ModelRoutesEditor'
+import {
+  describeModelRoutes,
+  newRouteDraft,
+  routeDraftFromDTO,
+  routeDraftsToInput,
+  routesProtocol,
+  type RouteDraft,
+} from './modelRoutes'
 import { normalizeModelPricing } from '@shared/util/cost'
 import { modelTagsSchema, pricingSchema } from '@shared/schemas/model-config'
 import { DEFAULT_MODEL_USAGE_NOTICE, modelUsageNoticeSchema } from '@shared/schemas/user-notices'
@@ -64,6 +73,7 @@ const compactFieldClass = `${inputClass} tabular-nums`
 
 export type ModelEditorSection =
   | 'general'
+  | 'routes'
   | 'capabilities'
   | 'prompt'
   | 'pricing'
@@ -212,7 +222,10 @@ function ModelEditorForm({
     queryFn: adminApi.listAdminModelGroups,
   })
 
-  const [providerId, setProviderId] = useState(model?.providerId ?? '')
+  // 新建模型先给一条待选择供应商的线路，保存前必须选好。
+  const [routeDrafts, setRouteDrafts] = useState<RouteDraft[]>(() =>
+    model ? model.routes.map(routeDraftFromDTO) : [newRouteDraft('')],
+  )
   const [modelId, setModelId] = useState(model?.modelId ?? '')
   const [displayName, setDisplayName] = useState(model?.displayName ?? '')
   const [description, setDescription] = useState(model?.description ?? '')
@@ -250,7 +263,7 @@ function ModelEditorForm({
   const initialHardParamsText = model?.hardParams ? JSON.stringify(model.hardParams, null, 2) : ''
   const [hardParamsText, setHardParamsText] = useState(initialHardParamsText)
   const draftSnapshot = JSON.stringify({
-    providerId,
+    routeDrafts,
     modelId,
     displayName,
     description,
@@ -295,13 +308,11 @@ function ModelEditorForm({
   const lastAppliedAnthropicModelIdRef = useRef(
     model?.kind === 'anthropic' ? model.modelId.trim() : '',
   )
+  // 模型协议由线路的供应商决定；供应商列表加载前按已保存模型的类型推断。
+  const routeProtocol = routesProtocol(routeDrafts, providers ?? [])
   const selectedProviderProtocol =
-    providers?.find((provider) => provider.id === providerId)?.protocol ??
-    (model && providerId === model.providerId
-      ? model.kind === 'anthropic'
-        ? 'anthropic'
-        : 'openai'
-      : undefined)
+    routeProtocol.protocol ??
+    (model && !providers ? (model.kind === 'anthropic' ? 'anthropic' : 'openai') : undefined)
   const modelInputExample = selectedProviderProtocol ? MODEL_INPUT_EXAMPLES[kind] : null
   const activeAnthropicProfile =
     kind === 'anthropic'
@@ -372,11 +383,12 @@ function ModelEditorForm({
     if (nextKind === 'anthropic') applyAnthropicPreset(modelId.trim(), true)
   }
 
-  const changeProvider = (nextProviderId: string) => {
-    setProviderId(nextProviderId)
-    const selectedProvider = providers?.find((provider) => provider.id === nextProviderId)
-    if (!selectedProvider) return
-    const nextKind = modelKindForProviderProtocol(kind, selectedProvider.protocol)
+  // 线路决定协议：首条线路换成另一种协议的供应商时，沿用原有的跨协议参数迁移。
+  const changeRoutes = (nextRoutes: RouteDraft[]) => {
+    setRouteDrafts(nextRoutes)
+    const nextProtocol = routesProtocol(nextRoutes, providers ?? []).protocol
+    if (!nextProtocol || nextProtocol === routeProtocol.protocol) return
+    const nextKind = modelKindForProviderProtocol(kind, nextProtocol)
     if (nextKind !== kind) changeKind(nextKind)
   }
 
@@ -414,6 +426,9 @@ function ModelEditorForm({
         : null
       if (defaultEffortDraftId && !defaultEffort) throw new Error('请选择有效的默认思考等级')
       const hardParams = parseHardParams()
+      if (routeProtocol.mixed) throw new Error('所有线路必须使用同一种协议的供应商')
+      const routes = routeDraftsToInput(routeDrafts)
+      if (!routes.ok) throw new Error(routes.message)
       if (
         kind === 'anthropic' &&
         (!Number.isInteger(params.max_output_tokens) || (params.max_output_tokens ?? 0) <= 0)
@@ -461,7 +476,7 @@ function ModelEditorForm({
       }
       if (isCreate) {
         await adminApi.createModel({
-          providerId,
+          routes: routes.routes,
           modelId: modelId.trim(),
           // 全局上下架只有模型列表一个入口；新建模型默认直接启用。
           enabled: true,
@@ -471,7 +486,7 @@ function ModelEditorForm({
       } else {
         // 不回传 enabled，避免打开已久的配置表单覆盖列表中的最新开关状态。
         await adminApi.updateModel(model.id, {
-          providerId,
+          routes: routes.routes,
           modelId: modelId.trim(),
           ...shared,
         })
@@ -484,9 +499,8 @@ function ModelEditorForm({
       if (isCreate || groupId !== (model?.groupId ?? '')) {
         qc.invalidateQueries({ queryKey: ['admin', 'model-groups'] })
       }
-      if (isCreate || providerId !== model?.providerId) {
-        qc.invalidateQueries({ queryKey: ['admin', 'providers'] })
-      }
+      qc.invalidateQueries({ queryKey: ['admin', 'providers'] })
+      qc.invalidateQueries({ queryKey: ['admin', 'route-health'] })
       qc.invalidateQueries({ queryKey: ['models'] })
       initialSnapshot.current = draftSnapshot
       if (nextModel) onSelectModel?.(nextModel, section)
@@ -530,23 +544,32 @@ function ModelEditorForm({
     reasoningEffortDrafts.some(
       (draft) => draft.draftId === defaultEffortDraftId && Boolean(draft.value.trim()),
     )
-  const missingIdentity = !providerId || !modelId.trim() || !displayName.trim()
+  const missingIdentity = !modelId.trim() || !displayName.trim()
+  const missingProvider = routeDrafts.some((route) => !route.providerId)
+  const routeError = missingProvider
+    ? '请在「线路」中为每条线路选择供应商。'
+    : routeProtocol.mixed
+      ? '所有线路必须使用同一种协议的供应商。'
+      : null
   const usageNoticeValid = modelUsageNoticeSchema.safeParse(usageNotice).success
   const tagValidation = modelTagsSchema.safeParse(tagDrafts)
   const canSave =
     !missingIdentity &&
+    !routeError &&
     !effortValidationError &&
     hasValidDefault &&
     usageNoticeValid &&
     tagValidation.success
   const validationMessage = missingIdentity
-    ? '请在基本信息中填写供应商、模型 ID 和显示名称。'
-    : !usageNoticeValid
-      ? '请在基本信息中填写使用提示正文。'
-      : !tagValidation.success
-        ? tagValidation.error.issues[0]!.message
-        : effortValidationError ||
-          (!hasValidDefault ? '请在能力参数中重新选择默认思考等级。' : null)
+    ? '请在基本信息中填写模型 ID 和显示名称。'
+    : routeError
+      ? routeError
+      : !usageNoticeValid
+        ? '请在基本信息中填写使用提示正文。'
+        : !tagValidation.success
+          ? tagValidation.error.issues[0]!.message
+          : effortValidationError ||
+            (!hasValidDefault ? '请在能力参数中重新选择默认思考等级。' : null)
   const switchModel = (next: AdminModelDTO) => {
     if (next.id === model?.id || save.isPending) return
     if (dirty) setSwitchTarget(next)
@@ -587,7 +610,7 @@ function ModelEditorForm({
                   disabled={save.isPending}
                   options={models.map((item) => ({
                     value: item.id,
-                    label: `${item.displayName} · ${item.providerName}`,
+                    label: `${item.displayName} · ${describeModelRoutes(item)}`,
                   }))}
                   onChange={(event) => {
                     const next = models.find((item) => item.id === event.target.value)
@@ -602,9 +625,10 @@ function ModelEditorForm({
               onChange={setSection}
               options={[
                 { value: 'general', label: '基本信息' },
+                { value: 'routes', label: `线路 · ${routeDrafts.length}` },
                 { value: 'capabilities', label: '能力参数' },
                 { value: 'prompt', label: '提示词' },
-                { value: 'pricing', label: '定价' },
+                { value: 'pricing', label: '用户计价' },
                 { value: 'advanced', label: '高级' },
                 { value: 'preview', label: '请求预览' },
               ]}
@@ -655,7 +679,9 @@ function ModelEditorForm({
                 setSection(
                   missingIdentity || !usageNoticeValid || !tagValidation.success
                     ? 'general'
-                    : 'capabilities',
+                    : routeError
+                      ? 'routes'
+                      : 'capabilities',
                 )
               }
               className="mb-4 w-full rounded-lg bg-amber-50 p-3 text-left text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300"
@@ -665,21 +691,6 @@ function ModelEditorForm({
           )}
           {/* ============ 基本信息 ============ */}
           <FormSection title="基本信息" hidden={section !== 'general'}>
-            <Field label="所属供应商">
-              <Select
-                size="md"
-                className="w-full"
-                value={providerId}
-                onChange={(e) => changeProvider(e.target.value)}
-                options={[
-                  { value: '', label: '请选择供应商' },
-                  ...(
-                    providers ?? (model ? [{ id: model.providerId, name: model.providerName }] : [])
-                  ).map((p) => ({ value: p.id, label: p.name })),
-                ]}
-              />
-            </Field>
-
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="模型 ID">
                 <input
@@ -692,7 +703,7 @@ function ModelEditorForm({
                     if (targetModelId === lastAppliedAnthropicModelIdRef.current) return
                     applyAnthropicPreset(targetModelId, false)
                   }}
-                  placeholder={modelInputExample?.modelId ?? '请先选择供应商'}
+                  placeholder={modelInputExample?.modelId ?? MODEL_INPUT_EXAMPLES.responses.modelId}
                 />
               </Field>
               <Field label="外显名称">
@@ -700,7 +711,9 @@ function ModelEditorForm({
                   className={fieldClass}
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
-                  placeholder={modelInputExample?.displayName ?? '请先选择供应商'}
+                  placeholder={
+                    modelInputExample?.displayName ?? MODEL_INPUT_EXAMPLES.responses.displayName
+                  }
                 />
               </Field>
             </div>
@@ -727,10 +740,20 @@ function ModelEditorForm({
                   Anthropic Messages API
                 </p>
                 <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-                  模型类型由供应商协议自动确定，请求发送至{' '}
+                  模型类型由线路供应商的协议自动确定，请求发送至{' '}
                   <code className="font-mono">/v1/messages</code>。
                 </p>
               </div>
+            )}
+
+            {!selectedProviderProtocol && (
+              <button
+                type="button"
+                onClick={() => setSection('routes')}
+                className="w-full rounded-xl border border-dashed border-neutral-300 px-3.5 py-3 text-left text-xs text-neutral-500 transition hover:border-sky-400 hover:text-sky-600 dark:border-neutral-700 dark:text-neutral-400 dark:hover:text-sky-400"
+              >
+                在「线路」中选择供应商后，即可设置模型类型。
+              </button>
             )}
 
             <Field label="模型描述（可选）">
@@ -802,6 +825,18 @@ function ModelEditorForm({
               value={usageNotice}
               onChange={setUsageNotice}
               modelName={displayName}
+            />
+          </FormSection>
+
+          {/* ============ 线路 ============ */}
+          <FormSection title="线路" hidden={section !== 'routes'}>
+            <ModelRoutesEditor
+              kind={kind}
+              canonicalModelId={modelId.trim()}
+              routes={routeDrafts}
+              onChange={changeRoutes}
+              providers={providers ?? []}
+              billingPricing={pricing}
             />
           </FormSection>
 
@@ -1029,18 +1064,17 @@ function ModelEditorForm({
             </FormSection>
           )}
 
-          {/* ============ 定价 ============ */}
+          {/* ============ 用户计价 ============ */}
           <FormSection
-            title="定价"
+            title="用户计价"
             hidden={section !== 'pricing'}
-            hint="用于预估请求费用。修改只影响新请求，历史费用保持不变。"
+            hint="用户看到的金额与额度扣减都按此价格计算；各供应商的真实成本在「线路」中单独设置，未设置时与此相同。修改只影响新请求，历史费用保持不变。"
           >
             <ModelPricingEditor
               kind={kind}
               pricing={normalizeModelPricing(pricing, kind)}
               onChange={setPricing}
-              providerId={providerId}
-              models={models}
+              imageSources={models.filter((item) => item.kind === 'image' && item.id !== model?.id)}
             />
           </FormSection>
 
@@ -1123,8 +1157,17 @@ function ModelEditorForm({
           </FormSection>
           {section === 'preview' && (
             <RequestPreview
+              routes={routeDrafts
+                .filter((route) => route.providerId)
+                .map((route, index) => ({
+                  providerId: route.providerId,
+                  upstreamModelId: route.upstreamModelId.trim() || null,
+                  label: `线路 ${index + 1} · ${
+                    providers?.find((provider) => provider.id === route.providerId)?.name ??
+                    '供应商'
+                  }`,
+                }))}
               draft={{
-                providerId,
                 modelId: modelId.trim(),
                 displayName,
                 kind,

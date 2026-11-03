@@ -8,10 +8,10 @@ import type {
 import { resolveModelGroupColor } from '@shared/util/modelGroupAppearance'
 import { normalizeModelGroupIcon, normalizeModelIcon } from '@shared/util/modelIcon'
 import { db } from '../db/client'
-import { modelGroups, models, modelUserAccess, providers } from '../db/schema'
+import { modelGroups, models, modelUserAccess } from '../db/schema'
 import { must } from '../lib/assert'
 import { modelIconReferencesExist, type DbTransaction } from './model-icon-references'
-import { accessJoinForUser, accessibleToUser } from './models'
+import { accessJoinForUser, accessibleToUser, modelIsRunnable } from './models'
 
 type ModelGroupRow = typeof modelGroups.$inferSelect
 /** DTO 只需要展示字段；列表查询可以只 select 这几列，不必回表取时间戳。 */
@@ -65,9 +65,8 @@ export async function listVisibleModelGroups(userId: string): Promise<ModelGroup
     })
     .from(modelGroups)
     .innerJoin(models, eq(models.groupId, modelGroups.id))
-    .innerJoin(providers, eq(models.providerId, providers.id))
     .leftJoin(modelUserAccess, accessJoinForUser(userId))
-    .where(and(eq(models.enabled, true), eq(providers.enabled, true), accessibleToUser()))
+    .where(and(modelIsRunnable(), accessibleToUser()))
     .orderBy(asc(modelGroups.sort), asc(modelGroups.name))
   return rows.map(toModelGroupDTO)
 }

@@ -3,7 +3,11 @@ import { Link } from 'react-router-dom'
 import { clsx } from 'clsx'
 import { AlertTriangle, ChevronRight, CircleSlash, Clock3, PauseCircle, X } from 'lucide-react'
 import type { QuotaBucketUsageDTO } from '@shared/types/api'
-import { formatQuotaAmount, formatQuotaTargetLabels } from '@shared/util/quota'
+import {
+  QUOTA_METRIC_NOUNS,
+  formatQuotaBucketAmount,
+  formatQuotaTargetLabels,
+} from '@shared/util/quota'
 import { describeQuotaWindow } from '@shared/util/quotaWindow'
 import { describeQuotaReset, type QuotaResetDisplay } from '../lib/quotaResetDisplay'
 import { useMyQuota, resolveQuotaNotice, type QuotaNoticeLevel } from '../hooks/useQuota'
@@ -52,14 +56,13 @@ function noticeTitle(level: NoticeLevel): string {
 
 /** 将周期与计量合成短语，例如「首次请求起 5 小时消费」。 */
 function windowPhrase(rule: QuotaBucketUsageDTO): string {
-  const metric = rule.metric === 'cost' ? '消费' : '请求'
-  return `${describeQuotaWindow(rule.window)}${metric}`
+  return `${describeQuotaWindow(rule.window)}${QUOTA_METRIC_NOUNS[rule.metric]}`
 }
 
 function usageFigures(rule: QuotaBucketUsageDTO): { used: string; limit: string } {
   return {
-    used: formatQuotaAmount(rule.metric, rule.used, rule.currency),
-    limit: formatQuotaAmount(rule.metric, rule.effectiveLimit ?? 0, rule.currency),
+    used: formatQuotaBucketAmount(rule, rule.used),
+    limit: formatQuotaBucketAmount(rule, rule.effectiveLimit ?? 0),
   }
 }
 

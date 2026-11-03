@@ -95,7 +95,6 @@ describe('个人使用情况统计', () => {
     })
     await dbClient.db.insert(schema.models).values({
       id: modelId,
-      providerId,
       modelId: 'upstream-raw-id',
       displayName: '模型外显名称',
       enabled: false,
@@ -109,6 +108,7 @@ describe('个人使用情况统计', () => {
         artifacts: false,
       },
     })
+    await dbClient.db.insert(schema.modelRoutes).values({ modelId, providerId })
     await logUsage(userId, { at: new Date(), modelId, modelLabel: 'upstream-raw-id', tokens: 2 })
     await logUsage(userId, { at: new Date(), modelId, modelLabel: '模型旧名称', tokens: 3 })
     const stats = await usageStats.getMyUsageStats(userId)
@@ -131,7 +131,6 @@ describe('个人使用情况统计', () => {
     })
     await dbClient.db.insert(schema.models).values({
       id: modelId,
-      providerId,
       modelId: 'upstream-retired',
       displayName: '历史模型',
       capabilities: {
@@ -144,6 +143,7 @@ describe('个人使用情况统计', () => {
         artifacts: false,
       },
     })
+    await dbClient.db.insert(schema.modelRoutes).values({ modelId, providerId })
     await logUsage(userId, { at: new Date(), modelId, modelLabel: '历史模型', tokens: 7 })
     await dbClient.db.delete(schema.models).where(eq(schema.models.id, modelId))
     const stats = await usageStats.getMyUsageStats(userId)

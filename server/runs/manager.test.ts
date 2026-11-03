@@ -45,7 +45,6 @@ describe('recoverInterruptedRuns', () => {
     const [model] = await dbClient.db
       .insert(schema.models)
       .values({
-        providerId: provider.id,
         modelId: 'gpt-manager',
         displayName: 'Manager model',
         replayProviderContext: true,
@@ -100,6 +99,20 @@ describe('recoverInterruptedRuns', () => {
         state: 'running',
         requestParams: { reasoning_effort: 'medium' },
         startedAt,
+        // 生成中的 run 总有进度快照，恢复时据此得知最后尝试的供应商。
+        progress: {
+          phase: 'streaming',
+          attempt: 1,
+          maxAttempts: 1,
+          requestStartedAt: startedAt.getTime(),
+          updatedAt: startedAt.getTime(),
+          nextRetryAt: null,
+          upstreamResponseLatencyMs: null,
+          modelLabel: model.modelId,
+          modelDisplayName: model.displayName,
+          providerId: provider.id,
+          providerLabel: provider.name,
+        },
       })
       .returning()
     if (!run) throw new Error('Failed to create manager run')

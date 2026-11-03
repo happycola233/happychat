@@ -11,6 +11,9 @@ import type {
   QuotaAdjustmentDTO,
   QuotaPreviewDTO,
   ModelAccessDTO,
+  ModelConfigDocumentDTO,
+  ModelConfigImportPreviewDTO,
+  ModelRouteHealthDTO,
   ModelGroupDTO,
   AdminSessionDTO,
   AdminUserDTO,
@@ -68,6 +71,8 @@ export const previewModelRequest = (input: RequestPreviewInput) =>
 /** 统计/事件查询参数（与后端 statsFilterSchema 对应）。 */
 export interface StatsQuery {
   currency?: 'USD' | 'CNY'
+  /** 金额口径：upstream=上游真实成本（默认），billed=用户计费。 */
+  costBasis?: 'upstream' | 'billed'
   from?: number
   to?: number
   providerId?: string
@@ -127,6 +132,23 @@ export const deleteModel = (id: string) => apiDelete<{ ok: true }>(`/admin/model
 export const batchDeleteModels = (input: ModelBatchDeleteInput) =>
   apiPost<{ ok: true; deleted: number }>('/admin/models/batch-delete', input)
 export const getModelAccess = (id: string) => apiGet<ModelAccessDTO>(`/admin/models/${id}/access`)
+/** 线路运行状况；省略 routeIds 时返回全部线路。 */
+export const getRouteHealth = (routeIds?: string[]) =>
+  apiGet<{ health: ModelRouteHealthDTO[] }>(
+    `/admin/route-health${routeIds ? `?routeIds=${encodeURIComponent(routeIds.join(','))}` : ''}`,
+  ).then((r) => r.health)
+export const exportModelConfig = (ids?: string[]) =>
+  apiGet<{ document: ModelConfigDocumentDTO }>(
+    `/admin/model-config/export${ids ? `?ids=${encodeURIComponent(ids.join(','))}` : ''}`,
+  ).then((r) => r.document)
+export const previewModelConfigImport = (document: unknown) =>
+  apiPost<{ preview: ModelConfigImportPreviewDTO }>('/admin/model-config/preview', {
+    document,
+  }).then((r) => r.preview)
+export const applyModelConfigImport = (document: unknown) =>
+  apiPost<{ preview: ModelConfigImportPreviewDTO }>('/admin/model-config/apply', {
+    document,
+  }).then((r) => r.preview)
 export const updateModelAccess = (id: string, input: ModelAccessUpdateInput) =>
   apiPut<{ ok: true }>(`/admin/models/${id}/access`, input)
 export const applyModelIcons = (input: ModelIconBatchInput) =>

@@ -32,8 +32,20 @@ vi.mock('../../components/IconPicker', () => ({
 function modelFixture(overrides: Partial<AdminModelDTO> = {}): AdminModelDTO {
   return {
     id: 'model-1',
-    providerId: 'provider-1',
-    providerName: '供应商一',
+    routes: [
+      {
+        id: 'route-1',
+        providerId: 'provider-1',
+        providerName: '供应商一',
+        providerProtocol: 'openai',
+        providerEnabled: true,
+        upstreamModelId: null,
+        priority: 0,
+        weight: 1,
+        enabled: true,
+        costPricing: null,
+      },
+    ],
     modelId: 'gpt-test',
     displayName: 'GPT Test',
     description: null,
@@ -76,6 +88,7 @@ function providerFixture(overrides: Partial<ProviderDTO> = {}): ProviderDTO {
     enabled: true,
     hasApiKey: true,
     apiKeyMask: '********',
+    exclusiveModelCount: 0,
     modelCount: 1,
     createdAt: 1,
     ...overrides,
@@ -121,8 +134,7 @@ describe('ModelsPage model actions', () => {
         kind="responses"
         pricing={{ imagePricingModelId: source.id }}
         onChange={() => {}}
-        providerId={source.providerId}
-        models={[source]}
+        imageSources={[source]}
       />,
     )
     expect(html).toContain('按次计价')
@@ -145,7 +157,7 @@ describe('ModelsPage model actions', () => {
     expect(html).toContain('aria-label="复制模型 GPT Test"')
   })
 
-  it('编辑已有模型时展示完整供应商选择', () => {
+  it('线路分区列出全部供应商，并展示调度顺序', () => {
     const client = queryClient()
     client.setQueryData(
       ['admin', 'providers'],
@@ -164,12 +176,14 @@ describe('ModelsPage model actions', () => {
 
     const html = renderToStaticMarkup(
       <QueryClientProvider client={client}>
-        <ModelEditor model={modelFixture()} onClose={() => undefined} />
+        <ModelEditor model={modelFixture()} onClose={() => undefined} initialSection="routes" />
       </QueryClientProvider>,
     )
 
-    expect(html).toContain('所属供应商')
+    expect(html).toContain('线路 1')
+    expect(html).toContain('调度顺序')
     expect(html).toContain('供应商一')
     expect(html).toContain('供应商二')
+    expect(html).toContain('与用户计价相同')
   })
 })

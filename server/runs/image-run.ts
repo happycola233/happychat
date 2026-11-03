@@ -4,9 +4,9 @@ import { UpstreamError } from '../provider/errors'
 import { collectProviderOpaqueStrings } from '../provider/opaque-content'
 import { parseImageGenerationUsage } from '../provider/image-usage'
 import { executeRun, type RunAttemptRuntime } from './execute-run'
-import type { FinalizeArgs } from './finalize'
+import type { AttemptResult } from './finalize'
 import { storeGeneratedImageAttachment } from './generated-images'
-import type { EngineContext } from './types'
+import type { EngineContext, RunExecution } from './types'
 
 interface ImageResponse {
   data?: { b64_json?: string; revised_prompt?: string }[]
@@ -23,14 +23,14 @@ interface ImageResponse {
 }
 
 /** 图片和文本共用尝试、取消及审计流程，完整结果到达后才落图。 */
-export async function runImageEngine(ctx: EngineContext): Promise<void> {
-  await executeRun(ctx, runImageAttempt)
+export async function runImageEngine(execution: RunExecution): Promise<void> {
+  await executeRun(execution, runImageAttempt)
 }
 
 async function runImageAttempt(
   ctx: EngineContext,
   runtime: RunAttemptRuntime,
-): Promise<FinalizeArgs> {
+): Promise<AttemptResult> {
   const { persistEmit, startedAt, upstreamResponseTiming, recordError } = runtime
   persistEmit('image.generation.in_progress', {
     generationId: 'image-0',
@@ -119,7 +119,6 @@ async function runImageAttempt(
     assistantMessage: ctx.assistantMessage,
     conversation: ctx.conversation,
     model: ctx.model,
-    provider: ctx.provider,
     state,
     text: '',
     content,

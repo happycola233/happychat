@@ -78,7 +78,6 @@ async function createModelFixture() {
   })
   await dbClient.db.insert(schema.models).values({
     id: modelId,
-    providerId,
     modelId: `upstream-${sequence}`,
     displayName: `Model ${sequence}`,
     capabilities: {
@@ -91,6 +90,7 @@ async function createModelFixture() {
       artifacts: false,
     },
   })
+  await dbClient.db.insert(schema.modelRoutes).values({ modelId, providerId })
   return modelId
 }
 
@@ -151,7 +151,7 @@ describe('model icon routes', () => {
     expect(model).toEqual({ icon: null, groupId: null })
   })
 
-  it('通过管理接口创建模型副本并更换已有模型的供应商', async () => {
+  it('通过管理接口创建模型副本（连同线路）并把已有模型的线路换到其他供应商', async () => {
     const modelId = await createModelFixture()
     const targetProviderId = `model-provider-switch-${fixtureSequence++}`
     await dbClient.db.insert(schema.providers).values({
@@ -167,26 +167,34 @@ describe('model icon routes', () => {
     })
     expect(duplicate.status).toBe(200)
     const duplicated = (await duplicate.json()) as {
-      model: { id: string; displayName: string; providerId: string }
+      model: { id: string; displayName: string; routes: { id: string; providerId: string }[] }
     }
+    const [sourceRoute] = dbClient.db
+      .select()
+      .from(schema.modelRoutes)
+      .where(eq(schema.modelRoutes.modelId, modelId))
+      .all()
     expect(duplicated.model).toMatchObject({
       displayName: expect.stringMatching(/ 副本$/),
+      routes: [{ providerId: sourceRoute!.providerId }],
     })
     expect(duplicated.model.id).not.toBe(modelId)
+    // 副本拥有独立的线路身份，后续调整互不影响。
+    expect(duplicated.model.routes[0]!.id).not.toBe(sourceRoute!.id)
 
     const updateProvider = await authenticatedRequest(`/api/admin/models/${modelId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ providerId: targetProviderId }),
+      body: JSON.stringify({ routes: [{ providerId: targetProviderId }] }),
     })
     expect(updateProvider.status).toBe(200)
     expect(
       dbClient.db
-        .select({ providerId: schema.models.providerId })
-        .from(schema.models)
-        .where(eq(schema.models.id, modelId))
-        .get(),
-    ).toEqual({ providerId: targetProviderId })
+        .select({ providerId: schema.modelRoutes.providerId })
+        .from(schema.modelRoutes)
+        .where(eq(schema.modelRoutes.modelId, modelId))
+        .all(),
+    ).toEqual([{ providerId: targetProviderId }])
   })
 
   it('preserves dots in an explicitly supplied custom icon name', async () => {

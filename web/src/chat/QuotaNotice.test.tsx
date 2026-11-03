@@ -52,6 +52,7 @@ const quota = (patch: Partial<MyQuotaDTO> = {}): MyQuotaDTO => ({
   paused: false,
   unlimited: false,
   allModelsBlocked: false,
+  imageGenerationBlockedModelIds: [],
   policyName: '默认用户',
   warnThreshold: 0.8,
   rules: [bucket()],

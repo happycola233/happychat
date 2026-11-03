@@ -3,10 +3,24 @@ import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
 import { TitleModelSelect } from './TitleModelSelect'
 
+/** 单条线路的最小形态，标题模型选择只读取供应商名称与可用状态。 */
+const routeVia = (providerName: string) => ({
+  id: `route-${providerName}`,
+  providerId: `provider-${providerName}`,
+  providerName,
+  providerProtocol: 'openai' as const,
+  providerEnabled: true,
+  upstreamModelId: null,
+  priority: 0,
+  weight: 1,
+  enabled: true,
+  costPricing: null,
+})
+
 const firstModel = {
   id: '019a19cd-f100-7000-8000-000000001101',
   displayName: 'GPT Test',
-  providerName: '供应商一',
+  routes: [routeVia('供应商一')],
   modelId: 'gpt-test',
   kind: 'responses' as const,
 }
@@ -21,7 +35,7 @@ function renderSelection(models: (typeof firstModel)[], value: string) {
 
 describe('TitleModelSelect', () => {
   it('同名模型按供应商区分，并直达选中实例的配置', () => {
-    const secondModel = { ...firstModel, id: 'model-2', providerName: '供应商二' }
+    const secondModel = { ...firstModel, id: 'model-2', routes: [routeVia('供应商二')] }
     const models = [firstModel, secondModel]
 
     expect(renderSelection(models, firstModel.id)).toContain('供应商一 · gpt-test')

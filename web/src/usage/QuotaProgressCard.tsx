@@ -3,7 +3,8 @@ import { Clock3, Gift, Infinity as InfinityIcon, PauseCircle } from 'lucide-reac
 import type { MyQuotaDTO, QuotaBucketUsageDTO } from '@shared/types/api'
 import {
   describeQuotaRuleGroupTitle,
-  formatQuotaAmount,
+  QUOTA_METRIC_NOUNS,
+  formatQuotaBucketAmount,
   formatQuotaTargetLabels,
   groupQuotaBucketsByRule,
 } from '@shared/util/quota'
@@ -70,9 +71,9 @@ function QuotaBar({ rule, warnThreshold }: { rule: QuotaBucketUsageDTO; warnThre
       aria-valuemax={100}
       aria-valuenow={percent}
       aria-valuetext={
-        formatQuotaAmount(rule.metric, rule.used, rule.currency) +
+        formatQuotaBucketAmount(rule, rule.used) +
         ' / ' +
-        formatQuotaAmount(rule.metric, rule.effectiveLimit ?? 0, rule.currency)
+        formatQuotaBucketAmount(rule, rule.effectiveLimit ?? 0)
       }
       className="h-1.5 overflow-hidden rounded-full bg-neutral-200/70 dark:bg-neutral-800"
     >
@@ -97,9 +98,9 @@ function UsageFigure({ rule }: { rule: QuotaBucketUsageDTO }) {
   }
   return (
     <>
-      {formatQuotaAmount(rule.metric, rule.used, rule.currency)}
+      {formatQuotaBucketAmount(rule, rule.used)}
       <span className="text-neutral-300 dark:text-neutral-600"> / </span>
-      {formatQuotaAmount(rule.metric, rule.effectiveLimit ?? 0, rule.currency)}
+      {formatQuotaBucketAmount(rule, rule.effectiveLimit ?? 0)}
     </>
   )
 }
@@ -136,7 +137,7 @@ function QuotaFootnotes({
         >
           {rule.blocked
             ? '额度已用尽'
-            : '剩余 ' + formatQuotaAmount(rule.metric, rule.remaining ?? 0, rule.currency)}
+            : '剩余 ' + formatQuotaBucketAmount(rule, rule.remaining ?? 0)}
         </span>
       )}
       {extras?.filter(Boolean).map((item) => (
@@ -151,7 +152,7 @@ function QuotaFootnotes({
       {rule.granted > 0 && (
         <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
           <Gift className="h-3 w-3" />
-          含临时额度 {formatQuotaAmount(rule.metric, rule.granted, rule.currency)}
+          含临时额度 {formatQuotaBucketAmount(rule, rule.granted)}
           {rule.grants[0]?.expiresAt
             ? `（${new Date(rule.grants[0].expiresAt).toLocaleDateString('zh-CN', {
                 month: 'numeric',
@@ -204,7 +205,7 @@ function SingleQuotaRow({
         extras={
           rule.limit.kind === 'unlimited' || !rule.label
             ? []
-            : [`${describeQuotaWindow(rule.window)}${rule.metric === 'cost' ? '消费' : '请求'}`]
+            : [`${describeQuotaWindow(rule.window)}${QUOTA_METRIC_NOUNS[rule.metric]}`]
         }
       />
     </div>
@@ -274,7 +275,7 @@ function IndependentQuotaGroup({
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-neutral-400 dark:text-neutral-500">
           <span>
             {describeQuotaWindow(first.window)}
-            {first.metric === 'cost' ? '消费' : '请求'}
+            {QUOTA_METRIC_NOUNS[first.metric]}
           </span>
           {sharedReset && groupReset && (
             <QuotaResetChip

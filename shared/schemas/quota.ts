@@ -6,6 +6,7 @@ import {
   QUOTA_NOTE_MAX_LENGTH,
   QUOTA_POLICY_NAME_MAX_LENGTH,
   QUOTA_RULE_LABEL_MAX_LENGTH,
+  isQuotaCostMetric,
 } from '../util/quota'
 import { QUOTA_HOURLY_WINDOW_MAX_HOURS } from '../util/quotaWindow'
 
@@ -54,7 +55,7 @@ export const quotaWindowSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('total') }),
 ])
 
-export const quotaMetricSchema = z.enum(['requests', 'cost'])
+export const quotaMetricSchema = z.enum(['requests', 'cost', 'chat_cost', 'image_cost', 'images'])
 
 /** 上限：unlimited 是「豁免」；amount 为非负数，0 表示无基础额度，区别于移除限制的「停用规则」。 */
 export const quotaLimitSchema = z.discriminatedUnion('kind', [
@@ -83,17 +84,17 @@ export const quotaRuleSchema = z
       .max(QUOTA_MAX_RULE_PRIORITY, `优先级最大 ${QUOTA_MAX_RULE_PRIORITY}`)
       .default(0),
   })
-  // 次数没有小数：`1.5 次` 的上限既无法达成也无法展示。
+  // 次数与张数没有小数：`1.5 次` 的上限既无法达成也无法展示。
   .refine(
     (rule) =>
-      rule.metric !== 'requests' ||
+      isQuotaCostMetric(rule.metric) ||
       rule.limit.kind !== 'amount' ||
       Number.isInteger(rule.limit.value),
-    { message: '请求次数上限必须是整数', path: ['limit'] },
+    { message: '次数或张数上限必须是整数', path: ['limit'] },
   )
   .transform(({ currency, ...rule }) => ({
     ...rule,
-    ...(rule.metric === 'cost' && currency ? { currency } : {}),
+    ...(isQuotaCostMetric(rule.metric) && currency ? { currency } : {}),
     label: rule.label?.trim() || null,
   }))
 

@@ -50,6 +50,7 @@ import {
   formatRequestEventTimestamp,
   formatRequestLatency,
 } from './requestEventDisplay'
+import { modelProviderIds } from './modelRoutes'
 
 const RESULT_OPTIONS: SelectOption[] = [
   { value: '', label: '全部结果' },
@@ -134,7 +135,7 @@ export default function RequestEventsPage() {
     () => [
       { value: '', label: '全部模型' },
       ...(models ?? [])
-        .filter((model) => !providerId || model.providerId === providerId)
+        .filter((model) => !providerId || modelProviderIds(model).includes(providerId))
         .map((m) => ({ value: m.id, label: m.displayName })),
     ],
     [models, providerId],
@@ -327,7 +328,7 @@ export default function RequestEventsPage() {
                     <th className={`${th} w-[102px]`}>生成速度</th>
                     <th className={`${th} w-[170px]`}>Tokens</th>
                     <th className={`${th} w-[120px]`}>缓存</th>
-                    <th className={`${th} w-[76px]`}>成本</th>
+                    <th className={`${th} w-[88px]`}>成本 / 计费</th>
                     <th className={`${th} w-[114px]`}>结果</th>
                     <th className={`${th} w-[140px]`}>操作</th>
                   </tr>
@@ -420,6 +421,14 @@ export default function RequestEventsPage() {
                           <div className={primaryValue}>
                             <CostBreakdown breakdown={row.costBreakdown} display={row.costDisplay}>
                               {formatCurrency(row.cost)}
+                            </CostBreakdown>
+                          </div>
+                          <div className={secondaryValue}>
+                            <CostBreakdown
+                              breakdown={row.billedCostBreakdown}
+                              display={row.costDisplay}
+                            >
+                              计费 {formatCurrency(row.billedCost)}
                             </CostBreakdown>
                           </div>
                         </td>

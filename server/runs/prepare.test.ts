@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { primaryBody } from '../testing/model-routes'
 import { DEFAULT_CONTEXT_POLICY } from '@shared/util/contextPolicy'
 import type { ContentPart } from '@shared/types/domain'
 
@@ -64,7 +65,6 @@ async function createRunnableModel(overrides: Partial<typeof schema.models.$infe
   })
   await dbClient.db.insert(schema.models).values({
     id: modelId,
-    providerId,
     modelId: upstreamModelId,
     displayName: `Test Model ${n}`,
     kind: 'responses',
@@ -79,6 +79,7 @@ async function createRunnableModel(overrides: Partial<typeof schema.models.$infe
     },
     ...overrides,
   })
+  await dbClient.db.insert(schema.modelRoutes).values({ modelId, providerId })
 
   return { userId, modelId, providerId, providerBaseUrl, upstreamModelId }
 }
@@ -124,7 +125,6 @@ async function createRunnableImageModel() {
   })
   await dbClient.db.insert(schema.models).values({
     id: modelId,
-    providerId,
     modelId: 'gpt-image-2',
     displayName: `Image Model ${n}`,
     kind: 'image',
@@ -138,6 +138,7 @@ async function createRunnableImageModel() {
       artifacts: false,
     },
   })
+  await dbClient.db.insert(schema.modelRoutes).values({ modelId, providerId })
 
   return { userId, modelId }
 }
@@ -284,7 +285,7 @@ describe('上下文优化请求链路', () => {
         expect(read.mock.calls.map((call) => String(call[0]))).not.toContain(
           expect.stringContaining(old.attachmentId),
         )
-        const serialized = JSON.stringify(second.body)
+        const serialized = JSON.stringify(primaryBody(second))
         expect(serialized.match(/data:image\/png|"type":"image"/g)).toHaveLength(15)
         expect(second.run.requestParams?.contextPolicy).toEqual(contextPolicy)
 
@@ -300,7 +301,7 @@ describe('上下文优化请求链路', () => {
         })
         expect(regenerated.ok).toBe(true)
         expect(read).toHaveBeenCalledTimes(1)
-        if (regenerated.ok) expect(JSON.stringify(regenerated.body)).not.toContain('旧图片')
+        if (regenerated.ok) expect(JSON.stringify(primaryBody(regenerated))).not.toContain('旧图片')
 
         read.mockClear()
         const edited = assertPrepared(
@@ -314,7 +315,7 @@ describe('上下文优化请求链路', () => {
           }),
         )
         expect(read).toHaveBeenCalledTimes(1)
-        expect(JSON.stringify(edited.body)).not.toContain('本次图片')
+        expect(JSON.stringify(primaryBody(edited))).not.toContain('本次图片')
         const persisted = await conversationServices.getConversationMessages(first.conversation.id)
         expect(
           persisted.find((message) => message.id === first.userMessage.id)?.content,
@@ -388,10 +389,10 @@ describe('上下文优化请求链路', () => {
           }),
         )
         expect(read).toHaveBeenCalledTimes(1)
-        expect(JSON.stringify(edited.body)).not.toContain('其他分支的文字')
+        expect(JSON.stringify(primaryBody(edited))).not.toContain('其他分支的文字')
         expect(edited.userMessage.content).toEqual([{ type: 'input_text', text: '新分支提问' }])
         expect(edited.run.requestParams?.contextAttachments).toEqual(contextAttachments)
-        expect(edited.body).not.toHaveProperty('contextAttachments')
+        expect(primaryBody(edited)).not.toHaveProperty('contextAttachments')
         read.mockClear()
         const next = assertPrepared(
           await prepare.prepareRun({
@@ -442,7 +443,7 @@ describe('上下文优化请求链路', () => {
       }),
     )
     expect(selected.imageOperation).toBe('edit')
-    expect(selected.body.images).toHaveLength(1)
+    expect(primaryBody(selected).images).toHaveLength(1)
     expect(selected.userMessage.content).toEqual([{ type: 'input_text', text: '调整参考图' }])
   })
 
@@ -653,7 +654,7 @@ describe('prepareRun active leaf', () => {
       }),
     )
 
-    expect(result.body).toMatchObject({
+    expect(primaryBody(result)).toMatchObject({
       model: 'claude-sonnet-5',
       max_tokens: 16000,
       cache_control: { type: 'ephemeral' },
@@ -670,7 +671,9 @@ describe('prepareRun active leaf', () => {
         },
       ],
     })
-    expect(result.body.system).toEqual(expect.stringContaining('<runtime_context_protocol>'))
+    expect(primaryBody(result).system).toEqual(
+      expect.stringContaining('<runtime_context_protocol>'),
+    )
   })
 
   it('Anthropic 请求体校验失败时不创建 assistant、run 或改动 active leaf', async () => {
@@ -802,7 +805,7 @@ describe('prepareRun active leaf', () => {
     )
     const lastRun = await conversationServices.getConversationLastRun(result.conversation.id)
 
-    expect(result.body.tools).toEqual([{ type: 'web_search' }])
+    expect(primaryBody(result).tools).toEqual([{ type: 'web_search' }])
     expect(result.run.requestParams).not.toHaveProperty('web_search')
     expect(lastRun.params?.web_search).toBe(true)
   })
@@ -874,7 +877,7 @@ describe('prepareRun active leaf', () => {
           params: { reasoning_effort: effort },
         }),
       )
-      expect(result.body.reasoning).toEqual({ effort })
+      expect(primaryBody(result).reasoning).toEqual({ effort })
       expect(result.run.requestParams?.reasoning_effort).toBe(effort)
     },
   )
@@ -928,7 +931,7 @@ describe('prepareRun active leaf', () => {
       params: { reasoning_effort: 'none' },
     })
     if (!retry.ok) throw new Error(retry.message)
-    expect(retry.body.reasoning).toEqual({ effort: 'none' })
+    expect(primaryBody(retry).reasoning).toEqual({ effort: 'none' })
   })
 
   it('drops a pinned reasoning effort unsupported by the selected model', async () => {
@@ -962,7 +965,7 @@ describe('prepareRun active leaf', () => {
     )
     const lastRun = await conversationServices.getConversationLastRun(result.conversation.id)
 
-    expect(result.body.reasoning).toEqual({ effort: 'low' })
+    expect(primaryBody(result).reasoning).toEqual({ effort: 'low' })
     expect(result.run.requestParams).not.toHaveProperty('reasoning_effort')
     expect(lastRun.params?.reasoning_effort).toBe('low')
   })
@@ -1044,7 +1047,7 @@ describe('prepareRun active leaf', () => {
         text: '第二问',
       }),
     )
-    const input = second.body.input as Array<Record<string, unknown>>
+    const input = primaryBody(second).input as Array<Record<string, unknown>>
     const reasoningIndex = input.findIndex((item) => item.id === reasoningItem.id)
     const assistantIndex = input.findIndex(
       (item) => item.type === 'message' && item.role === 'assistant',
@@ -1096,7 +1099,7 @@ describe('prepareRun active leaf', () => {
       }),
     )
 
-    expect(second.body.input).toEqual(
+    expect(primaryBody(second).input).toEqual(
       expect.arrayContaining([
         {
           type: 'message',
@@ -1147,7 +1150,7 @@ describe('prepareRun active leaf', () => {
         clientTimezone: 'Asia/Shanghai',
       }),
     )
-    const input = result.body.input as Array<Record<string, unknown>>
+    const input = primaryBody(result).input as Array<Record<string, unknown>>
 
     expect(result.userMessage.runtimeContext).toMatch(
       /^<runtime_context>\ndatetime: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+08:00\ntimezone: Asia\/Shanghai\n<\/runtime_context>$/,
@@ -1158,9 +1161,11 @@ describe('prepareRun active leaf', () => {
       content: [{ type: 'input_text', text: result.userMessage.runtimeContext }],
     })
     expect(input[1]).toMatchObject({ type: 'message', role: 'user' })
-    expect(result.body.prompt_cache_key).toBe(`happychat:conversation:${result.conversation.id}`)
-    expect(result.body).not.toHaveProperty('prompt_cache_retention')
-    expect(result.body.instructions).toContain('<runtime_context_protocol>')
+    expect(primaryBody(result).prompt_cache_key).toBe(
+      `happychat:conversation:${result.conversation.id}`,
+    )
+    expect(primaryBody(result)).not.toHaveProperty('prompt_cache_retention')
+    expect(primaryBody(result).instructions).toContain('<runtime_context_protocol>')
   })
 
   it('uses the latest admin model prompt in an existing conversation', async () => {
@@ -1185,9 +1190,9 @@ describe('prepareRun active leaf', () => {
       }),
     )
 
-    expect(second.body.instructions).toMatch(/^New instructions\./)
-    expect(second.body.instructions).not.toContain('Old instructions.')
-    expect(second.body.instructions).not.toContain('Stale conversation override.')
+    expect(primaryBody(second).instructions).toMatch(/^New instructions\./)
+    expect(primaryBody(second).instructions).not.toContain('Old instructions.')
+    expect(primaryBody(second).instructions).not.toContain('Stale conversation override.')
   })
 
   it('reuses the original user runtime context when regenerating', async () => {
@@ -1207,7 +1212,7 @@ describe('prepareRun active leaf', () => {
       assistantMessageId: first.assistantMessage.id,
     })
     if (!regenerated.ok) throw new Error(regenerated.message)
-    const input = regenerated.body.input as Array<Record<string, unknown>>
+    const input = primaryBody(regenerated).input as Array<Record<string, unknown>>
 
     expect(input[0]).toEqual({
       type: 'message',
@@ -1227,8 +1232,8 @@ describe('prepareRun active leaf', () => {
 
     const result = assertPrepared(await prepare.prepareRun({ userId, modelId, text: 'hello' }))
 
-    expect(result.body.prompt_cache_key).toBe('manual-key')
-    expect(result.body.prompt_cache_retention).toBe('24h')
+    expect(primaryBody(result).prompt_cache_key).toBe('manual-key')
+    expect(primaryBody(result).prompt_cache_retention).toBe('24h')
   })
 })
 
@@ -1302,7 +1307,7 @@ describe('prepareRun file inputs', () => {
       }),
     )
 
-    expect(result.body.messages).toEqual(
+    expect(primaryBody(result).messages).toEqual(
       expect.arrayContaining([
         {
           role: 'user',
@@ -1349,7 +1354,7 @@ describe('prepareRun file inputs', () => {
       }),
     )
 
-    expect(result.body).toMatchObject({
+    expect(primaryBody(result)).toMatchObject({
       input: [
         {
           role: 'system',
@@ -1496,7 +1501,7 @@ describe('prepareRun image inputs', () => {
     )
 
     expect(result.imageOperation).toBe('edit')
-    expect(result.body).toMatchObject({
+    expect(primaryBody(result)).toMatchObject({
       model: 'gpt-image-2',
       prompt: 'Make this reference warmer',
       size: '1024x1024',
@@ -1544,11 +1549,11 @@ describe('prepareRun image inputs', () => {
     )
 
     expect(result.imageOperation).toBe('generate')
-    expect(result.body).toMatchObject({
+    expect(primaryBody(result)).toMatchObject({
       model: 'gpt-image-2',
       prompt: 'Draw a blue square',
     })
-    expect(result.body.images).toBeUndefined()
+    expect(primaryBody(result).images).toBeUndefined()
   })
 
   it('normalizes valid custom gpt-image-2 sizes before building the upstream body', async () => {
@@ -1563,7 +1568,7 @@ describe('prepareRun image inputs', () => {
       }),
     )
 
-    expect(result.body).toMatchObject({
+    expect(primaryBody(result)).toMatchObject({
       size: '3840x2160',
       quality: 'high',
     })
@@ -1589,7 +1594,7 @@ describe('prepareRun image inputs', () => {
       web_search: true,
       clientLocale: 'ja-JP',
     })
-    expect(result.body).not.toHaveProperty('clientLocale')
+    expect(primaryBody(result)).not.toHaveProperty('clientLocale')
   })
 
   it('renders the browser locale in model system prompt variables', async () => {
@@ -1649,7 +1654,7 @@ describe('prepareRun image inputs', () => {
     )
 
     expect(result.imageOperation).toBe('edit')
-    expect(result.body).toMatchObject({
+    expect(primaryBody(result)).toMatchObject({
       prompt: 'Make the background darker',
       images: [{ image_url: expect.stringMatching(/^data:image\/png;base64,/) }],
     })
@@ -1700,5 +1705,91 @@ describe('prepareRun image inputs', () => {
       status: 400,
       code: 'unsupported_image_input',
     })
+  })
+})
+
+describe('prepareRun 线路计划', () => {
+  async function addProvider(name: string, enabled = true) {
+    const id = `${name}-${fixtureSeq++}`
+    await dbClient.db.insert(schema.providers).values({
+      id,
+      name,
+      baseUrl: `https://${name}.test/v1`,
+      apiKey: 'test-key',
+      enabled,
+    })
+    return id
+  }
+
+  it('按优先级排出候选线路，排除停用线路与停用供应商，并按线路改写 model 字段', async () => {
+    const { userId, modelId, providerId, upstreamModelId } = await createRunnableModel()
+    const primaryProvider = await addProvider('primary')
+    const disabledProvider = await addProvider('disabled', false)
+    await dbClient.db.insert(schema.modelRoutes).values([
+      { modelId, providerId: primaryProvider, upstreamModelId: 'vendor/primary', priority: 10 },
+      { modelId, providerId: disabledProvider, priority: 50 },
+      { modelId, providerId, upstreamModelId: 'paused', priority: 99, enabled: false },
+    ])
+    const result = assertPrepared(await prepare.prepareRun({ userId, modelId, text: 'hello' }))
+
+    const candidates = result.routing.candidates
+    expect(candidates.map((route) => route.provider.id)).toEqual([primaryProvider, providerId])
+    expect(primaryBody(result).model).toBe('vendor/primary')
+    expect(result.routing.bodyFor(candidates[1]!).model).toBe(upstreamModelId)
+    // 同一线路的请求体只构建一次。
+    expect(result.routing.bodyFor(candidates[0]!)).toBe(primaryBody(result))
+  })
+
+  it('没有可调度线路的模型对用户不可用', async () => {
+    const { userId, modelId } = await createRunnableModel()
+    await dbClient.db.delete(schema.modelRoutes).where(eq(schema.modelRoutes.modelId, modelId))
+    const models = await import('../services/models')
+    expect((await models.listEnabledModels(userId)).some((model) => model.id === modelId)).toBe(
+      false,
+    )
+    expect(await prepare.prepareRun({ userId, modelId, text: 'hello' })).toMatchObject({
+      ok: false,
+      code: 'model_unavailable',
+    })
+  })
+
+  it('生图额度用尽时保留文字对话，但去掉 Responses 生图工具', async () => {
+    const { userId, modelId } = await createRunnableModel({
+      hardParams: { tools: [{ type: 'image_generation' }, { type: 'code_interpreter' }] },
+    })
+    const appConfig = await import('../services/appConfig')
+    await appConfig.updateAppConfig({ quotaEnabled: true })
+    const policyId = `image-policy-${userId}`
+    await dbClient.db.insert(schema.quotaPolicies).values({
+      id: policyId,
+      name: '每日生图',
+      rules: [
+        {
+          id: 'r-images',
+          label: null,
+          scope: { type: 'all' },
+          metric: 'images',
+          limit: { kind: 'amount', value: 1 },
+          window: { type: 'total' },
+          priority: 0,
+        },
+      ],
+    })
+    await dbClient.db.insert(schema.userQuotas).values({ userId, policyId })
+    const before = assertPrepared(await prepare.prepareRun({ userId, modelId, text: 'draw' }))
+    expect(primaryBody(before).tools).toEqual([
+      { type: 'image_generation' },
+      { type: 'code_interpreter' },
+    ])
+
+    await dbClient.db.insert(schema.usageLogs).values({
+      userId,
+      modelId,
+      kind: 'chat',
+      generatedImageCount: 1,
+    })
+    const after = assertPrepared(await prepare.prepareRun({ userId, modelId, text: 'draw again' }))
+    expect(primaryBody(after).tools).toEqual([{ type: 'code_interpreter' }])
+    await appConfig.updateAppConfig({ quotaEnabled: false })
   })
 })

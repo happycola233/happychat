@@ -56,7 +56,6 @@ async function createFixture(modelCount = 1) {
     modelIds.push(id)
     await dbClient.db.insert(schema.models).values({
       id,
-      providerId,
       modelId: `upstream-${n}-${i}`,
       displayName: `Model ${n}-${i}`,
       sort: (i + 1) * 100,
@@ -70,6 +69,7 @@ async function createFixture(modelCount = 1) {
         artifacts: false,
       },
     })
+    await dbClient.db.insert(schema.modelRoutes).values({ modelId: id, providerId })
   }
   return { userId, providerId, modelIds }
 }

@@ -627,3 +627,16 @@ export async function getMyUsageStats(
     firstUsedAt: firstUsage?.ts ?? null,
   }
 }
+
+/** 站点不向用户展示金额时，个人用量面板在服务端去掉全部金额，接口里不出现具体花费。 */
+export function withoutUsageCosts(stats: UsageStatsDTO): UsageStatsDTO {
+  return {
+    ...stats,
+    costHidden: true,
+    totals: { ...stats.totals, cost: 0 },
+    heatmap: stats.heatmap.map((cell) => ({ ...cell, cost: 0 })),
+    byModel: stats.byModel.map((model) => ({ ...model, cost: 0 })),
+    trend: stats.trend.map((point) => ({ ...point, cost: 0 })),
+    topModel: stats.topModel && { ...stats.topModel, cost: 0 },
+  }
+}

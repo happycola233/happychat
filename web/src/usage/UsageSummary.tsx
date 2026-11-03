@@ -6,7 +6,7 @@ import { UsageValue } from './UsagePrimitives'
 
 export function UsageSummary({ stats }: { stats: UsageStatsDTO }) {
   const { totals } = stats
-  const items = [
+  const allItems = [
     {
       label: '请求次数',
       icon: Activity,
@@ -24,6 +24,7 @@ export function UsageSummary({ stats }: { stats: UsageStatsDTO }) {
         : '输入与输出的总用量',
     },
     {
+      key: 'cost',
       label: '预估花费',
       icon: Coins,
       value: formatUsageMetric(totals.cost, 'cost'),
@@ -43,6 +44,7 @@ export function UsageSummary({ stats }: { stats: UsageStatsDTO }) {
         (totals.imageGenerations ? ' · ' + formatInt(totals.imageGenerations) + ' 次生图' : ''),
     },
   ]
+  const items = stats.costHidden ? allItems.filter((item) => item.key !== 'cost') : allItems
   return (
     <section
       aria-label="用量概览"

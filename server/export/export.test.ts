@@ -58,7 +58,6 @@ async function createModel() {
   const [model] = await dbClient.db
     .insert(schema.models)
     .values({
-      providerId: provider.id,
       modelId: `export-model-${n}`,
       displayName: '测试模型',
       capabilities: {

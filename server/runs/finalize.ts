@@ -6,11 +6,12 @@ import type {
   MessageUsage,
   ModelParams,
   ProcessStep,
+  RequestCostBreakdown,
   UrlCitation,
 } from '@shared/types/domain'
 import { RUN_EVENT_TYPE } from '@shared/types/events'
 import type { RunRetrySummary } from '@shared/types/retry'
-import { calculateRequestCost } from '@shared/util/cost'
+import { calculateRequestCost, imageCostAmounts } from '@shared/util/cost'
 import { incompleteRunMessage } from '@shared/util/incompleteRun'
 import { isReasoningEnabled, requestedReasoningEffort } from '@shared/util/reasoning'
 import { db } from '../db/client'
@@ -24,7 +25,7 @@ import {
 } from '../services/run-timing-snapshot'
 import { maybeGenerateTitle } from '../services/title'
 import { requestMonitorEvents } from '../services/request-monitor-events'
-import type { ConvRow, ModelRow, MsgRow, ProviderRow, RunRow } from './types'
+import type { ConvRow, ModelRow, MsgRow, RunRoute, RunRow } from './types'
 import { errorTypeForAudit, terminalReasonForUsage } from './usage-audit'
 import { saveRunErrorAudit } from './error-audit'
 
@@ -35,8 +36,12 @@ export interface FinalizeArgs {
   run: RunRow
   assistantMessage: MsgRow
   conversation: ConvRow
+  /** 用户可见的模型配置；pricing 是冻结的用户计价快照。 */
   model: ModelRow
-  provider: ProviderRow
+  /** 最后一次尝试所走的线路，用量日志据此记录供应商、线路与实际上游模型 ID。 */
+  route: RunRoute
+  /** 按各次尝试实际线路的成本价分别结算后的上游真实成本。 */
+  upstreamCost: RequestCostBreakdown
   state: FinalState
   text: string
   processSteps: ProcessStep[]
@@ -58,6 +63,9 @@ export interface FinalizeArgs {
   content?: ContentPart[]
   persistEmit: (type: string, data: Record<string, unknown>) => number
 }
+
+/** 协议引擎单次尝试的结果；线路与上游成本由编排器在结算前补齐。 */
+export type AttemptResult = Omit<FinalizeArgs, 'route' | 'upstreamCost'>
 
 /**
  * 终止事件会在数据库最终态落稳后才发出，因此计算时同时传入 finishedAt，覆盖无正文输出。
@@ -99,6 +107,7 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
     a.startedAt?.getTime() ?? a.run.createdAt.getTime(),
   )
   const messageCostUsd = costBreakdown.totalUsd
+  const imageCost = imageCostAmounts(costBreakdown)
   const terminalReason = terminalReasonForUsage(a.state, {
     incompleteReason: a.incompleteReason,
     errorType: a.errorType,
@@ -182,14 +191,20 @@ export async function finalizeRun(a: FinalizeArgs): Promise<void> {
         runId: a.run.id,
         userId: a.run.userId,
         modelId: a.model.id,
-        providerId: a.provider.id,
-        modelLabel: a.model.modelId,
+        providerId: a.route.provider.id,
+        routeId: a.route.route.id,
+        modelLabel: a.route.upstreamModelId,
         modelDisplayName: a.model.displayName,
-        providerLabel: a.provider.name,
+        providerLabel: a.route.provider.name,
         pricingSnapshot: a.model.pricing,
         costUsd: messageCostUsd,
         costCny: costBreakdown.totalCny,
         costBreakdown,
+        imageCostUsd: imageCost.usd,
+        imageCostCny: imageCost.cny,
+        upstreamCostUsd: a.upstreamCost.totalUsd,
+        upstreamCostCny: a.upstreamCost.totalCny,
+        upstreamCostBreakdown: a.upstreamCost,
         imageUsage,
         conversationId: a.conversation.id,
         inputTokens: a.usage.inputTokens,

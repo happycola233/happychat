@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { EXCLUDED_MODEL_IDS } from '@shared/constants'
 import type { AnthropicCatalogCapabilities } from '@shared/util/anthropic'
 import type {
@@ -7,7 +7,9 @@ import type {
   UpstreamCatalogModelDTO,
 } from '@shared/types/api'
 import { db } from '../db/client'
-import { models, providers } from '../db/schema'
+import { modelRoutes, models, providers } from '../db/schema'
+import { must } from '../lib/assert'
+import type { DbTransaction } from './model-icon-references'
 import { providerClientFromRow } from '../provider/client'
 import { inferModelDefaults } from '../provider/model-defaults'
 import type { ProviderRow } from '../runs/types'
@@ -46,7 +48,6 @@ function inferredModelValues(
     upstreamModel.max_tokens,
   )
   return {
-    providerId: provider.id,
     modelId: upstreamModel.id,
     displayName: upstreamModel.id,
     kind: d.kind,
@@ -60,6 +61,25 @@ function inferredModelValues(
     defaultWebSearch: d.defaultWebSearch,
     defaultXSearch: d.defaultXSearch,
   }
+}
+
+/** 目录模型入库：新建模型配置，并以该供应商作为它的唯一线路。 */
+function insertCatalogModel(tx: DbTransaction, provider: ProviderRow, upstreamModel: CatalogModel) {
+  const model = must(
+    tx.insert(models).values(inferredModelValues(provider, upstreamModel)).returning().get(),
+  )
+  tx.insert(modelRoutes).values({ modelId: model.id, providerId: provider.id, sort: 100 }).run()
+}
+
+/** 已经通过该供应商承接的上游模型 ID（线路未单独指定时取模型 ID）。 */
+function routedUpstreamIds(executor: Pick<DbTransaction, 'select'>, providerId: string) {
+  return executor
+    .select({
+      upstreamModelId: sql<string>`coalesce(${modelRoutes.upstreamModelId}, ${models.modelId})`,
+    })
+    .from(modelRoutes)
+    .innerJoin(models, eq(modelRoutes.modelId, models.id))
+    .where(eq(modelRoutes.providerId, providerId))
 }
 
 /**
@@ -80,18 +100,17 @@ export async function syncProviderModels(provider: ProviderRow): Promise<SyncMod
         throw new ProviderConnectionChangedError()
       }
 
-      const existing = tx
-        .select({ modelId: models.modelId })
-        .from(models)
-        .where(eq(models.providerId, provider.id))
-        .all()
-      const existingIds = new Set(existing.map((model) => model.modelId))
+      const existingIds = new Set(
+        routedUpstreamIds(tx, provider.id)
+          .all()
+          .map((row) => row.upstreamModelId),
+      )
       let added = 0
       const result: { modelId: string; isNew: boolean }[] = []
       for (const upstreamModel of upstream) {
         const isNew = !existingIds.has(upstreamModel.id)
         if (isNew) {
-          tx.insert(models).values(inferredModelValues(provider, upstreamModel)).run()
+          insertCatalogModel(tx, provider, upstreamModel)
           existingIds.add(upstreamModel.id)
           added += 1
         }
@@ -108,12 +127,10 @@ export async function getProviderModelCatalog(
   provider: ProviderRow,
 ): Promise<UpstreamCatalogModelDTO[]> {
   const upstream = await providerClientFromRow(provider).listModels()
-  const existing = await db
-    .select({ modelId: models.modelId })
-    .from(models)
-    .where(eq(models.providerId, provider.id))
+  const existing = await routedUpstreamIds(db, provider.id)
   const counts = new Map<string, number>()
-  for (const row of existing) counts.set(row.modelId, (counts.get(row.modelId) ?? 0) + 1)
+  for (const row of existing)
+    counts.set(row.upstreamModelId, (counts.get(row.upstreamModelId) ?? 0) + 1)
   return upstream.map((um) => ({ modelId: um.id, existingCount: counts.get(um.id) ?? 0 }))
 }
 
@@ -141,9 +158,7 @@ export async function importProviderModels(
         throw new ProviderConnectionChangedError()
       }
       for (const modelId of uniqueIds) {
-        tx.insert(models)
-          .values(inferredModelValues(provider, catalogById.get(modelId) ?? { id: modelId }))
-          .run()
+        insertCatalogModel(tx, provider, catalogById.get(modelId) ?? { id: modelId })
       }
       return { added: uniqueIds.length }
     },

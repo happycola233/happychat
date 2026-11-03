@@ -62,7 +62,6 @@ async function createModel() {
   const [model] = await dbClient.db
     .insert(schema.models)
     .values({
-      providerId: provider.id,
       modelId: `branch-model-${n}`,
       displayName: 'Branch model',
       capabilities: {
@@ -82,7 +81,8 @@ async function createModel() {
     })
     .returning()
   if (!model) throw new Error('Failed to create model')
-  return model
+  // 夹具附带供应商 ID，供私有上下文来源与用量日志使用；模型本身经线路关联供应商。
+  return { ...model, providerId: provider.id }
 }
 
 async function addMessage(input: {

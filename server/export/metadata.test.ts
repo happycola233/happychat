@@ -56,7 +56,6 @@ async function createFixture(messageValues: Partial<MsgRow> = {}) {
   const model = await db
     .insert(schema.models)
     .values({
-      providerId: provider.id,
       modelId: 'example-model-v1',
       displayName: '示例模型一',
       capabilities: {
@@ -74,6 +73,7 @@ async function createFixture(messageValues: Partial<MsgRow> = {}) {
     })
     .returning()
     .get()
+  await db.insert(schema.modelRoutes).values({ modelId: model.id, providerId: provider.id })
   const conversation = await db
     .insert(schema.conversations)
     .values({ userId: user.id, title: '虚构元数据测试' })

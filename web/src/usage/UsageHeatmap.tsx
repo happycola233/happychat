@@ -34,10 +34,13 @@ export function UsageHeatmap({
   cells,
   currentStreak,
   longestStreak,
+  costHidden,
 }: {
   cells: UsageHeatmapCellDTO[]
   currentStreak: number
   longestStreak: number
+  /** 站点不向用户展示金额：不提供花费视图。 */
+  costHidden?: boolean
 }) {
   const [metric, setMetric] = useState<HeatmapMetric>('requests')
   const [selectedDate, setSelectedDate] = useState(cells.at(-1)?.date ?? '')
@@ -95,7 +98,9 @@ export function UsageHeatmap({
         <SegmentedControl
           label="热力图口径"
           value={metric}
-          options={METRIC_OPTIONS}
+          options={
+            costHidden ? METRIC_OPTIONS.filter((item) => item.value !== 'cost') : METRIC_OPTIONS
+          }
           onChange={setMetric}
         />
       }
@@ -265,7 +270,7 @@ export function UsageHeatmap({
             {[
               ['请求', formatInt(inspected.requests)],
               ['Token', formatInt(inspected.totalTokens)],
-              ['花费', formatUsageMetric(inspected.cost, 'cost', true)],
+              ...(costHidden ? [] : [['花费', formatUsageMetric(inspected.cost, 'cost', true)]]),
             ].map(([label, value]) => (
               <div key={label}>
                 <dt className="mb-1 text-neutral-500 dark:text-neutral-400">{label}</dt>
