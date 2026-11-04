@@ -15,6 +15,7 @@ import type {
   QuotaRule,
   QuotaRuleSource,
   QuotaScope,
+  QuotaSide,
   QuotaWeekStart,
   QuotaWindow,
   UserQuotaOverrides,
@@ -450,6 +451,8 @@ export interface ActiveRequestDTO {
   runId: string
   userId: string
   username: string | null
+  /** 模型配置 ID；同名配置靠它区分，模型已删除时为 null。 */
+  modelId: string | null
   modelLabel: string | null
   modelDisplayName: string | null
   providerLabel: string | null
@@ -482,6 +485,8 @@ export interface UsageLogDTO {
   providerLabel: string | null
   /** 最终承接请求的线路；线路删除或迁移前无法归属的记录为 null。 */
   routeId: string | null
+  /** 模型配置 ID；同名配置靠它区分，模型已删除时为 null。 */
+  modelId: string | null
   /** 请求时的上游模型 ID 快照。 */
   modelLabel: string | null
   /** 请求时的模型外显名称；迁移前记录在模型仍存在时由当前配置补齐。 */
@@ -733,6 +738,11 @@ export interface QuotaBucketUsageDTO {
   targetLabels: string[] | null
   /** 优先级接管后该桶实际覆盖的模型；null 表示仍覆盖全部可用模型。 */
   effectiveModelIds: string[] | null
+  /**
+   * 只计量一侧用量的模型：另一侧已被更高优先级规则接管（如只豁免了文字，生图仍计入本桶）。
+   * 缺省或未列出的模型按规则口径完整计量。
+   */
+  onlySideByModelId?: Record<string, QuotaSide>
   label: string | null
   source: QuotaRuleSource
   scope: QuotaScope
@@ -1026,13 +1036,14 @@ export interface ModelConfigDocumentDTO {
   models: import('../schemas/model-config-transfer').ModelConfigEntry[]
 }
 
-export type ModelConfigImportAction = 'create' | 'update' | 'unchanged' | 'error'
+/** 配置导入（模型配置、额度策略共用）里单个条目的处理结果。 */
+export type ConfigImportAction = 'create' | 'update' | 'unchanged' | 'error'
 
-export interface ModelConfigImportItemDTO {
-  /** 在文档 models 数组中的下标。 */
+export interface ConfigImportItemDTO {
+  /** 在文档条目数组中的下标。 */
   index: number
-  action: ModelConfigImportAction
-  /** 更新的模型 ID，或已应用的新建模型 ID；预览中的新建模型为 null。 */
+  action: ConfigImportAction
+  /** 更新的对象 ID，或已应用的新建对象 ID；预览中的新建对象为 null。 */
   id: string | null
   label: string
   /** 将发生变化的字段（中文名）。 */
@@ -1042,15 +1053,27 @@ export interface ModelConfigImportItemDTO {
   notes: string[]
 }
 
-export interface ModelConfigImportPreviewDTO {
+export interface ConfigImportPreviewDTO {
   /** 没有任何错误，可以应用。 */
   valid: boolean
   /** 本次请求已提交到数据库（仅应用且无错误时为 true）。 */
   applied: boolean
   /** 文档本身的问题（格式标识、版本、数量）。 */
   documentErrors: string[]
-  /** 导入时会新建的分组名称。 */
-  groupsToCreate: string[]
-  items: ModelConfigImportItemDTO[]
-  summary: Record<ModelConfigImportAction, number>
+  /** 条目之外的连带变化，如「新建分组：Claude 系列」「设为默认策略：VIP」。 */
+  notices: string[]
+  items: ConfigImportItemDTO[]
+  summary: Record<ConfigImportAction, number>
+}
+
+/** 额度策略导入导出文档。 */
+export interface QuotaConfigDocumentDTO {
+  format: string
+  version: number
+  exportedAt: string
+  /** 只读参考：规则可引用的模型配置（同名配置请用 id 引用）。 */
+  models: { id: string; name: string; group: string | null }[]
+  /** 只读参考：规则可引用的模型分组。 */
+  groups: { id: string; name: string }[]
+  policies: import('../schemas/quota-config-transfer').QuotaConfigPolicyEntry[]
 }

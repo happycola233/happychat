@@ -40,6 +40,7 @@ export function listActiveRequests(filter: StatsFilter): ActiveRequestsDTO {
       runId: runs.id,
       userId: runs.userId,
       username: users.username,
+      modelId: runs.modelId,
       modelLabel: models.modelId,
       modelDisplayName: models.displayName,
       requestParams: runs.requestParams,

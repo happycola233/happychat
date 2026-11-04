@@ -38,7 +38,8 @@ import { ModelAccessDialog } from './ModelAccessDialog'
 import { ModelEditor, type ModelEditorSection } from './ModelEditor'
 import { AssignGroupDialog, BatchIconDialog, ModelBatchToolbar } from './ModelBatchTools'
 import { modelProviderIds } from './modelRoutes'
-import { ModelConfigTransferDialog } from './ModelConfigTransferDialog'
+import { ConfigTransferDialog } from './ConfigTransferDialog'
+import { MODEL_CONFIG_TRANSFER } from './configTransferKinds'
 
 const ROW_INSET_X = 'px-2 sm:px-3'
 const ROW_GAP_X = 'gap-2 sm:gap-3'
@@ -377,7 +378,8 @@ export default function ModelsPage() {
         }
       />
       {transferOpen && (
-        <ModelConfigTransferDialog
+        <ConfigTransferDialog
+          kind={MODEL_CONFIG_TRANSFER}
           onClose={() => setTransferOpen(false)}
           scopes={[
             { key: 'all', label: `全部模型（${models?.length ?? 0} 个）` },

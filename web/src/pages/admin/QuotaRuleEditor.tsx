@@ -1,40 +1,55 @@
-import { fieldLabelClass, inputClass } from '../../components/ui/controlStyles'
+import { useMemo, useState } from 'react'
 import { clsx } from 'clsx'
-import { Minus, Plus } from 'lucide-react'
+import { Minus, Plus, Search } from 'lucide-react'
 import type { AdminModelDTO, AdminModelGroupDTO } from '@shared/types/api'
 import type { QuotaMetric } from '@shared/types/domain'
-import { describeQuotaRule, isQuotaCostMetric, isQuotaRuleNoOp } from '@shared/util/quota'
-import { QUOTA_DURATION_PRESET_HOURS, QUOTA_MAX_RULE_PRIORITY } from '@shared/util/quota'
+import {
+  QUOTA_DURATION_PRESET_HOURS,
+  QUOTA_MAX_RULE_PRIORITY,
+  describeQuotaRule,
+  isQuotaCostMetric,
+  isQuotaRuleNoOp,
+} from '@shared/util/quota'
 import { describeQuotaHours } from '@shared/util/quotaWindow'
 import { Checkbox } from '../../components/ui/Checkbox'
 import { Select } from '../../components/ui/Select'
-import { Toggle } from '../../components/ui/Toggle'
+import { fieldLabelClass, inputClass } from '../../components/ui/controlStyles'
+import { buildModelConfigHints } from './modelConfigLabels'
 import {
+  draftExemptionChoice,
   ruleFromDraft,
+  withExemptionChoice,
+  withQuotaRuleUnlimited,
+  type QuotaExemptionChoice,
   type QuotaRuleDraft,
   type QuotaScopeType,
   type QuotaWindowChoice,
 } from './quotaRuleDrafts'
-import { describeModelRoutes } from './modelRoutes'
 
-const FIELD_LABEL_CLASS = fieldLabelClass
-
-/** 计量口径与用尽后的影响；生图类计量只停用生图，不影响文字对话。 */
+/** 限制什么、用完会怎样：说明直接写给配置的人看。 */
 const QUOTA_METRIC_OPTIONS: { value: QuotaMetric; label: string; description: string }[] = [
-  { value: 'cost', label: '消费金额', description: '文字与生图合计，用尽后范围内模型都不可用' },
-  { value: 'chat_cost', label: '文字消费', description: '只计文字部分，用尽后对话模型不可用' },
-  {
-    value: 'image_cost',
-    label: '生图消费',
-    description: '只计生图部分，用尽后只停用生图，文字对话不受影响',
-  },
-  {
-    value: 'images',
-    label: '生图张数',
-    description: '按生成的图片张数计，用尽后只停用生图，文字对话不受影响',
-  },
-  { value: 'requests', label: '请求次数', description: '每次成功请求计 1 次' },
+  { value: 'cost', label: '消费金额', description: '文字和生图一起算，用完后不能使用' },
+  { value: 'chat_cost', label: '文字消费', description: '只算文字，用完后不能聊天' },
+  { value: 'image_cost', label: '生图消费', description: '只算生图，用完后只停生图' },
+  { value: 'images', label: '生图张数', description: '按图片张数算，用完后只停生图' },
+  { value: 'requests', label: '请求次数', description: '每次成功请求算 1 次' },
 ]
+
+const EXEMPTION_OPTIONS: { value: QuotaExemptionChoice; label: string; hint: string }[] = [
+  { value: 'all', label: '文字和生图', hint: '这些模型不受优先级更低的规则限制。' },
+  { value: 'chat', label: '只豁免文字', hint: '文字不受限，生图仍按其他规则计算。' },
+  { value: 'image', label: '只豁免生图', hint: '生图不受限，文字仍按其他规则计算。' },
+]
+
+const WINDOW_OPTIONS: { value: QuotaWindowChoice; label: string }[] = [
+  { value: 'day', label: '每天' },
+  { value: 'week', label: '每周' },
+  { value: 'month', label: '每月' },
+  { value: 'anchored', label: '从首次请求起算' },
+  { value: 'rolling', label: '滚动窗口' },
+  { value: 'total', label: '永久累计（不重置）' },
+]
+
 const SEGMENT_CLASS =
   'flex items-center gap-0.5 rounded-lg bg-neutral-100 p-0.5 dark:bg-neutral-800'
 
@@ -53,7 +68,7 @@ function SegmentButton({
       aria-pressed={active}
       onClick={onClick}
       className={clsx(
-        'flex min-h-8 flex-1 items-center justify-center rounded-md px-2 text-xs font-medium transition',
+        'flex min-h-8 flex-1 items-center justify-center whitespace-nowrap rounded-md px-2 text-xs font-medium transition',
         active
           ? 'bg-sky-100/80 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300'
           : 'text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200',
@@ -64,47 +79,107 @@ function SegmentButton({
   )
 }
 
-/** 目标多选：模型/分组共用同一个带勾选的紧凑滚动列表。 */
+function Field({
+  label,
+  children,
+  aside,
+}: {
+  label: string
+  children: React.ReactNode
+  aside?: React.ReactNode
+}) {
+  return (
+    <div className="min-w-0">
+      <div className="mb-1.5 flex min-h-5 items-center justify-between gap-2">
+        <span className={clsx(fieldLabelClass, 'mb-0')}>{label}</span>
+        {aside}
+      </div>
+      {children}
+    </div>
+  )
+}
+
+/** 目标多选：可搜索的勾选列表，带全选与清空。 */
 function TargetPicker({
   items,
   selected,
-  onToggle,
-  emptyHint,
+  onChange,
+  noun,
 }: {
   items: { id: string; label: string; hint?: string }[]
   selected: string[]
-  onToggle: (id: string, checked: boolean) => void
-  emptyHint: string
+  onChange: (next: string[]) => void
+  noun: string
 }) {
+  const [search, setSearch] = useState('')
+  const keyword = search.trim().toLowerCase()
+  const visible = keyword
+    ? items.filter((item) => `${item.label} ${item.hint ?? ''}`.toLowerCase().includes(keyword))
+    : items
   if (items.length === 0) {
     return (
       <div className="rounded-lg border border-dashed border-neutral-200 px-3 py-4 text-center text-xs text-neutral-400 dark:border-neutral-700">
-        {emptyHint}
+        还没有{noun}
       </div>
     )
   }
   return (
-    <div className="hc-scrollbar max-h-40 overflow-y-auto rounded-lg border border-neutral-200 dark:border-neutral-700">
-      {items.map((item) => (
-        <label
-          key={item.id}
-          className="flex cursor-pointer items-center gap-2.5 px-2.5 py-1.5 text-sm transition hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
+    <div className="overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-700">
+      <div className="flex items-center gap-2 border-b border-neutral-100 px-2.5 dark:border-neutral-800">
+        <Search aria-hidden className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
+        <input
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder={`搜索${noun}`}
+          aria-label={`搜索${noun}`}
+          className="min-h-8 min-w-0 flex-1 bg-transparent text-xs text-neutral-800 outline-none placeholder:text-neutral-400 dark:text-neutral-100"
+        />
+        <span className="shrink-0 text-[11px] tabular-nums text-neutral-400">
+          已选 {selected.length}
+        </span>
+        <button
+          type="button"
+          onClick={() => onChange([...new Set([...selected, ...visible.map((item) => item.id)])])}
+          className="shrink-0 rounded px-1 text-[11px] text-sky-600 hover:underline dark:text-sky-400"
         >
-          <Checkbox
-            checked={selected.includes(item.id)}
-            onChange={(checked) => onToggle(item.id, checked)}
-            ariaLabel={item.label}
-          />
-          <span className="min-w-0 flex-1 truncate text-neutral-800 dark:text-neutral-100">
-            {item.label}
-          </span>
-          {item.hint && (
-            <span className="shrink-0 text-[11px] text-neutral-400 dark:text-neutral-500">
-              {item.hint}
+          全选
+        </button>
+        <button
+          type="button"
+          disabled={selected.length === 0}
+          onClick={() => onChange([])}
+          className="shrink-0 rounded px-1 text-[11px] text-neutral-500 hover:underline disabled:opacity-40 dark:text-neutral-400"
+        >
+          清空
+        </button>
+      </div>
+      <div className="hc-scrollbar max-h-56 overflow-y-auto py-1">
+        {visible.map((item) => (
+          <label
+            key={item.id}
+            className="flex cursor-pointer items-center gap-2.5 px-2.5 py-1.5 text-sm transition hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
+          >
+            <Checkbox
+              checked={selected.includes(item.id)}
+              onChange={(checked) =>
+                onChange(checked ? [...selected, item.id] : selected.filter((id) => id !== item.id))
+              }
+              ariaLabel={item.label}
+            />
+            <span className="min-w-0 flex-1 truncate text-neutral-800 dark:text-neutral-100">
+              {item.label}
             </span>
-          )}
-        </label>
-      ))}
+            {item.hint && (
+              <span className="max-w-[55%] shrink-0 truncate text-[11px] text-neutral-400 dark:text-neutral-500">
+                {item.hint}
+              </span>
+            )}
+          </label>
+        ))}
+        {visible.length === 0 && (
+          <p className="px-3 py-4 text-center text-xs text-neutral-400">没有匹配的{noun}</p>
+        )}
+      </div>
     </div>
   )
 }
@@ -117,7 +192,7 @@ function PriorityStepper({ value, onChange }: { value: string; onChange: (next: 
   }
 
   return (
-    <div className="inline-flex h-9 items-center overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-700">
+    <div className="inline-flex h-9 shrink-0 items-center overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-700">
       <button
         type="button"
         aria-label="降低优先级"
@@ -148,12 +223,8 @@ function PriorityStepper({ value, onChange }: { value: string; onChange: (next: 
 }
 
 /**
- * 单条限额规则的展开表单。
- *
- * 外层列表负责折叠行、拖拽与删除；这里只铺四个维度：
- * 适用范围 × 计量口径 × 上限 × 周期，外加覆盖优先级。
- * 豁免不计量也不重置，周期控件改为说明，避免让人以为窗口还在跑。
- * 底部实时摘要与用户端进度条共用 `describeQuotaRule`。
+ * 单条额度规则的表单，按「类型 → 适用于 → 限制什么 / 豁免什么 → 优先级」从上到下填写。
+ * 豁免不计量也不重置，因此只问放行哪部分用量；底部摘要与管理端列表共用 `describeQuotaRule`。
  */
 export function QuotaRuleEditor({
   draft,
@@ -173,111 +244,89 @@ export function QuotaRuleEditor({
 }) {
   const patch = (changes: Partial<QuotaRuleDraft>) => onChange({ ...draft, ...changes })
   const preview = ruleFromDraft(draft)
+  const groupNames = useMemo(
+    () => Object.fromEntries(groups.map((group) => [group.id, group.name])),
+    [groups],
+  )
+  const modelItems = useMemo(() => {
+    const duplicates = buildModelConfigHints(models, groups)
+    return models.map((model) => ({
+      id: model.id,
+      label: model.displayName,
+      hint:
+        duplicates.get(model.id) ??
+        (model.groupId ? (groupNames[model.groupId] ?? '未知分组') : '未分组'),
+    }))
+  }, [models, groups, groupNames])
   const modelNames = Object.fromEntries(models.map((model) => [model.id, model.displayName]))
-  const groupNames = Object.fromEntries(groups.map((group) => [group.id, group.name]))
-  // 0 档豁免不遮蔽任何规则，与「不写这条规则」完全等价——直接在摘要位提醒，别让它冒充一条限制。
+  const cost = isQuotaCostMetric(draft.metric)
+  const exemption = draftExemptionChoice(draft)
+  // 0 档豁免不接管任何规则，与「不写这条规则」完全等价——直接在摘要位提醒。
   const noOpHint =
     preview.ok && isQuotaRuleNoOp(preview.rule)
-      ? '这条规则不产生任何限制：豁免需要配更高的优先级，才能把目标从其他规则里放行。'
+      ? '这条豁免不会起作用：优先级要比被放行的规则更大。'
       : null
+  const noun = draft.scopeType === 'groups' ? '分组' : '模型'
 
   return (
-    <div className="space-y-3">
-      <div>
-        <span className={FIELD_LABEL_CLASS}>规则备注</span>
-        <input
-          value={draft.label}
-          onChange={(event) => patch({ label: event.target.value })}
-          placeholder="可选，如「日常上限」「mini 豁免」"
-          maxLength={40}
-          autoFocus={autoFocus}
-          className="w-full rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-sm text-neutral-800 outline-none transition placeholder:text-neutral-400 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:focus:border-sky-400"
-        />
+    <div className="space-y-4">
+      <div className="grid gap-3 sm:grid-cols-[minmax(0,11rem)_minmax(0,1fr)]">
+        <Field label="类型">
+          <div className={SEGMENT_CLASS}>
+            <SegmentButton
+              active={!draft.unlimited}
+              onClick={() => onChange(withQuotaRuleUnlimited(draft, false))}
+            >
+              限额
+            </SegmentButton>
+            <SegmentButton
+              active={draft.unlimited}
+              onClick={() => onChange(withQuotaRuleUnlimited(draft, true))}
+            >
+              豁免
+            </SegmentButton>
+          </div>
+        </Field>
+        <Field label="备注">
+          <input
+            value={draft.label}
+            onChange={(event) => patch({ label: event.target.value })}
+            placeholder={draft.unlimited ? '可选，如「免费模型」' : '可选，如「每月额度」'}
+            maxLength={40}
+            autoFocus={autoFocus}
+            className={inputClass}
+          />
+        </Field>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div>
-          <span className={FIELD_LABEL_CLASS}>适用范围</span>
-          <div className={SEGMENT_CLASS}>
-            {(
-              [
-                ['all', '全部'],
-                ['models', '指定模型'],
-                ['groups', '模型分组'],
-              ] as const
-            ).map(([value, label]) => (
-              <SegmentButton
-                key={value}
-                active={draft.scopeType === value}
-                onClick={() => patch({ scopeType: value as QuotaScopeType, targetIds: [] })}
-              >
-                {label}
-              </SegmentButton>
-            ))}
-          </div>
+      <Field label="适用于">
+        <div className={SEGMENT_CLASS}>
+          {(
+            [
+              ['all', '全部模型'],
+              ['models', '指定模型'],
+              ['groups', '模型分组'],
+            ] as const
+          ).map(([value, label]) => (
+            <SegmentButton
+              key={value}
+              active={draft.scopeType === value}
+              onClick={() =>
+                draft.scopeType !== value &&
+                patch({ scopeType: value as QuotaScopeType, targetIds: [] })
+              }
+            >
+              {label}
+            </SegmentButton>
+          ))}
         </div>
-        <div>
-          <Select
-            label="计量口径"
-            size="md"
-            className="w-full"
-            value={draft.metric}
-            onChange={(event) => patch({ metric: event.target.value as QuotaMetric })}
-            options={QUOTA_METRIC_OPTIONS}
-          />
-        </div>
-
-        {isQuotaCostMetric(draft.metric) && (
-          <div>
-            <span className={FIELD_LABEL_CLASS}>额度币种</span>
-            <div className={SEGMENT_CLASS}>
-              <SegmentButton
-                active={draft.currency !== 'CNY'}
-                onClick={() => patch({ currency: 'USD' })}
-              >
-                美元（$）
-              </SegmentButton>
-              <SegmentButton
-                active={draft.currency === 'CNY'}
-                onClick={() => patch({ currency: 'CNY' })}
-              >
-                人民币（¥）
-              </SegmentButton>
-            </div>
-          </div>
-        )}
         {draft.scopeType !== 'all' && (
-          <div className="sm:col-span-2">
-            <div className="mb-1 flex items-end justify-between gap-3">
-              <span className={clsx(FIELD_LABEL_CLASS, 'mb-0')}>
-                {draft.scopeType === 'models' ? '选择模型' : '选择分组'}
-                <span className="ml-1 font-normal text-neutral-400">
-                  已选 {draft.targetIds.length}
-                </span>
-              </span>
-              <div className={clsx(SEGMENT_CLASS, 'shrink-0')}>
-                <SegmentButton
-                  active={draft.mode === 'each'}
-                  onClick={() => patch({ mode: 'each' })}
-                >
-                  各自独立额度
-                </SegmentButton>
-                <SegmentButton
-                  active={draft.mode === 'shared'}
-                  onClick={() => patch({ mode: 'shared' })}
-                >
-                  共享一个额度
-                </SegmentButton>
-              </div>
-            </div>
+          <div className="mt-2 space-y-2">
             <TargetPicker
+              noun={noun}
               items={
                 draft.scopeType === 'models'
-                  ? models.map((model) => ({
-                      id: model.id,
-                      label: model.displayName,
-                      hint: describeModelRoutes(model),
-                    }))
+                  ? modelItems
                   : groups.map((group) => ({
                       id: group.id,
                       label: group.name,
@@ -285,148 +334,182 @@ export function QuotaRuleEditor({
                     }))
               }
               selected={draft.targetIds}
-              onToggle={(id, checked) =>
-                patch({
-                  targetIds: checked
-                    ? [...draft.targetIds, id]
-                    : draft.targetIds.filter((item) => item !== id),
-                })
-              }
-              emptyHint={draft.scopeType === 'models' ? '还没有配置模型' : '还没有创建模型分组'}
+              onChange={(targetIds) => patch({ targetIds })}
             />
+            {!draft.unlimited && draft.targetIds.length > 1 && (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                <span className="text-xs text-neutral-500 dark:text-neutral-400">额度</span>
+                <div className={clsx(SEGMENT_CLASS, 'min-w-[16rem] flex-1 sm:flex-none')}>
+                  <SegmentButton
+                    active={draft.mode === 'each'}
+                    onClick={() => patch({ mode: 'each' })}
+                  >
+                    每个{noun}各自独立
+                  </SegmentButton>
+                  <SegmentButton
+                    active={draft.mode === 'shared'}
+                    onClick={() => patch({ mode: 'shared' })}
+                  >
+                    所选{noun}共享一份
+                  </SegmentButton>
+                </div>
+              </div>
+            )}
           </div>
         )}
+      </Field>
 
-        <div>
-          <div className="mb-1 flex items-center justify-between gap-2">
-            <span className={clsx(FIELD_LABEL_CLASS, 'mb-0')}>额度上限</span>
-            <label className="flex items-center gap-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
-              豁免
-              <Toggle
-                checked={draft.unlimited}
-                onChange={(checked) => patch({ unlimited: checked })}
-                ariaLabel="豁免（不限额）"
-              />
-            </label>
+      {draft.unlimited ? (
+        <Field label="豁免什么">
+          <div className={SEGMENT_CLASS}>
+            {EXEMPTION_OPTIONS.map((option) => (
+              <SegmentButton
+                key={option.value}
+                active={exemption === option.value}
+                onClick={() => onChange(withExemptionChoice(draft, option.value))}
+              >
+                {option.label}
+              </SegmentButton>
+            ))}
           </div>
-          {draft.unlimited ? (
-            <div className="rounded-lg border border-dashed border-neutral-200 px-3 py-2 text-sm text-neutral-400 dark:border-neutral-700">
-              豁免（不限额）
-            </div>
-          ) : (
-            <div className="relative">
-              {isQuotaCostMetric(draft.metric) && (
-                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-neutral-400">
-                  {draft.currency === 'CNY' ? '¥' : '$'}
-                </span>
-              )}
-              <input
-                value={draft.limitInput}
-                onChange={(event) => patch({ limitInput: event.target.value })}
-                inputMode="decimal"
-                placeholder={
-                  isQuotaCostMetric(draft.metric) ? '10' : draft.metric === 'images' ? '20' : '300'
-                }
-                className={clsx(
-                  `${inputClass} pr-10 tabular-nums`,
-                  isQuotaCostMetric(draft.metric) ? 'pl-7' : 'pl-3',
+          <p className="mt-1.5 text-[11px] leading-4 text-neutral-500 dark:text-neutral-400">
+            {EXEMPTION_OPTIONS.find((option) => option.value === exemption)!.hint}
+          </p>
+        </Field>
+      ) : (
+        <>
+          <Field label="限制什么">
+            <Select
+              aria-label="限制什么"
+              size="md"
+              className="w-full"
+              value={draft.metric}
+              onChange={(event) => patch({ metric: event.target.value as QuotaMetric })}
+              options={QUOTA_METRIC_OPTIONS}
+            />
+          </Field>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field
+              label="上限"
+              aside={
+                cost ? (
+                  <div className="flex gap-0.5 rounded-md bg-neutral-100 p-0.5 dark:bg-neutral-800">
+                    {(['USD', 'CNY'] as const).map((currency) => (
+                      <button
+                        key={currency}
+                        type="button"
+                        aria-pressed={(draft.currency ?? 'USD') === currency}
+                        onClick={() => patch({ currency })}
+                        className={clsx(
+                          'rounded px-1.5 text-[11px] leading-5 transition',
+                          (draft.currency ?? 'USD') === currency
+                            ? 'bg-sky-100/80 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300'
+                            : 'text-neutral-500 hover:text-neutral-700 dark:text-neutral-400',
+                        )}
+                      >
+                        {currency === 'USD' ? '美元' : '人民币'}
+                      </button>
+                    ))}
+                  </div>
+                ) : undefined
+              }
+            >
+              <div className="relative">
+                {cost && (
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-neutral-400">
+                    {draft.currency === 'CNY' ? '¥' : '$'}
+                  </span>
                 )}
-              />
-              {!isQuotaCostMetric(draft.metric) && (
-                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-neutral-400">
-                  {draft.metric === 'images' ? '张' : '次'}
-                </span>
-              )}
-            </div>
-          )}
-        </div>
-
-        <div>
-          <span className={FIELD_LABEL_CLASS}>统计周期</span>
-          {draft.unlimited ? (
-            <div className="rounded-lg border border-dashed border-neutral-200 px-3 py-2 text-sm text-neutral-400 dark:border-neutral-700">
-              豁免不按周期统计，也不重置
-            </div>
-          ) : (
-            <>
+                <input
+                  value={draft.limitInput}
+                  onChange={(event) => patch({ limitInput: event.target.value })}
+                  inputMode="decimal"
+                  aria-label="额度上限"
+                  placeholder={cost ? '10' : draft.metric === 'images' ? '20' : '300'}
+                  className={clsx(`${inputClass} pr-10 tabular-nums`, cost ? 'pl-7' : 'pl-3')}
+                />
+                {!cost && (
+                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-neutral-400">
+                    {draft.metric === 'images' ? '张' : '次'}
+                  </span>
+                )}
+              </div>
+            </Field>
+            <Field label="周期">
               <Select
+                aria-label="周期"
+                size="md"
                 className="w-full"
                 value={draft.windowChoice}
                 onChange={(event) =>
                   patch({ windowChoice: event.target.value as QuotaWindowChoice })
                 }
-                options={[
-                  { value: 'day', label: '每天（自然日）' },
-                  { value: 'week', label: '每周（自然周）' },
-                  { value: 'month', label: '每月（自然月）' },
-                  { value: 'anchored', label: '首次请求起算（固定周期）' },
-                  { value: 'rolling', label: '滚动窗口（逐步释放）' },
-                  { value: 'total', label: '永久累计（不重置）' },
-                ]}
+                options={WINDOW_OPTIONS}
               />
-              {(draft.windowChoice === 'rolling' || draft.windowChoice === 'anchored') && (
-                <>
-                  <div className="mt-2 flex items-center gap-1.5">
-                    <input
-                      value={draft.durationHoursInput}
-                      onChange={(event) => patch({ durationHoursInput: event.target.value })}
-                      inputMode="numeric"
-                      aria-label={
-                        draft.windowChoice === 'rolling' ? '滚动窗口小时数' : '固定周期小时数'
-                      }
-                      className={`${inputClass} !w-20 tabular-nums`}
-                    />
-                    <span className="text-xs text-neutral-400">小时</span>
-                    <div className="ml-auto flex gap-1">
-                      {QUOTA_DURATION_PRESET_HOURS.map((hours) => (
-                        <button
-                          key={hours}
-                          type="button"
-                          onClick={() => patch({ durationHoursInput: String(hours) })}
-                          className={clsx(
-                            'rounded-md px-1.5 py-0.5 text-[11px] transition',
-                            Number(draft.durationHoursInput) === hours
-                              ? 'bg-sky-50 text-sky-600 dark:bg-sky-500/10 dark:text-sky-300'
-                              : 'text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-300',
-                          )}
-                        >
-                          {describeQuotaHours(hours)}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <p className="mt-1.5 text-[11px] leading-4 text-neutral-400 dark:text-neutral-500">
-                    {draft.windowChoice === 'anchored'
-                      ? '类似 Codex、Claude Code：首个请求启动整段周期，到期一次性清零；空闲时不计时。'
-                      : '始终统计过去这段时间，用量会随着旧请求滑出窗口而逐步释放。'}
-                  </p>
-                </>
-              )}
-            </>
-          )}
-        </div>
-
-        <div className="sm:col-span-2">
-          <span className={FIELD_LABEL_CLASS}>覆盖优先级</span>
-          <div className="flex items-center gap-3">
-            <PriorityStepper
-              value={draft.priorityInput}
-              onChange={(priorityInput) => patch({ priorityInput })}
-            />
-            <p className="min-w-0 flex-1 text-[11px] leading-4 text-neutral-400 dark:text-neutral-500">
-              0–{QUOTA_MAX_RULE_PRIORITY}
-              ，数字越大越优先。一个模型只受「命中它的最高优先档」约束；全部留 0 则各条同时生效。
-            </p>
+            </Field>
           </div>
-        </div>
-      </div>
+          {(draft.windowChoice === 'rolling' || draft.windowChoice === 'anchored') && (
+            <div className="rounded-lg bg-neutral-50 p-2.5 dark:bg-neutral-800/50">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <input
+                  value={draft.durationHoursInput}
+                  onChange={(event) => patch({ durationHoursInput: event.target.value })}
+                  inputMode="numeric"
+                  aria-label={
+                    draft.windowChoice === 'rolling' ? '滚动窗口小时数' : '固定周期小时数'
+                  }
+                  className={`${inputClass} !w-20 tabular-nums`}
+                />
+                <span className="text-xs text-neutral-500">小时</span>
+                <div className="ml-auto flex gap-1">
+                  {QUOTA_DURATION_PRESET_HOURS.map((hours) => (
+                    <button
+                      key={hours}
+                      type="button"
+                      onClick={() => patch({ durationHoursInput: String(hours) })}
+                      className={clsx(
+                        'rounded-md px-1.5 py-0.5 text-[11px] transition',
+                        Number(draft.durationHoursInput) === hours
+                          ? 'bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300'
+                          : 'text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-300',
+                      )}
+                    >
+                      {describeQuotaHours(hours)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <p className="mt-1.5 text-[11px] leading-4 text-neutral-500 dark:text-neutral-400">
+                {draft.windowChoice === 'anchored'
+                  ? '首次请求开始计时，到期一次性清零；没有请求时不计时。'
+                  : '始终统计最近这段时间，旧用量会逐步释放。'}
+              </p>
+            </div>
+          )}
+        </>
+      )}
 
-      {/* 实时摘要 / 校验：与用户端进度条共用 describeQuotaRule，所见即所得。 */}
+      <Field label="优先级">
+        <div className="flex items-center gap-3">
+          <PriorityStepper
+            value={draft.priorityInput}
+            onChange={(priorityInput) => patch({ priorityInput })}
+          />
+          <p className="min-w-0 flex-1 text-[11px] leading-4 text-neutral-500 dark:text-neutral-400">
+            {draft.unlimited
+              ? '要比被放行的规则大。'
+              : '同一模型的文字和生图，各自只按优先级最高的规则计算；同级规则同时生效。'}
+          </p>
+        </div>
+      </Field>
+
+      {/* 实时摘要 / 校验 */}
       <div
+        role={invalidMessage || !preview.ok || noOpHint ? 'alert' : undefined}
         className={clsx(
-          'rounded-lg px-2.5 py-1.5 text-[11px] leading-5',
+          'rounded-lg px-3 py-2 text-xs leading-5',
           preview.ok && !invalidMessage && !noOpHint
-            ? 'bg-neutral-100/80 text-neutral-500 dark:bg-neutral-800/80 dark:text-neutral-400'
+            ? 'bg-sky-50/70 text-sky-800 dark:bg-sky-500/10 dark:text-sky-200'
             : 'bg-amber-50 text-amber-700 dark:bg-amber-400/10 dark:text-amber-200',
         )}
       >

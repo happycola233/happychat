@@ -68,80 +68,76 @@ const draft = (patch: Partial<QuotaRuleDraft> = {}): QuotaRuleDraft => ({
 })
 
 describe('QuotaRuleEditor', () => {
-  it('底部实时给出中文摘要（与用户端同一份文案函数）', () => {
+  it('底部实时给出中文摘要', () => {
     expect(render(draft())).toContain('每月 · 全部模型 · $30.00')
   })
 
-  it('「豁免」开关下不再渲染数值输入框，0 档豁免提示这条规则没有作用', () => {
-    const html = render(draft({ unlimited: true }))
-    expect(html).toContain('豁免（不限额）')
-    expect(html).toContain('豁免不按周期统计，也不重置')
-    expect(html).not.toContain('placeholder="10"')
-    expect(html).not.toContain('每天（自然日）')
-    expect(html).toContain('这条规则不产生任何限制')
+  it('限额按「类型 → 适用于 → 限制什么 → 上限 / 周期 → 优先级」排列', () => {
+    const html = render(draft())
+    const order = ['类型', '适用于', '限制什么', '上限', '周期', '优先级'].map((label) =>
+      html.indexOf(`>${label}<`),
+    )
+    expect(order.every((index) => index >= 0)).toBe(true)
+    expect([...order].sort((a, b) => a - b)).toEqual(order)
+    expect(html).toContain('文字和生图一起算，用完后不能使用')
   })
 
-  it('高优先级豁免是有效配置：摘要标出优先级，不再提示无作用', () => {
-    const html = render(draft({ unlimited: true, priorityInput: '10' }))
-    expect(html).toContain('优先 10 · 全部模型 · 豁免（不限额）')
-    expect(html).not.toContain('优先 10 · 每月 · 全部模型 · 豁免（不限额）')
-    expect(html).not.toContain('这条规则不产生任何限制')
+  it('豁免只问放行哪部分用量，不再显示上限和周期；0 档豁免提示不会起作用', () => {
+    const html = render(draft({ unlimited: true, priorityInput: '0' }))
+    expect(html).toContain('豁免什么')
+    expect(html).toContain('只豁免文字')
+    expect(html).not.toContain('aria-label="额度上限"')
+    expect(html).not.toContain('>周期<')
+    expect(html).toContain('这条豁免不会起作用')
+  })
+
+  it('只豁免文字时说明生图仍按其他规则计算', () => {
+    const html = render(draft({ unlimited: true, metric: 'chat_cost', priorityInput: '1' }))
+    expect(html).toContain('文字不受限，生图仍按其他规则计算。')
+    expect(html).toContain('优先 1 · 全部模型 · 豁免文字')
   })
 
   it('优先级非整数时摘要位置给出校验提示', () => {
     expect(render(draft({ priorityInput: '1.5' }))).toContain('优先级需为 0–99 之间的整数')
   })
 
-  it('指定模型时渲染目标勾选列表与「各自独立 / 共享」切换', () => {
-    const html = render(draft({ scopeType: 'models', targetIds: ['m1'] }))
-    expect(html).toContain('GPT-5.5')
-    expect(html).toContain('各自独立额度')
-    expect(html).toContain('共享一个额度')
-    expect(html).toContain('已选 1')
+  it('指定模型时渲染可搜索的勾选列表；多选后才出现「各自独立 / 共享」', () => {
+    const one = render(draft({ scopeType: 'models', targetIds: ['m1'] }))
+    expect(one).toContain('搜索模型')
+    expect(one).toContain('GPT-5.5')
+    expect(one).not.toContain('共享一份')
+    const two = render(draft({ scopeType: 'models', targetIds: ['m1', 'm2'] }))
+    expect(two).toContain('每个模型各自独立')
+    expect(two).toContain('所选模型共享一份')
   })
 
   it('未选目标时摘要位置改为提示缺失项', () => {
-    expect(render(draft({ scopeType: 'groups' }))).toContain('请选择至少一个分组')
+    expect(render(draft({ scopeType: 'models' }))).toContain('请选择至少一个模型')
   })
 
   it('分组范围列出分组及其模型数', () => {
-    const html = render(draft({ scopeType: 'groups', targetIds: ['g1'] }))
+    const html = render(draft({ scopeType: 'groups' }))
     expect(html).toContain('Claude 系列')
     expect(html).toContain('2 个模型')
   })
 
-  it('滚动窗口显示小时输入与预设档位', () => {
-    const html = render(draft({ windowChoice: 'rolling', durationHoursInput: '5' }))
-    expect(html).toContain('滚动窗口小时数')
-    expect(html).toContain('5 小时')
-    expect(html).toContain('7 天')
-    expect(html).toContain('逐步释放')
-  })
-
-  it('首次请求起算周期明确说明固定周期语义', () => {
-    const html = render(draft({ windowChoice: 'anchored', durationHoursInput: '5' }))
-    expect(html).toContain('固定周期小时数')
-    expect(html).toContain('类似 Codex、Claude Code')
-    expect(html).toContain('首个请求启动整段周期')
-    expect(html).toContain('空闲时不计时')
+  it('滚动窗口与首次请求起算显示小时输入与说明', () => {
+    expect(render(draft({ windowChoice: 'rolling', durationHoursInput: '5' }))).toContain(
+      '始终统计最近这段时间',
+    )
+    expect(render(draft({ windowChoice: 'anchored', durationHoursInput: '24' }))).toContain(
+      '首次请求开始计时，到期一次性清零',
+    )
   })
 
   it('外层传入的错误信息优先于摘要显示', () => {
-    expect(render(draft(), '第 1 条规则有问题')).toContain('第 1 条规则有问题')
+    expect(render(draft(), '保存失败的原因')).toContain('保存失败的原因')
   })
 
-  it('请求次数口径显示「次」单位而不是美元符号', () => {
-    const html = render(draft({ metric: 'requests', limitInput: '300' }))
-    expect(html).toContain('300 次')
-  })
-
-  it('适用范围与计量都用分段控件，优先级用步进器', () => {
-    const html = render(draft())
-    expect(html).toContain('全部')
-    expect(html).toContain('指定模型')
-    expect(html).toContain('模型分组')
-    expect(html).toContain('降低优先级')
-    expect(html).toContain('提高优先级')
-    expect(html).toContain('覆盖优先级')
+  it('请求次数口径显示「次」单位，金额口径可切换币种', () => {
+    const requests = render(draft({ metric: 'requests' }))
+    expect(requests).toContain('次</span>')
+    expect(requests).not.toContain('人民币')
+    expect(render(draft())).toContain('人民币')
   })
 })

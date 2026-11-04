@@ -1042,6 +1042,87 @@ describe('生图与文字分开计量', () => {
     expect((await quota.prepareQuotaAdmission(userId, modelB)).check.ok).toBe(true)
   })
 
+  /** 只豁免文字：高优先级的文字消费豁免。 */
+  const exemptChat = (modelId: string): QuotaRule => ({
+    id: 'free-chat',
+    label: null,
+    scope: { type: 'models', modelIds: [modelId], mode: 'each' },
+    metric: 'chat_cost',
+    limit: { kind: 'unlimited' },
+    window: { type: 'total' },
+    priority: 1,
+  })
+
+  it('只豁免文字：文字不再计入消费额度，生图仍计入且用尽只停用生图', async () => {
+    const { userId, modelA, modelB } = await createFixture()
+    await bindPolicy(userId, [dailyRule('cost', 5, 'all'), exemptChat(modelA)])
+    // 一次带生图的对话：文字 1、生图 2.5，只有生图部分计入。
+    await logImages(userId, modelA, 1, 2.5)
+    let snapshot = await quota.getQuotaSnapshot(userId)
+    let all = snapshot.rules.find((rule) => rule.ruleId === 'all')!
+    expect(all.used).toBe(2.5)
+    expect(all.onlySideByModelId).toEqual({ [modelA]: 'image' })
+
+    await logImages(userId, modelA, 1, 3)
+    snapshot = await quota.getQuotaSnapshot(userId)
+    all = snapshot.rules.find((rule) => rule.ruleId === 'all')!
+    expect(all.blocked).toBe(true)
+    expect(snapshot.blockedModelIds).not.toContain(modelA)
+    expect(snapshot.imageGenerationBlockedModelIds).toContain(modelA)
+    expect(snapshot.blockedModelIds).toContain(modelB)
+    expect(await quota.prepareQuotaAdmission(userId, modelA)).toMatchObject({
+      check: { ok: true },
+      imageGenerationBlocked: true,
+    })
+  })
+
+  it('只豁免文字的模型仍受低优先级生图张数限制', async () => {
+    const { userId, modelA } = await createFixture()
+    await bindPolicy(userId, [dailyRule('images', 2, 'images'), exemptChat(modelA)])
+    await logImages(userId, modelA, 2, 0.4)
+    const snapshot = await quota.getQuotaSnapshot(userId)
+    expect(snapshot.rules.find((rule) => rule.ruleId === 'images')).toMatchObject({
+      used: 2,
+      blocked: true,
+    })
+    expect(snapshot.imageGenerationBlockedModelIds).toContain(modelA)
+  })
+
+  it('高优先级的生图限额只接管生图，文字仍归低优先级消费规则', async () => {
+    const { userId, modelA } = await createFixture()
+    await bindPolicy(userId, [
+      dailyRule('cost', 2, 'all'),
+      {
+        ...dailyRule('images', 10, 'images'),
+        scope: { type: 'models', modelIds: [modelA], mode: 'each' },
+        priority: 1,
+      },
+    ])
+    await logImages(userId, modelA, 1, 2.5)
+    let snapshot = await quota.getQuotaSnapshot(userId)
+    expect(snapshot.rules.find((rule) => rule.ruleId === 'all')).toMatchObject({
+      used: 1,
+      blocked: false,
+      onlySideByModelId: { [modelA]: 'chat' },
+    })
+    await logUsage(userId, modelA, { costUsd: 1 })
+    snapshot = await quota.getQuotaSnapshot(userId)
+    expect(snapshot.blockedModelIds).toContain(modelA)
+  })
+
+  it('请求次数规则只剩生图一侧时只计产生了图片的请求', async () => {
+    const { userId, modelA } = await createFixture()
+    await bindPolicy(userId, [dailyRule('requests', 2, 'requests'), exemptChat(modelA)])
+    await logUsage(userId, modelA)
+    await logUsage(userId, modelA)
+    await logUsage(userId, modelA)
+    let snapshot = await quota.getQuotaSnapshot(userId)
+    expect(snapshot.rules.find((rule) => rule.ruleId === 'requests')?.used).toBe(0)
+    await logImages(userId, modelA, 1, 0.1)
+    snapshot = await quota.getQuotaSnapshot(userId)
+    expect(snapshot.rules.find((rule) => rule.ruleId === 'requests')?.used).toBe(1)
+  })
+
   it('不向用户展示金额时只返回占比，拦截文案不含金额', async () => {
     const { userId, modelA } = await createFixture()
     await appConfig.updateAppConfig({ showCost: false })

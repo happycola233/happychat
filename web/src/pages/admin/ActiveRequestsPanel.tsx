@@ -30,11 +30,14 @@ export function ActiveRequestsPanel({
   receivedAt,
   live,
   onPage,
+  modelHints,
 }: {
   data: ActiveRequestsDTO
   receivedAt: number
   live: boolean
   onPage: (page: number) => void
+  /** 同名模型配置的区分说明（配置 ID → 说明） */
+  modelHints?: ReadonlyMap<string, string>
 }) {
   const [clock, setClock] = useState(() => ({
     now: data.observedAt,
@@ -67,6 +70,7 @@ export function ActiveRequestsPanel({
       <div className="divide-y divide-neutral-100 border-y border-neutral-200 dark:divide-neutral-800/60 dark:border-neutral-800">
         {data.items.map((row) => {
           const progress = row.progress
+          const hint = row.modelId ? modelHints?.get(row.modelId) : undefined
           const waiting = progress?.phase === 'retry_wait'
           const latestFailure = row.retrySummary?.failures.at(-1)
           const retrySeconds =
@@ -103,16 +107,22 @@ export function ActiveRequestsPanel({
                 </Link>
                 <span
                   className="col-start-1 row-start-3 min-w-0 truncate lg:col-start-3 lg:row-start-1"
-                  title={[row.modelLabel, row.modelDisplayName, row.providerLabel]
+                  title={[row.modelDisplayName, hint, row.providerLabel, row.modelLabel]
                     .filter(Boolean)
                     .join(' · ')}
                 >
                   <span className="font-medium text-neutral-800 dark:text-neutral-100">
-                    {row.modelLabel ?? '模型已删除'}
+                    {row.modelDisplayName ?? row.modelLabel ?? '模型已删除'}
                   </span>
+                  {hint && (
+                    <span className="ml-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
+                      {hint}
+                    </span>
+                  )}
                   <span className="ml-2 hidden text-[11px] text-neutral-500 lg:inline dark:text-neutral-400">
-                    {row.providerLabel ?? '供应商已删除'}
-                    {row.reasoningEffort && ` · ${row.reasoningEffort}`}
+                    {[row.providerLabel ?? '供应商已删除', row.modelLabel, row.reasoningEffort]
+                      .filter(Boolean)
+                      .join(' · ')}
                   </span>
                 </span>
                 <span className="col-start-2 row-start-2 text-right tabular-nums lg:col-start-4 lg:row-start-1 lg:text-left">
@@ -170,8 +180,15 @@ export function ActiveRequestsPanel({
               <div className="space-y-2 px-3 pb-3 text-xs">
                 <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-[11px] text-neutral-500 dark:text-neutral-400">
                   <span>
-                    {row.modelDisplayName ?? row.modelLabel} · {row.providerLabel ?? '供应商已删除'}
-                    {row.reasoningEffort && ` · ${row.reasoningEffort}`}
+                    {[
+                      row.modelDisplayName ?? row.modelLabel,
+                      hint,
+                      row.providerLabel ?? '供应商已删除',
+                      row.modelLabel,
+                      row.reasoningEffort,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
                     {' · '}发起于 {formatDateTime(row.createdAt)}
                   </span>
                   <CopyButton value={row.runId} label="复制运行 ID" />

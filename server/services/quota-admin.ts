@@ -47,7 +47,7 @@ type PolicyRow = typeof quotaPolicies.$inferSelect
 type QuotaAdminTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
 /** 排序沿用 models / model_groups 的稀疏步长约定，插队时不必整体重排。 */
-const SORT_STEP = 100
+export const QUOTA_POLICY_SORT_STEP = 100
 
 function toPolicyDTO(row: PolicyRow): QuotaPolicyDTO {
   return {
@@ -96,11 +96,11 @@ async function nextPolicySort(): Promise<number> {
   const [row] = await db
     .select({ max: sql<number | null>`max(${quotaPolicies.sort})` })
     .from(quotaPolicies)
-  return (row?.max ?? 0) + SORT_STEP
+  return (row?.max ?? 0) + QUOTA_POLICY_SORT_STEP
 }
 
 /** 设为默认策略：同一事务内清掉旧默认，保证「至多一条 isDefault」。 */
-function markDefaultWithin(tx: QuotaAdminTransaction, policyId: string): void {
+export function markDefaultWithin(tx: QuotaAdminTransaction, policyId: string): void {
   tx.update(quotaPolicies)
     .set({ isDefault: false })
     .where(and(eq(quotaPolicies.isDefault, true), sql`${quotaPolicies.id} <> ${policyId}`))
@@ -265,7 +265,7 @@ export async function reorderQuotaPolicies(policyIds: string[]): Promise<Reorder
   db.transaction((tx) => {
     for (const [index, id] of policyIds.entries()) {
       tx.update(quotaPolicies)
-        .set({ sort: (index + 1) * SORT_STEP })
+        .set({ sort: (index + 1) * QUOTA_POLICY_SORT_STEP })
         .where(eq(quotaPolicies.id, id))
         .run()
     }

@@ -1,5 +1,4 @@
 import { sql } from 'drizzle-orm'
-import type { z } from 'zod'
 import {
   MODEL_CONFIG_FORMAT,
   MODEL_CONFIG_VERSION,
@@ -15,10 +14,17 @@ import {
 import type {
   AdminModelDTO,
   ModelConfigDocumentDTO,
-  ModelConfigImportItemDTO,
-  ModelConfigImportPreviewDTO,
+  ConfigImportItemDTO,
+  ConfigImportPreviewDTO,
 } from '@shared/types/api'
 import { db } from '../db/client'
+import {
+  emptyImportPreview,
+  formatIssues,
+  runImportTransaction,
+  stableJson,
+  summarizeImport,
+} from '../lib/config-transfer'
 import { modelGroups, providers } from '../db/schema'
 import { must } from '../lib/assert'
 import { inferModelDefaults } from '../provider/model-defaults'
@@ -60,32 +66,6 @@ type ComparableField = Exclude<keyof typeof FIELD_LABELS, 'group' | 'routes'>
 const COMPARABLE_FIELDS = Object.keys(FIELD_LABELS).filter(
   (field): field is ComparableField => field !== 'group' && field !== 'routes',
 )
-
-/** 键顺序无关的 JSON 比较；undefined 与 null 视为同一个「未设置」。 */
-function stableJson(value: unknown): string {
-  if (value === undefined || value === null) return 'null'
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`
-  if (typeof value === 'object') {
-    return `{${Object.entries(value as Record<string, unknown>)
-      .filter(([, item]) => item !== undefined)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`)
-      .join(',')}}`
-  }
-  return JSON.stringify(value)
-}
-
-function formatIssues(error: z.ZodError, prefix = ''): string[] {
-  return error.issues.map((issue) => {
-    const path = [prefix, ...issue.path.map(String)].filter(Boolean).join('.')
-    // 未知字段多半是拼写错误，直接点名字段，方便人或 AI 修正。
-    const message =
-      issue.code === 'unrecognized_keys'
-        ? `不支持的字段：${issue.keys.join('、')}`
-        : issue.message
-    return path ? `${path}：${message}` : message
-  })
-}
 
 /** 校验失败的条目仍尽量用文档里写的名称标识，而不是只给序号。 */
 function rawEntryLabel(raw: unknown): string | null {
@@ -172,13 +152,6 @@ export async function exportModelConfig(ids?: string[]): Promise<ModelConfigDocu
   }
 }
 
-/** 预览在同一事务里完整执行导入后回滚，保证预览与实际导入的校验逐字一致。 */
-class PreviewRollback extends Error {
-  constructor(readonly preview: ModelConfigImportPreviewDTO) {
-    super('model config preview rollback')
-  }
-}
-
 interface ImportContext {
   tx: DbTransaction
   providers: ProviderRow[]
@@ -231,8 +204,8 @@ function routeContent(route: Omit<ModelRouteInput, 'id'>) {
   }
 }
 
-function importEntry(ctx: ImportContext, raw: unknown, index: number): ModelConfigImportItemDTO {
-  const item: ModelConfigImportItemDTO = {
+function importEntry(ctx: ImportContext, raw: unknown, index: number): ConfigImportItemDTO {
+  const item: ConfigImportItemDTO = {
     index,
     action: 'error',
     id: null,
@@ -349,17 +322,6 @@ function importEntry(ctx: ImportContext, raw: unknown, index: number): ModelConf
   return item
 }
 
-function emptyPreview(documentErrors: string[]): ModelConfigImportPreviewDTO {
-  return {
-    valid: documentErrors.length === 0,
-    applied: false,
-    documentErrors,
-    groupsToCreate: [],
-    items: [],
-    summary: { create: 0, update: 0, unchanged: 0, error: 0 },
-  }
-}
-
 /**
  * 预览或应用一份模型配置文档。全部条目在同一个 IMMEDIATE 事务里按顺序执行：
  * 任一条出错则整份回滚；预览无论结果如何都回滚。
@@ -367,9 +329,9 @@ function emptyPreview(documentErrors: string[]): ModelConfigImportPreviewDTO {
 export async function importModelConfig(
   document: unknown,
   mode: 'preview' | 'apply',
-): Promise<ModelConfigImportPreviewDTO> {
+): Promise<ConfigImportPreviewDTO> {
   const parsedDocument = modelConfigDocumentSchema.safeParse(document)
-  if (!parsedDocument.success) return emptyPreview(formatIssues(parsedDocument.error))
+  if (!parsedDocument.success) return emptyImportPreview(formatIssues(parsedDocument.error))
   const rawEntries = parsedDocument.data.models
   const referencedIds = rawEntries.flatMap((entry) =>
     typeof entry === 'object' &&
@@ -384,52 +346,32 @@ export async function importModelConfig(
       .filter((model) => referencedIds.includes(model.id))
       .map((model) => [model.id, model]),
   )
-  try {
-    return db.transaction(
-      (tx) => {
-        const groupsByName = new Map<string, string[]>()
-        for (const group of tx.select().from(modelGroups).all())
-          groupsByName.set(group.name, [...(groupsByName.get(group.name) ?? []), group.id])
-        const ctx: ImportContext = {
-          tx,
-          providers: tx.select().from(providers).all(),
-          groupsByName,
-          createdGroups: new Map(),
-          existing,
-        }
-        // 同一份文档里两条记录指向同一模型会互相覆盖，直接拒绝。
-        const duplicateIds = referencedIds.filter(
-          (id, index) => referencedIds.indexOf(id) !== index,
-        )
-        const items = rawEntries.map((raw, index) => {
-          const item = importEntry(ctx, raw, index)
-          if (item.id && duplicateIds.includes(item.id) && item.action !== 'create') {
-            item.errors.push('同一模型在文档中出现了多次')
-            item.action = 'error'
-          }
-          return item
-        })
-        const summary = { create: 0, update: 0, unchanged: 0, error: 0 }
-        for (const item of items) summary[item.action] += 1
-        const preview: ModelConfigImportPreviewDTO = {
-          valid: summary.error === 0,
-          applied: mode === 'apply' && summary.error === 0,
-          documentErrors: [],
-          groupsToCreate: [...ctx.createdGroups.keys()],
-          items,
-          summary,
-        }
-        if (!preview.applied) throw new PreviewRollback(preview)
-        return preview
-      },
-      { behavior: 'immediate' },
-    )
-  } catch (error) {
-    if (error instanceof PreviewRollback) {
-      // 预览中新建模型的 ID 在回滚后不存在，不能返回给界面当作可跳转的模型。
-      for (const item of error.preview.items) if (item.action === 'create') item.id = null
-      return error.preview
+  return runImportTransaction((tx) => {
+    const groupsByName = new Map<string, string[]>()
+    for (const group of tx.select().from(modelGroups).all())
+      groupsByName.set(group.name, [...(groupsByName.get(group.name) ?? []), group.id])
+    const ctx: ImportContext = {
+      tx,
+      providers: tx.select().from(providers).all(),
+      groupsByName,
+      createdGroups: new Map(),
+      existing,
     }
-    throw error
-  }
+    // 同一份文档里两条记录指向同一模型会互相覆盖，直接拒绝。
+    const duplicateIds = referencedIds.filter((id, index) => referencedIds.indexOf(id) !== index)
+    const items = rawEntries.map((raw, index) => {
+      const item = importEntry(ctx, raw, index)
+      if (item.id && duplicateIds.includes(item.id) && item.action !== 'create') {
+        item.errors.push('同一模型在文档中出现了多次')
+        item.action = 'error'
+      }
+      return item
+    })
+    const createdGroups = [...ctx.createdGroups.keys()]
+    return summarizeImport(
+      items,
+      createdGroups.length > 0 ? [`新建分组：${createdGroups.join('、')}`] : [],
+      mode,
+    )
+  })
 }

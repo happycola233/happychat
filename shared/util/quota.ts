@@ -1,11 +1,13 @@
 import type {
   CostCurrency,
   EffectiveQuotaRule,
+  ModelKind,
   QuotaLimit,
   QuotaMetric,
   QuotaRule,
   QuotaRuleOverride,
   QuotaScope,
+  QuotaSide,
   QuotaWindow,
   UserQuotaOverrides,
 } from '../types/domain'
@@ -103,20 +105,50 @@ export function isQuotaCostMetric(metric: QuotaMetric): boolean {
   return metric === 'cost' || metric === 'chat_cost' || metric === 'image_cost'
 }
 
+const BOTH_QUOTA_SIDES: readonly QuotaSide[] = ['chat', 'image']
+
+/** 计量口径覆盖的用量侧面：消费金额与请求次数覆盖两侧，其余只覆盖一侧。 */
+export function quotaMetricSides(metric: QuotaMetric): readonly QuotaSide[] {
+  if (metric === 'chat_cost') return ['chat']
+  if (metric === 'image_cost' || metric === 'images') return ['image']
+  return BOTH_QUOTA_SIDES
+}
+
+/** 模型会产生的用量侧面：Responses 对话可调用生图工具，纯生图模型只有生图，其余只有文字。 */
+export function quotaModelSides(kind: ModelKind): readonly QuotaSide[] {
+  if (kind === 'responses') return BOTH_QUOTA_SIDES
+  return kind === 'image' ? ['image'] : ['chat']
+}
+
+/** 规则在某类模型上实际计量的侧面（两者交集）。 */
+export function quotaRuleSidesForModel(metric: QuotaMetric, kind: ModelKind): QuotaSide[] {
+  const modelSides = quotaModelSides(kind)
+  return quotaMetricSides(metric).filter((side) => modelSides.includes(side))
+}
+
+/** 豁免规则放行的一侧；null 表示文字和生图都放行。 */
+export function quotaExemptionSide(metric: QuotaMetric): QuotaSide | null {
+  const sides = quotaMetricSides(metric)
+  return sides.length === 1 ? sides[0]! : null
+}
+
 /**
- * 一条已用尽的规则对某类模型的影响：
- * - block：整个模型不可用；
+ * 一个已用尽的额度桶对某个模型的影响：
+ * - block：整个模型不可用（文字一侧用尽）；
  * - image_only：只停用生图（Responses 模型去掉生图工具，文字对话照常）；
- * - none：该计量与此类模型无关。
+ * - none：该桶与这个模型的用量无关。
+ *
+ * `onlySide` 是该模型在桶里只被计量的一侧——另一侧已被更高优先级规则接管。
  */
-export function quotaMetricEffect(
+export function quotaBucketEffect(
   metric: QuotaMetric,
-  kind: 'responses' | 'chat' | 'anthropic' | 'image',
+  kind: ModelKind,
+  onlySide?: QuotaSide,
 ): 'block' | 'image_only' | 'none' {
-  if (metric === 'requests' || metric === 'cost') return 'block'
-  if (metric === 'chat_cost') return kind === 'image' ? 'none' : 'block'
-  if (kind === 'image') return 'block'
-  return kind === 'responses' ? 'image_only' : 'none'
+  const sides = onlySide ? [onlySide] : quotaRuleSidesForModel(metric, kind)
+  if (sides.includes('chat')) return 'block'
+  if (!sides.includes('image')) return 'none'
+  return kind === 'responses' ? 'image_only' : 'block'
 }
 
 function normalizeLabel(value: unknown): string | null {
@@ -321,14 +353,20 @@ export function formatQuotaBucketAmount(
   return formatQuotaAmount(bucket.metric, value, bucket.currency)
 }
 
-/** 上限文案；豁免显式显示为「豁免（不限额）」而不是一个大数字。 */
+/** 豁免的短称：说清放行了哪一侧用量。 */
+export function formatQuotaExemption(metric: QuotaMetric): string {
+  const side = quotaExemptionSide(metric)
+  return side === 'chat' ? '豁免文字' : side === 'image' ? '豁免生图' : '豁免'
+}
+
+/** 上限文案；豁免显式写成「豁免 / 豁免文字 / 豁免生图」，而不是一个大数字。 */
 export function formatQuotaLimit(
   metric: QuotaMetric,
   limit: QuotaLimit,
   currency: CostCurrency = 'USD',
 ): string {
   return limit.kind === 'unlimited'
-    ? '豁免（不限额）'
+    ? formatQuotaExemption(metric)
     : formatQuotaAmount(metric, limit.value, currency)
 }
 
@@ -356,16 +394,24 @@ export interface QuotaScopeNames {
   groups?: Record<string, string>
 }
 
-/** 范围文案：「全部模型」/「GPT-5.5 等 3 个模型各自」/「Claude 分组共享」。 */
-export function describeQuotaScope(scope: QuotaScope, names?: QuotaScopeNames): string {
+/**
+ * 范围文案：「全部模型」/「GPT-5.5 等 3 个模型·各自独立」/「Claude」。
+ * 只有一个目标或是豁免规则时，「各自独立 / 共享」没有区别，不再写出。
+ */
+export function describeQuotaScope(
+  scope: QuotaScope,
+  names?: QuotaScopeNames,
+  options: { showMode?: boolean } = {},
+): string {
   if (scope.type === 'all') return '全部模型'
   const ids = scope.type === 'models' ? scope.modelIds : scope.groupIds
   const lookup = scope.type === 'models' ? names?.models : names?.groups
   const noun = scope.type === 'models' ? '模型' : '分组'
-  const suffix = scope.mode === 'each' ? '各自独立' : '共享额度'
   const first = lookup?.[ids[0] ?? ''] ?? (scope.type === 'models' ? '未知模型' : '未知分组')
-  const head = ids.length === 1 ? first : `${first} 等 ${ids.length} 个${noun}`
-  return `${head}·${suffix}`
+  if (ids.length === 1) return first
+  const head = `${first} 等 ${ids.length} 个${noun}`
+  if (options.showMode === false) return head
+  return `${head}·${scope.mode === 'each' ? '各自独立' : '共享额度'}`
 }
 
 /** 规则的一行中文摘要，如「每月 · 全部模型 · $30」；优先级非默认档时前置「优先 N」。豁免省略周期。 */
@@ -374,11 +420,12 @@ export function describeQuotaRule(
     Partial<Pick<QuotaRule, 'priority' | 'currency'>>,
   names?: QuotaScopeNames,
 ): string {
+  const unlimited = rule.limit.kind === 'unlimited'
   // 豁免不计量也不重置，周期写进去只会让人以为它还在跑窗口。
   return [
     ...(rule.priority ? [`优先 ${rule.priority}`] : []),
-    ...(rule.limit.kind === 'unlimited' ? [] : [describeQuotaWindow(rule.window)]),
-    describeQuotaScope(rule.scope, names),
+    ...(unlimited ? [] : [describeQuotaWindow(rule.window)]),
+    describeQuotaScope(rule.scope, names, { showMode: !unlimited }),
     formatQuotaLimit(rule.metric, rule.limit, rule.currency),
   ].join(' · ')
 }

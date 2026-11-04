@@ -37,6 +37,8 @@ import {
 } from './dashboardData'
 import { UsageRanking } from './UsageRanking'
 import { modelProviderIds } from './modelRoutes'
+import { useModelConfigHints } from './modelConfigLabels'
+import { SegmentedControl } from '../../components/ui/SegmentedControl'
 
 const TOKEN_SERIES: SeriesDef[] = [
   { key: 'inputTokens', name: '输入', color: '#0284c7' },
@@ -81,6 +83,7 @@ export default function AnalyticsPage() {
 
   const providers = useQuery({ queryKey: ['admin', 'providers'], queryFn: listProviders })
   const models = useQuery({ queryKey: ['admin', 'models'], queryFn: listAdminModels })
+  const modelHints = useModelConfigHints()
   const users = useQuery({ queryKey: ['admin', 'users'], queryFn: listUsers })
   // 每次实际请求时重新计算相对窗口，手动刷新不会继续使用挂载时的起点。
   const buildQuery = () => ({
@@ -195,17 +198,13 @@ export default function AnalyticsPage() {
         description="追踪用量变化，了解成本花在哪里。"
         actions={
           <>
-            <Select
-              aria-label="金额口径"
-              size="sm"
-              className="w-32"
+            <SegmentedControl
+              label="金额口径"
               value={costBasis}
-              onChange={(event) =>
-                updateFilters({ basis: event.target.value === 'billed' ? 'billed' : '' })
-              }
+              onChange={(basis) => updateFilters({ basis: basis === 'billed' ? 'billed' : '' })}
               options={[
-                { value: 'upstream', label: '上游成本', description: '按各线路成本价结算' },
-                { value: 'billed', label: '用户计费', description: '按用户计价，即额度口径' },
+                { value: 'upstream', label: '上游成本', title: '按各线路的成本价结算' },
+                { value: 'billed', label: '用户计费', title: '按用户计价结算，与额度一致' },
               ]}
             />
             <BillingCurrencySelect />
@@ -233,7 +232,11 @@ export default function AnalyticsPage() {
             { value: '', label: '全部模型' },
             ...(models.data ?? [])
               .filter((m) => !providerId || modelProviderIds(m).includes(providerId))
-              .map((m) => ({ value: m.id, label: m.displayName })),
+              .map((m) => ({
+                value: m.id,
+                label: m.displayName,
+                description: modelHints.get(m.id),
+              })),
           ]}
           onChange={(event) => updateFilters({ modelId: event.target.value })}
         />
@@ -432,6 +435,7 @@ export default function AnalyticsPage() {
                     title="模型用量排行"
                     costLabel={costLabel}
                     rows={data.models}
+                    hints={modelHints}
                     onSelect={(id) => updateFilters({ modelId: id })}
                   />
                   <UsageRanking

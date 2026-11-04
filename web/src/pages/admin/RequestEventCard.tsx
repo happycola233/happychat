@@ -15,7 +15,14 @@ import {
 } from './requestEventDisplay'
 
 /** 小屏先扫读结果与关键用量，再按需展开计时和 Token 明细。 */
-export function RequestEventCard({ row }: { row: UsageLogDTO }) {
+export function RequestEventCard({
+  row,
+  modelHint,
+}: {
+  row: UsageLogDTO
+  /** 同名模型配置的区分说明 */
+  modelHint?: string
+}) {
   const time = formatRequestEventTimestamp(row.createdAt)
   return (
     <article className="min-w-0 rounded-xl bg-neutral-50 p-4 dark:bg-neutral-900/60">
@@ -24,8 +31,11 @@ export function RequestEventCard({ row }: { row: UsageLogDTO }) {
           <p className="truncate text-sm font-semibold">
             {row.modelDisplayName || row.modelLabel || '未知模型'}
           </p>
+          {modelHint && <p className="mt-0.5 truncate text-[11px] text-neutral-500">{modelHint}</p>}
           <p className="mt-1 truncate text-xs text-neutral-500">
-            {row.providerLabel || '—'} · {row.reasoningEffort || '默认'}
+            {[row.providerLabel || '已删除供应商', row.modelLabel, row.reasoningEffort || '默认']
+              .filter(Boolean)
+              .join(' · ')}
           </p>
         </div>
         <RequestOutcomeBadge

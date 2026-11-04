@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import type { AdminModelDTO } from '@shared/types/api'
 import { Select } from '../../components/ui/Select'
 import { describeModelRoutes } from './modelRoutes'
+import { modelConfigShortId } from './modelConfigLabels'
 
 type TitleModel = Pick<AdminModelDTO, 'id' | 'displayName' | 'routes' | 'modelId' | 'kind'>
 
@@ -42,8 +43,7 @@ export function TitleModelSelect({
             description: [
               describeModelRoutes(model),
               model.modelId,
-              // UUID v7 的前缀是时间；取随机尾段区分实例，避免列表排序变化后编号跟着变化。
-              identityCounts.get(modelIdentity(model))! > 1 ? `配置 ${model.id.slice(-8)}` : null,
+              identityCounts.get(modelIdentity(model))! > 1 ? modelConfigShortId(model.id) : null,
             ]
               .filter(Boolean)
               .join(' · '),

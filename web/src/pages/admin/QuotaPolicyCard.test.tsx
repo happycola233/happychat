@@ -60,7 +60,7 @@ describe('QuotaPolicyCard', () => {
     expect(html).toContain('OpenAI（5 小时）')
     expect(html).toContain('$4.00')
     expect(html).toContain('起算 5 小时')
-    expect(html).toContain('1 个分组 · 消费金额 · 各自独立')
+    expect(html).toContain('1 个分组 · 消费金额')
     expect(html).toContain('优先 1')
     expect(html).toContain('豁免')
     expect(html).not.toContain('豁免 · 永久')

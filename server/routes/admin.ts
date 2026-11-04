@@ -116,6 +116,8 @@ import {
 import { getRouteHealth } from '../services/model-routes'
 import { exportModelConfig, importModelConfig } from '../services/model-config-transfer'
 import { modelConfigImportSchema } from '@shared/schemas/model-config-transfer'
+import { exportQuotaConfig, importQuotaConfig } from '../services/quota-config-transfer'
+import { quotaConfigImportSchema } from '@shared/schemas/quota-config-transfer'
 import {
   getProviderModelCatalog,
   importProviderModels,
@@ -830,6 +832,30 @@ adminRoutes.post('/announcements/:id/reset-reads', async (c) => {
 })
 
 // ---------------- 用户限额 ----------------
+
+/** 导出额度策略 JSON；ids 为逗号分隔的策略 ID，省略时导出全部。 */
+adminRoutes.get('/quota-config/export', async (c) => {
+  const ids = c.req.query('ids')?.split(',').filter(Boolean)
+  c.header('Cache-Control', 'no-store')
+  return c.json({ document: await exportQuotaConfig(ids) })
+})
+
+/** 预览导入：完整执行后回滚，返回逐项差异与问题。 */
+adminRoutes.post('/quota-config/preview', jsonValidator(quotaConfigImportSchema), async (c) => {
+  return c.json({ preview: await importQuotaConfig(c.req.valid('json').document, 'preview') })
+})
+
+/** 应用导入：全部策略在一个事务内生效，任一条出错则整份不生效。 */
+adminRoutes.post('/quota-config/apply', jsonValidator(quotaConfigImportSchema), async (c) => {
+  const preview = await importQuotaConfig(c.req.valid('json').document, 'apply')
+  if (!preview.applied) {
+    return c.json(
+      { error: { message: '配置中存在问题，未做任何修改', code: 'invalid_quota_config' }, preview },
+      400,
+    )
+  }
+  return c.json({ preview })
+})
 
 adminRoutes.get('/quota/policies', async (c) => {
   return c.json({ policies: await listQuotaPolicies() })

@@ -115,7 +115,7 @@ describe('模型配置导入导出', () => {
       ]),
       'apply',
     )
-    expect(applied).toMatchObject({ applied: true, groupsToCreate: ['Claude 系列'] })
+    expect(applied).toMatchObject({ applied: true, notices: ['新建分组：Claude 系列'] })
     const id = applied.items[0]!.id!
     const model = storedModel(id)!
     expect(model).toMatchObject({ kind: 'anthropic', displayName: 'claude-sonnet-5' })

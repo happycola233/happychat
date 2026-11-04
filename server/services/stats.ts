@@ -659,6 +659,7 @@ export async function listUsageEvents(filter: StatsFilter): Promise<Paginated<Us
         costBreakdown: log.upstreamCostBreakdown ?? log.costBreakdown,
         billedCostBreakdown: log.costBreakdown,
         routeId: log.routeId,
+        modelId: log.modelId,
         reasoningEffort,
         durationMs,
         upstreamResponseLatencyMs: log.upstreamResponseLatencyMs,

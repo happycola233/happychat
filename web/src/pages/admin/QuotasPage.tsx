@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { clsx } from 'clsx'
 import {
+  ArrowDownUp,
   ChevronDown,
   ListChecks,
   PauseCircle,
@@ -18,7 +19,7 @@ import {
   isQuotaBucketResettable,
   pickTightestQuotaBucket,
 } from '@shared/util/quota'
-import type { AdminQuotaPolicyDTO, AdminUserQuotaDTO } from '@shared/types/api'
+import type { AdminUserQuotaDTO } from '@shared/types/api'
 import type { AppConfigUpdateInput } from '@shared/schemas/app-config'
 import {
   batchAssignQuotaPolicy,
@@ -52,6 +53,8 @@ import { rangeToFilter } from '../../lib/dateRange'
 import { resolveQuotaRulesRefetchInterval } from '../../lib/quotaRefetch'
 import { QuotaPolicyCard } from './QuotaPolicyCard'
 import { QuotaPolicyEditor } from './QuotaPolicyEditor'
+import { ConfigTransferDialog } from './ConfigTransferDialog'
+import { QUOTA_CONFIG_TRANSFER } from './configTransferKinds'
 import { UserQuotaBuckets } from './UserQuotaBuckets'
 import { UserQuotaDialog } from './UserQuotaDialog'
 import { AdminUserAvatar } from './AdminUserAvatar'
@@ -86,9 +89,9 @@ export default function QuotasPage() {
   const [settingsOpen, setSettingsOpen] = useState(true)
   const [expandedUsers, setExpandedUsers] = useState<Set<string>>(new Set())
   const [userSort, setUserSort] = useState('attention')
-  const [editingPolicy, setEditingPolicy] = useState<AdminQuotaPolicyDTO | null | undefined>(
-    undefined,
-  )
+  /** 正在编辑的策略 id；null=新建，undefined=未打开工作台 */
+  const [editingPolicyId, setEditingPolicyId] = useState<string | null | undefined>(undefined)
+  const [transferOpen, setTransferOpen] = useState(false)
   const [batchMode, setBatchMode] = useState(false)
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([])
   const [batchPolicyId, setBatchPolicyId] = useState('')
@@ -261,6 +264,10 @@ export default function QuotasPage() {
     if (confirmed) resetUser.mutate(row)
   }
 
+  // 工作台始终显示列表里的最新版本；策略被删除时自然关闭。
+  const editingPolicy = editingPolicyId
+    ? policies?.find((policy) => policy.id === editingPolicyId)
+    : undefined
   const warnThreshold = config?.quotaWarnThreshold ?? 0.8
   const quotaTimezone = config?.quotaTimezone ?? 'UTC'
   const timezoneLabel = quotaTimezoneLabel(quotaTimezone)
@@ -473,9 +480,18 @@ export default function QuotasPage() {
         />
 
         {view === 'policies' ? (
-          <Button className="w-full sm:w-auto" onClick={() => setEditingPolicy(null)}>
-            <Plus className="h-4 w-4" /> 新建策略
-          </Button>
+          <div className="flex w-full gap-2 sm:w-auto">
+            <Button
+              variant="secondary"
+              className="flex-1 sm:flex-none"
+              onClick={() => setTransferOpen(true)}
+            >
+              <ArrowDownUp className="h-4 w-4" /> 导入 / 导出
+            </Button>
+            <Button className="flex-1 sm:flex-none" onClick={() => setEditingPolicyId(null)}>
+              <Plus className="h-4 w-4" /> 新建策略
+            </Button>
+          </div>
         ) : (
           <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto">
             <SearchField
@@ -518,7 +534,7 @@ export default function QuotasPage() {
                 <QuotaPolicyCard
                   key={policy.id}
                   policy={policy}
-                  onEdit={() => setEditingPolicy(policy)}
+                  onEdit={() => setEditingPolicyId(policy.id)}
                   onDuplicate={() => duplicate.mutate(policy.id)}
                   onSetDefault={() => makeDefault.mutate(policy.id)}
                   onDelete={async () => {
@@ -860,11 +876,19 @@ export default function QuotasPage() {
         </div>
       )}
 
-      {editingPolicy !== undefined && (
+      {editingPolicyId !== undefined && (editingPolicyId === null || editingPolicy) && (
         <QuotaPolicyEditor
-          open
-          policy={editingPolicy}
-          onClose={() => setEditingPolicy(undefined)}
+          policy={editingPolicy ?? null}
+          policies={policies ?? []}
+          onSelectPolicy={setEditingPolicyId}
+          onClose={() => setEditingPolicyId(undefined)}
+        />
+      )}
+      {transferOpen && (
+        <ConfigTransferDialog
+          kind={QUOTA_CONFIG_TRANSFER}
+          onClose={() => setTransferOpen(false)}
+          scopes={[{ key: 'all', label: `全部策略（${policies?.length ?? 0} 个）` }]}
         />
       )}
       {dialogUser && (

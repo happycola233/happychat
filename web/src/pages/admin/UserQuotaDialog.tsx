@@ -358,7 +358,8 @@ export function UserQuotaDialog({
     <Modal
       open={open}
       onClose={onClose}
-      size="form"
+      size="workspace"
+      height="workspace"
       title={`限额配置 · ${username}`}
       footer={
         <>

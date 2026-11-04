@@ -36,14 +36,15 @@ const SIZE_CLASS: Record<NonNullable<Props['size']>, string> = {
   form: 'max-w-2xl',
   /** 内容阅读档：给公告/文档类正文（含表格）留足排版宽度。 */
   reading: 'max-w-3xl',
-  workspace: 'max-w-5xl',
+  /** 工作台：大屏尽量铺开，免得复杂配置挤在小窗里来回滚动。 */
+  workspace: 'max-w-[96rem]',
   content: 'max-w-full',
 }
 
 const HEIGHT_CLASS: Record<NonNullable<Props['height']>, string> = {
   auto: 'max-h-[90vh]',
   fixed: 'h-[min(85vh,40rem)]',
-  workspace: 'h-[min(86dvh,42rem)]',
+  workspace: 'h-[min(calc(100dvh-1.5rem),64rem)] sm:h-[min(calc(100dvh-2rem),64rem)]',
 }
 
 const FOCUSABLE_SELECTOR = [
@@ -199,7 +200,7 @@ export function Modal({
         </div>
         <div className="flex min-h-0 flex-1">
           {sidebar && (
-            <aside className="hidden w-56 shrink-0 flex-col bg-neutral-50 md:flex dark:bg-neutral-950/50">
+            <aside className="hidden w-56 shrink-0 flex-col bg-neutral-50 md:flex xl:w-64 dark:bg-neutral-950/50">
               {sidebar}
             </aside>
           )}

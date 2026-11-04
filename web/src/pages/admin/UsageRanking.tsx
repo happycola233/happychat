@@ -14,12 +14,15 @@ export function UsageRanking({
   rows,
   onSelect,
   costLabel,
+  hints,
 }: {
   title: string
   rows: UsageBreakdownDTO[]
   onSelect: (id: string) => void
   /** 当前金额口径的短称（成本 / 计费）。 */
   costLabel: string
+  /** 同名对象的区分说明（对象 ID → 说明），如同名模型配置。 */
+  hints?: ReadonlyMap<string, string>
 }) {
   const [metric, setMetric] = useState<Metric>('cost')
   const [expanded, setExpanded] = useState(false)
@@ -49,52 +52,63 @@ export function UsageRanking({
       ) : (
         <>
           <ol className="space-y-3">
-            {visible.map((row, index) => (
-              <li key={row.key}>
-                <div className="mb-1.5 flex min-w-0 items-center gap-2 text-xs">
-                  <span className="w-4 shrink-0 tabular-nums text-neutral-400">{index + 1}</span>
-                  {row.id ? (
-                    <button
-                      type="button"
-                      onClick={() => onSelect(row.id!)}
-                      className="group flex min-h-7 min-w-0 flex-1 items-center gap-1 text-left hover:text-sky-600 focus-visible:outline-sky-500 dark:hover:text-sky-400"
-                    >
-                      <span className="truncate" title={row.label}>
+            {visible.map((row, index) => {
+              const hint = row.id ? hints?.get(row.id) : undefined
+              return (
+                <li key={row.key}>
+                  <div className="mb-1.5 flex min-w-0 items-center gap-2 text-xs">
+                    <span className="w-4 shrink-0 tabular-nums text-neutral-400">{index + 1}</span>
+                    {row.id ? (
+                      <button
+                        type="button"
+                        onClick={() => onSelect(row.id!)}
+                        className="group flex min-h-7 min-w-0 flex-1 items-center gap-1 text-left hover:text-sky-600 focus-visible:outline-sky-500 dark:hover:text-sky-400"
+                      >
+                        <span
+                          className="truncate"
+                          title={hint ? `${row.label} · ${hint}` : row.label}
+                        >
+                          {row.label}
+                          {hint && (
+                            <span className="ml-1.5 text-neutral-500 dark:text-neutral-400">
+                              {hint}
+                            </span>
+                          )}
+                        </span>
+                        <ArrowUpRight className="h-3 w-3 shrink-0 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100" />
+                      </button>
+                    ) : (
+                      <span className="min-w-0 flex-1 truncate" title={row.label}>
                         {row.label}
+                        <span className="ml-1 text-neutral-500">（已删除）</span>
                       </span>
-                      <ArrowUpRight className="h-3 w-3 shrink-0 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100" />
-                    </button>
-                  ) : (
-                    <span className="min-w-0 flex-1 truncate" title={row.label}>
-                      {row.label}
-                      <span className="ml-1 text-neutral-500">（已删除）</span>
+                    )}
+                    <span
+                      title={
+                        metric === 'cost'
+                          ? `$${row[metric].toLocaleString('en-US', { maximumFractionDigits: 6 })}`
+                          : formatInt(row[metric])
+                      }
+                      className="shrink-0 font-medium tabular-nums"
+                    >
+                      {FORMATS[metric](row[metric])}
                     </span>
-                  )}
-                  <span
-                    title={
-                      metric === 'cost'
-                        ? `$${row[metric].toLocaleString('en-US', { maximumFractionDigits: 6 })}`
-                        : formatInt(row[metric])
-                    }
-                    className="shrink-0 font-medium tabular-nums"
-                  >
-                    {FORMATS[metric](row[metric])}
-                  </span>
-                  <span className="w-12 shrink-0 text-right tabular-nums text-neutral-500 dark:text-neutral-400">
-                    {total ? formatPercent(row[metric] / total) : '—'}
-                  </span>
-                </div>
-                <div
-                  aria-hidden
-                  className="ml-6 h-1 rounded-full bg-neutral-200/70 dark:bg-neutral-800"
-                >
+                    <span className="w-12 shrink-0 text-right tabular-nums text-neutral-500 dark:text-neutral-400">
+                      {total ? formatPercent(row[metric] / total) : '—'}
+                    </span>
+                  </div>
                   <div
-                    className="h-full rounded-full bg-sky-500/70 dark:bg-sky-400/70"
-                    style={{ width: `${total ? (row[metric] / total) * 100 : 0}%` }}
-                  />
-                </div>
-              </li>
-            ))}
+                    aria-hidden
+                    className="ml-6 h-1 rounded-full bg-neutral-200/70 dark:bg-neutral-800"
+                  >
+                    <div
+                      className="h-full rounded-full bg-sky-500/70 dark:bg-sky-400/70"
+                      style={{ width: `${total ? (row[metric] / total) * 100 : 0}%` }}
+                    />
+                  </div>
+                </li>
+              )
+            })}
           </ol>
           {rows.length > 5 && (
             <button

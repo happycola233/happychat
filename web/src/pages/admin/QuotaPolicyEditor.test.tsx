@@ -20,12 +20,13 @@ describe('QuotaPolicyEditor', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const html = renderToStaticMarkup(
       <QueryClientProvider client={queryClient}>
-        <QuotaPolicyEditor open policy={null} onClose={vi.fn()} />
+        <QuotaPolicyEditor policy={null} policies={[]} onSelectPolicy={vi.fn()} onClose={vi.fn()} />
       </QueryClientProvider>,
     )
 
     expect(html).toContain('仅用户发起的对话与生图计入')
     expect(html).toContain('标题总结不计入任何额度规则')
     expect(html).not.toContain('请求事件与成本统计')
+    expect(html).toContain('不限额')
   })
 })

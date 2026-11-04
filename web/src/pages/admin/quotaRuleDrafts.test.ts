@@ -4,10 +4,14 @@ import {
   countQuotaRulePriorityTiers,
   createQuotaRuleDraft,
   draftFromRule,
+  draftExemptionChoice,
   draftsToRules,
+  duplicateQuotaRuleDraft,
   moveQuotaRuleDraft,
   ruleFromDraft,
   summarizeQuotaRuleDraft,
+  withExemptionChoice,
+  withQuotaRuleUnlimited,
   type QuotaRuleDraft,
 } from './quotaRuleDrafts'
 
@@ -195,7 +199,7 @@ describe('summarizeQuotaRuleDraft', () => {
       baseDraft({ scopeType: 'models', targetIds: [], limitInput: '' }),
     )
     expect(summary.title).toBe('未选模型')
-    expect(summary.subtitle).toBe('消费金额 · 各自独立')
+    expect(summary.subtitle).toBe('消费金额')
     expect(summary.limitText).toBe('未设上限')
     expect(summary.incomplete).toBe(true)
   })
@@ -224,6 +228,34 @@ describe('summarizeQuotaRuleDraft', () => {
       priority: 10,
       incomplete: false,
     })
+  })
+})
+
+describe('限额 / 豁免切换', () => {
+  it('多个目标时第二行说明各自计算还是合用一份', () => {
+    const summary = summarizeQuotaRuleDraft(
+      baseDraft({ scopeType: 'models', targetIds: ['a', 'b'], mode: 'shared' }),
+    )
+    expect(summary.subtitle).toBe('消费金额 · 共享额度')
+  })
+
+  it('切到豁免时从 0 档提到 1 档，并按口径说明放行范围', () => {
+    const exempt = withQuotaRuleUnlimited(baseDraft(), true)
+    expect(exempt.priorityInput).toBe('1')
+    expect(draftExemptionChoice(exempt)).toBe('all')
+    const chatOnly = withExemptionChoice(exempt, 'chat')
+    expect(chatOnly.metric).toBe('chat_cost')
+    expect(summarizeQuotaRuleDraft(chatOnly).limitText).toBe('豁免文字')
+    // 已对应同一范围的口径保持不变。
+    expect(withExemptionChoice({ ...exempt, metric: 'images' }, 'image').metric).toBe('images')
+  })
+
+  it('复制规则换新 id 并标注副本', () => {
+    const source = baseDraft({ label: '每月', targetIds: ['a'] })
+    const copy = duplicateQuotaRuleDraft(source)
+    expect(copy.id).not.toBe(source.id)
+    expect(copy.label).toBe('每月 副本')
+    expect(copy.targetIds).toEqual(['a'])
   })
 })
 

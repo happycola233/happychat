@@ -15,7 +15,9 @@ import {
   normalizeQuotaRules,
   normalizeUserQuotaOverrides,
   pickTightestQuotaBucket,
+  quotaBucketEffect,
   quotaRuleRequiresBucketKey,
+  quotaRuleSidesForModel,
   resolveEffectiveQuota,
 } from './quota'
 
@@ -320,13 +322,36 @@ describe('evaluateQuotaLimit', () => {
   })
 })
 
+describe('文字 / 生图两侧', () => {
+  it('规则只计量模型具备的那一侧', () => {
+    expect(quotaRuleSidesForModel('cost', 'responses')).toEqual(['chat', 'image'])
+    expect(quotaRuleSidesForModel('cost', 'anthropic')).toEqual(['chat'])
+    expect(quotaRuleSidesForModel('cost', 'image')).toEqual(['image'])
+    expect(quotaRuleSidesForModel('chat_cost', 'image')).toEqual([])
+    expect(quotaRuleSidesForModel('images', 'chat')).toEqual([])
+  })
+
+  it('用尽后的影响取决于仍在计量的一侧', () => {
+    expect(quotaBucketEffect('cost', 'responses')).toBe('block')
+    expect(quotaBucketEffect('cost', 'responses', 'image')).toBe('image_only')
+    expect(quotaBucketEffect('cost', 'responses', 'chat')).toBe('block')
+    expect(quotaBucketEffect('requests', 'image')).toBe('block')
+    expect(quotaBucketEffect('chat_cost', 'image')).toBe('none')
+    expect(quotaBucketEffect('images', 'responses')).toBe('image_only')
+    expect(quotaBucketEffect('images', 'image')).toBe('block')
+    expect(quotaBucketEffect('image_cost', 'anthropic')).toBe('none')
+  })
+})
+
 describe('文案', () => {
   it('金额与次数分别格式化，无限额度显式成文', () => {
     expect(formatQuotaAmount('cost', 12.3456)).toBe('$12.35')
     expect(formatQuotaAmount('cost', 0.5)).toBe('$0.500')
     expect(formatQuotaAmount('cost', 0.0001)).toBe('$0.0001')
     expect(formatQuotaAmount('requests', 300)).toBe('300 次')
-    expect(formatQuotaLimit('cost', { kind: 'unlimited' })).toBe('豁免（不限额）')
+    expect(formatQuotaLimit('cost', { kind: 'unlimited' })).toBe('豁免')
+    expect(formatQuotaLimit('chat_cost', { kind: 'unlimited' })).toBe('豁免文字')
+    expect(formatQuotaLimit('images', { kind: 'unlimited' })).toBe('豁免生图')
   })
 
   it('规则摘要串联窗口/范围/上限，非默认优先级前置标注', () => {
@@ -341,7 +366,7 @@ describe('文案', () => {
         priority: 10,
         window: { type: 'calendar', period: 'month' },
       }),
-    ).toBe('优先 10 · 全部模型 · 豁免（不限额）')
+    ).toBe('优先 10 · 全部模型 · 豁免')
     expect(
       describeQuotaRule(
         {
@@ -363,7 +388,7 @@ describe('文案', () => {
         },
         { groups: { g1: 'Claude' } },
       ),
-    ).toBe('每月 · Claude·共享额度 · $20.00')
+    ).toBe('每月 · Claude · $20.00')
   })
 })
 

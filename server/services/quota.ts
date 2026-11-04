@@ -11,6 +11,7 @@ import type {
   ModelPricing,
   QuotaAdjustmentKind,
   QuotaMetric,
+  QuotaSide,
   UserQuotaOverrides,
 } from '@shared/types/domain'
 import { costUsd, costCny } from '@shared/util/cost'
@@ -22,7 +23,8 @@ import {
   formatQuotaAmount,
   isQuotaCostMetric,
   isQuotaUnlimited,
-  quotaMetricEffect,
+  quotaBucketEffect,
+  quotaRuleSidesForModel,
   normalizeQuotaRules,
   normalizeUserQuotaOverrides,
   resolveEffectiveQuota,
@@ -102,6 +104,8 @@ interface QuotaBucket {
   bucketLabel: string | null
   /** 参与统计的模型 DB id；null 表示「全部模型」（含已删除模型留下的历史用量） */
   modelIds: string[] | null
+  /** 另一侧已被更高优先级规则接管、本桶只计量其中一侧的模型 */
+  onlySideByModelId: Map<string, QuotaSide>
   periodStart: number
   periodEnd: number | null
   periodActive: boolean
@@ -112,8 +116,14 @@ interface QuotaBucket {
   shadowed: boolean
 }
 
-/** 按模型聚合的各计量用量；key 为模型 DB id（已删除模型的历史用量记在空字符串下）。 */
-type UsageAggregate = Record<'requests' | 'cost' | 'imageCost' | 'images', Map<string, number>>
+/**
+ * 按模型聚合的各计量用量；key 为模型 DB id（已删除模型的历史用量记在空字符串下）。
+ * imageRequests 是产生了图片的请求数，供只剩生图一侧的「请求次数」规则使用。
+ */
+type UsageAggregate = Record<
+  'requests' | 'imageRequests' | 'cost' | 'imageCost' | 'images',
+  Map<string, number>
+>
 
 interface QuotaCycleRow {
   ruleId: string
@@ -253,6 +263,7 @@ async function aggregateUsageSince(
       imageCostCny: sql<number | null>`sum(${usageLogs.imageCostCny})`,
       images: sql<number>`coalesce(sum(${usageLogs.generatedImageCount}),0)`,
       requests: sql<number>`count(*)`,
+      imageRequests: sql<number>`coalesce(sum(case when ${usageLogs.generatedImageCount} > 0 then 1 else 0 end),0)`,
       inputTokens: sql<number>`coalesce(sum(${usageLogs.inputTokens}),0)`,
       cacheWriteTokens: sql<number>`coalesce(sum(${usageLogs.cacheWriteTokens}),0)`,
       cachedTokens: sql<number>`coalesce(sum(${usageLogs.cachedTokens}),0)`,
@@ -271,6 +282,7 @@ async function aggregateUsageSince(
 
   const aggregate: UsageAggregate = {
     requests: new Map(),
+    imageRequests: new Map(),
     cost: new Map(),
     imageCost: new Map(),
     images: new Map(),
@@ -293,6 +305,7 @@ async function aggregateUsageSince(
         : row.imageCostUsd
     const key = modelKey(row.modelId)
     add(aggregate.requests, key, row.requests)
+    add(aggregate.imageRequests, key, row.imageRequests)
     add(aggregate.cost, key, cost)
     add(aggregate.imageCost, key, imageCost)
     add(aggregate.images, key, row.images)
@@ -313,20 +326,39 @@ async function aggregateUsageSince(
   return aggregate
 }
 
-function sumUsage(
+/** 某个模型在一个桶里的用量；`onlySide` 时只计未被更高优先级规则接管的那一侧。 */
+function modelUsage(
   aggregate: UsageAggregate,
-  modelIds: string[] | null,
+  key: string,
   metric: QuotaMetric,
+  onlySide: QuotaSide | undefined,
 ): number {
-  const total = (map: Map<string, number>) =>
-    modelIds
-      ? modelIds.reduce((sum, id) => sum + (map.get(id) ?? 0), 0)
-      : [...map.values()].reduce((sum, value) => sum + value, 0)
-  if (metric === 'requests') return total(aggregate.requests)
-  if (metric === 'images') return total(aggregate.images)
-  if (metric === 'image_cost') return total(aggregate.imageCost)
-  if (metric === 'chat_cost') return Math.max(0, total(aggregate.cost) - total(aggregate.imageCost))
-  return total(aggregate.cost)
+  const get = (map: Map<string, number>) => map.get(key) ?? 0
+  const chatCost = () => Math.max(0, get(aggregate.cost) - get(aggregate.imageCost))
+  switch (metric) {
+    case 'requests':
+      // 文字一侧覆盖每一次对话；只剩生图一侧时只计产生了图片的请求。
+      return onlySide === 'image' ? get(aggregate.imageRequests) : get(aggregate.requests)
+    case 'images':
+      return get(aggregate.images)
+    case 'image_cost':
+      return get(aggregate.imageCost)
+    case 'chat_cost':
+      return chatCost()
+    case 'cost':
+      if (onlySide === 'image') return get(aggregate.imageCost)
+      return onlySide === 'chat' ? chatCost() : get(aggregate.cost)
+  }
+}
+
+function sumUsage(aggregate: UsageAggregate, bucket: QuotaBucket): number {
+  // null=全部模型：requests 与 cost 对每条日志都会记账，两者的 key 并集覆盖全部历史用量。
+  const keys = bucket.modelIds ?? new Set([...aggregate.requests.keys(), ...aggregate.cost.keys()])
+  let used = 0
+  for (const key of keys) {
+    used += modelUsage(aggregate, key, bucket.rule.metric, bucket.onlySideByModelId.get(key))
+  }
+  return used
 }
 
 /** 调整记录的作用目标：桶的规则 id、桶 key 与当前周期起点。 */
@@ -378,12 +410,26 @@ interface BucketContext {
   modelsByGroup: Map<string, string[]>
   groupNames: Map<string, string>
   period: { startMs: number; endMs: number | null; active: boolean }
-  /** 该模型是否已被更高优先级规则接管：对本条规则既不计量也不拦截 */
-  isShadowed: (modelId: string) => boolean
+  /** 该模型被更高优先级规则接管的情况：整体接管则对本条规则既不计量也不拦截 */
+  coverage: (modelId: string) => ModelCoverage
 }
 
+/** 一条规则对某个模型的接管结果：整体接管、只剩一侧，或完整计量。 */
+interface ModelCoverage {
+  shadowed: boolean
+  onlySide: QuotaSide | null
+}
+
+const FULL_COVERAGE: ModelCoverage = { shadowed: false, onlySide: null }
+
+/** 模型 → 每一侧（文字 / 生图）命中它的规则中的最高优先级。 */
+type TopPriorityBySide = Map<string, Partial<Record<QuotaSide, number>>>
+
 /** 规则命中的模型集合（分组按 `models.group_id` 当前值实时判定，与展开逻辑同口径）。 */
-function ruleTargetModelIds(rule: EffectiveQuotaRule, context: BucketContext): string[] {
+function ruleTargetModelIds(
+  rule: EffectiveQuotaRule,
+  context: Pick<BucketContext, 'modelsById' | 'modelsByGroup'>,
+): string[] {
   if (rule.scope.type === 'all') return [...context.modelsById.keys()]
   if (rule.scope.type === 'models') {
     return rule.scope.modelIds.filter((id) => context.modelsById.has(id))
@@ -392,28 +438,47 @@ function ruleTargetModelIds(rule: EffectiveQuotaRule, context: BucketContext): s
 }
 
 /**
- * 优先级遮蔽表：模型 → 命中它的规则中的最高优先级。
+ * 优先级接管表：按模型的文字 / 生图两侧分别记录命中它的最高优先级。
  *
- * 判定时只保留优先级等于该值的规则，因此「OpenAI 分组限额 + 组内某个模型豁免（更高优先级）」
- * 不需要枚举组内其他模型，新模型进组也会自动落入分组规则。规则全为默认档 0 时该表不产生任何影响。
+ * 判定时每一侧只保留优先级等于该值的规则，因此「OpenAI 分组限额 + 组内某个模型豁免（更高优先级）」
+ * 不需要枚举组内其他模型，新模型进组也会自动落入分组规则；只豁免文字的模型，生图仍归低优先级规则。
+ * 规则全为默认档 0 时该表不产生任何影响。
  */
-function resolveTopPriorityByModel(
+function resolveTopPriorityBySide(
   rules: EffectiveQuotaRule[],
-  context: BucketContext,
-): Map<string, number> {
-  const top = new Map<string, number>()
+  context: Pick<BucketContext, 'modelsById' | 'modelsByGroup'>,
+): TopPriorityBySide {
+  const top: TopPriorityBySide = new Map()
   for (const rule of rules) {
     for (const modelId of ruleTargetModelIds(rule, context)) {
-      top.set(modelId, Math.max(top.get(modelId) ?? 0, rule.priority))
+      const sides = top.get(modelId) ?? {}
+      for (const side of quotaRuleSidesForModel(rule.metric, context.modelsById.get(modelId)!.kind))
+        sides[side] = Math.max(sides[side] ?? 0, rule.priority)
+      top.set(modelId, sides)
     }
   }
   return top
+}
+
+function resolveCoverage(
+  rule: EffectiveQuotaRule,
+  model: QuotaModelRow,
+  top: TopPriorityBySide,
+): ModelCoverage {
+  const sides = quotaRuleSidesForModel(rule.metric, model.kind)
+  // 口径与该模型无关（如生图张数之于纯文字模型）：保留成员身份，用量自然为 0。
+  if (sides.length === 0) return FULL_COVERAGE
+  const tops = top.get(model.id) ?? {}
+  const active = sides.filter((side) => (tops[side] ?? 0) <= rule.priority)
+  if (active.length === 0) return { shadowed: true, onlySide: null }
+  return { shadowed: false, onlySide: active.length < sides.length ? active[0]! : null }
 }
 
 /** 展开某条规则的额度桶。「各自独立」按目标逐个展开，其余为单桶。 */
 function expandRuleBuckets(rule: EffectiveQuotaRule, context: BucketContext): QuotaBucket[] {
   const base = {
     rule,
+    onlySideByModelId: new Map<string, QuotaSide>(),
     periodStart: context.period.startMs,
     periodEnd: context.period.endMs,
     periodActive: context.period.active,
@@ -421,23 +486,32 @@ function expandRuleBuckets(rule: EffectiveQuotaRule, context: BucketContext): Qu
     invalid: false,
     shadowed: false,
   }
-  const keep = (ids: string[]) => ids.filter((id) => !context.isShadowed(id))
+  /** 剔除被整体接管的模型，并记下只剩一侧用量的模型。 */
+  const keep = (ids: string[]) => {
+    const visible: string[] = []
+    const onlySideByModelId = new Map<string, QuotaSide>()
+    for (const id of ids) {
+      const coverage = context.coverage(id)
+      if (coverage.shadowed) continue
+      visible.push(id)
+      if (coverage.onlySide) onlySideByModelId.set(id, coverage.onlySide)
+    }
+    return { visible, onlySideByModelId }
+  }
 
   if (rule.scope.type === 'all') {
     const all = [...context.modelsById.keys()]
-    const visible = keep(all)
-    // 没有任何模型被遮蔽时保持 null（=「全部用量」），已删除模型留下的历史用量仍计入这条规则；
-    // 一旦出现遮蔽就必须退化成显式模型列表，代价是无法归属到模型的历史用量不再计入。
-    if (visible.length === all.length) {
-      return [{ ...base, bucketKey: null, bucketLabel: null, modelIds: null }]
-    }
+    const { visible, onlySideByModelId } = keep(all)
+    // 没有任何模型被整体接管时保持 null（=「全部用量」），已删除模型留下的历史用量仍计入这条规则；
+    // 一旦出现接管就必须退化成显式模型列表，代价是无法归属到模型的历史用量不再计入。
     return [
       {
         ...base,
+        onlySideByModelId,
         bucketKey: null,
         bucketLabel: null,
-        modelIds: visible,
-        shadowed: visible.length === 0,
+        modelIds: visible.length === all.length ? null : visible,
+        shadowed: all.length > 0 && visible.length === 0,
       },
     ]
   }
@@ -448,70 +522,60 @@ function expandRuleBuckets(rule: EffectiveQuotaRule, context: BucketContext): Qu
     { ...base, bucketKey: null, bucketLabel: null, modelIds: [], invalid: true },
   ]
 
+  const memberSets: { key: string | null; label: string | null; members: string[] }[] = []
   if (rule.scope.type === 'models') {
     const existing = rule.scope.modelIds.filter((id) => context.modelsById.has(id))
     if (existing.length === 0) return invalidBucket()
-    if (rule.scope.mode === 'shared') {
-      const visible = keep(existing)
-      return [
-        {
-          ...base,
-          bucketKey: null,
-          bucketLabel: null,
-          modelIds: visible,
-          shadowed: visible.length === 0,
-        },
-      ]
-    }
-    return existing.map((id) => {
-      const shadowed = context.isShadowed(id)
-      return {
-        ...base,
-        bucketKey: id,
-        bucketLabel: context.modelsById.get(id)?.displayName ?? null,
-        modelIds: shadowed ? [] : [id],
-        shadowed,
-      }
-    })
+    if (rule.scope.mode === 'shared') memberSets.push({ key: null, label: null, members: existing })
+    else
+      for (const id of existing)
+        memberSets.push({
+          key: id,
+          label: context.modelsById.get(id)?.displayName ?? null,
+          members: [id],
+        })
+  } else {
+    const existingGroups = rule.scope.groupIds.filter((id) => context.groupNames.has(id))
+    if (existingGroups.length === 0) return invalidBucket()
+    if (rule.scope.mode === 'shared')
+      memberSets.push({
+        key: null,
+        label: null,
+        members: existingGroups.flatMap((id) => context.modelsByGroup.get(id) ?? []),
+      })
+    else
+      for (const id of existingGroups)
+        memberSets.push({
+          key: id,
+          label: context.groupNames.get(id) ?? null,
+          members: context.modelsByGroup.get(id) ?? [],
+        })
   }
-
-  const existingGroups = rule.scope.groupIds.filter((id) => context.groupNames.has(id))
-  if (existingGroups.length === 0) return invalidBucket()
-  if (rule.scope.mode === 'shared') {
-    const members = existingGroups.flatMap((id) => context.modelsByGroup.get(id) ?? [])
-    const visible = keep(members)
-    return [
-      {
-        ...base,
-        bucketKey: null,
-        bucketLabel: null,
-        modelIds: visible,
-        shadowed: members.length > 0 && visible.length === 0,
-      },
-    ]
-  }
-  return existingGroups.map((id) => {
-    const members = context.modelsByGroup.get(id) ?? []
-    const visible = keep(members)
+  return memberSets.map(({ key, label, members }) => {
+    const { visible, onlySideByModelId } = keep(members)
     return {
       ...base,
-      bucketKey: id,
-      bucketLabel: context.groupNames.get(id) ?? null,
+      onlySideByModelId,
+      bucketKey: key,
+      bucketLabel: label,
       modelIds: visible,
+      // 空分组没有可接管的模型，不算「已被接管」。
       shadowed: members.length > 0 && visible.length === 0,
     }
   })
 }
 
 /**
- * 共享池与「全部模型被部分接管」列出实际还覆盖哪些模型。
+ * 共享池与「全部模型被部分接管」列出实际还覆盖哪些模型；只计一侧的模型附注说明。
  * 各自独立桶用 bucketLabel；仍覆盖全部可用模型时不必枚举。
  */
 function targetLabelsOf(bucket: QuotaBucket, context: BucketContext): string[] | null {
   if (bucket.bucketKey !== null || bucket.modelIds === null) return null
   return bucket.modelIds.flatMap((id) => {
     const name = context.modelsById.get(id)?.displayName
-    return name ? [name] : []
+    if (!name) return []
+    const onlySide = bucket.onlySideByModelId.get(id)
+    return [onlySide ? `${name}（只计${onlySide === 'image' ? '生图' : '文字'}）` : name]
   })
 }
 
@@ -650,15 +714,15 @@ export async function getQuotaSnapshot(
     ]),
   )
 
-  // 1) 展开桶，按优先级遮蔽剔除被更高优先级规则接管的模型，并按「手动重置」抬高统计起点
+  // 1) 展开桶：按文字 / 生图两侧的优先级接管剔除或部分计量模型，并按「手动重置」抬高统计起点
   const sharedContext = {
     modelsById,
     modelsByGroup,
     groupNames,
     period: { startMs: 0, endMs: null, active: true },
-    isShadowed: () => false,
+    coverage: () => FULL_COVERAGE,
   }
-  const topPriorityByModel = resolveTopPriorityByModel(rules, sharedContext)
+  const topPriorityBySide = resolveTopPriorityBySide(rules, sharedContext)
   const buckets: QuotaBucket[] = []
   for (const rule of rules) {
     const basePeriod = resolveQuotaPeriod(rule.window, now, {
@@ -668,7 +732,7 @@ export async function getQuotaSnapshot(
     for (const expandedBucket of expandRuleBuckets(rule, {
       ...sharedContext,
       period: basePeriod,
-      isShadowed: (modelId) => (topPriorityByModel.get(modelId) ?? 0) > rule.priority,
+      coverage: (modelId) => resolveCoverage(rule, modelsById.get(modelId)!, topPriorityBySide),
     })) {
       const cycle =
         rule.window.type === 'anchored'
@@ -737,7 +801,7 @@ export async function getQuotaSnapshot(
       bucket.shadowed ||
       bucket.rule.limit.kind === 'unlimited'
         ? 0
-        : sumUsage(aggregate!, bucket.modelIds, bucket.rule.metric)
+        : sumUsage(aggregate!, bucket)
     const grantRows = bucket.periodActive
       ? adjustments.filter(
           (row) =>
@@ -767,6 +831,9 @@ export async function getQuotaSnapshot(
       bucketLabel: bucket.bucketLabel,
       targetLabels: targetLabelsOf(bucket, sharedContext),
       effectiveModelIds: bucket.modelIds,
+      ...(bucket.onlySideByModelId.size > 0
+        ? { onlySideByModelId: Object.fromEntries(bucket.onlySideByModelId) }
+        : {}),
       label: bucket.rule.label,
       source: bucket.rule.source,
       scope: bucket.rule.scope,
@@ -803,7 +870,9 @@ export async function getQuotaSnapshot(
             rule.blocked &&
             (rule.effectiveModelIds === null || rule.effectiveModelIds.includes(model.id)),
         )
-        .map((rule) => quotaMetricEffect(rule.metric, model.kind))
+        .map((rule) =>
+          quotaBucketEffect(rule.metric, model.kind, rule.onlySideByModelId?.[model.id]),
+        )
       if (effects.includes('block')) blockedModelIds.push(model.id)
       else if (effects.includes('image_only')) imageGenerationBlockedModelIds.push(model.id)
     }
@@ -1092,7 +1161,11 @@ export async function prepareQuotaAdmission(
     .where(eq(models.id, modelDbId))
     .limit(1)
   const blockingBuckets = snapshot.rules.filter((rule) => {
-    if (!rule.blocked || (model && quotaMetricEffect(rule.metric, model.kind) !== 'block'))
+    if (
+      !rule.blocked ||
+      (model &&
+        quotaBucketEffect(rule.metric, model.kind, rule.onlySideByModelId?.[modelDbId]) !== 'block')
+    )
       return false
     const modelIds = rule.effectiveModelIds
     return modelIds === null || modelIds.includes(modelDbId)

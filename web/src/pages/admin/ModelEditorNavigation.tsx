@@ -1,8 +1,9 @@
 import { useLayoutEffect, useRef, type RefObject } from 'react'
 import { clsx } from 'clsx'
-import type { AdminModelDTO } from '@shared/types/api'
+import type { AdminModelDTO, AdminModelGroupDTO } from '@shared/types/api'
 import { SearchField } from '../../components/ui/SearchField'
 import { describeModelRoutes } from './modelRoutes'
+import { buildModelConfigHints } from './modelConfigLabels'
 
 export function ModelEditorNavigation({
   models,
@@ -12,8 +13,11 @@ export function ModelEditorNavigation({
   onSelect,
   disabled,
   scrollTopRef,
+  groups,
 }: {
   models: AdminModelDTO[]
+  /** 分组目录，用于给同名配置补充区分说明 */
+  groups?: AdminModelGroupDTO[]
   currentId: string
   search: string
   onSearch: (value: string) => void
@@ -24,6 +28,7 @@ export function ModelEditorNavigation({
   const navigationRef = useRef<HTMLElement>(null)
   const activeRef = useRef<HTMLButtonElement>(null)
   const keyword = search.trim().toLowerCase()
+  const hints = buildModelConfigHints(models, groups)
   const matches = models.filter((model) =>
     `${model.displayName} ${model.modelId} ${describeModelRoutes(model)}`
       .toLowerCase()
@@ -74,7 +79,7 @@ export function ModelEditorNavigation({
             <span className="min-w-0">
               <span className="block truncate text-xs font-medium">{model.displayName}</span>
               <span className="block truncate text-[11px] leading-4 text-neutral-500">
-                {describeModelRoutes(model)} · {model.modelId}
+                {hints.get(model.id) ?? `${describeModelRoutes(model)} · ${model.modelId}`}
               </span>
             </span>
           </button>

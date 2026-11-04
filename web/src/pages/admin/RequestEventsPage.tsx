@@ -29,7 +29,6 @@ import { useRequestMonitor } from './useRequestMonitor'
 import { RequestEventCard } from './RequestEventCard'
 import { RequestGeneratedImagesBadge } from './RequestGeneratedImagesBadge'
 import { buildUsageEventsQuery, usageEventsQueryKey } from './eventFilters'
-import { RequestKindBadge } from './RequestKindBadge'
 import { RequestOutcomeBadge } from './RequestOutcomeBadge'
 import { REQUEST_RESULT_LABELS } from './requestOutcome'
 import { readDashboardFilters } from './dashboardData'
@@ -51,6 +50,8 @@ import {
   formatRequestLatency,
 } from './requestEventDisplay'
 import { modelProviderIds } from './modelRoutes'
+import { useModelConfigHints } from './modelConfigLabels'
+import { RequestModelSummary } from './RequestModelSummary'
 
 const RESULT_OPTIONS: SelectOption[] = [
   { value: '', label: '全部结果' },
@@ -119,6 +120,7 @@ export default function RequestEventsPage() {
     queryKey: ['admin', 'models'],
     queryFn: listAdminModels,
   })
+  const modelHints = useModelConfigHints()
   const { data: users } = useQuery({
     queryKey: ['admin', 'users'],
     queryFn: listUsers,
@@ -136,9 +138,13 @@ export default function RequestEventsPage() {
       { value: '', label: '全部模型' },
       ...(models ?? [])
         .filter((model) => !providerId || modelProviderIds(model).includes(providerId))
-        .map((m) => ({ value: m.id, label: m.displayName })),
+        .map((m) => ({
+          value: m.id,
+          label: m.displayName,
+          description: modelHints.get(m.id),
+        })),
     ],
-    [models, providerId],
+    [models, providerId, modelHints],
   )
   const userOptions = useMemo<SelectOption[]>(
     () => [
@@ -285,6 +291,7 @@ export default function RequestEventsPage() {
             receivedAt={dataUpdatedAt}
             live={live}
             onPage={setActivePage}
+            modelHints={modelHints}
           />
           <h2 className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">
             已结束的请求
@@ -312,7 +319,11 @@ export default function RequestEventsPage() {
           />
           <div className="grid gap-3 md:grid-cols-2 xl:hidden">
             {data.items.map((row) => (
-              <RequestEventCard key={row.id} row={row} />
+              <RequestEventCard
+                key={row.id}
+                row={row}
+                modelHint={row.modelId ? modelHints.get(row.modelId) : undefined}
+              />
             ))}
           </div>
           <div className={`${tableScroll} hidden xl:block`}>
@@ -360,26 +371,10 @@ export default function RequestEventsPage() {
                           </div>
                         </td>
                         <td className={requestCell}>
-                          <div
-                            className="max-w-[180px] truncate whitespace-nowrap text-xs font-semibold leading-4 text-neutral-800 dark:text-neutral-100"
-                            title={row.modelLabel ?? undefined}
-                          >
-                            {row.modelLabel ?? EMPTY_VALUE}
-                          </div>
-                          <div
-                            className={`${secondaryValue} max-w-[180px] truncate`}
-                            title={row.modelDisplayName ?? undefined}
-                          >
-                            {row.modelDisplayName ?? EMPTY_VALUE}
-                          </div>
-                          <div
-                            className={`${secondaryValue} flex max-w-[180px] items-center gap-1`}
-                          >
-                            <span className="truncate" title={row.providerLabel ?? undefined}>
-                              {row.providerLabel ?? EMPTY_VALUE}
-                            </span>
-                            <RequestKindBadge kind={row.kind} />
-                          </div>
+                          <RequestModelSummary
+                            row={row}
+                            hint={row.modelId && modelHints.get(row.modelId)}
+                          />
                         </td>
                         <td className={requestCell}>
                           <div className={`${regularPrimaryValue} font-mono`}>

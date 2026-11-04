@@ -9,7 +9,8 @@ export function SegmentedControl<T extends string>({
 }: {
   label: string
   value: T
-  options: readonly { value: T; label: string; count?: number }[]
+  /** title：悬停时的补充说明。 */
+  options: readonly { value: T; label: string; count?: number; title?: string }[]
   onChange: (value: T) => void
   className?: string
 }) {
@@ -27,6 +28,7 @@ export function SegmentedControl<T extends string>({
           key={option.value}
           type="button"
           aria-pressed={value === option.value}
+          title={option.title}
           onClick={() => onChange(option.value)}
           className={clsx(
             'inline-flex min-h-8 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 text-[13px] leading-4 font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-500/50',

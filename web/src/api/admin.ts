@@ -12,7 +12,8 @@ import type {
   QuotaPreviewDTO,
   ModelAccessDTO,
   ModelConfigDocumentDTO,
-  ModelConfigImportPreviewDTO,
+  ConfigImportPreviewDTO,
+  QuotaConfigDocumentDTO,
   ModelRouteHealthDTO,
   ModelGroupDTO,
   AdminSessionDTO,
@@ -142,11 +143,11 @@ export const exportModelConfig = (ids?: string[]) =>
     `/admin/model-config/export${ids ? `?ids=${encodeURIComponent(ids.join(','))}` : ''}`,
   ).then((r) => r.document)
 export const previewModelConfigImport = (document: unknown) =>
-  apiPost<{ preview: ModelConfigImportPreviewDTO }>('/admin/model-config/preview', {
+  apiPost<{ preview: ConfigImportPreviewDTO }>('/admin/model-config/preview', {
     document,
   }).then((r) => r.preview)
 export const applyModelConfigImport = (document: unknown) =>
-  apiPost<{ preview: ModelConfigImportPreviewDTO }>('/admin/model-config/apply', {
+  apiPost<{ preview: ConfigImportPreviewDTO }>('/admin/model-config/apply', {
     document,
   }).then((r) => r.preview)
 export const updateModelAccess = (id: string, input: ModelAccessUpdateInput) =>
@@ -208,6 +209,18 @@ export const revokeUserSessions = (userId: string) =>
   apiPost<{ ok: true }>(`/admin/users/${userId}/revoke-sessions`)
 
 // 用户限额
+export const exportQuotaConfig = (ids?: string[]) =>
+  apiGet<{ document: QuotaConfigDocumentDTO }>(
+    `/admin/quota-config/export${ids ? `?ids=${encodeURIComponent(ids.join(','))}` : ''}`,
+  ).then((r) => r.document)
+export const previewQuotaConfigImport = (document: unknown) =>
+  apiPost<{ preview: ConfigImportPreviewDTO }>('/admin/quota-config/preview', {
+    document,
+  }).then((r) => r.preview)
+export const applyQuotaConfigImport = (document: unknown) =>
+  apiPost<{ preview: ConfigImportPreviewDTO }>('/admin/quota-config/apply', {
+    document,
+  }).then((r) => r.preview)
 export const listQuotaPolicies = () =>
   apiGet<{ policies: AdminQuotaPolicyDTO[] }>('/admin/quota/policies').then((r) => r.policies)
 export const createQuotaPolicy = (input: QuotaPolicyCreateInput) =>

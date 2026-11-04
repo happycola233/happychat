@@ -4,7 +4,9 @@ import {
   QUOTA_MAX_RULE_PRIORITY,
   QUOTA_METRIC_LABELS,
   formatQuotaAmount,
+  formatQuotaExemption,
   isQuotaCostMetric,
+  quotaExemptionSide,
 } from '@shared/util/quota'
 import { QUOTA_HOURLY_WINDOW_MAX_HOURS, describeQuotaHours } from '@shared/util/quotaWindow'
 import { createRandomUuid } from '../../lib/randomUuid'
@@ -35,6 +37,52 @@ export interface QuotaRuleDraft {
 }
 
 export const QUOTA_RULE_LIMIT = QUOTA_MAX_RULES_PER_POLICY
+
+/** 豁免放行的范围：文字和生图 / 只放行文字 / 只放行生图，由计量口径决定。 */
+export type QuotaExemptionChoice = 'all' | 'chat' | 'image'
+
+const EXEMPTION_METRIC: Record<QuotaExemptionChoice, QuotaMetric> = {
+  all: 'cost',
+  chat: 'chat_cost',
+  image: 'image_cost',
+}
+
+export function draftExemptionChoice(draft: Pick<QuotaRuleDraft, 'metric'>): QuotaExemptionChoice {
+  return quotaExemptionSide(draft.metric) ?? 'all'
+}
+
+/** 切换豁免范围：口径已对应该范围时保持不变（如「生图张数」仍是只放行生图）。 */
+export function withExemptionChoice(
+  draft: QuotaRuleDraft,
+  choice: QuotaExemptionChoice,
+): QuotaRuleDraft {
+  if (draftExemptionChoice(draft) === choice) return draft
+  return { ...draft, metric: EXEMPTION_METRIC[choice] }
+}
+
+/**
+ * 切换「限额 / 豁免」。豁免只有比被放行的规则优先级更高才有作用，
+ * 因此从 0 档切到豁免时直接给到 1 档。
+ */
+export function withQuotaRuleUnlimited(draft: QuotaRuleDraft, unlimited: boolean): QuotaRuleDraft {
+  if (draft.unlimited === unlimited) return draft
+  const priority = Number(draft.priorityInput.trim() || '0')
+  return {
+    ...draft,
+    unlimited,
+    priorityInput: unlimited && priority === 0 ? '1' : draft.priorityInput,
+  }
+}
+
+/** 复制一条规则用于快速新建：换新 id，备注加「副本」。 */
+export function duplicateQuotaRuleDraft(draft: QuotaRuleDraft): QuotaRuleDraft {
+  return {
+    ...draft,
+    id: createRandomUuid(),
+    label: draft.label.trim() ? `${draft.label.trim()} 副本`.slice(0, 40) : '',
+    targetIds: [...draft.targetIds],
+  }
+}
 
 export function createQuotaRuleDraft(): QuotaRuleDraft {
   return {
@@ -95,7 +143,7 @@ export function ruleFromDraft(draft: QuotaRuleDraft): DraftResult {
 
   const amount = Number(draft.limitInput)
   if (!draft.unlimited && (!draft.limitInput.trim() || !Number.isFinite(amount) || amount < 0)) {
-    return { ok: false, message: '请填写不小于 0 的额度上限，或开启「豁免」' }
+    return { ok: false, message: '请填写不小于 0 的额度上限，或把类型改为「豁免」' }
   }
   if (!draft.unlimited && !isQuotaCostMetric(draft.metric) && !Number.isInteger(amount)) {
     return { ok: false, message: '次数或张数上限必须是整数' }
@@ -218,7 +266,7 @@ function describeDraftScope(draft: QuotaRuleDraft): string {
 }
 
 function describeDraftLimit(draft: QuotaRuleDraft): { text: string; incomplete: boolean } {
-  if (draft.unlimited) return { text: '豁免', incomplete: false }
+  if (draft.unlimited) return { text: formatQuotaExemption(draft.metric), incomplete: false }
   const amount = Number(draft.limitInput)
   if (!draft.limitInput.trim() || !Number.isFinite(amount) || amount < 0) {
     return { text: '未设上限', incomplete: true }
@@ -238,11 +286,20 @@ export function summarizeQuotaRuleDraft(draft: QuotaRuleDraft): QuotaRuleDraftSu
   const scopeText = describeDraftScope(draft)
   const limit = describeDraftLimit(draft)
   const priority = parseDraftPriority(draft.priorityInput)
+  // 豁免不计量，「各自独立 / 共享」与口径都没有意义，放行范围已写在右侧的「豁免文字」等短称里。
   const modeText =
-    draft.scopeType === 'all' ? null : draft.mode === 'each' ? '各自独立' : '共享额度'
+    draft.scopeType === 'all' || draft.unlimited || draft.targetIds.length < 2
+      ? null
+      : draft.mode === 'each'
+        ? '各自独立'
+        : '共享额度'
   const titled = Boolean(draft.label.trim())
   // 有备注时标题让给备注，第二行补回范围；没备注时标题就是范围，第二行不再重复。
-  const subtitle = [titled ? scopeText : null, QUOTA_METRIC_LABELS[draft.metric], modeText]
+  const subtitle = [
+    titled ? scopeText : null,
+    draft.unlimited ? null : QUOTA_METRIC_LABELS[draft.metric],
+    modeText,
+  ]
     .filter(Boolean)
     .join(' · ')
 

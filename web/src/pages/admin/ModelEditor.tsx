@@ -584,7 +584,7 @@ function ModelEditorForm({
         onClose={() => void requestClose()}
         dismissible={!save.isPending}
         title={isCreate ? '添加模型' : `配置模型 · ${model.modelId}`}
-        size={model && onSelectModel ? 'workspace' : 'reading'}
+        size="workspace"
         height="workspace"
         sidebar={
           model && onSelectModel && onModelSearch ? (
@@ -596,6 +596,7 @@ function ModelEditorForm({
               onSelect={switchModel}
               disabled={save.isPending}
               scrollTopRef={navigationScrollTopRef}
+              groups={modelGroups}
             />
           ) : undefined
         }

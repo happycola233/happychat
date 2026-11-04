@@ -8,6 +8,7 @@ const row: ActiveRequestDTO = {
   runId: 'test-run',
   userId: 'test-user',
   username: '测试用户',
+  modelId: 'model-1',
   modelLabel: 'test-model',
   modelDisplayName: '测试模型',
   providerLabel: '测试供应商',
