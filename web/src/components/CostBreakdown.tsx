@@ -1,10 +1,11 @@
-import { useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useId, useRef, useState, type ReactNode } from 'react'
 import { ChevronDown, CircleAlert, X } from 'lucide-react'
 import type { MessageCostDisplayDTO } from '@shared/types/api'
 import type { RequestCostBreakdown } from '@shared/types/domain'
 import { costDisplayCurrency, formatCostAmount, requestCostDisplay } from '../lib/costDisplay'
 import { getBillingCurrency } from '../store/billingCurrency'
 import { formatCurrency } from '../lib/format'
+import { useAnchoredPopoverPosition } from '../hooks/useAnchoredPopoverPosition'
 
 /** 原生浮层脱离排版并进入顶层，避免撑高用量行或被后台表格裁切。 */
 export function CostBreakdown({
@@ -22,38 +23,7 @@ export function CostBreakdown({
   const triggerRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
-  const [position, setPosition] = useState<CSSProperties>()
-
-  useLayoutEffect(() => {
-    if (!open) return
-    const updatePosition = () => {
-      const trigger = triggerRef.current!.getBoundingClientRect()
-      const panel = panelRef.current!
-      const padding = 12
-      const gap = 8
-      const width = Math.min(280, window.innerWidth - padding * 2)
-      const below = window.innerHeight - trigger.bottom - gap - padding
-      const above = trigger.top - gap - padding
-      const placeBelow = below >= panel.scrollHeight || below >= above
-      setPosition({
-        width,
-        left: Math.max(
-          padding,
-          Math.min(trigger.right - width, window.innerWidth - width - padding),
-        ),
-        top: placeBelow ? trigger.bottom + gap : undefined,
-        bottom: placeBelow ? undefined : window.innerHeight - trigger.top + gap,
-        maxHeight: Math.max(0, placeBelow ? below : above),
-      })
-    }
-    updatePosition()
-    window.addEventListener('resize', updatePosition)
-    window.addEventListener('scroll', updatePosition, true)
-    return () => {
-      window.removeEventListener('resize', updatePosition)
-      window.removeEventListener('scroll', updatePosition, true)
-    }
-  }, [open])
+  const position = useAnchoredPopoverPosition(open, triggerRef, panelRef, 280)
 
   if (
     !breakdown ||

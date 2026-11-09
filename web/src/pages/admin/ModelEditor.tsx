@@ -54,6 +54,7 @@ import { RequestPreview } from './RequestPreview'
 import { ModelUsageNoticeEditor } from './ModelUsageNoticeEditor'
 import { ModelPricingEditor } from './ModelPricingEditor'
 import { ModelRoutesEditor } from './ModelRoutesEditor'
+import { ImageDefaultParamsEditor } from './ImageDefaultParamsEditor'
 import {
   describeModelRoutes,
   newRouteDraft,
@@ -84,7 +85,7 @@ const MODEL_INPUT_EXAMPLES: Record<ModelKind, { modelId: string; displayName: st
   responses: { modelId: 'gpt-5.6-sol', displayName: 'GPT-5.6 Sol' },
   chat: { modelId: 'deepseek-v4-pro', displayName: 'DeepSeek-V4-Pro' },
   anthropic: { modelId: 'claude-sonnet-5', displayName: 'Claude Sonnet 5' },
-  image: { modelId: 'gpt-image-1', displayName: 'GPT Image 1' },
+  image: { modelId: 'gpt-image-2.6-flare', displayName: 'GPT Image 2.6 Flare' },
 }
 
 /** 网格里只放上游模型能力；Artifacts 是站内渲染能力，在下方单独说明。 */
@@ -729,7 +730,7 @@ function ModelEditorForm({
                   options={[
                     { value: 'responses', label: '对话模型（Responses API）' },
                     { value: 'chat', label: '对话模型（chat/completions）' },
-                    { value: 'image', label: '生图模型（/images/generations）' },
+                    { value: 'image', label: '生图模型（Images API）' },
                   ]}
                 />
               </Field>
@@ -967,6 +968,25 @@ function ModelEditorForm({
               </div>
             </div>
           </FormSection>
+
+          {/* ============ 生图模型默认参数 ============ */}
+          {kind === 'image' && (
+            <FormSection
+              title="默认参数"
+              hidden={section !== 'capabilities'}
+              hint="用户在模型菜单中未调整的项使用这里的值，留空沿用本站内置默认；用户仍可自行修改。需要强制固定的值请写在高级 JSON。可选项按模型 ID 识别的能力显示。"
+            >
+              <ImageDefaultParamsEditor
+                modelId={modelId}
+                value={params.image ?? {}}
+                onChange={(image) =>
+                  setParams(({ image: _previous, ...rest }) =>
+                    Object.keys(image).length ? { ...rest, image } : rest,
+                  )
+                }
+              />
+            </FormSection>
+          )}
 
           {/* ============ 文本模型默认参数 ============ */}
           {kind !== 'image' && (

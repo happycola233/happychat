@@ -7,6 +7,7 @@ import { requireUser } from '../auth/middleware'
 import { newId } from '../lib/id'
 import { readUpload, removeUploadStrict, saveUpload, sha256 } from '../storage/files'
 import type { AppEnv } from '../http/types'
+import { attachmentSecurityHeaders } from '../http/attachment-headers'
 import { getUserSettings } from '../services/settings'
 import { compressChatImage } from '../services/image-compression'
 
@@ -93,6 +94,7 @@ attachmentRoutes.get('/:id', async (c) => {
         'Content-Type': a.mime,
         'Content-Disposition': `inline; filename="${encodeURIComponent(a.filename)}"`,
         'Cache-Control': 'private, max-age=86400',
+        ...attachmentSecurityHeaders(a.mime),
       },
     })
   } catch {

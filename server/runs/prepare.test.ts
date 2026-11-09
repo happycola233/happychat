@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { primaryBody } from '../testing/model-routes'
 import { DEFAULT_CONTEXT_POLICY } from '@shared/util/contextPolicy'
 import type { ContentPart } from '@shared/types/domain'
+import { sendMessageSchema } from '@shared/schemas/chat'
 
 let tmpDir: string
 let dbClient: typeof import('../db/client')
@@ -1556,7 +1557,7 @@ describe('prepareRun image inputs', () => {
     expect(primaryBody(result).images).toBeUndefined()
   })
 
-  it('normalizes valid custom gpt-image-2 sizes before building the upstream body', async () => {
+  it('normalizes valid custom sizes before building the upstream body', async () => {
     const { userId, modelId } = await createRunnableImageModel()
 
     const result = assertPrepared(
@@ -1571,9 +1572,6 @@ describe('prepareRun image inputs', () => {
     expect(primaryBody(result)).toMatchObject({
       size: '3840x2160',
       quality: 'high',
-    })
-    expect(result.run.requestParams).toMatchObject({
-      image: { size: '3840x2160', quality: 'high' },
     })
   })
 
@@ -1618,21 +1616,60 @@ describe('prepareRun image inputs', () => {
     expect(row?.instructions).toMatch(/^Reply using .+ \(en-US\)\.\n\n<runtime_context_protocol>/)
   })
 
-  it('rejects invalid gpt-image-2 sizes before creating a run', async () => {
+  it('builds the image request from the user choice and keeps sizes within model limits', async () => {
     const { userId, modelId } = await createRunnableImageModel()
 
-    const result = await prepare.prepareRun({
-      userId,
-      modelId,
-      text: 'Draw a poster',
-      params: { image: { size: '4000x1024' } },
-    })
+    const result = assertPrepared(
+      await prepare.prepareRun({
+        userId,
+        modelId,
+        text: 'Draw a poster',
+        // 超出 3:1 的尺寸换到最接近的预设比例（21:9）的 1K 档。
+        params: { image: { size: '4000x1024', quality: 'high' } },
+      }),
+    )
 
-    expect(result).toMatchObject({
-      ok: false,
-      status: 400,
-      code: 'invalid_image_size',
+    expect(result.imageOperation).toBe('generate')
+    expect(primaryBody(result)).toMatchObject({
+      size: '2384x1024',
+      quality: 'high',
+      output_format: 'png',
+      moderation: 'low',
+      stream: true,
+      partial_images: 3,
     })
+  })
+
+  it('rejects malformed image sizes at the request boundary', () => {
+    expect(
+      sendMessageSchema.safeParse({
+        modelId: 'model',
+        text: 'hi',
+        params: { image: { size: 'big' } },
+      }).success,
+    ).toBe(false)
+  })
+
+  it('sends explicit edit sources first and uploaded images after them as references', async () => {
+    const { userId, modelId } = await createRunnableImageModel()
+    const source = await createImageAttachment(userId, 'image/png', 'source.png')
+    const reference = await createImageAttachment(userId, 'image/jpeg', 'reference.jpg')
+
+    const result = assertPrepared(
+      await prepare.prepareRun({
+        userId,
+        modelId,
+        text: 'Put the hat from the reference on this cat',
+        attachments: [{ ...reference, kind: 'image' }],
+        imageSources: [{ attachmentId: source.attachmentId }],
+      }),
+    )
+
+    expect(result.imageOperation).toBe('edit')
+    expect(primaryBody(result).images).toEqual([
+      { image_url: expect.stringMatching(/^data:image\/png;base64,/) },
+      { image_url: expect.stringMatching(/^data:image\/jpeg;base64,/) },
+    ])
   })
 
   it('uses explicit existing image sources without reassigning their attachment message', async () => {

@@ -1,5 +1,6 @@
 import type { MessageDTO } from '@shared/types/api'
 import type {
+  ImageGenerationDetails,
   MessageErrorDetail,
   ProcessStep,
   SearchAction,
@@ -46,6 +47,10 @@ export interface LiveImageGeneration {
   previewIndex: number | null
   previewUpdatedAt: number | null
   revisedPrompt?: string
+  /** 最终文件 MIME：GIF / SVG 不能再作为编辑源。 */
+  mime?: string
+  /** 持久化后补齐的生成详情快照（实时事件不携带）。 */
+  details?: ImageGenerationDetails
   startedAt: number | null
   completedAt: number | null
 }
@@ -617,6 +622,7 @@ export function reduceEvent(s: LiveMessage, ev: WireEvent): LiveMessage {
         previewAttachmentId: str(ev.data.attachmentId) || undefined,
         previewUpdatedAt: Date.now(),
         revisedPrompt: str(ev.data.revisedPrompt) || undefined,
+        mime: str(ev.data.mime) || undefined,
         completedAt: Date.now(),
       })
     case 'run.done': {

@@ -209,6 +209,31 @@ export class ProviderClient {
     return this.readImageResponse(res)
   }
 
+  /** POST /images/generations（stream=true）：partial_image 与 completed 事件序列。 */
+  createImageStream(body: Record<string, unknown>, signal?: AbortSignal) {
+    return this.streamImage('/images/generations', body, signal)
+  }
+
+  /** POST /images/edits（stream=true）：事件名前缀为 image_edit.*，字段与生成一致。 */
+  editImageStream(body: Record<string, unknown>, signal?: AbortSignal) {
+    return this.streamImage('/images/edits', body, signal)
+  }
+
+  private async *streamImage(
+    path: '/images/generations' | '/images/edits',
+    body: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): AsyncGenerator<StreamEvent> {
+    const res = await this.postJson(path, { ...body, stream: true }, signal)
+    if (!res.ok) throw await toUpstreamError(res)
+    if (!res.body) throw new UpstreamError({ message: '上游未返回流式响应', status: res.status })
+    try {
+      yield* parseSSEStream(res.body)
+    } catch (error) {
+      throw error instanceof UpstreamError ? error : networkError(error, 'response')
+    }
+  }
+
   private async readImageResponse(res: Response): Promise<unknown> {
     let data: unknown
     try {

@@ -506,13 +506,40 @@ describe('buildImageEditBody', () => {
       { image: { size: '1024x1024', quality: 'low' } },
     )
 
-    expect(body).toMatchObject({
+    expect(body).toEqual({
       model: 'gpt-image-2',
       prompt: 'Make the reference image red',
       n: 1,
       size: '1024x1024',
       quality: 'low',
+      output_format: 'png',
+      background: 'auto',
+      moderation: 'low',
+      stream: true,
+      partial_images: 3,
       images: [{ image_url: 'data:image/png;base64,abc' }],
+    })
+  })
+
+  it('lets hard params override the resolved image options', () => {
+    const body = buildImageEditBody(
+      model({
+        modelId: 'gpt-image-2.6-flare',
+        kind: 'image',
+        defaultParams: { image: { moderation: 'auto', output_format: 'jpeg' } },
+        hardParams: { partial_images: 1 },
+      }),
+      'Animate it',
+      ['data:image/png;base64,abc'],
+      { image: { output_compression: 80 } },
+    )
+
+    expect(body).toMatchObject({
+      moderation: 'auto',
+      output_format: 'jpeg',
+      output_compression: 80,
+      stream: true,
+      partial_images: 1,
     })
   })
 })

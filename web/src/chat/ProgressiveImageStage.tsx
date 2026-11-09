@@ -7,8 +7,9 @@ import { attachmentUrl } from '../api/attachments'
 import { ElapsedLabel } from './ElapsedLabel'
 import { ImageWaitingGame } from './ImageWaitingGame'
 import { ProgressiveImageMedia } from './ProgressiveImageMedia'
+import { ImageGenerationInfo } from './ImageGenerationInfo'
 import { EditIcon } from './icons'
-import type { ImageEditSource } from './imageSource'
+import { isEditableGeneratedImage, type ImageEditSource } from './imageSource'
 
 interface Props {
   live: LiveMessage
@@ -40,6 +41,8 @@ export function ProgressiveImageStage({ live, completedImages, onUseImageSource 
             status: 'done' as const,
             attachmentId: finalImage.attachment_id,
             revisedPrompt: finalImage.revised_prompt ?? generation.revisedPrompt,
+            mime: finalImage.mime ?? generation.mime,
+            details: finalImage.generation,
           }
         : generation
     })
@@ -190,18 +193,36 @@ function ProgressiveImageCard({
         </div>
       )}
       {game}
-      {done && finalId && onUseImageSource && (
-        <button
-          type="button"
-          onClick={() =>
-            onUseImageSource({ attachmentId: finalId, label: `生成图 ${generation.index + 1}` })
-          }
-          className="mt-1.5 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-800 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
-          title="以此图编辑"
-        >
-          <EditIcon className="h-3.5 w-3.5" />
-          以此图编辑
-        </button>
+      {done && finalId && (
+        <div className="mt-1.5 flex flex-wrap items-center gap-1">
+          {onUseImageSource &&
+            isEditableGeneratedImage({
+              type: 'image_result',
+              attachment_id: finalId,
+              mime: generation.mime,
+            }) && (
+              <button
+                type="button"
+                onClick={() =>
+                  onUseImageSource({
+                    attachmentId: finalId,
+                    label: `生成图 ${generation.index + 1}`,
+                  })
+                }
+                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-800 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+                title="以此图编辑"
+              >
+                <EditIcon className="h-3.5 w-3.5" />
+                以此图编辑
+              </button>
+            )}
+          {/* 用时已在舞台标题右侧显示，这里只提供详情入口。 */}
+          <ImageGenerationInfo
+            details={generation.details}
+            revisedPrompt={generation.revisedPrompt}
+            showDuration={false}
+          />
+        </div>
       )}
     </div>
   )

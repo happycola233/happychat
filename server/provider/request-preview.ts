@@ -1,6 +1,6 @@
 import type { RequestPreviewInput } from '@shared/schemas/request-preview'
 import type { RequestPreviewDTO } from '@shared/types/request-preview'
-import type { ProviderProtocol } from '@shared/types/domain'
+import type { ImageOptions, ProviderProtocol } from '@shared/types/domain'
 import { PROMPT_VARIABLES, renderPromptTemplate } from '@shared/util/promptTemplate'
 import { joinAnthropicUrl, joinBaseUrl } from '@shared/util/url'
 import { appendAppProtocols } from '../runs/appProtocols'
@@ -133,7 +133,11 @@ export function buildRequestPreview(
       model.kind === 'anthropic' && name === 'max_tokens'
         ? 'max_output_tokens'
         : (USER_PARAMETER_KEYS[name] ?? name)
-    const imageKey = name === 'size' || name === 'quality' || name === 'background' ? name : null
+    // Images API 字段与 ImageOptions 同名；stream 由过程预览张数派生。
+    const imageKey =
+      model.kind === 'image'
+        ? ((name === 'stream' ? 'partial_images' : name) as keyof ImageOptions)
+        : null
     const userValue = imageKey
       ? input.userParams?.image?.[imageKey]
       : input.userParams?.[userKey as keyof typeof input.userParams]
@@ -145,6 +149,12 @@ export function buildRequestPreview(
         name,
         source: '传输设置',
         description: '文本响应使用 SSE 流式传输，发送前固定为 true。',
+      }
+    if (name === 'stream' && hardValue === undefined)
+      return {
+        name,
+        source: '过程预览',
+        description: '过程预览张数大于 0 时以 SSE 流式接收预览图；GIF、SVG 与多张时不流式。',
       }
     if (name === 'tools')
       return {
@@ -199,7 +209,9 @@ export function buildRequestPreview(
           ? '提供商接收的上游模型 ID。'
           : name === 'store'
             ? '默认不在上游保存响应，本地管理上下文。'
-            : '应用构建请求时设置的默认值。',
+            : model.kind === 'image'
+              ? '用户与模型默认都未指定时使用本站内置默认，并按模型能力与输出格式收敛。'
+              : '应用构建请求时设置的默认值。',
     }
   })
   const notes = [

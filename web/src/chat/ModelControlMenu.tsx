@@ -1,7 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { clsx } from 'clsx'
-import { Check, ChevronDown, Globe, Layers3, List, Pin } from 'lucide-react'
+import { ChevronDown, Globe, Layers3, List, Pin } from 'lucide-react'
 import type { ModelDTO, ModelGroupDTO } from '@shared/types/api'
 import type { ModelPickerView } from '@shared/types/domain'
 import {
@@ -14,12 +14,6 @@ import {
   effectiveXSearchEnabled,
   modelKindSupportsSearchTools,
 } from '@shared/util/searchTools'
-import {
-  GPT_IMAGE_2_SIZE_OPTIONS,
-  formatImageSizeLabel,
-  parseImageSize,
-  validateGptImage2Size,
-} from '@shared/util/imageSize'
 import { XLogo } from '../components/XLogo'
 import { useSizeTransition } from '../hooks/useSizeTransition'
 import { useTriggerLabelWidth } from '../hooks/useTriggerLabelWidth'
@@ -30,6 +24,8 @@ import { useSettings } from '../store/settings'
 import { useIsMobile } from '../store/sidebar'
 import { ReasoningEffortIcon } from './icons'
 import { ModelListSection } from './ModelListViews'
+import { ImageParamsSection } from './ImageParamsSection'
+import { imageOptionsSummary } from './imageOptionsSummary'
 
 /**
  * 桌面弹层方向：输入框内向上、顶栏向下（移动端为底部弹层，不用此参数）。
@@ -271,171 +267,6 @@ function SearchToolsSection({
   )
 }
 
-/** 分辨率比例缩略图：按宽高比绘制小圆角矩形（长边恒定），auto 用虚线方框表示「不固定」。 */
-function AspectGlyph({ size }: { size: string }) {
-  const parsed = parseImageSize(size)
-  const LONG_EDGE_PX = 15
-  let width = 11
-  let height = 11
-  if (parsed) {
-    const ratio = parsed.width / parsed.height
-    width = ratio >= 1 ? LONG_EDGE_PX : Math.max(7, Math.round(LONG_EDGE_PX * ratio))
-    height = ratio >= 1 ? Math.max(7, Math.round(LONG_EDGE_PX / ratio)) : LONG_EDGE_PX
-  }
-  return (
-    <span aria-hidden className="flex h-4 w-4 items-center justify-center">
-      <span
-        className={clsx('rounded-[3px] border-[1.5px] border-current', !parsed && 'border-dashed')}
-        style={{ width, height }}
-      />
-    </span>
-  )
-}
-
-/** 图片模型参数：分辨率预设网格（比例缩略图）+ 自定义宽高 + 画质分段选择。
-    整个分区必须始终完整可见（不允许滚动），所以自定义/画质压成单行排布。 */
-function ImageParamsSection({ sheet }: { sheet: boolean }) {
-  const { imageSize, imageQuality, setImageSize, setImageQuality } = useChatPrefs()
-  const [width, setWidth] = useState('1024')
-  const [height, setHeight] = useState('1024')
-  const [error, setError] = useState<string | null>(null)
-  // 当前值不在预设里时视为自定义生效，高亮自定义输入区。
-  const isCustomActive = !(GPT_IMAGE_2_SIZE_OPTIONS as readonly string[]).includes(imageSize)
-
-  useEffect(() => {
-    const parsed = parseImageSize(imageSize)
-    if (parsed) {
-      setWidth(String(parsed.width))
-      setHeight(String(parsed.height))
-    }
-    setError(null)
-  }, [imageSize])
-
-  const applyCustom = () => {
-    const normalizedWidth = width.trim()
-    const normalizedHeight = height.trim()
-    if (!/^\d+$/.test(normalizedWidth) || !/^\d+$/.test(normalizedHeight)) {
-      setError('宽高必须是整数')
-      return
-    }
-    const result = validateGptImage2Size(`${normalizedWidth}x${normalizedHeight}`)
-    if (!result.ok) {
-      setError(result.message)
-      return
-    }
-    setImageSize(result.normalizedSize)
-    setError(null)
-  }
-
-  const qualityOptions = [
-    { value: 'auto', label: '自动' },
-    { value: 'low', label: '低' },
-    { value: 'medium', label: '中' },
-    { value: 'high', label: '高' },
-  ]
-
-  // 自定义/画质行首的对齐标签宽度，与分辨率网格左缘对齐。
-  const inlineLabelClass = 'w-9 shrink-0 text-xs'
-
-  return (
-    <div className="shrink-0 p-1.5">
-      <SectionLabel>分辨率</SectionLabel>
-      <div className="grid grid-cols-3 gap-1 px-1.5">
-        {GPT_IMAGE_2_SIZE_OPTIONS.map((size) => {
-          const selected = imageSize === size
-          return (
-            <button
-              key={size}
-              type="button"
-              onClick={() => setImageSize(size)}
-              className={clsx(
-                'flex items-center justify-center gap-1.5 rounded-lg border px-1 text-[11px] tabular-nums transition',
-                sheet ? 'py-2' : 'py-1.5',
-                selected
-                  ? 'border-neutral-300 bg-neutral-100 text-neutral-900 dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-100'
-                  : 'border-transparent text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200',
-              )}
-            >
-              <AspectGlyph size={size} />
-              <span className="truncate">{formatImageSizeLabel(size)}</span>
-            </button>
-          )
-        })}
-      </div>
-      <div className="mt-1.5 flex items-center gap-1.5 px-1.5">
-        <span
-          className={clsx(
-            inlineLabelClass,
-            isCustomActive
-              ? 'font-medium text-neutral-700 dark:text-neutral-200'
-              : 'text-neutral-400 dark:text-neutral-500',
-          )}
-        >
-          自定义
-        </span>
-        <input
-          value={width}
-          onChange={(e) => setWidth(e.target.value)}
-          inputMode="numeric"
-          className={clsx(
-            'h-8 w-full min-w-0 rounded-lg border bg-white px-2 text-center text-sm tabular-nums text-neutral-900 outline-none focus:border-neutral-400 dark:bg-neutral-900 dark:text-neutral-100 dark:focus:border-neutral-500',
-            isCustomActive
-              ? 'border-neutral-300 dark:border-neutral-600'
-              : 'border-neutral-200 dark:border-neutral-700',
-          )}
-          aria-label="图片宽度"
-        />
-        <span className="shrink-0 text-xs text-neutral-400">×</span>
-        <input
-          value={height}
-          onChange={(e) => setHeight(e.target.value)}
-          inputMode="numeric"
-          className={clsx(
-            'h-8 w-full min-w-0 rounded-lg border bg-white px-2 text-center text-sm tabular-nums text-neutral-900 outline-none focus:border-neutral-400 dark:bg-neutral-900 dark:text-neutral-100 dark:focus:border-neutral-500',
-            isCustomActive
-              ? 'border-neutral-300 dark:border-neutral-600'
-              : 'border-neutral-200 dark:border-neutral-700',
-          )}
-          aria-label="图片高度"
-        />
-        <button
-          type="button"
-          onClick={applyCustom}
-          className="flex h-8 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-500 text-white transition hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-500"
-          aria-label="应用自定义分辨率"
-          title="应用"
-        >
-          <Check className="h-3.5 w-3.5" />
-        </button>
-      </div>
-      {error && <div className="mt-1 pl-[3.375rem] pr-1.5 text-xs text-red-500">{error}</div>}
-      <div className="mt-1.5 flex items-center gap-1.5 px-1.5 pb-0.5">
-        <span className={clsx(inlineLabelClass, 'text-neutral-400 dark:text-neutral-500')}>
-          画质
-        </span>
-        <div className="inline-flex min-w-0 flex-1 rounded-lg bg-neutral-100 p-0.5 dark:bg-neutral-800">
-          {qualityOptions.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              onClick={() => setImageQuality(option.value)}
-              className={clsx(
-                'flex-1 rounded-md px-2 text-[13px] font-medium transition',
-                sheet ? 'py-1.5' : 'py-1',
-                imageQuality === option.value
-                  ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-600 dark:text-white'
-                  : 'text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200',
-              )}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-}
-
 /**
  * 桌面端模型描述提示与模型列表已抽到 `ModelListViews.tsx`
  * （两种视图 + 搜索让这部分独立成文件，本文件专注弹层外壳与参数分区）。
@@ -552,7 +383,7 @@ function MenuSections({
             {isImage && (
               <>
                 <Divider />
-                <ImageParamsSection sheet={sheet} />
+                <ImageParamsSection model={model!} sheet={sheet} />
               </>
             )}
           </>
@@ -563,7 +394,7 @@ function MenuSections({
 }
 
 /**
- * 聚合选择器：模型 + 推理强度 + 联网搜索 / X 搜索（图片模型则为分辨率/画质）收进一个菜单。
+ * 聚合选择器：模型 + 推理强度 + 联网搜索 / X 搜索（图片模型则为生图参数）收进一个菜单。
  * 桌面端为锚定弹层（输入框内向上、顶栏向下，空间不足自动翻转；新对话居中时向左侧弹）；
  * 移动端为底部弹层（portal 到 body，遮罩 + 安全区内边距 + 更大的触控行高）。
  */
@@ -574,6 +405,7 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
   const activeEffort = useChatPrefs((s) => s.activeEffort)
   const activeWebSearch = useChatPrefs((s) => s.activeWebSearch)
   const activeXSearch = useChatPrefs((s) => s.activeXSearch)
+  const imageOptions = useChatPrefs((s) => s.imageOptions)
   const modelPickerView = useSettings((s) => s.preferences.modelPickerView)
   const isMobile = useIsMobile()
   const [open, setOpen] = useState(false)
@@ -619,7 +451,12 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
   const effectiveEffortOption = model
     ? findReasoningEffortOption(model.allowedEfforts, effectiveEffort)
     : null
-  const effortLabel = showReasoning ? (effectiveEffortOption?.description ?? '选择推理强度') : null
+  // 图片模型在推理强度的位置显示尺寸与格式摘要（如「16:9 2K」），不用打开面板就能确认。
+  const effortLabel = showReasoning
+    ? (effectiveEffortOption?.description ?? '选择推理强度')
+    : model && isImage
+      ? imageOptionsSummary(model, imageOptions)
+      : null
   const triggerGlobe = showWebSearch && webEnabled
   const triggerXMark = showXSearch && xEnabled
 
@@ -751,11 +588,11 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
         onClick={() => setOpen((v) => !v)}
         title={
           model
-            ? `模型：${model.displayName}${showReasoning ? `；推理强度：${effectiveEffortOption ? `${effectiveEffortOption.description}（${effectiveEffortOption.value}）` : '请选择'}` : ''}`
+            ? `模型：${model.displayName}${showReasoning ? `；推理强度：${effectiveEffortOption ? `${effectiveEffortOption.description}（${effectiveEffortOption.value}）` : '请选择'}` : effortLabel ? `；${effortLabel}` : ''}`
             : '选择模型'
         }
         className={clsx(
-          'flex max-w-[15rem] items-center gap-1.5 transition',
+          'flex max-w-[15rem] items-center gap-1.5 transition sm:max-w-[18rem]',
           variant === 'composer'
             ? 'h-9 rounded-full px-2.5 text-[13px] font-medium text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800'
             : 'rounded-lg px-2 py-1.5 text-sm font-medium text-neutral-800 hover:bg-neutral-100 dark:text-neutral-100 dark:hover:bg-neutral-800',
@@ -763,16 +600,19 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
         )}
       >
         {/* 宽度过渡层：外层随内容平滑展开/收拢；内层始终以最终排版渲染（切换中绝不出现省略号）。
-            下拉箭头在过渡层之外，扩宽时绝不被裁（见 useTriggerLabelWidth）。 */}
+            下拉箭头在过渡层之外，扩宽时绝不被裁（见 useTriggerLabelWidth）。
+            内层上限 = 按钮上限 − 左右内边距 − 间距 − 箭头（15rem→12.5rem、18rem→15.5rem），
+            否则超出部分会被外层 overflow-hidden 直接裁掉而不显示省略号。 */}
         <span ref={labelWrapRef} className="flex min-w-0 items-center overflow-hidden">
           <span
             ref={labelContentRef}
             data-testid="model-trigger-label"
-            className="flex w-max max-w-[13.5rem] items-center gap-1.5"
+            className="flex w-max max-w-[12.5rem] items-center gap-1.5 sm:max-w-[15.5rem]"
           >
             <span className="min-w-0 truncate">{model?.displayName ?? '选择模型'}</span>
             {effortLabel && (
-              <span className="inline-flex min-w-0 shrink items-center gap-1 text-neutral-400 dark:text-neutral-400">
+              // 档位 / 生图摘要较短，优先完整显示，空间不足时先截断模型名。
+              <span className="inline-flex min-w-0 max-w-[8rem] shrink-0 items-center gap-1 text-neutral-400 dark:text-neutral-400">
                 <span aria-hidden>·</span>
                 <span className="truncate">{effortLabel}</span>
               </span>
@@ -808,7 +648,7 @@ export function ModelControlMenu({ placement, align, variant }: Props) {
             ref={desktopPanelRef}
             role="dialog"
             aria-label="模型与参数"
-            className="hc-pop-in hc-scrollbar flex max-h-[min(70vh,32rem)] w-fit min-w-80 max-w-[min(24rem,calc(100vw-1.5rem))] flex-col overflow-y-auto rounded-2xl border border-neutral-200 bg-white text-neutral-700 shadow-[0_12px_40px_rgb(0_0_0/0.14)] dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:shadow-[0_12px_40px_rgb(0_0_0/0.45)]"
+            className="hc-pop-in hc-scrollbar flex max-h-[min(70vh,32rem)] w-fit min-w-80 max-w-[min(30rem,calc(100vw-1.5rem))] flex-col overflow-y-auto rounded-2xl border border-neutral-200 bg-white text-neutral-700 shadow-[0_12px_40px_rgb(0_0_0/0.14)] dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:shadow-[0_12px_40px_rgb(0_0_0/0.45)]"
             style={{
               ...(menuMaxHeight !== null ? { maxHeight: menuMaxHeight } : null),
               // 缩放动画从贴近触发器的一侧展开：向上弹用 bottom、侧向弹用 right，其余用 top。

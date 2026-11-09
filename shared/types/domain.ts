@@ -118,11 +118,45 @@ export interface ReasoningEffortOption {
 /** allowed_efforts JSON 的兼容存储形态；旧记录是字符串，新记录统一写对象。 */
 export type StoredReasoningEffortOption = ReasoningEffort | ReasoningEffortOption
 
-/** 图片生成基础选项 */
+export type ImageQuality = 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+export type ImageOutputFormat = 'png' | 'jpeg' | 'webp' | 'gif' | 'svg'
+export type ImageBackground = 'auto' | 'opaque' | 'transparent'
+export type ImageModeration = 'low' | 'auto'
+export type ImageComplexity = 'low' | 'medium' | 'high'
+
+/** 生成一张图片时的请求参数、上游回显与用时，随 image_result 持久化，刷新后仍可查看。 */
+export interface ImageGenerationDetails {
+  /** generate=根据文字生成；edit=基于输入图片修改或参考生成。上游未告知时缺省。 */
+  operation?: 'generate' | 'edit'
+  /** 发送给上游的输入图片数（要修改的图 + 参考图）。 */
+  inputImageCount?: number
+  /** 实际发送的生图参数（已合并用户选择、模型默认与高级 JSON）。 */
+  request: ImageOptions
+  /** 上游回显的实际值：请求为自动时由此得知模型选定的尺寸、画质等。 */
+  result: Pick<ImageOptions, 'size' | 'quality' | 'background' | 'output_format'>
+  /** 本张图从开始生成到保存的耗时；无法计时为 null。 */
+  durationMs: number | null
+}
+
+/**
+ * Images API 参数（字段名与上游一致）。用户选择与管理员默认共用此形态，缺省键表示沿用下一层；
+ * 生效值与模型支持范围由 shared/util/imageOptions.ts resolveImageOptions 统一解析。
+ */
 export interface ImageOptions {
+  /** 'auto' 或 WIDTHxHEIGHT；GIF 时表示每帧尺寸。 */
   size?: string
-  quality?: string
-  background?: string
+  quality?: ImageQuality
+  output_format?: ImageOutputFormat
+  /** 0–100，仅 JPEG / WebP。 */
+  output_compression?: number
+  background?: ImageBackground
+  moderation?: ImageModeration
+  /** 0–3：流式过程预览张数，0 为不流式。 */
+  partial_images?: number
+  n?: number
+  complexity?: ImageComplexity
+  frame_count?: number
+  frame_duration_ms?: number
 }
 
 /** 用户可调 + 模型默认参数 */
@@ -463,7 +497,15 @@ export type ContentPart =
       mime?: string
       byte_size?: number
     }
-  | { type: 'image_result'; attachment_id: string; revised_prompt?: string }
+  | {
+      type: 'image_result'
+      attachment_id: string
+      revised_prompt?: string
+      /** 生成文件的 MIME；GIF / SVG 不能再作为编辑源。旧消息缺省视为位图。 */
+      mime?: string
+      /** 生成时的参数与用时快照；此功能上线前的图片没有该字段。 */
+      generation?: ImageGenerationDetails
+    }
 
 export interface MessageUsage {
   billingSegments?: BillingUsage[]

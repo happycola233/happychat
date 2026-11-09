@@ -15,7 +15,7 @@ import { attachmentUrl } from '../api/attachments'
 import { useSettings } from '../store/settings'
 import { useIsMobile } from '../store/sidebar'
 import type { ImageEditSource } from './imageSource'
-import { ArrowUpIcon, AttachmentIcon, QueueIcon, UploadImageIcon } from './icons'
+import { ArrowUpIcon, AttachmentIcon, EditIcon, QueueIcon, UploadImageIcon } from './icons'
 import { ImagePreviewTrigger } from './ImagePreview'
 import { AttachmentDraftList } from './AttachmentDraftList'
 import { completedUploadAttachments } from './uploadDraft'
@@ -75,6 +75,9 @@ interface Props extends AttachmentInputSupport {
   /** 已从历史清单主动选中附件，允许直接发起对话。 */
   hasContextAttachments?: boolean
   imageSources?: ImageEditSource[]
+  /** 最新回复生成的一张图：未选编辑源时提供「基于上一张修改」一键入口。 */
+  latestImageSource?: ImageEditSource | null
+  onUseImageSource?: (source: ImageEditSource) => void
   scrollbarGutterWidth?: number
   onMetricsChange?: (metrics: ComposerMetrics) => void
   /** 「是否有草稿」变化回调（正文/附件/图生图来源任一非空即为有）：hero 态预热合成层用。 */
@@ -192,6 +195,8 @@ export function Composer({
   canFile,
   modelKind,
   imageSources = [],
+  latestImageSource = null,
+  onUseImageSource,
   scrollbarGutterWidth = 0,
   onMetricsChange,
   onDraftPresenceChange,
@@ -582,29 +587,52 @@ export function Composer({
               松开以上传附件
             </div>
           )}
+          {!hasPreviews && latestImageSource && onUseImageSource && (
+            <div className="mb-1.5 px-1.5 pt-1">
+              <button
+                type="button"
+                onClick={() => onUseImageSource(latestImageSource)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-neutral-300 p-1 pr-2.5 text-xs text-neutral-500 transition hover:border-violet-300 hover:bg-violet-50 hover:text-violet-700 dark:border-neutral-700 dark:text-neutral-400 dark:hover:border-violet-700 dark:hover:bg-violet-950/30 dark:hover:text-violet-200"
+              >
+                <img
+                  src={attachmentUrl(latestImageSource.attachmentId)}
+                  alt=""
+                  className="h-7 w-7 rounded object-cover"
+                />
+                <EditIcon className="h-3.5 w-3.5" />
+                基于上一张修改
+              </button>
+            </div>
+          )}
           {hasPreviews && (
             <div className="mb-2 space-y-2 px-1.5 pt-1">
               {imageSources.length > 0 && (
                 <div className="flex flex-wrap gap-2">
-                  {imageSources.map((source) => (
+                  {imageSources.map((source, index) => (
                     <div
                       key={source.attachmentId}
                       className="group relative flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 p-1 dark:border-violet-800 dark:bg-violet-950/30"
                     >
                       <ImagePreviewTrigger
                         src={attachmentUrl(source.attachmentId)}
-                        alt="编辑源图片"
-                        caption={`编辑源：${source.label}`}
+                        alt={index === 0 ? '要修改的图片' : '参考图片'}
+                        caption={source.label}
                         className="h-10 w-10 overflow-hidden rounded"
                         imageClassName="block h-10 w-10 object-cover"
                       />
-                      <span className="max-w-[8rem] truncate px-1 text-xs text-violet-700 dark:text-violet-200">
-                        编辑源：{source.label}
+                      {/* 第一张是主图（在它的基础上修改），其余作为参考；与发送给上游的顺序一致。 */}
+                      <span className="flex max-w-[8rem] flex-col px-1 text-xs leading-4">
+                        <span className="font-medium text-violet-700 dark:text-violet-200">
+                          {index === 0 ? '修改此图' : '参考图'}
+                        </span>
+                        <span className="truncate text-violet-500/80 dark:text-violet-300/70">
+                          {source.label}
+                        </span>
                       </span>
                       <button
                         onClick={() => onRemoveImageSource?.(source.attachmentId)}
                         className="rounded p-0.5 text-violet-400 hover:text-red-500"
-                        aria-label="移除编辑源"
+                        aria-label={index === 0 ? '移除要修改的图片' : '移除参考图'}
                       >
                         <X className="h-3.5 w-3.5" />
                       </button>
@@ -661,7 +689,13 @@ export function Composer({
                 ref={ref}
                 rows={1}
                 value={text}
-                placeholder={imageSources.length > 0 ? '输入修改要求…' : '发送消息…'}
+                placeholder={
+                  imageSources.length > 0
+                    ? '描述要怎样修改…'
+                    : modelKind === 'image'
+                      ? '描述你想要的画面…'
+                      : '发送消息…'
+                }
                 onChange={(e) => setText(e.target.value)}
                 onKeyDown={onKeyDown}
                 onPaste={onPaste}

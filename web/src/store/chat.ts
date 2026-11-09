@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { ReasoningEffort } from '@shared/types/domain'
+import type { ImageOptions, ReasoningEffort } from '@shared/types/domain'
 
 /**
  * 编排器偏好：区分「固定默认（持久化）」与「当前会话临时值（不持久化）」。
@@ -8,13 +8,14 @@ import type { ReasoningEffort } from '@shared/types/domain'
  * - 联网/思考的选择只是「临时用一次」（active）；思考可点固定按钮设为默认（pinnedEffort）。
  * - activeWebSearch / activeXSearch=null 表示沿用当前模型的管理员默认值，避免新会话显式覆盖为 false。
  * - 打开会话时由 ChatView 调 resetActive，从该会话最近一次的模型/联网/X 搜索/思考恢复。
+ * - imageOptions 只记录用户主动改过的生图参数（持久化）；未出现的键沿用管理员默认与内置默认，
+ *   生效值由 resolveImageOptions 按当前模型解析。
  */
 interface ChatPrefs {
   // —— 固定默认（持久化）——
   pinnedModelId: string | null
   pinnedEffort: ReasoningEffort | null
-  imageSize: string
-  imageQuality: string
+  imageOptions: ImageOptions
   // —— 当前会话临时值（不持久化）——
   activeModelId: string | null
   activeWebSearch: boolean | null
@@ -41,8 +42,10 @@ interface ChatPrefs {
     effort?: ReasoningEffort | null
   }) => void
 
-  setImageSize: (s: string) => void
-  setImageQuality: (q: string) => void
+  /** 更新生图参数覆盖项；传 undefined 表示该项恢复沿用默认。 */
+  setImageOptions: (patch: Partial<ImageOptions>) => void
+  /** 整体替换（撤回队列消息时恢复当时的选择）。 */
+  replaceImageOptions: (options: ImageOptions) => void
 }
 
 export const useChatPrefs = create<ChatPrefs>()(
@@ -50,8 +53,7 @@ export const useChatPrefs = create<ChatPrefs>()(
     (set, get) => ({
       pinnedModelId: null,
       pinnedEffort: null,
-      imageSize: 'auto',
-      imageQuality: 'auto',
+      imageOptions: {},
       activeModelId: null,
       activeWebSearch: null,
       activeXSearch: null,
@@ -78,17 +80,35 @@ export const useChatPrefs = create<ChatPrefs>()(
           activeEffort: effort ?? s.pinnedEffort,
         })),
 
-      setImageSize: (s) => set({ imageSize: s }),
-      setImageQuality: (q) => set({ imageQuality: q }),
+      setImageOptions: (patch) =>
+        set((s) => {
+          const next: ImageOptions = { ...s.imageOptions, ...patch }
+          for (const key of Object.keys(patch) as (keyof ImageOptions)[])
+            if (patch[key] === undefined) delete next[key]
+          return { imageOptions: next }
+        }),
+      replaceImageOptions: (options) => set({ imageOptions: { ...options } }),
     }),
     {
       name: 'happychat-prefs',
+      version: 1,
+      // v0 总是保存 imageSize / imageQuality（默认 'auto'）；迁移为覆盖项，'auto' 视为未选择，
+      // 让管理员默认对老用户生效。
+      migrate: (persisted, version) => {
+        const state = (persisted ?? {}) as Record<string, unknown>
+        if (version >= 1) return state
+        const { imageSize, imageQuality, ...rest } = state
+        const imageOptions: ImageOptions = {}
+        if (typeof imageSize === 'string' && imageSize !== 'auto') imageOptions.size = imageSize
+        if (typeof imageQuality === 'string' && imageQuality !== 'auto')
+          imageOptions.quality = imageQuality as ImageOptions['quality']
+        return { ...rest, imageOptions }
+      },
       // 仅持久化固定默认，临时 active 值不持久化（每会话重置）。
       partialize: (s) => ({
         pinnedModelId: s.pinnedModelId,
         pinnedEffort: s.pinnedEffort,
-        imageSize: s.imageSize,
-        imageQuality: s.imageQuality,
+        imageOptions: s.imageOptions,
       }),
     },
   ),

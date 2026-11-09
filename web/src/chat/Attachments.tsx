@@ -2,24 +2,29 @@ import { clsx } from 'clsx'
 import type { ContentPart } from '@shared/types/domain'
 import { attachmentUrl } from '../api/attachments'
 import { EditIcon } from './icons'
-import type { ImageEditSource } from './imageSource'
+import { isEditableGeneratedImage, type ImageEditSource } from './imageSource'
 import { ImagePreviewTrigger } from './ImagePreview'
 import { FileAttachmentCard } from './FileAttachmentCard'
+import { ImageGenerationInfo } from './ImageGenerationInfo'
 
 /** 渲染消息内容里的附件部件：图片缩略图、文件卡片、生成的图片。 */
 export function AttachmentParts({
   content,
   onUseImageSource,
+  generationDurationMs = null,
   align = 'start',
 }: {
   content: ContentPart[]
   onUseImageSource?: (source: ImageEditSource) => void
+  /** 整次请求耗时：没有生成详情快照的旧单图消息用它显示用时。 */
+  generationDurationMs?: number | null
   align?: 'start' | 'end'
 }) {
   const parts = content.filter(
     (p) => p.type === 'input_image' || p.type === 'input_file' || p.type === 'image_result',
   )
   if (parts.length === 0) return null
+  const singleGeneratedImage = parts.filter((p) => p.type === 'image_result').length === 1
   return (
     <div className={clsx('flex flex-wrap gap-2', align === 'end' && 'justify-end')}>
       {parts.map((p, i) => {
@@ -51,17 +56,24 @@ export function AttachmentParts({
                 className="hc-generated-image-frame"
                 imageClassName="block max-h-[32rem] max-w-full rounded-xl"
               />
-              {onUseImageSource && (
-                <button
-                  type="button"
-                  onClick={() => onUseImageSource(source)}
-                  className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-800 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
-                  title="以此图编辑"
-                >
-                  <EditIcon className="h-3.5 w-3.5" />
-                  以此图编辑
-                </button>
-              )}
+              <div className="flex flex-wrap items-center gap-1">
+                {onUseImageSource && isEditableGeneratedImage(p) && (
+                  <button
+                    type="button"
+                    onClick={() => onUseImageSource(source)}
+                    className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-800 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+                    title="以此图编辑"
+                  >
+                    <EditIcon className="h-3.5 w-3.5" />
+                    以此图编辑
+                  </button>
+                )}
+                <ImageGenerationInfo
+                  details={p.generation}
+                  revisedPrompt={p.revised_prompt}
+                  fallbackDurationMs={singleGeneratedImage ? generationDurationMs : null}
+                />
+              </div>
             </div>
           )
         }

@@ -1,7 +1,16 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { clsx } from 'clsx'
-import { Check, ChevronDown, ChevronLeft, ChevronRight, Info, Search, X } from 'lucide-react'
+import {
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Image as ImageIcon,
+  Info,
+  Search,
+  X,
+} from 'lucide-react'
 import type { ModelDTO, ModelGroupDTO } from '@shared/types/api'
 import {
   DEFAULT_MODEL_ICON_TONE_CLASS,
@@ -102,7 +111,7 @@ function ModelInfoTip({ name, description }: { name: string; description: string
   )
 }
 
-/** 额度耗尽标记：与「生图」标记同一档字号，弱化但可读。 */
+/** 额度耗尽标记：与模型标签同一档字号，弱化但可读。 */
 const EXHAUSTED_BADGE_CLASS =
   'shrink-0 rounded-md bg-rose-50 px-1.5 py-px text-[11px] font-medium text-rose-500 dark:bg-rose-500/10 dark:text-rose-300'
 
@@ -157,7 +166,11 @@ function ModelRow({
           <ModelTagList tags={model.tags} />
           {exhausted && <span className={EXHAUSTED_BADGE_CLASS}>额度已用尽</span>}
           {model.kind === 'image' && (
-            <span className="shrink-0 text-xs text-neutral-400">生图</span>
+            // 弱化的图标代替文字标签：名称与自定义标签之外不再多占一段宽度。
+            <span title="图片生成" className="shrink-0 text-neutral-300 dark:text-neutral-600">
+              <ImageIcon aria-hidden className="h-3.5 w-3.5" />
+              <span className="sr-only">图片生成</span>
+            </span>
           )}
           {model.description && (
             // 有 ⓘ 时勾选列留在它左侧；未选中仍占位，避免同类行的名称和标签左右跳动。

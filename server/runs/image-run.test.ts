@@ -15,6 +15,8 @@ const providerMocks = vi.hoisted(() => ({
   createResponseStream: vi.fn(),
   createImage: vi.fn(),
   editImage: vi.fn(),
+  createImageStream: vi.fn(),
+  editImageStream: vi.fn(),
 }))
 
 vi.mock('../provider/client', () => ({
@@ -43,6 +45,8 @@ beforeEach(() => {
   providerMocks.createResponseStream.mockReset()
   providerMocks.createImage.mockReset()
   providerMocks.editImage.mockReset()
+  providerMocks.createImageStream.mockReset()
+  providerMocks.editImageStream.mockReset()
 })
 
 afterAll(() => {
@@ -363,6 +367,124 @@ describe('runImageEngine audit outcome', () => {
       where: eq(schema.usageLogs.id, usage!.id),
     })
     expect(retainedUsage).toMatchObject({ runId: null, generatedImageCount: 1, imageTokens: 6 })
+  })
+
+  it('streams progressive previews, keeps only the final image and counts it once', async () => {
+    const fixture = await createFixture()
+    fixture.model.pricing = { imageGeneration: { mode: 'per_image', price: 0.04 } }
+    providerMocks.editImageStream.mockImplementation(async function* () {
+      for (const index of [0, 1, 2])
+        yield {
+          type: 'image_edit.partial_image',
+          data: { b64_json: 'iVBORw0KGgo=', partial_image_index: index, output_format: 'png' },
+        }
+      yield {
+        type: 'image_edit.completed',
+        data: {
+          b64_json: 'iVBORw0KGgo=',
+          output_format: 'png',
+          size: '1024x1024',
+          quality: 'high',
+          usage: {
+            input_tokens: 10,
+            output_tokens: 300,
+            total_tokens: 310,
+            input_tokens_details: { text_tokens: 4, image_tokens: 6 },
+          },
+        },
+      }
+    })
+
+    await runOnSingleRoute(dbClient.db, schema, imageRun.runImageEngine, {
+      ...fixture,
+      imageOperation: 'edit',
+      body: {
+        prompt: 'make it red',
+        images: [{ image_url: 'data:image/png;base64,abc' }],
+        size: 'auto',
+        quality: 'high',
+        moderation: 'low',
+        stream: true,
+        partial_images: 3,
+      },
+      abortController: new AbortController(),
+    })
+
+    const events = dbClient.db
+      .select({ type: schema.runEvents.type, data: schema.runEvents.data })
+      .from(schema.runEvents)
+      .where(eq(schema.runEvents.runId, fixture.run.id))
+      .all()
+    const partials = events.filter((event) => event.type === 'image.generation.partial')
+    expect(partials).toHaveLength(3)
+    // 最终图到达后预览附件被清理，回放事件只保留已删除标记。
+    expect(partials.every((event) => event.data.attachmentDeleted === true)).toBe(true)
+    const attachments = dbClient.db
+      .select()
+      .from(schema.attachments)
+      .where(eq(schema.attachments.messageId, fixture.assistantMessage.id))
+      .all()
+    expect(attachments).toHaveLength(1)
+    const log = dbClient.db
+      .select()
+      .from(schema.usageLogs)
+      .where(eq(schema.usageLogs.runId, fixture.run.id))
+      .get()!
+    expect(log).toMatchObject({
+      generatedImageCount: 1,
+      imageTokens: 300,
+      costBreakdown: { imageCount: 1, imageUsd: 0.04 },
+    })
+    // 生成详情随最终图持久化：实际发送的参数、上游回显、方式与输入图数量、用时。
+    const message = dbClient.db
+      .select()
+      .from(schema.messages)
+      .where(eq(schema.messages.id, fixture.assistantMessage.id))
+      .get()!
+    expect(message.content).toEqual([
+      expect.objectContaining({
+        type: 'image_result',
+        mime: 'image/png',
+        generation: {
+          operation: 'edit',
+          inputImageCount: 1,
+          request: { size: 'auto', quality: 'high', moderation: 'low', partial_images: 3 },
+          result: { size: '1024x1024', quality: 'high', output_format: 'png' },
+          durationMs: expect.any(Number),
+        },
+      }),
+    ])
+  })
+
+  it('stores GIF output as one animated image that cannot be edited again', async () => {
+    const fixture = await createFixture()
+    fixture.model.pricing = { imageGeneration: { mode: 'per_image', price: 0.04 } }
+    providerMocks.createImage.mockResolvedValue({
+      data: [{ b64_json: Buffer.from('GIF89a-frames').toString('base64') }],
+      output_format: 'gif',
+      usage: { input_tokens: 4, output_tokens: 900, total_tokens: 904 },
+    })
+
+    await runOnSingleRoute(dbClient.db, schema, imageRun.runImageEngine, {
+      ...fixture,
+      body: { prompt: 'a waving cat', output_format: 'gif', frame_count: 9 },
+      abortController: new AbortController(),
+    })
+
+    const message = dbClient.db
+      .select()
+      .from(schema.messages)
+      .where(eq(schema.messages.id, fixture.assistantMessage.id))
+      .get()!
+    expect(message.content).toEqual([
+      expect.objectContaining({ type: 'image_result', mime: 'image/gif' }),
+    ])
+    const log = dbClient.db
+      .select()
+      .from(schema.usageLogs)
+      .where(eq(schema.usageLogs.runId, fixture.run.id))
+      .get()!
+    expect(log).toMatchObject({ generatedImageCount: 1, costBreakdown: { imageCount: 1 } })
   })
 
   it('keeps upstream failure details in both usage and error audit rows', async () => {

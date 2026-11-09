@@ -302,7 +302,11 @@ export function Message({
         <Markdown text={text} animate={streaming} />
       ) : null}
       {!hasLiveImage && message.content.some((p) => p.type === 'image_result') && (
-        <AttachmentParts content={message.content} onUseImageSource={onUseImageSource} />
+        <AttachmentParts
+          content={message.content}
+          onUseImageSource={onUseImageSource}
+          generationDurationMs={message.generationDurationMs}
+        />
       )}
       {SHOW_CITATION_SOURCE_CHIPS && annotations.length > 0 && <Citations items={annotations} />}
       {!liveStreaming && (

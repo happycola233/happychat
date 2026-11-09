@@ -22,6 +22,7 @@ import type {
   MessageDTO,
 } from '@shared/types/api'
 import type { ModelParams } from '@shared/types/domain'
+import { imageModelProfile, resolveImageOptions } from '@shared/util/imageOptions'
 import {
   effectiveReasoningEffort,
   isReasoningEnabled,
@@ -71,7 +72,7 @@ import { shouldShowTopFade } from './topFade'
 import { AnnouncementBanner } from '../announcements/AnnouncementBanner'
 import { ConversationDocumentTitle } from './ConversationDocumentTitle'
 import { NotificationBell } from '../announcements/NotificationBell'
-import type { ImageEditSource } from './imageSource'
+import { latestGeneratedImageSource, type ImageEditSource } from './imageSource'
 import { toAttachmentRefs } from './attachmentDraft'
 import {
   captureViewportScroll,
@@ -148,8 +149,7 @@ export default function ChatView() {
   const activeWebSearch = useChatPrefs((s) => s.activeWebSearch)
   const activeXSearch = useChatPrefs((s) => s.activeXSearch)
   const activeEffort = useChatPrefs((s) => s.activeEffort)
-  const imageSize = useChatPrefs((s) => s.imageSize)
-  const imageQuality = useChatPrefs((s) => s.imageQuality)
+  const imageOptions = useChatPrefs((s) => s.imageOptions)
   const setActiveModel = useChatPrefs((s) => s.setActiveModel)
   const resetActive = useChatPrefs((s) => s.resetActive)
   const reconcileActiveModel = useChatPrefs((s) => s.reconcileActiveModel)
@@ -263,6 +263,7 @@ export default function ChatView() {
 
   const allMessages = detail?.messages ?? []
   const messages = detail ? buildPath(allMessages, detail.conversation.activeLeafId) : []
+  const latestImageSource = model?.kind === 'image' ? latestGeneratedImageSource(messages) : null
   const streaming = stream?.status === 'streaming'
 
   useEffect(() => {
@@ -770,8 +771,9 @@ export default function ChatView() {
 
   const params = (): ModelParams => {
     const p: ModelParams = {}
-    if (model?.kind === 'image') {
-      p.image = { size: imageSize, quality: imageQuality }
+    // 只发送用户改过的生图参数，其余由服务端按管理员默认与内置默认解析（与面板显示同一规则）。
+    if (model?.kind === 'image' && Object.keys(imageOptions).length > 0) {
+      p.image = imageOptions
     }
     if (model?.kind !== 'image') {
       if (model?.kind !== 'chat') {
@@ -803,6 +805,21 @@ export default function ChatView() {
     }
     if (model.kind === 'image' && !text.trim()) {
       toast.error('请输入图片生成或编辑提示词')
+      return false
+    }
+    if (
+      model.kind === 'image' &&
+      (selectedImageSources.length > 0 || attachments.some((a) => a.kind === 'image')) &&
+      resolveImageOptions(
+        imageModelProfile(model.modelId),
+        model.defaultParams?.image,
+        imageOptions,
+        {
+          editing: false,
+        },
+      ).output_format === 'svg'
+    ) {
+      toast.error('SVG 只能根据文字生成，请移除图片或换用其他输出格式')
       return false
     }
     if (modelQuotaExhausted) {
@@ -892,7 +909,12 @@ export default function ChatView() {
       setActiveModel(imageModel.id)
       toast.info(`已切换到 ${imageModel.displayName}`)
     }
-    setImageSources([source])
+    // 依次点选多张：第一张是主图，其余作为参考（上游最多 16 张）。
+    setImageSources((items) =>
+      items.some((item) => item.attachmentId === source.attachmentId) || items.length >= 16
+        ? items
+        : [...items, source],
+    )
   }
 
   const restoreQueuedMessage = async (messageId: string, sourceRect: DOMRect) => {
@@ -923,11 +945,8 @@ export default function ChatView() {
       xSearch: message.input.params?.x_search,
       effort: message.input.params?.reasoning_effort,
     })
-    if (message.input.params?.image) {
-      const prefs = useChatPrefs.getState()
-      prefs.setImageSize(message.input.params.image.size ?? 'auto')
-      prefs.setImageQuality(message.input.params.image.quality ?? 'auto')
-    }
+    if (message.input.params?.image)
+      useChatPrefs.getState().replaceImageOptions(message.input.params.image)
   }
 
   const onEdit = (msg: MessageDTO, input: MessageEditSubmit): boolean => {
@@ -1336,6 +1355,8 @@ export default function ChatView() {
             canFile={model?.capabilities.file_input ?? false}
             modelKind={model?.kind}
             imageSources={imageSources}
+            latestImageSource={latestImageSource}
+            onUseImageSource={onUseImageSource}
             scrollbarGutterWidth={scrollbarGutterWidth}
             onMetricsChange={setComposerMetrics}
             onDraftPresenceChange={setComposerHasDraft}

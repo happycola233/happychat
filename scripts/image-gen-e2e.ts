@@ -26,14 +26,16 @@ async function main() {
   await page.waitForTimeout(1200)
 
   await selectModel(page, 'gpt-image-2')
-  // 分辨率/画质在聚合菜单内：展开确认分区存在后关闭。
+  // 比例 / 清晰度 / 画质在聚合菜单内：展开确认分区存在后关闭。
   await page.getByTestId('model-menu-trigger').click()
-  const hasImageCtrl = (await page.getByText('分辨率', { exact: true }).count()) > 0
+  const hasImageCtrl = (await page.getByTestId('image-final-size').count()) > 0
   await page.keyboard.press('Escape')
   console.log('图片尺寸控件可见:', hasImageCtrl)
 
-  await composer.fill('画一个白色背景上的简单红色圆形。')
-  await composer.press('Enter')
+  // 图片模型的输入框占位文案不同，重新定位。
+  const imageComposer = page.getByPlaceholder('描述你想要的画面…')
+  await imageComposer.fill('画一个白色背景上的简单红色圆形。')
+  await imageComposer.press('Enter')
 
   // 生成开始（停止按钮出现）
   await page.getByTestId('stop-btn').waitFor({ timeout: 30_000 })
@@ -45,7 +47,10 @@ async function main() {
   console.log('✓ 生成中已刷新，URL:', page.url())
 
   // 等待图片出现（续传后完成）
-  const genImg = page.getByTestId('assistant-message').locator('img[src*="/api/attachments/"]').first()
+  const genImg = page
+    .getByTestId('assistant-message')
+    .locator('img[src*="/api/attachments/"]')
+    .first()
   await genImg.waitFor({ timeout: 120_000 })
   await page.waitForTimeout(1500)
   const loaded = await genImg.evaluate(

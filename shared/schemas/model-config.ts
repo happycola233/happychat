@@ -9,6 +9,14 @@ import {
 } from './pricing'
 import { defaultReasoningEffortDescription } from '../constants'
 import {
+  GIF_FRAME_COUNT_MAX,
+  GIF_FRAME_COUNT_MIN,
+  GIF_FRAME_DURATION_MAX_MS,
+  GIF_FRAME_DURATION_MIN_MS,
+  IMAGE_COUNT_MAX,
+  IMAGE_PARTIAL_IMAGES_MAX,
+} from '../util/imageOptions'
+import {
   MODEL_TAG_COLOR_PATTERN,
   MODEL_TAG_MAX_COUNT,
   MODEL_TAG_MAX_LABEL_LENGTH,
@@ -133,9 +141,29 @@ export const modelTagsSchema = z
   })
 
 export const imageOptionsSchema = z.object({
-  size: z.string().optional(),
-  quality: z.string().optional(),
-  background: z.string().optional(),
+  // 只校验形态；与模型、输出格式不兼容的尺寸由 resolveImageOptions 按比例换到可用档位，
+  // 前端显示与服务端发送使用同一份解析结果。
+  size: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(/^(auto|\d{2,5}x\d{2,5})$/, '分辨率格式应为 1024x1024')
+    .optional(),
+  quality: z.enum(['auto', 'low', 'medium', 'high', 'xhigh', 'max']).optional(),
+  output_format: z.enum(['png', 'jpeg', 'webp', 'gif', 'svg']).optional(),
+  output_compression: z.number().int().min(0).max(100).optional(),
+  background: z.enum(['auto', 'opaque', 'transparent']).optional(),
+  moderation: z.enum(['low', 'auto']).optional(),
+  partial_images: z.number().int().min(0).max(IMAGE_PARTIAL_IMAGES_MAX).optional(),
+  n: z.number().int().min(1).max(IMAGE_COUNT_MAX).optional(),
+  complexity: z.enum(['low', 'medium', 'high']).optional(),
+  frame_count: z.number().int().min(GIF_FRAME_COUNT_MIN).max(GIF_FRAME_COUNT_MAX).optional(),
+  frame_duration_ms: z
+    .number()
+    .int()
+    .min(GIF_FRAME_DURATION_MIN_MS)
+    .max(GIF_FRAME_DURATION_MAX_MS)
+    .optional(),
 })
 
 export const modelParamsSchema = z.object({

@@ -1,4 +1,3 @@
-import { and, eq } from 'drizzle-orm'
 import type {
   AssistantPhase,
   ContentPart,
@@ -22,8 +21,6 @@ import {
   searchCallIdFromEvent,
   xSearchActionFromToolInput,
 } from '@shared/util/searchActivity'
-import { db } from '../db/client'
-import { runEvents } from '../db/schema'
 import { providerClientFromRow } from '../provider/client'
 import { imageToolRequest, parseImageGenerationUsage } from '../provider/image-usage'
 import { friendlyUpstreamMessage, UpstreamError } from '../provider/errors'
@@ -39,7 +36,12 @@ import {
 } from '../provider/opaque-content'
 import { reconcileFinalResponse } from './final-response'
 import type { AttemptResult } from './finalize'
-import { removeGeneratedImageAttachments, storeGeneratedImageAttachment } from './generated-images'
+import {
+  describeImageGeneration,
+  discardPartialImages,
+  removeGeneratedImageAttachments,
+  storeGeneratedImageAttachment,
+} from './generated-images'
 import { buildReasoningReplayContext } from './reasoning-replay-capture'
 import { streamResponseWithFallback } from './response-stream-fallback'
 import type { EngineContext, RunExecution } from './types'
@@ -83,6 +85,8 @@ interface ImageGenerationSlot {
   callId: string | null
   index: number
   outputIndex: number | null
+  /** 首次出现该生图调用的时刻，用于生成详情里的单张用时。 */
+  startedAt: number
 }
 
 interface MutableReasoningStep {
@@ -212,6 +216,7 @@ async function runResponseAttempt(
       callId: normalizedCallId,
       index,
       outputIndex: normalizedOutputIndex,
+      startedAt: Date.now(),
     }
     imageSlotOrder.push(slot)
     imageSlots.set(generationId, slot)
@@ -221,45 +226,14 @@ async function runResponseAttempt(
   }
 
   const imageSlotPayload = (
-    slot: ImageGenerationSlot,
+    { generationId, callId, index, outputIndex }: ImageGenerationSlot,
     data: Record<string, unknown> = {},
-  ): Record<string, unknown> => ({
-    generationId: slot.generationId,
-    callId: slot.callId,
-    index: slot.index,
-    outputIndex: slot.outputIndex,
-    ...data,
-  })
-
-  const markPartialAttachmentEventsCleaned = (): void => {
-    if (!partialImageAttachmentIds.size) return
-    const rows = db
-      .select({ id: runEvents.id, data: runEvents.data })
-      .from(runEvents)
-      .where(and(eq(runEvents.runId, ctx.run.id), eq(runEvents.type, 'image.generation.partial')))
-      .all()
-
-    for (const row of rows) {
-      const attachmentId = str(row.data.attachmentId)
-      if (!partialImageAttachmentIds.has(attachmentId)) continue
-      db.update(runEvents)
-        .set({
-          data: {
-            ...row.data,
-            attachmentId: null,
-            attachmentDeleted: true,
-          },
-        })
-        .where(eq(runEvents.id, row.id))
-        .run()
-    }
-  }
+  ): Record<string, unknown> => ({ generationId, callId, index, outputIndex, ...data })
 
   const cleanupPartialImages = (): void => {
     if (!partialImageAttachmentIds.size) return
     try {
-      markPartialAttachmentEventsCleaned()
-      removeGeneratedImageAttachments([...partialImageAttachmentIds])
+      discardPartialImages(ctx.run.id, partialImageAttachmentIds)
       partialImageAttachmentIds.clear()
     } catch (e) {
       console.warn('清理生图半成品失败:', e)
@@ -506,6 +480,13 @@ async function runResponseAttempt(
       type: 'image_result',
       attachment_id: stored.attachmentId,
       ...(revisedPrompt ? { revised_prompt: revisedPrompt } : {}),
+      mime: stored.mime,
+      generation: describeImageGeneration({
+        request: imageRequest,
+        result: item,
+        operation: item.action === 'edit' || item.action === 'generate' ? item.action : undefined,
+        startedAt: slot.startedAt,
+      }),
     }
     finalImages.set(slot.generationId, {
       attachmentId: stored.attachmentId,

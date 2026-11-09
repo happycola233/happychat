@@ -1,4 +1,5 @@
 import type { ModelParams } from '@shared/types/domain'
+import { imageModelProfile, resolveImageOptions } from '@shared/util/imageOptions'
 import { effectiveReasoningEffort } from '@shared/util/reasoning'
 import { effectiveWebSearchEnabled, effectiveXSearchEnabled } from '@shared/util/searchTools'
 import type { models } from '../db/schema'
@@ -171,15 +172,19 @@ export function buildResponseBody(o: BuildBodyOptions): Record<string, unknown> 
   return body
 }
 
-/** 构建 /images/generations 请求体（gpt-image-2 等图片模型）。 */
+/** 构建 /images/generations 请求体：纯文字生成新图。 */
 export function buildImageBody(
   model: RequestModelConfig,
   prompt: string,
   userParams?: ModelParams | null,
 ): Record<string, unknown> {
-  return buildImageRequestBody(model, prompt, userParams)
+  return buildImageRequestBody(model, prompt, userParams, false)
 }
 
+/**
+ * 构建 /images/edits 请求体：编辑已有图片与「参考图生成」在上游是同一个端点，
+ * images[0] 是主图（遮罩 / 标注只作用于它），其余作为参考，差别只在提示词怎么写。
+ */
 export function buildImageEditBody(
   model: RequestModelConfig,
   prompt: string,
@@ -187,7 +192,7 @@ export function buildImageEditBody(
   userParams?: ModelParams | null,
 ): Record<string, unknown> {
   return {
-    ...buildImageRequestBody(model, prompt, userParams),
+    ...buildImageRequestBody(model, prompt, userParams, true),
     images: imageUrls.map((imageUrl) => ({ image_url: imageUrl })),
   }
 }
@@ -195,16 +200,34 @@ export function buildImageEditBody(
 function buildImageRequestBody(
   model: RequestModelConfig,
   prompt: string,
-  userParams?: ModelParams | null,
+  userParams: ModelParams | null | undefined,
+  editing: boolean,
 ): Record<string, unknown> {
-  const defaults = model.defaultParams ?? {}
-  const body: Record<string, unknown> = { model: model.modelId, prompt, n: 1 }
-  const size = userParams?.image?.size ?? defaults.image?.size
-  if (size) body.size = size
-  const quality = userParams?.image?.quality ?? defaults.image?.quality
-  if (quality) body.quality = quality
-  const background = userParams?.image?.background ?? defaults.image?.background
-  if (background) body.background = background
+  const options = resolveImageOptions(
+    imageModelProfile(model.modelId),
+    model.defaultParams?.image,
+    userParams?.image,
+    { editing },
+  )
+  // 生效值全部显式写出，请求预览与审计能看到本次实际参数，不依赖上游默认值的变化。
+  const body: Record<string, unknown> = {
+    model: model.modelId,
+    prompt,
+    n: options.n,
+    size: options.size,
+    quality: options.quality,
+    output_format: options.output_format,
+    background: options.background,
+    moderation: options.moderation,
+  }
+  if (options.output_compression !== null) body.output_compression = options.output_compression
+  if (options.complexity) body.complexity = options.complexity
+  if (options.frame_count !== null) body.frame_count = options.frame_count
+  if (options.frame_duration_ms !== null) body.frame_duration_ms = options.frame_duration_ms
+  if (options.partial_images > 0) {
+    body.stream = true
+    body.partial_images = options.partial_images
+  }
   if (isPlainObject(model.hardParams)) mergeDeep(body, model.hardParams)
   return body
 }

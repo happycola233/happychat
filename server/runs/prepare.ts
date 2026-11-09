@@ -8,7 +8,6 @@ import {
   withExtraContextAttachments,
 } from '@shared/util/contextPolicy'
 import { getUserSettings } from '../services/settings'
-import { shouldValidateGptImage2Size, validateGptImage2Size } from '@shared/util/imageSize'
 import { renderPromptTemplate } from '@shared/util/promptTemplate'
 import { processStepsOf } from '@shared/util/processTrack'
 import { isReasoningEffortAllowed, reasoningEffortSelectionError } from '@shared/util/reasoning'
@@ -134,38 +133,6 @@ async function validateContextAttachmentSelection(
   return null
 }
 
-function normalizeImageParamsForModel(
-  model: ModelRow,
-  params?: ModelParams,
-): { ok: true; params?: ModelParams } | PrepareError {
-  const size = params?.image?.size
-  if (model.kind !== 'image' || !size || !shouldValidateGptImage2Size(model.modelId)) {
-    return { ok: true, params }
-  }
-
-  const validation = validateGptImage2Size(size)
-  if (!validation.ok) {
-    return {
-      ok: false,
-      status: 400,
-      message: validation.message,
-      code: 'invalid_image_size',
-    }
-  }
-
-  if (validation.normalizedSize === size) return { ok: true, params }
-  return {
-    ok: true,
-    params: {
-      ...params,
-      image: {
-        ...params.image,
-        size: validation.normalizedSize,
-      },
-    },
-  }
-}
-
 function normalizeReasoningParamsForModel(
   model: ModelRow,
   params?: ModelParams,
@@ -259,7 +226,8 @@ async function resolveAttachments(
   for (const a of rows) {
     try {
       const mime = a.kind === 'file' ? fileInputMime(a.filename, a.mime) : a.mime
-      if (!mime) continue
+      // 生成的 SVG 不是视觉输入格式，作为上下文回放时跳过，避免上游拒绝整次请求。
+      if (!mime || (a.kind === 'image' && !isImageMime(mime))) continue
       map.set(a.id, {
         dataUrl: toDataUrl(a.storagePath, mime),
         mime,
@@ -699,8 +667,6 @@ export async function prepareRun(args: PrepareArgs): Promise<PrepareResult> {
   }
   const reasoningParams = normalizeReasoningParamsForModel(model, args.params)
   if (!reasoningParams.ok) return reasoningParams
-  const normalizedParams = normalizeImageParamsForModel(model, reasoningParams.params)
-  if (!normalizedParams.ok) return normalizedParams
 
   const refs = args.attachments ?? []
   const sourceRefs = args.imageSources ?? []
@@ -788,8 +754,18 @@ export async function prepareRun(args: PrepareArgs): Promise<PrepareResult> {
 
   const userContent: ContentPart[] = []
   if (args.text.trim()) userContent.push({ type: 'input_text', text: args.text })
+  // 显式编辑源排在最前：Images API 把 images[0] 当作主图，其余上传图片作为参考。
+  const sourceIds = new Set(sourceRefs.map((r) => r.attachmentId))
+  for (const r of sourceRefs) {
+    userContent.push({
+      type: 'input_image',
+      attachment_id: r.attachmentId,
+      detail: r.detail ?? 'auto',
+    })
+  }
   for (const r of refs) {
     if (r.kind === 'image') {
+      if (sourceIds.has(r.attachmentId)) continue
       userContent.push({
         type: 'input_image',
         attachment_id: r.attachmentId,
@@ -806,19 +782,6 @@ export async function prepareRun(args: PrepareArgs): Promise<PrepareResult> {
         byte_size: attachment.byteSize,
       })
     }
-  }
-  const existingImageIds = new Set(
-    userContent
-      .filter((p): p is Extract<ContentPart, { type: 'input_image' }> => p.type === 'input_image')
-      .map((p) => p.attachment_id),
-  )
-  for (const r of sourceRefs) {
-    if (existingImageIds.has(r.attachmentId)) continue
-    userContent.push({
-      type: 'input_image',
-      attachment_id: r.attachmentId,
-      detail: r.detail ?? 'auto',
-    })
   }
   if (userContent.length === 0) userContent.push({ type: 'input_text', text: args.text })
 
@@ -953,7 +916,7 @@ export async function prepareRun(args: PrepareArgs): Promise<PrepareResult> {
       model,
       candidates,
       parentMessageId: userMessage.id,
-      userParams: normalizedParams.params,
+      userParams: reasoningParams.params,
       contextAttachments: args.contextAttachments,
       clientLocale: args.clientLocale,
       idempotencyKey: args.idempotencyKey,
@@ -1007,8 +970,6 @@ export async function prepareRegenerate(args: RegenerateArgs): Promise<PrepareRe
   const candidates = await scheduleRoutes(runnable)
   const reasoningParams = normalizeReasoningParamsForModel(model, args.params)
   if (!reasoningParams.ok) return reasoningParams
-  const normalizedParams = normalizeImageParamsForModel(model, reasoningParams.params)
-  if (!normalizedParams.ok) return normalizedParams
 
   const allMessages = await getConversationMessages(conv.id)
   const selectionError = await validateContextAttachmentSelection(
@@ -1038,7 +999,7 @@ export async function prepareRegenerate(args: RegenerateArgs): Promise<PrepareRe
       model,
       candidates,
       parentMessageId: oldAssistant.parentId,
-      userParams: normalizedParams.params,
+      userParams: reasoningParams.params,
       contextAttachments: args.contextAttachments,
       clientLocale: args.clientLocale,
       idempotencyKey: args.idempotencyKey,

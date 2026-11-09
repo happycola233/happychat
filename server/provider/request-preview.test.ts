@@ -195,7 +195,14 @@ describe('upstream request preview', () => {
       quality: 'high',
       images: [{ image_url: 'data:image/png;base64,⟪参考图内容⟫' }],
     })
-    expect(result.body).not.toHaveProperty('stream')
+    // 默认 3 张过程预览，因此以流式接收；来源说明指向过程预览而非文本传输设置。
+    expect(result.body).toMatchObject({ stream: true, partial_images: 3, moderation: 'low' })
+    expect(result.parameters.find((parameter) => parameter.name === 'stream')?.source).toBe(
+      '过程预览',
+    )
+    expect(result.parameters.find((parameter) => parameter.name === 'moderation')?.source).toBe(
+      '应用默认',
+    )
     expect(result.body.prompt).toBe('⟪本次用户消息中的图片描述⟫')
     expect(result.parameters.find((parameter) => parameter.name === 'size')?.source).toBe(
       '模型默认 · 协议规则',
