@@ -1,0 +1,170 @@
+<!doctype html>
+<!--
+  服务重启期间由反向代理直接返回的静态维护页（nginx 配置见 README「生产部署」）。
+  必须自包含：此时应用进程不在，任何外部脚本、样式或图片都取不到。
+  配色与插画和应用内的维护页保持一致（web/src/index.css 的 .hc-maint 与
+  web/src/maintenance/MaintenanceArt.tsx），调整时请两边一起改。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="robots" content="noindex" />
+    <meta name="color-scheme" content="light dark" />
+    <title>HappyChat</title>
+    <style>
+      :root {
+        --bg: #faf9f5;
+        --title: #141413;
+        --text: #5e5d59;
+        --faint: #87867f;
+        --line: #e3e0d4;
+        --accent: #d97757;
+        --wash: #f1e8de;
+        --serif:
+          'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, 'Noto Serif SC',
+          'Source Han Serif SC', 'Songti SC', 'STSong', 'SimSun', serif;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #1f1e1d;
+          --title: #faf9f5;
+          --text: #c2c0b6;
+          --faint: #8f8d85;
+          --line: #3a3936;
+          --accent: #e08b6e;
+          --wash: #302d2a;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        height: 100%;
+      }
+      body {
+        min-height: 100%;
+        margin: 0;
+        display: flex;
+        align-items: center;
+        padding: 5rem 1.5rem;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          16px/1.75 ui-sans-serif,
+          system-ui,
+          -apple-system,
+          'Segoe UI',
+          'PingFang SC',
+          'Hiragino Sans GB',
+          'Microsoft YaHei',
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      main {
+        width: 100%;
+        max-width: 33rem;
+        margin: 0 auto;
+      }
+      svg {
+        display: block;
+        width: 9rem;
+        height: 9rem;
+        margin-left: -0.75rem;
+        fill: none;
+        stroke: var(--accent);
+        stroke-width: 2.4;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .wash {
+        fill: var(--wash);
+        stroke: none;
+      }
+      section {
+        margin-top: 1.75rem;
+      }
+      section + section {
+        margin-top: 2.5rem;
+        padding-top: 2.5rem;
+        border-top: 1px solid var(--line);
+      }
+      h1,
+      h2 {
+        margin: 0;
+        font-family: var(--serif);
+        font-size: clamp(2rem, 1.55rem + 2vw, 2.75rem);
+        font-weight: 500;
+        line-height: 1.18;
+        letter-spacing: -0.01em;
+        color: var(--title);
+        text-wrap: balance;
+      }
+      p {
+        margin: 1.25rem 0 0;
+      }
+      .thanks {
+        margin-top: 1.5rem;
+        color: var(--faint);
+      }
+      .thanks:lang(en) {
+        font-family: var(--serif);
+        font-style: italic;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <svg viewBox="20 16 132 132" aria-hidden="true">
+        <path
+          class="wash"
+          d="M38 80 C30 50 58 24 92 28 C126 32 146 60 136 94 C128 122 96 136 66 126 C48 120 42 102 38 80 Z"
+        />
+        <path
+          d="M52 93 C70 90 96 90 112 93 C113 97 112 101 111 104 C94 102 70 102 53 104 C52 100 51 97 52 93 Z"
+        />
+        <path d="M57 104 C58 117 61 129 65 138 C76 141 90 141 99 138 C103 129 106 117 107 104" />
+        <path d="M82 90 C81 78 84 66 82 51" />
+        <path d="M82 73 C68 73 58 65 54 51 C68 49 79 59 82 73 Z" />
+        <path d="M82 61 C84 47 94 37 108 35 C108 49 98 59 82 61 Z" />
+        <path
+          d="M128 44 C129 50 130 51 136 52 C130 53 129 54 128 60 C127 54 126 53 120 52 C126 51 127 50 128 44 Z"
+        />
+        <path d="M36 70 L42 68" />
+        <path d="M124 82 L130 85" />
+      </svg>
+
+      <section lang="zh-CN">
+        <h1>我们马上回来</h1>
+        <p>
+          HappyChat
+          正在重新启动，通常只需要片刻。你的聊天记录都完好保存着，恢复后这个页面会自动刷新。
+        </p>
+        <p class="thanks">感谢你的耐心等待。</p>
+      </section>
+
+      <section lang="en">
+        <h2>We’ll be right back</h2>
+        <p>
+          HappyChat is restarting, which usually takes just a moment. Your conversations are safe,
+          and this page will refresh on its own once we’re back.
+        </p>
+        <p class="thanks">Thank you for your patience.</p>
+      </section>
+    </main>
+
+    <script>
+      // 应用恢复后自动回到原来的页面：健康检查由应用自身应答，能通就说明它已经回来。
+      // 直接打开本文件时没有“原来的页面”，改为回到首页，避免原地反复刷新。
+      setInterval(function () {
+        fetch('/api/health', { cache: 'no-store' })
+          .then(function (response) {
+            if (!response.ok) return
+            if (location.pathname === '/maintenance.html') location.replace('/')
+            else location.reload()
+          })
+          .catch(function () {})
+      }, 5000)
+    </script>
+  </body>
+</html>

@@ -3,6 +3,7 @@ import type { AppConfigDTO } from '@shared/types/api'
 import type { AppConfigUpdateInput } from '@shared/schemas/app-config'
 import { DEFAULT_RETRY_POLICY } from '@shared/schemas/retry'
 import { DEFAULT_CONTEXT_OPTIMIZATION_SUGGESTION } from '@shared/schemas/user-notices'
+import { DEFAULT_MAINTENANCE_CONFIG, type MaintenanceNotice } from '@shared/schemas/maintenance'
 import { db } from '../db/client'
 import { appSettings } from '../db/schema'
 
@@ -44,11 +45,28 @@ function toDTO(row: AppSettingsRow): AppConfigDTO {
       row.quotaWarnThreshold < 1
         ? row.quotaWarnThreshold
         : DEFAULT_QUOTA_WARN_THRESHOLD,
+    maintenance: row.maintenance ?? DEFAULT_MAINTENANCE_CONFIG,
   }
 }
 
 export async function getAppConfig(): Promise<AppConfigDTO> {
   return toDTO(await ensureRow())
+}
+
+/**
+ * 正在维护时返回维护页内容，否则为 null。
+ * 每个业务请求的鉴权都会读取它，因此只查维护这一列，不组装整份配置。
+ */
+export async function getActiveMaintenanceNotice(): Promise<MaintenanceNotice | null> {
+  const [row] = await db.select({ maintenance: appSettings.maintenance }).from(appSettings).limit(1)
+  const maintenance = row?.maintenance
+  if (!maintenance?.enabled) return null
+  return {
+    language: maintenance.language,
+    noteZh: maintenance.noteZh,
+    noteEn: maintenance.noteEn,
+    expectedEndAt: maintenance.expectedEndAt,
+  }
 }
 
 export async function updateAppConfig(patch: AppConfigUpdateInput): Promise<AppConfigDTO> {
@@ -73,6 +91,12 @@ export async function updateAppConfig(patch: AppConfigUpdateInput): Promise<AppC
   if (patch.contextOptimizationSuggestion !== undefined)
     set.contextOptimizationSuggestion = patch.contextOptimizationSuggestion
   if (patch.upstreamRetry !== undefined) set.upstreamRetry = patch.upstreamRetry
+  if (patch.maintenance !== undefined) {
+    set.maintenance = {
+      ...(row.maintenance ?? DEFAULT_MAINTENANCE_CONFIG),
+      ...patch.maintenance,
+    }
+  }
   await db.update(appSettings).set(set).where(eq(appSettings.id, row.id))
   return getAppConfig()
 }

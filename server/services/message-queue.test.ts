@@ -263,6 +263,27 @@ describe('持久化消息队列', () => {
     expect(manager.runManager.start).not.toHaveBeenCalled()
   })
 
+  it('维护期间搁置普通账号的排队消息，维护结束后接着发送', async () => {
+    const appConfig = await import('./appConfig')
+    const f = fixture()
+    await enqueue(f, message('等待'))
+    await appConfig.updateAppConfig({ maintenance: { enabled: true } })
+    try {
+      await finish(f.conversationId, f.runId, 'completed')
+      const queue = service.getMessageQueue(f.conversationId)
+      expect(queue?.paused).toBe(false)
+      expect(queue?.error).toBeNull()
+      expect(queue?.items).toHaveLength(1)
+      expect(manager.runManager.start).not.toHaveBeenCalled()
+    } finally {
+      await appConfig.updateAppConfig({ maintenance: { enabled: false } })
+    }
+
+    await service.advanceAllMessageQueues()
+    expect(manager.runManager.start).toHaveBeenCalledTimes(1)
+    expect(service.getMessageQueue(f.conversationId)?.items).toHaveLength(0)
+  })
+
   it('失败后重新生成，继续队列会接在新的回复分支后面', async () => {
     const f = fixture()
     await enqueue(f, message('后续内容'))

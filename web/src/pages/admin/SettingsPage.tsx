@@ -1,6 +1,6 @@
 import { LoadError } from '../../components/ui/LoadError'
 import { useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { RotateCcw } from 'lucide-react'
 import { DEFAULT_TITLE_PROMPT } from '@shared/constants'
@@ -19,6 +19,7 @@ import { APP_VERSION } from '../../lib/buildInfo'
 import { toast } from '../../store/toast'
 import { RetrySettings } from './RetrySettings'
 import { ContextSuggestionSettings } from './ContextSuggestionSettings'
+import { MaintenanceSettings } from './MaintenanceSettings'
 import { TitleModelSelect } from './TitleModelSelect'
 
 /** 只读信息行（「关于」卡片用）。 */
@@ -61,7 +62,10 @@ export default function SettingsPage() {
   const { data: models } = useQuery({ queryKey: ['admin', 'models'], queryFn: listAdminModels })
 
   const [titleDraft, setTitleDraft] = useState<TitleDraft | null>(null)
-  const [section, setSection] = useState('general')
+  // 分区写在地址里：维护提醒条等入口可以直接打开指定分区。
+  const [searchParams, setSearchParams] = useSearchParams()
+  const section = searchParams.get('section') ?? 'general'
+  const setSection = (value: string) => setSearchParams({ section: value }, { replace: true })
   // 在渲染期（而非 effect 里）同步服务端配置：effect 要等一帧才生效，会先把旧草稿刷到屏幕上造成闪烁。
   const syncedConfigRef = useRef<AppConfigDTO | null>(null)
   if (config && syncedConfigRef.current !== config) {
@@ -155,7 +159,7 @@ export default function SettingsPage() {
         }
       }}
     >
-      <PageHeader title="系统设置" description="全局功能开关、成本展示与标题总结配置。" />
+      <PageHeader title="系统设置" description="全局功能开关、成本展示、标题总结与维护模式。" />
       <SegmentedControl
         label="系统设置分区"
         value={section}
@@ -164,6 +168,7 @@ export default function SettingsPage() {
           { value: 'general', label: '常用设置' },
           { value: 'title', label: '标题总结' },
           { value: 'retry', label: '自动重试' },
+          { value: 'maintenance', label: '维护模式' },
           { value: 'about', label: '站点信息' },
         ]}
       />
@@ -354,6 +359,9 @@ export default function SettingsPage() {
           </div>
           <div hidden={section !== 'retry'}>
             <RetrySettings config={config} />
+          </div>
+          <div hidden={section !== 'maintenance'}>
+            <MaintenanceSettings config={config} />
           </div>
         </>
       )}

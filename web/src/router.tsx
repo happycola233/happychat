@@ -2,6 +2,7 @@ import { Suspense } from 'react'
 import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { RedirectIfAuthed, RequireAdmin, RequireAuth, RequirePasswordChange } from './guards'
 import { Spinner } from './components/ui/Spinner'
+import { MaintenanceGate } from './maintenance/MaintenanceGate'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import ChangePasswordRequiredPage from './pages/ChangePasswordRequiredPage'
@@ -26,7 +27,8 @@ import {
   UserDetailPage,
 } from './pages/admin/lazyPages'
 
-export const router = createBrowserRouter([
+/** 维护期间只对管理员开放的页面；登录页与公开分享页在它之外，始终可以打开。 */
+const maintainableRoutes = [
   {
     element: <RequireAuth />,
     children: [
@@ -89,10 +91,15 @@ export const router = createBrowserRouter([
   },
   {
     element: <RedirectIfAuthed />,
-    children: [
-      { path: '/login', element: <LoginPage /> },
-      { path: '/register', element: <RegisterPage /> },
-    ],
+    children: [{ path: '/register', element: <RegisterPage /> }],
+  },
+]
+
+export const router = createBrowserRouter([
+  { element: <MaintenanceGate />, children: maintainableRoutes },
+  {
+    element: <RedirectIfAuthed />,
+    children: [{ path: '/login', element: <LoginPage /> }],
   },
   // 公开只读分享页（无需登录）
   { path: '/s/:token', element: <SharedChatPage /> },

@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { retryPolicySchema } from './retry'
 import { contextOptimizationSuggestionSchema } from './user-notices'
+import { maintenanceConfigSchema } from './maintenance'
 
 /** IANA 时区名：能被 Intl 接受才算合法，避免把非法值写进限额周期计算。 */
 export const timezoneSchema = z
@@ -42,6 +43,8 @@ export const appConfigUpdateSchema = z.object({
   quotaExhaustedMessage: quotaMessageSchema.optional(),
   contextOptimizationSuggestion: contextOptimizationSuggestionSchema.optional(),
   upstreamRetry: retryPolicySchema.optional(),
+  // 维护开关与维护页内容分开保存，因此允许只提交其中一部分。
+  maintenance: maintenanceConfigSchema.partial().optional(),
 })
 
 export type AppConfigUpdateInput = z.infer<typeof appConfigUpdateSchema>

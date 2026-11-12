@@ -1992,3 +1992,96 @@ html.hc-sidebar-resizing * {
 .dark .hc-activity-bar[data-empty='true'] {
   background-color: #2a2a2e;
 }
+
+/* ========================= 维护页 =========================
+   暖米白底 + 衬线标题 + 手绘线稿，独立于聊天界面的黑白灰配色。
+   配色与插画同时用于 web/public/maintenance.html（服务重启时由反向代理直接返回的
+   静态页），调整这里时请一并更新那个文件。 */
+.hc-maint {
+  --hc-maint-bg: #faf9f5;
+  --hc-maint-title: #141413;
+  --hc-maint-text: #5e5d59;
+  --hc-maint-faint: #87867f;
+  --hc-maint-line: #e3e0d4;
+  --hc-maint-accent: #d97757;
+  --hc-maint-wash: #f1e8de;
+  --hc-maint-serif:
+    'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, 'Noto Serif SC',
+    'Source Han Serif SC', 'Songti SC', 'STSong', 'SimSun', serif;
+  background: var(--hc-maint-bg);
+  color: var(--hc-maint-text);
+}
+.dark .hc-maint {
+  --hc-maint-bg: #1f1e1d;
+  --hc-maint-title: #faf9f5;
+  --hc-maint-text: #c2c0b6;
+  --hc-maint-faint: #8f8d85;
+  --hc-maint-line: #3a3936;
+  --hc-maint-accent: #e08b6e;
+  --hc-maint-wash: #302d2a;
+}
+.hc-maint-title {
+  font-family: var(--hc-maint-serif);
+  font-size: clamp(2rem, 1.55rem + 2vw, 2.75rem);
+  font-weight: 500;
+  line-height: 1.18;
+  letter-spacing: -0.01em;
+  color: var(--hc-maint-title);
+  text-wrap: balance;
+}
+.hc-maint-thanks {
+  font-family: var(--hc-maint-serif);
+  font-style: italic;
+  color: var(--hc-maint-faint);
+}
+/* 中文没有真正的斜体，小字号的宋体在 Windows 上也偏细，落款改用正文字体。 */
+.hc-maint-thanks:lang(zh) {
+  font-family: inherit;
+  font-style: normal;
+}
+.hc-maint-link {
+  color: var(--hc-maint-faint);
+  text-decoration: underline;
+  text-decoration-color: var(--hc-maint-line);
+  text-underline-offset: 4px;
+  transition: color 0.15s;
+}
+.hc-maint-link:hover {
+  color: var(--hc-maint-title);
+}
+.hc-maint-art {
+  fill: none;
+  stroke: var(--hc-maint-accent);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.hc-maint-art-wash {
+  fill: var(--hc-maint-wash);
+  stroke: none;
+  animation: hc-fade-in 0.9s ease-out both;
+}
+/* 线条的 pathLength 统一为 1：按书写顺序依次描出。 */
+.hc-maint-art-line {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: hc-maint-draw 0.9s cubic-bezier(0.45, 0, 0.2, 1) forwards;
+}
+.hc-maint-in {
+  animation: hc-fade-in-up 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes hc-maint-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hc-maint-art-wash,
+  .hc-maint-in {
+    animation: none;
+  }
+  .hc-maint-art-line {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}

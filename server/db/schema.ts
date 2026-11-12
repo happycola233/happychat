@@ -13,6 +13,7 @@ import type { QueuedMessage } from '../../shared/schemas/message-queue'
 import type { RunRetrySummary } from '../../shared/types/retry'
 import type { RunProgress } from '../../shared/types/run-progress'
 import type { ContextOptimizationSuggestion } from '../../shared/schemas/user-notices'
+import type { MaintenanceConfig } from '../../shared/schemas/maintenance'
 // 注意：schema.ts 仅用相对路径导入（含 type-only），以规避 drizzle-kit 对 @shared/* 别名解析的不确定性。
 import type {
   AnnouncementAudience,
@@ -180,6 +181,8 @@ export const appSettings = sqliteTable('app_settings', {
     mode: 'json',
   }).$type<ContextOptimizationSuggestion>(),
   upstreamRetry: text('upstream_retry', { mode: 'json' }).$type<RetryPolicy>(),
+  // 维护模式开关与维护页内容；空值表示从未开启过。
+  maintenance: text('maintenance', { mode: 'json' }).$type<MaintenanceConfig>(),
   updatedAt: updatedAt(),
 })
 

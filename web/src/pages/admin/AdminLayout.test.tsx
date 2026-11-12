@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
@@ -14,13 +15,15 @@ const { default: AdminLayout } = await import('./AdminLayout')
 
 function render() {
   return renderToStaticMarkup(
-    <MemoryRouter initialEntries={['/admin/overview']}>
-      <Routes>
-        <Route path="/admin" element={<AdminLayout />}>
-          <Route path="overview" element={<div>概览内容</div>} />
-        </Route>
-      </Routes>
-    </MemoryRouter>,
+    <QueryClientProvider client={new QueryClient()}>
+      <MemoryRouter initialEntries={['/admin/overview']}>
+        <Routes>
+          <Route path="/admin" element={<AdminLayout />}>
+            <Route path="overview" element={<div>概览内容</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
   )
 }
 

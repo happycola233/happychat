@@ -63,6 +63,7 @@ import {
 } from '../services/stats'
 import { listSessions, revokeSession } from '../services/sessions'
 import { getAppConfig, updateAppConfig } from '../services/appConfig'
+import { advanceAllMessageQueues } from '../services/message-queue'
 import {
   createAnnouncement,
   deleteAnnouncement,
@@ -745,7 +746,11 @@ const badFilter = (c: Context) =>
 adminRoutes.get('/app-config', async (c) => c.json({ config: await getAppConfig() }))
 
 adminRoutes.patch('/app-config', jsonValidator(appConfigUpdateSchema), async (c) => {
-  return c.json({ config: await updateAppConfig(c.req.valid('json')) })
+  const wasInMaintenance = (await getAppConfig()).maintenance.enabled
+  const config = await updateAppConfig(c.req.valid('json'))
+  // 维护期间搁置的排队消息在维护结束时接着发送；不等待它们，设置保存立即返回。
+  if (wasInMaintenance && !config.maintenance.enabled) void advanceAllMessageQueues()
+  return c.json({ config })
 })
 
 // ---------------- 站内公告 ----------------

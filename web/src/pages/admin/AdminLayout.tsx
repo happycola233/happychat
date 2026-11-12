@@ -27,6 +27,7 @@ import { ShareIcon, SidebarToggleIcon } from '../../chat/icons'
 import { useAdminSidebarStore } from '../../store/adminSidebar'
 import { useSettings } from '../../store/settings'
 import { AdminQuickSwitch } from './AdminQuickSwitch'
+import { AdminMaintenanceBar } from '../../maintenance/AdminMaintenanceBar'
 
 /** 桌面与手机共用同一份分组，所有入口在窄屏也能直接找到。 */
 const navGroups = [
@@ -441,6 +442,7 @@ export default function AdminLayout() {
         className="hc-scrollbar min-h-0 min-w-0 flex-1 overflow-y-auto p-4 outline-none sm:p-5 lg:px-7 lg:py-6"
       >
         <div className="mx-auto w-full max-w-[1600px]">
+          <AdminMaintenanceBar className="mb-4 rounded-lg" />
           <Suspense
             fallback={
               <div className="py-16 text-center">

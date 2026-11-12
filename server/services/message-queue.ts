@@ -7,6 +7,7 @@ import { prepareRun } from '../runs/prepare'
 import { runManager } from '../runs/manager'
 import { withConversationSubmission } from '../runs/submission-lock'
 import { uploadFileExists } from '../storage/files'
+import { getActiveMaintenanceNotice } from './appConfig'
 import { conversationEvents } from './conversation-events'
 
 type QueueRow = typeof messageQueues.$inferSelect
@@ -290,10 +291,16 @@ export function advanceMessageQueue(conversationId: string): Promise<void> {
     }
     const item = queue.items[0]!
     const owner = db
-      .select({ disabled: users.disabled, mustChangePassword: users.mustChangePassword })
+      .select({
+        disabled: users.disabled,
+        mustChangePassword: users.mustChangePassword,
+        role: users.role,
+      })
       .from(users)
       .where(eq(users.id, queue.userId))
       .get()!
+    // 维护期间不替普通账号发起新的模型请求；队列原样保留，维护结束后由 advanceAllMessageQueues 接着发送。
+    if (owner.role !== 'admin' && (await getActiveMaintenanceNotice())) return
     if (owner.disabled || owner.mustChangePassword) {
       updateQueue(conversationId, {
         paused: true,
@@ -368,6 +375,15 @@ export async function recoverMessageQueues(): Promise<void> {
     }
     await advanceMessageQueue(queue.conversationId)
   }
+}
+
+/** 维护结束后调用：把维护期间搁置的队列重新推进一遍。 */
+export async function advanceAllMessageQueues(): Promise<void> {
+  const queues = db
+    .select({ conversationId: messageQueues.conversationId })
+    .from(messageQueues)
+    .all()
+  for (const queue of queues) await advanceMessageQueue(queue.conversationId)
 }
 
 export function startMessageQueueRunner(): () => void {

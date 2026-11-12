@@ -428,6 +428,13 @@
       "when": 1793713602031,
       "tag": "0060_model_routes",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "6",
+      "when": 1794483499587,
+      "tag": "0061_maintenance_mode",
+      "breakpoints": true
     }
   ]
 }

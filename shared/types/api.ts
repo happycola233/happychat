@@ -665,6 +665,12 @@ export interface AppConfigDTO {
   quotaWeekStart: QuotaWeekStart
   /** 用户端「即将用尽」提示的触发占比（0–1）。 */
   quotaWarnThreshold: number
+  maintenance: import('../schemas/maintenance').MaintenanceConfig
+}
+
+/** 公开的维护状态：未在维护时 notice 为 null。 */
+export interface MaintenanceStatusDTO {
+  notice: import('../schemas/maintenance').MaintenanceNotice | null
 }
 
 /** 聊天消息用量行的成本展示上下文。 */

@@ -6,6 +6,7 @@ import { env } from './env'
 import { db } from './db/client'
 import { errorLogs } from './db/schema'
 import { runMigrations } from './db/migrate'
+import { maintenanceRoutes } from './routes/maintenance'
 import { authRoutes } from './routes/auth'
 import { adminRoutes } from './routes/admin'
 import { modelRoutes } from './routes/models'
@@ -50,6 +51,7 @@ app.get('/api/health', (c) =>
   c.json({ ok: true, service: 'happychat', env: env.NODE_ENV, ts: Date.now() }),
 )
 
+app.route('/api/maintenance', maintenanceRoutes)
 app.route('/api/auth', authRoutes)
 app.route('/api/admin/announcement-images', adminAnnouncementImageRoutes)
 app.route('/api/admin', adminRoutes)
