@@ -15,7 +15,7 @@ afterEach(() => {
 describe('admin event filters', () => {
   it('keeps usage event query keys stable while the relative range slides at request time', () => {
     const filter: UsageEventsFilterState = {
-      rangeKey: '7d',
+      range: { key: '7d' },
       providerId: '',
       modelId: '',
       userId: '',
@@ -41,7 +41,7 @@ describe('admin event filters', () => {
 
   it('keeps error event query keys stable and trims search once', () => {
     const filter: ErrorEventsFilterState = {
-      rangeKey: '24h',
+      range: { key: '24h' },
       scopeSel: 'server',
       search: '  upstream timeout  ',
       page: 2,

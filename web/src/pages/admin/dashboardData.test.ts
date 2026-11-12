@@ -52,7 +52,7 @@ describe('dashboard data', () => {
     })
     const parsed = readDashboardFilters(new URL(href, 'https://example.com').searchParams)
     expect(parsed).toEqual({
-      rangeKey: '30d',
+      range: { key: '30d' },
       userId: 'user + 1',
       modelId: '',
       providerId: '',
@@ -63,7 +63,12 @@ describe('dashboard data', () => {
     expect(
       readDashboardFilters(new URLSearchParams('range=no&kind=no&result=toString&basis=x')),
     ).toEqual(
-      expect.objectContaining({ rangeKey: '7d', kindSel: '', resultSel: '', costBasis: 'upstream' }),
+      expect.objectContaining({
+        range: { key: '7d' },
+        kindSel: '',
+        resultSel: '',
+        costBasis: 'upstream',
+      }),
     )
     expect(readDashboardFilters(new URLSearchParams('basis=billed')).costBasis).toBe('billed')
   })

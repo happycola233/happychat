@@ -17,7 +17,7 @@ import { DateRangePicker } from '../../components/ui/DateRangePicker'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { Select } from '../../components/ui/Select'
-import { rangeToFilter } from '../../lib/dateRange'
+import { dateRangeParams, dateRangeSlug, rangeToFilter, withDateRange } from '../../lib/dateRange'
 import { formatCompact, formatInt, formatPercent, formatCurrency } from '../../lib/format'
 import { AnalyticsUsers } from './AnalyticsUsers'
 import {
@@ -28,6 +28,7 @@ import {
   RefreshButton,
 } from './DashboardPrimitives'
 import {
+  chartEnd,
   COST_BASIS_LABELS,
   dashboardHref,
   EMPTY_ANALYTICS_POINT,
@@ -65,7 +66,7 @@ type ChartMode = keyof typeof CHART_MODES
 export default function AnalyticsPage() {
   const currency = useBillingCurrency((state) => state.currency)
   const [params, setParams] = useSearchParams()
-  const { rangeKey, providerId, modelId, userId, kindSel, costBasis } = readDashboardFilters(params)
+  const { range, providerId, modelId, userId, kindSel, costBasis } = readDashboardFilters(params)
   const costLabel = COST_BASIS_LABELS[costBasis]
   const [chartMode, setChartMode] = useState<ChartMode>('tokens')
   const updateFilters = (patch: Record<string, string>) =>
@@ -88,7 +89,7 @@ export default function AnalyticsPage() {
   // 每次实际请求时重新计算相对窗口，手动刷新不会继续使用挂载时的起点。
   const buildQuery = () => ({
     currency,
-    ...rangeToFilter(rangeKey),
+    ...rangeToFilter(range),
     providerId: providerId || undefined,
     modelId: modelId || undefined,
     userId: userId || undefined,
@@ -99,7 +100,7 @@ export default function AnalyticsPage() {
     queryKey: [
       'admin',
       'analytics',
-      rangeKey,
+      range,
       providerId,
       modelId,
       userId,
@@ -113,7 +114,7 @@ export default function AnalyticsPage() {
     queryKey: [
       'admin',
       'analytics-user-stats',
-      rangeKey,
+      range,
       providerId,
       modelId,
       userId,
@@ -135,14 +136,14 @@ export default function AnalyticsPage() {
     ? fillTimeBuckets(
         data.series,
         data.bucket,
-        rangeToFilter(rangeKey, now).from,
-        now,
+        rangeToFilter(range, now).from,
+        chartEnd(range, now),
         EMPTY_ANALYTICS_POINT,
       )
     : []
   const activeFilters = [providerId, modelId, userId, kindSel].filter(Boolean).length
   const eventHref = dashboardHref('request-events', {
-    range: rangeKey,
+    ...dateRangeParams(range),
     providerId,
     modelId,
     userId,
@@ -186,7 +187,7 @@ export default function AnalyticsPage() {
     const url = URL.createObjectURL(new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8;' }))
     const link = document.createElement('a')
     link.href = url
-    link.download = `happychat-usage-${rangeKey}-${new Date(now).toISOString().slice(0, 10)}.csv`
+    link.download = `happychat-usage-${dateRangeSlug(range)}-${new Date(now).toISOString().slice(0, 10)}.csv`
     link.click()
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
@@ -208,7 +209,12 @@ export default function AnalyticsPage() {
               ]}
             />
             <BillingCurrencySelect />
-            <DateRangePicker value={rangeKey} onChange={(range) => updateFilters({ range })} />
+            <DateRangePicker
+              value={range}
+              onChange={(next) =>
+                setParams((current) => withDateRange(current, next), { replace: true })
+              }
+            />
             <RefreshButton busy={analytics.isFetching || userStats.isFetching} onClick={refresh} />
           </>
         }
@@ -268,7 +274,9 @@ export default function AnalyticsPage() {
           <Button
             variant="ghost"
             className="justify-self-start"
-            onClick={() => setParams({ range: rangeKey }, { replace: true })}
+            onClick={() =>
+              setParams(withDateRange(new URLSearchParams(), range), { replace: true })
+            }
           >
             <X className="h-3.5 w-3.5" />
             清除 {activeFilters} 项筛选
@@ -338,7 +346,9 @@ export default function AnalyticsPage() {
                   activeFilters ? (
                     <Button
                       variant="secondary"
-                      onClick={() => setParams({ range: rangeKey }, { replace: true })}
+                      onClick={() =>
+                        setParams(withDateRange(new URLSearchParams(), range), { replace: true })
+                      }
                     >
                       清除筛选
                     </Button>
@@ -350,7 +360,7 @@ export default function AnalyticsPage() {
                 <div className="grid gap-4 xl:grid-cols-[minmax(0,1.8fr)_minmax(280px,1fr)]">
                   <DashboardPanel
                     title="用量趋势"
-                    description={data.bucket === 'day' ? '按 UTC 日汇总' : '按小时汇总 · UTC'}
+                    description={data.bucket === 'day' ? '按 UTC 日汇总' : '按小时汇总'}
                     actions={
                       <div role="group" aria-label="趋势指标" className="flex gap-1">
                         {(Object.keys(CHART_MODES) as ChartMode[]).map((mode) => (
@@ -377,7 +387,7 @@ export default function AnalyticsPage() {
                       }
                       valueFormat={CHART_MODES[chartMode].format}
                       height={225}
-                      timeZone="UTC"
+                      timeZone={data.bucket === 'day' ? 'UTC' : undefined}
                     />
                     <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                       <p className="text-[11px] leading-5 text-neutral-500 dark:text-neutral-400">
@@ -455,7 +465,7 @@ export default function AnalyticsPage() {
       ) : null}
       {userStats.data && (
         <AnalyticsUsers
-          key={`${rangeKey}:${providerId}:${modelId}:${userId}:${kindSel}`}
+          key={`${dateRangeSlug(range)}:${providerId}:${modelId}:${userId}:${kindSel}`}
           costLabel={costLabel}
           rows={userStats.data}
         />

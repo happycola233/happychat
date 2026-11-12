@@ -17,7 +17,7 @@ import { DateRangePicker } from '../../components/ui/DateRangePicker'
 import { CopyButton } from '../../components/ui/CopyButton'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { PageHeader } from '../../components/ui/PageHeader'
-import { type RangeKey } from '../../lib/dateRange'
+import { withDateRange, type DateRange } from '../../lib/dateRange'
 import { Pagination } from '../../components/ui/Pagination'
 import { Select, type SelectOption } from '../../components/ui/Select'
 import { Spinner } from '../../components/ui/Spinner'
@@ -83,7 +83,7 @@ const secondaryValue =
 export default function RequestEventsPage() {
   const currency = useBillingCurrency((state) => state.currency)
   const [searchParams, setSearchParams] = useSearchParams()
-  const { rangeKey, providerId, modelId, userId, resultSel, kindSel } =
+  const { range, providerId, modelId, userId, resultSel, kindSel } =
     readDashboardFilters(searchParams)
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [live, setLive] = useState(true)
@@ -102,7 +102,10 @@ export default function RequestEventsPage() {
       { replace: true },
     )
   }
-  const setRangeKey = (value: RangeKey) => updateFilter('range', value)
+  const setRange = (value: DateRange) => {
+    setActivePage(1)
+    setSearchParams((current) => withDateRange(current, value), { replace: true })
+  }
   const setProviderId = (value: string) => updateFilter('providerId', value)
   const setModelId = (value: string) => updateFilter('modelId', value)
   const setUserId = (value: string) => updateFilter('userId', value)
@@ -155,7 +158,7 @@ export default function RequestEventsPage() {
   )
 
   const filters = {
-    rangeKey,
+    range,
     providerId,
     modelId,
     userId,
@@ -200,9 +203,9 @@ export default function RequestEventsPage() {
 
       <div className="flex flex-wrap items-end gap-3">
         <DateRangePicker
-          value={rangeKey}
-          onChange={(k) => {
-            setRangeKey(k)
+          value={range}
+          onChange={(next) => {
+            setRange(next)
             setPage(1)
           }}
         />
@@ -273,7 +276,7 @@ export default function RequestEventsPage() {
           <Button
             variant="ghost"
             onClick={() => {
-              setSearchParams({ range: rangeKey }, { replace: true })
+              setSearchParams(withDateRange(new URLSearchParams(), range), { replace: true })
               setPage(1)
               setActivePage(1)
             }}

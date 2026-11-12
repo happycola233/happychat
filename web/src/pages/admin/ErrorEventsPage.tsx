@@ -8,7 +8,7 @@ import { getErrorEvents } from '../../api/admin'
 import { DateRangePicker } from '../../components/ui/DateRangePicker'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { PageHeader } from '../../components/ui/PageHeader'
-import { type RangeKey } from '../../lib/dateRange'
+import { DEFAULT_DATE_RANGE, type DateRange } from '../../lib/dateRange'
 import { Select } from '../../components/ui/Select'
 import { SearchField } from '../../components/ui/SearchField'
 import { Button } from '../../components/ui/Button'
@@ -94,7 +94,7 @@ function ErrorLogDetail({ row }: { row: ErrorLogDTO }) {
 }
 
 export default function ErrorEventsPage() {
-  const [rangeKey, setRangeKey] = useState<RangeKey>('7d')
+  const [range, setRange] = useState<DateRange>(DEFAULT_DATE_RANGE)
   const [scopeSel, setScopeSel] = useState('')
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
@@ -105,7 +105,7 @@ export default function ErrorEventsPage() {
   const debouncedSearch = useDebouncedValue(search, 250)
 
   const filters = {
-    rangeKey,
+    range,
     scopeSel,
     search: debouncedSearch,
     page,
@@ -150,9 +150,9 @@ export default function ErrorEventsPage() {
 
       <div className="flex flex-wrap items-center gap-3">
         <DateRangePicker
-          value={rangeKey}
-          onChange={(k) => {
-            setRangeKey(k)
+          value={range}
+          onChange={(next) => {
+            setRange(next)
             setPage(1)
           }}
         />

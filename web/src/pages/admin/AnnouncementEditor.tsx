@@ -20,6 +20,7 @@ import { Select } from '../../components/ui/Select'
 import { TextField } from '../../components/ui/TextField'
 import { Toggle } from '../../components/ui/Toggle'
 import { CHANNEL_LABEL, formatAnnouncementAudience, LEVEL_META } from '../../lib/announcementMeta'
+import { parseLocalDateTimeInput, toLocalDateTimeInput } from '../../lib/localDateTime'
 import { toast } from '../../store/toast'
 import { AnnouncementAudienceDialog } from './AnnouncementAudienceDialog'
 import { sameUserScope } from './userScopeSelection'
@@ -30,17 +31,8 @@ interface Props {
   onClose: () => void
 }
 
-// epoch ms ↔ <input type="datetime-local"> 的本地时间字符串互转。
 function msToLocalInput(ms: number | null): string {
-  if (ms == null) return ''
-  const d = new Date(ms)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-function localInputToMs(v: string): number | null {
-  if (!v) return null
-  const ms = new Date(v).getTime()
-  return Number.isNaN(ms) ? null : ms
+  return ms == null ? '' : toLocalDateTimeInput(ms)
 }
 
 const LEVEL_OPTIONS = (Object.keys(LEVEL_META) as AnnouncementLevel[]).map((v) => ({
@@ -81,8 +73,8 @@ export function AnnouncementEditor({ announcement, onClose }: Props) {
 
   const save = useMutation({
     mutationFn: async () => {
-      const publishMs = scheduled ? localInputToMs(publishAt) : null
-      const expiryMs = hasExpiry ? localInputToMs(expiresAt) : null
+      const publishMs = scheduled ? parseLocalDateTimeInput(publishAt) : null
+      const expiryMs = hasExpiry ? parseLocalDateTimeInput(expiresAt) : null
       const payload = {
         title: title.trim(),
         body,
@@ -142,8 +134,8 @@ export function AnnouncementEditor({ announcement, onClose }: Props) {
     if (!body.trim()) return toast.error('请填写正文')
     if (scheduled && !publishAt) return toast.error('请选择定时发布时间')
     if (hasExpiry && !expiresAt) return toast.error('请选择过期时间')
-    const p = scheduled ? localInputToMs(publishAt) : null
-    const x = hasExpiry ? localInputToMs(expiresAt) : null
+    const p = scheduled ? parseLocalDateTimeInput(publishAt) : null
+    const x = hasExpiry ? parseLocalDateTimeInput(expiresAt) : null
     if (p != null && x != null && x <= p) return toast.error('过期时间必须晚于发布时间')
     save.mutate()
   }
@@ -159,7 +151,7 @@ export function AnnouncementEditor({ announcement, onClose }: Props) {
     body,
     level,
     pinned,
-    publishAt: scheduled ? localInputToMs(publishAt) : null,
+    publishAt: scheduled ? parseLocalDateTimeInput(publishAt) : null,
     createdAt: announcement?.createdAt ?? Date.now(),
   }
 

@@ -1,9 +1,9 @@
 import type { StatsQuery } from '../../api/admin'
 import type { UsageResult } from '@shared/types/domain'
-import { rangeToFilter, type RangeKey } from '../../lib/dateRange'
+import { rangeToFilter, type DateRange } from '../../lib/dateRange'
 
 export interface UsageEventsFilterState {
-  rangeKey: RangeKey
+  range: DateRange
   providerId: string
   modelId: string
   userId: string
@@ -16,7 +16,7 @@ export interface UsageEventsFilterState {
 }
 
 export interface ErrorEventsFilterState {
-  rangeKey: RangeKey
+  range: DateRange
   scopeSel: string
   search: string
   page: number
@@ -24,14 +24,14 @@ export interface ErrorEventsFilterState {
 }
 
 /**
- * Query key 必须使用稳定的筛选原值，不能塞 rangeToFilter() 生成的 from。
+ * Query key 必须使用稳定的筛选原值，不能塞 rangeToFilter() 生成的 from / to。
  * from 带 Date.now()，放进 key 会让每次 render 都变成一次全新的查询。
  */
 export function usageEventsQueryKey(filter: UsageEventsFilterState) {
   return [
     'admin',
     'usage-events',
-    filter.rangeKey,
+    filter.range,
     filter.providerId,
     filter.modelId,
     filter.userId,
@@ -44,7 +44,7 @@ export function usageEventsQueryKey(filter: UsageEventsFilterState) {
 
 export function buildUsageEventsQuery(filter: UsageEventsFilterState): StatsQuery {
   return {
-    ...rangeToFilter(filter.rangeKey),
+    ...rangeToFilter(filter.range),
     providerId: filter.providerId || undefined,
     modelId: filter.modelId || undefined,
     userId: filter.userId || undefined,
@@ -59,7 +59,7 @@ export function errorEventsQueryKey(filter: ErrorEventsFilterState) {
   return [
     'admin',
     'error-events',
-    filter.rangeKey,
+    filter.range,
     filter.scopeSel,
     filter.search.trim(),
     filter.page,
@@ -69,7 +69,7 @@ export function errorEventsQueryKey(filter: ErrorEventsFilterState) {
 
 export function buildErrorEventsQuery(filter: ErrorEventsFilterState): StatsQuery {
   return {
-    ...rangeToFilter(filter.rangeKey),
+    ...rangeToFilter(filter.range),
     scope: filter.scopeSel || undefined,
     search: filter.search.trim() || undefined,
     page: filter.page,

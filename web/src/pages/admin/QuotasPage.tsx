@@ -141,7 +141,12 @@ export default function QuotasPage() {
     queryKey: ['admin', 'quota', 'user-stats', usageRange, currency],
     // 与额度对比要用计费口径，而不是上游成本。
     queryFn: () =>
-      getUserStats({ ...rangeToFilter(usageRange), kind: 'chat', currency, costBasis: 'billed' }),
+      getUserStats({
+        ...rangeToFilter({ key: usageRange }),
+        kind: 'chat',
+        currency,
+        costBasis: 'billed',
+      }),
     enabled: view === 'users',
   })
 

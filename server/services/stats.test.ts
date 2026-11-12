@@ -40,6 +40,17 @@ async function insertUsageLog(
   await dbClient.db.insert(schema.usageLogs).values({ ...values, createdAt: new Date(createdAt) })
 }
 
+/** 统计会以当前时刻截断进行中的窗口；用固定时钟让测试数据的时间语义稳定。 */
+async function atTime<T>(now: number, run: () => Promise<T>): Promise<T> {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(now)
+  try {
+    return await run()
+  } finally {
+    vi.useRealTimers()
+  }
+}
+
 async function insertUser(lastLoginAt?: number) {
   const [user] = await dbClient.db
     .insert(schema.users)
@@ -600,11 +611,13 @@ describe('admin dashboard summaries', () => {
       firstTokenLatencyMs: 800,
     })
     await insertUsageLog(start + 1, { userId: user.id, totalTokens: 300, durationMs: 6000 })
-    const result = await stats.getOverview({
-      userId: user.id,
-      from: start,
-      to: start + HOUR_MS - 1,
-    })
+    const result = await atTime(start + DAY_MS, () =>
+      stats.getOverview({
+        userId: user.id,
+        from: start,
+        to: start + HOUR_MS - 1,
+      }),
+    )
     expect(result.previous).toEqual({
       requests: 2,
       tokens: 125,
@@ -622,6 +635,23 @@ describe('admin dashboard summaries', () => {
       }),
     )
     expect((await stats.getOverview({ userId: user.id })).previous).toBeNull()
+  })
+
+  it('compares an ongoing window with the same elapsed part of the previous window', async () => {
+    const start = Date.UTC(2027, 4, 1)
+    const user = await insertUser()
+    await insertUsageLog(start - DAY_MS + 4 * HOUR_MS, { userId: user.id, totalTokens: 40 })
+    await insertUsageLog(start - 5 * HOUR_MS, { userId: user.id, totalTokens: 60 })
+    await insertUsageLog(start + HOUR_MS, { userId: user.id, totalTokens: 100 })
+    const result = await atTime(start + 10 * HOUR_MS, () =>
+      stats.getOverview({
+        userId: user.id,
+        from: start,
+        to: start + DAY_MS - 1,
+      }),
+    )
+    expect(result.totals.requests).toBe(1)
+    expect(result.previous).toEqual(expect.objectContaining({ requests: 1, tokens: 40 }))
   })
 
   it('keeps outcome categories exclusive and applies request-kind filters to all breakdowns', async () => {

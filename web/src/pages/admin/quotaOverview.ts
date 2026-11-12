@@ -5,7 +5,7 @@ import {
   pickTightestQuotaBucket,
 } from '@shared/util/quota'
 import { describeQuotaWindow } from '@shared/util/quotaWindow'
-import type { RangeKey } from '../../lib/dateRange'
+import type { RollingRangeKey } from '../../lib/dateRange'
 
 /** 用户行总状态：与列表徽标、总览筛选共用同一套判定。 */
 export const USER_QUOTA_FLEET_STATUSES = [
@@ -26,7 +26,7 @@ export const QUOTA_OVERVIEW_RANGES = [
   { key: '24h', label: '24 小时' },
   { key: '7d', label: '7 天' },
   { key: '30d', label: '30 天' },
-] as const satisfies readonly { key: Exclude<RangeKey, 'all'>; label: string }[]
+] as const satisfies readonly { key: RollingRangeKey; label: string }[]
 
 export type QuotaOverviewRangeKey = (typeof QUOTA_OVERVIEW_RANGES)[number]['key']
 

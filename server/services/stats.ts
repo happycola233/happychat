@@ -186,14 +186,16 @@ export async function getOverview(filter: StatsFilter): Promise<OverviewDTO> {
   const boundedFilter = { ...filter, to: filter.to ?? now }
   const conds = usageConds(boundedFilter)
   const agg = await usageSummary(boundedFilter)
-  // 两段窗口首尾相接但不重叠，避免边界请求被重复纳入同期对比。
+  // 上一时段 = 所选窗口整体前移一个窗口长度，两段首尾相接但不重叠。
+  // 窗口终点还在未来（如「今天」）时只比较已经过去的部分，即昨日同一时刻之前。
+  const span = filter.from == null ? 0 : boundedFilter.to - filter.from + 1
   const previous =
     filter.from == null
       ? null
       : await usageSummary({
           ...filter,
-          from: filter.from - (boundedFilter.to - filter.from + 1),
-          to: filter.from - 1,
+          from: filter.from - span,
+          to: Math.min(boundedFilter.to, now) - span,
         })
 
   // RPM/TPM：最近 60 分钟（仅叠加 provider/model/user 过滤，不受时间范围影响）

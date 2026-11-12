@@ -1,15 +1,14 @@
 import type { AnalyticsSeriesPoint } from '@shared/types/api'
 import type { CostBasis, UsageLogKind, UsageResult } from '@shared/types/domain'
-import { RANGE_PRESETS, type RangeKey } from '../../lib/dateRange'
+import { readDateRange, resolveDateRange, type DateRange } from '../../lib/dateRange'
 import { formatCurrency } from '../../lib/format'
 import { REQUEST_RESULT_LABELS } from './requestOutcome'
 
 export function readDashboardFilters(params: URLSearchParams) {
-  const range = params.get('range')
   const kind = params.get('kind')
   const result = params.get('result')
   return {
-    rangeKey: (RANGE_PRESETS.some((item) => item.key === range) ? range : '7d') as RangeKey,
+    range: readDateRange(params),
     providerId: params.get('providerId') ?? '',
     modelId: params.get('modelId') ?? '',
     userId: params.get('userId') ?? '',
@@ -86,6 +85,19 @@ export function comparisonLabel(current: number, previous: number) {
   const change = ((current - previous) / previous) * 100
   if (Math.abs(change) < 0.05) return '与上一时段持平'
   return `${change > 0 ? '↑' : '↓'} ${Math.abs(change).toFixed(1)}% 较上一时段`
+}
+
+/** 概览「上一时段」的说明；与服务端 getOverview 的同期窗口算法一致。 */
+export function previousPeriodNote(range: DateRange, now = Date.now()): string {
+  if (range.key === 'today') return '对比昨日同一时段'
+  return resolveDateRange(range, now).end > now
+    ? '对比上一等长时段的同期'
+    : '对比紧邻所选区间的等长上一时段'
+}
+
+/** 趋势图补零的终点：不超过当前时刻，也不越过开区间终点所在的桶。 */
+export function chartEnd(range: DateRange, now: number): number {
+  return Math.min(resolveDateRange(range, now).end - 1, now)
 }
 
 /** 计费减成本即毛利；没有计费金额时不计算比例。 */

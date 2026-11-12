@@ -9,7 +9,7 @@ import { HealthTimeline } from '../../components/charts'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { DateRangePicker } from '../../components/ui/DateRangePicker'
-import { rangeToFilter } from '../../lib/dateRange'
+import { dateRangeParams, rangeToFilter, withDateRange } from '../../lib/dateRange'
 import {
   formatCompact,
   formatDuration,
@@ -18,10 +18,12 @@ import {
   formatCurrency,
 } from '../../lib/format'
 import {
+  chartEnd,
   comparisonLabel,
   dashboardHref,
   fillTimeBuckets,
   marginLabel,
+  previousPeriodNote,
   readDashboardFilters,
 } from './dashboardData'
 import {
@@ -52,10 +54,10 @@ const QUICK_LINKS = [
 export default function OverviewPage() {
   const currency = useBillingCurrency((state) => state.currency)
   const [params, setParams] = useSearchParams()
-  const { rangeKey } = readDashboardFilters(params)
+  const { range } = readDashboardFilters(params)
   const query = useQuery({
-    queryKey: ['admin', 'overview', rangeKey, currency],
-    queryFn: () => getOverview({ ...rangeToFilter(rangeKey), currency }),
+    queryKey: ['admin', 'overview', range, currency],
+    queryFn: () => getOverview({ ...rangeToFilter(range), currency }),
     refetchInterval: 60_000,
   })
   const overview = query.data
@@ -65,12 +67,13 @@ export default function OverviewPage() {
     ? fillTimeBuckets(
         overview.healthTimeline,
         overview.bucket,
-        rangeToFilter(rangeKey, now).from,
-        now,
+        rangeToFilter(range, now).from,
+        chartEnd(range, now),
         { requests: 0, errors: 0 },
       )
     : []
-  const eventHref = (result = '') => dashboardHref('request-events', { range: rangeKey, result })
+  const eventHref = (result = '') =>
+    dashboardHref('request-events', { ...dateRangeParams(range), result })
   const change = (key: 'requests' | 'tokens' | 'cost' | 'billedCost' | 'activeUsers') =>
     overview?.previous && totals
       ? comparisonLabel(totals[key], overview.previous[key])
@@ -85,8 +88,10 @@ export default function OverviewPage() {
           <>
             <BillingCurrencySelect />
             <DateRangePicker
-              value={rangeKey}
-              onChange={(range) => setParams({ range }, { replace: true })}
+              value={range}
+              onChange={(next) =>
+                setParams((current) => withDateRange(current, next), { replace: true })
+              }
             />
             <RefreshButton busy={query.isFetching} onClick={() => void query.refetch()} />
           </>
@@ -130,7 +135,7 @@ export default function OverviewPage() {
               description={
                 overview.bucket === 'day'
                   ? '按 UTC 日汇总 · 包含对话与标题总结'
-                  : '按 UTC 小时汇总 · 包含对话与标题总结'
+                  : '按小时汇总 · 包含对话与标题总结'
               }
               actions={
                 <Link
@@ -164,7 +169,7 @@ export default function OverviewPage() {
                     data={timeline}
                     bucket={overview.bucket}
                     height={206}
-                    timeZone="UTC"
+                    timeZone={overview.bucket === 'day' ? 'UTC' : undefined}
                   />
                 </>
               ) : (
@@ -256,7 +261,7 @@ export default function OverviewPage() {
               description="当前保留的全部账号与内容"
               actions={
                 <Link
-                  to={dashboardHref('analytics', { range: rangeKey })}
+                  to={dashboardHref('analytics', dateRangeParams(range))}
                   className="inline-flex min-h-8 items-center gap-1 text-xs text-sky-700 hover:underline dark:text-sky-400"
                 >
                   用量分析
@@ -307,7 +312,7 @@ export default function OverviewPage() {
           <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
             每分钟自动更新 · 最近更新{' '}
             {new Date(query.dataUpdatedAt).toLocaleTimeString('zh-CN', { hour12: false })}
-            {overview.previous && ' · 对比紧邻所选区间的等长上一时段'}
+            {overview.previous && ` · ${previousPeriodNote(range, now)}`}
           </p>
         </>
       ) : null}
