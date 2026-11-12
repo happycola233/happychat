@@ -356,6 +356,25 @@ location = /maintenance.html {
 }
 ```
 
+停掉 HappyChat 再访问网站，应看到「我们马上回来」；重新启动后页面会在 5 秒内自动刷新回来。
+
+#### 使用 1Panel（OpenResty 运行在容器内）
+
+容器里的 OpenResty 读不到 HappyChat 的部署目录，需要把维护页放进网站自己的目录：
+
+1. 每次 `npm run build` 之后，把 `dist/web/maintenance.html` 复制到该网站的 `index` 目录（「网站 → 网站目录」可查看并打开；维护页样式有更新时需要重新复制）。
+2. 在「网站 → 反向代理 → 源文」的末尾追加下面几行，原有的 `location` 保持不变。`root` 填容器内的路径，默认是 `/www/sites/<域名>/index`，以「网站目录」页显示的为准。
+
+```nginx
+error_page 502 504 /maintenance.html;
+location = /maintenance.html {
+    root /www/sites/<域名>/index;
+    internal;
+}
+```
+
+如果面板不接受把这几行写在反向代理源文里，改放到「配置文件」页签的 `server { ... }` 内，效果相同。
+
 ### 数据与备份
 
 所有数据都在 `data/` 目录：`happychat.db`（SQLite）+ `uploads/`（图片 / 文件 / 生成图）。备份时直接复制该目录即可。
