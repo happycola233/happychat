@@ -36,6 +36,18 @@ describe('upstream request preview', () => {
     })
     expect(preview.body.instructions).toContain('You are GPT Test')
     expect(preview.body.instructions).toContain('<runtime_context_protocol>')
+    expect((preview.body.input as unknown[]).slice(-2)).toEqual([
+      {
+        type: 'message',
+        role: 'developer',
+        content: [{ type: 'input_text', text: expect.stringContaining('<runtime_context>') }],
+      },
+      {
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_text', text: '⟪本次用户消息⟫' }],
+      },
+    ])
     expect(preview.parameters.find((p) => p.name === 'temperature')?.source).toBe('高级 JSON')
     expect(preview.parameters.find((p) => p.name === 'stream')?.source).toBe('传输设置')
     expect(preview.headers.authorization).toBe(`Bearer ${provider.apiKey}`)

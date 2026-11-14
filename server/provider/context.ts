@@ -39,9 +39,11 @@ export function buildInput(
 
   for (const m of messages) {
     if (m.role === 'user' && m.runtimeContext) {
+      // Responses 使用 developer 保留时间环境的回合位置；部分兼容网关会把 system
+      // 消息汇总到顶层 instructions，令每轮新增时间都改写整个历史的缓存前缀。
       items.push({
         type: 'message',
-        role: 'system',
+        role: 'developer',
         content: [{ type: 'input_text', text: m.runtimeContext }],
       })
     }

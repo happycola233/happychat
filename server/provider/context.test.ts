@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { buildInput } from './context'
 
 describe('buildInput', () => {
-  it('emits a virtual system runtime context immediately before its user message', () => {
+  it('keeps runtime context in developer messages immediately before their user turns', () => {
     const input = buildInput([
       {
         role: 'user',
@@ -23,7 +23,7 @@ describe('buildInput', () => {
     expect(input).toEqual([
       {
         type: 'message',
-        role: 'system',
+        role: 'developer',
         content: [{ type: 'input_text', text: '<runtime_context>first</runtime_context>' }],
       },
       {
@@ -39,7 +39,7 @@ describe('buildInput', () => {
       },
       {
         type: 'message',
-        role: 'system',
+        role: 'developer',
         content: [{ type: 'input_text', text: '<runtime_context>second</runtime_context>' }],
       },
       {

@@ -1057,7 +1057,7 @@ describe('prepareRun active leaf', () => {
     expect(input[reasoningIndex]).toEqual(reasoningItem)
     expect(reasoningIndex).toBeGreaterThan(-1)
     expect(assistantIndex).toBe(reasoningIndex + 1)
-    expect(input[assistantIndex + 1]).toMatchObject({ type: 'message', role: 'system' })
+    expect(input[assistantIndex + 1]).toMatchObject({ type: 'message', role: 'developer' })
     expect(input[assistantIndex + 2]).toMatchObject({ type: 'message', role: 'user' })
   })
 
@@ -1140,7 +1140,7 @@ describe('prepareRun active leaf', () => {
     expect(path.map((m) => m.id)).toEqual([first.userMessage.id, regenerated.assistantMessage.id])
   })
 
-  it('freezes runtime context on the user message and emits a stable cache key', async () => {
+  it('preserves the request prefix and cache key when appending a new runtime context', async () => {
     const { userId, modelId } = await createRunnableModel()
 
     const result = assertPrepared(
@@ -1158,7 +1158,7 @@ describe('prepareRun active leaf', () => {
     )
     expect(input[0]).toEqual({
       type: 'message',
-      role: 'system',
+      role: 'developer',
       content: [{ type: 'input_text', text: result.userMessage.runtimeContext }],
     })
     expect(input[1]).toMatchObject({ type: 'message', role: 'user' })
@@ -1167,6 +1167,33 @@ describe('prepareRun active leaf', () => {
     )
     expect(primaryBody(result)).not.toHaveProperty('prompt_cache_retention')
     expect(primaryBody(result).instructions).toContain('<runtime_context_protocol>')
+
+    await dbClient.db
+      .update(schema.messages)
+      .set({ status: 'complete', content: [{ type: 'output_text', text: 'hi' }] })
+      .where(eq(schema.messages.id, result.assistantMessage.id))
+    const followUp = assertPrepared(
+      await prepare.prepareRun({
+        userId,
+        modelId,
+        conversationId: result.conversation.id,
+        text: 'next question',
+        clientTimezone: 'UTC',
+      }),
+    )
+    const followUpBody = primaryBody(followUp)
+    const followUpInput = followUpBody.input as Array<Record<string, unknown>>
+
+    expect(followUp.userMessage.runtimeContext).not.toBe(result.userMessage.runtimeContext)
+    expect(followUpInput.slice(0, input.length)).toEqual(input)
+    expect(followUpInput.at(-2)).toEqual({
+      type: 'message',
+      role: 'developer',
+      content: [{ type: 'input_text', text: followUp.userMessage.runtimeContext }],
+    })
+    expect(followUpInput.some((item) => item.role === 'system')).toBe(false)
+    expect(followUpBody.instructions).toBe(primaryBody(result).instructions)
+    expect(followUpBody.prompt_cache_key).toBe(primaryBody(result).prompt_cache_key)
   })
 
   it('uses the latest admin model prompt in an existing conversation', async () => {
@@ -1217,7 +1244,7 @@ describe('prepareRun active leaf', () => {
 
     expect(input[0]).toEqual({
       type: 'message',
-      role: 'system',
+      role: 'developer',
       content: [{ type: 'input_text', text: first.userMessage.runtimeContext }],
     })
   })
@@ -1358,7 +1385,7 @@ describe('prepareRun file inputs', () => {
     expect(primaryBody(result)).toMatchObject({
       input: [
         {
-          role: 'system',
+          role: 'developer',
           content: [
             {
               type: 'input_text',
