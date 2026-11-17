@@ -635,6 +635,11 @@ export interface UserPreferences {
   accentColor: AccentColor
   /** 正文字号档位 */
   messageFontSize: MessageFontSize
+  /**
+   * 聊天区域宽度档位（0–100）：消息列与输入框从舒适阅读宽度（48rem）向可用宽度铺开的比例。
+   * 0 固定为阅读宽度，100 铺满聊天区；按比例计算，窗口缩放时自动跟随，窄于阅读宽度时始终铺满。
+   */
+  chatWidth: number
   /** 在每条消息上显示时间 */
   showMessageTime: boolean
   /** 消息时间格式，默认智能显示。 */

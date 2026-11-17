@@ -285,6 +285,101 @@ html.dark.hc-accent-purple {
   display: none;
 }
 
+/*
+ * 聊天列：消息区、输入框、待发送队列与提示条共用同一条限宽基线，左右边界严格对齐。
+ * 宽度 = 48rem 阅读宽度 + 档位比例 ×（可用宽度 − 两侧预留 − 48rem），全部以父容器百分比计算，
+ * 窗口缩放、侧边栏收起时自动跟随；可用宽度不足 48rem 时直接铺满。
+ * --hc-chat-width-ratio 由设置写在 <html> 上（applyChatWidth）；--hc-chat-side-reserve 由
+ * ChatView 在启用时间轴时注入，铺满时给两侧时间轴留出位置。改公式需同步 chat/chatColumn.ts。
+ */
+.hc-chat-column {
+  margin-inline: auto;
+  max-width: min(
+    100%,
+    48rem + var(--hc-chat-width-ratio, 0.2) *
+      max(0px, 100% - 2 * var(--hc-chat-side-reserve, 0px) - 48rem)
+  );
+}
+
+/*
+ * 设置滑块：细轨道 + 已选段着色 + 白色圆形滑块，已选段颜色跟随重点色的实心表面色。
+ * --hc-range-ratio（0–1）由组件按当前值写入；已选段终点对准滑块圆心（两端各让出半个滑块宽）。
+ */
+.hc-range {
+  --hc-range-track: rgb(0 0 0 / 0.1);
+  --hc-range-fill: var(--hc-accent-strong);
+  --hc-range-thumb-size: 18px;
+  --hc-range-progress: calc(
+    var(--hc-range-thumb-size) / 2 + (100% - var(--hc-range-thumb-size)) * var(--hc-range-ratio, 0)
+  );
+  height: 22px;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+.dark .hc-range {
+  --hc-range-track: rgb(255 255 255 / 0.14);
+}
+.hc-range:focus-visible {
+  outline: none;
+}
+.hc-range::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--hc-range-fill) var(--hc-range-progress),
+    var(--hc-range-track) var(--hc-range-progress)
+  );
+}
+.hc-range::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--hc-range-track);
+}
+.hc-range::-moz-range-progress {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--hc-range-fill);
+}
+.hc-range::-webkit-slider-thumb {
+  width: var(--hc-range-thumb-size);
+  height: var(--hc-range-thumb-size);
+  margin-top: calc((4px - var(--hc-range-thumb-size)) / 2);
+  appearance: none;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow:
+    0 0 0 0.5px rgb(0 0 0 / 0.14),
+    0 1px 3px rgb(0 0 0 / 0.22);
+  transition:
+    transform 120ms ease-out,
+    box-shadow 120ms ease-out;
+}
+.hc-range::-moz-range-thumb {
+  width: var(--hc-range-thumb-size);
+  height: var(--hc-range-thumb-size);
+  border: 0;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow:
+    0 0 0 0.5px rgb(0 0 0 / 0.14),
+    0 1px 3px rgb(0 0 0 / 0.22);
+}
+.hc-range:active::-webkit-slider-thumb {
+  transform: scale(1.1);
+}
+.hc-range:focus-visible::-webkit-slider-thumb {
+  box-shadow:
+    0 0 0 0.5px rgb(0 0 0 / 0.14),
+    0 0 0 4px rgb(163 163 163 / 0.45);
+}
+.hc-range:focus-visible::-moz-range-thumb {
+  box-shadow:
+    0 0 0 0.5px rgb(0 0 0 / 0.14),
+    0 0 0 4px rgb(163 163 163 / 0.45);
+}
+
 /* 聊天滚动区的统一底部安全区；Composer 悬浮在滚动内容上方，需要动态让位。 */
 .hc-chat-scroll {
   --hc-chat-bottom-gap: calc(

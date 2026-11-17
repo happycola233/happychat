@@ -1,5 +1,10 @@
 import { z } from 'zod'
-import { ACCENT_COLORS, MODEL_PICKER_VIEWS, NEW_CHAT_GLOW_COLORS } from '../util/preferences'
+import {
+  ACCENT_COLORS,
+  CHAT_WIDTH_RANGE,
+  MODEL_PICKER_VIEWS,
+  NEW_CHAT_GLOW_COLORS,
+} from '../util/preferences'
 import { passwordSchema, usernameSchema } from './auth'
 import { contextPolicySchema } from './context'
 
@@ -26,6 +31,7 @@ export const userPreferencesPatchSchema = z
     modelPickerView: modelPickerViewSchema,
     accentColor: accentColorSchema,
     messageFontSize: messageFontSizeSchema,
+    chatWidth: z.number().int().min(CHAT_WIDTH_RANGE.min).max(CHAT_WIDTH_RANGE.max),
     showMessageTime: z.boolean(),
     messageTimeFormat: z.enum(['smart', 'time', 'datetime']),
     showModelLabel: z.boolean(),

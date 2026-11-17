@@ -281,7 +281,7 @@ export function MessageQueue({
   return (
     <section
       aria-label="待发送消息"
-      className="pointer-events-auto relative mx-auto -mb-6 max-w-3xl px-3"
+      className="hc-chat-column pointer-events-auto relative -mb-6 px-3"
     >
       <div className="rounded-t-[20px] border border-b-0 border-black/[0.06] bg-white pb-7 pt-1 dark:border-white/[0.04] dark:bg-[#292929]">
         <p role="status" className="sr-only">

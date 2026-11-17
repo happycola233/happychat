@@ -23,6 +23,7 @@ describe('mergePreferences', () => {
       modelPickerView: 'flat',
       accentColor: 'default',
       messageFontSize: 'medium',
+      chatWidth: 20,
       showMessageTime: true,
       messageTimeFormat: 'smart',
       showModelLabel: true,
@@ -97,6 +98,15 @@ describe('mergePreferences', () => {
       showNewChatGradientGlow: false,
       newChatGlowColor: 'purple',
     })
+  })
+
+  it('旧账号使用默认聊天宽度，越界或非整数的缓存值回退默认', () => {
+    expect(mergePreferences({ showMessageTime: false }).chatWidth).toBe(20)
+    expect(mergePreferences({ chatWidth: 0 }).chatWidth).toBe(0)
+    expect(mergePreferences({ chatWidth: 100 }).chatWidth).toBe(100)
+    expect(mergePreferences({ chatWidth: 120 }).chatWidth).toBe(20)
+    expect(mergePreferences({ chatWidth: 12.5 }).chatWidth).toBe(20)
+    expect(mergePreferences({ chatWidth: '60' } as never).chatWidth).toBe(20)
   })
 
   it('无效的缓存光晕配色恢复为跟随重点色', () => {

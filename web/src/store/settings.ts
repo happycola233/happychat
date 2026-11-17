@@ -6,7 +6,7 @@ import { DEFAULT_PREFERENCES, mergePreferences } from '@shared/util/preferences'
 import { ApiRequestError } from '../api/client'
 import { updateSettings } from '../api/settings'
 import { queryClient } from '../lib/queryClient'
-import { applyAccentColor, applyFontSize, applyTheme } from '../lib/theme'
+import { applyAccentColor, applyChatWidth, applyFontSize, applyTheme } from '../lib/theme'
 import { toast } from './toast'
 
 /**
@@ -46,6 +46,7 @@ export const useSettings = create<SettingsStore>()(
         set({ theme: dto.theme, preferences: dto.preferences })
         applyTheme(dto.theme)
         applyFontSize(dto.preferences.messageFontSize)
+        applyChatWidth(dto.preferences.chatWidth)
         applyAccentColor(dto.preferences.accentColor)
       },
       setTheme: (theme) => {
@@ -57,6 +58,7 @@ export const useSettings = create<SettingsStore>()(
         const preferences = { ...get().preferences, ...patch }
         set({ preferences })
         if (patch.messageFontSize !== undefined) applyFontSize(preferences.messageFontSize)
+        if (patch.chatWidth !== undefined) applyChatWidth(preferences.chatWidth)
         if (patch.accentColor !== undefined) applyAccentColor(preferences.accentColor)
         void persistRemote({ preferences: patch })
       },
@@ -75,11 +77,12 @@ export const useSettings = create<SettingsStore>()(
           preferences: mergePreferences(p?.preferences),
         }
       },
-      // 首屏：用本地缓存即时应用主题与字号，避免闪烁（服务端真值随后覆盖）。
+      // 首屏：用本地缓存即时应用主题、字号与聊天宽度，避免闪烁（服务端真值随后覆盖）。
       onRehydrateStorage: () => (state) => {
         if (state) {
           applyTheme(state.theme)
           applyFontSize(state.preferences.messageFontSize)
+          applyChatWidth(state.preferences.chatWidth)
           applyAccentColor(state.preferences.accentColor)
         }
       },

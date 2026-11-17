@@ -23,6 +23,9 @@ export const NEW_CHAT_GLOW_COLORS = [
 
 export const MODEL_PICKER_VIEWS = ['flat', 'tree'] as const satisfies readonly ModelPickerView[]
 
+/** 聊天区域宽度档位的取值范围与设置滑块步长（见 UserPreferences.chatWidth）。 */
+export const CHAT_WIDTH_RANGE = { min: 0, max: 100, step: 5 } as const
+
 /** 账户级偏好的默认值，前后端共用以保证一致。 */
 export const DEFAULT_PREFERENCES: UserPreferences = {
   contextPolicy: DEFAULT_CONTEXT_POLICY,
@@ -40,6 +43,8 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   modelPickerView: 'flat',
   accentColor: 'default',
   messageFontSize: 'medium',
+  // 大屏下适度铺开：1080p 约 940px、2560 宽视口约 1100px，窄窗口仍保持 48rem 阅读宽度。
+  chatWidth: 20,
   showMessageTime: true,
   messageTimeFormat: 'smart',
   showModelLabel: true,
@@ -57,6 +62,14 @@ function isModelPickerView(value: unknown): value is ModelPickerView {
 
 function isNewChatGlowColor(value: unknown): value is NewChatGlowColor {
   return typeof value === 'string' && (NEW_CHAT_GLOW_COLORS as readonly string[]).includes(value)
+}
+
+function isChatWidth(value: unknown): value is number {
+  return (
+    Number.isInteger(value) &&
+    (value as number) >= CHAT_WIDTH_RANGE.min &&
+    (value as number) <= CHAT_WIDTH_RANGE.max
+  )
 }
 
 /**
@@ -99,6 +112,7 @@ export function mergePreferences(
       ? partial.accentColor
       : DEFAULT_PREFERENCES.accentColor,
     messageFontSize: partial?.messageFontSize ?? DEFAULT_PREFERENCES.messageFontSize,
+    chatWidth: isChatWidth(partial?.chatWidth) ? partial.chatWidth : DEFAULT_PREFERENCES.chatWidth,
     showMessageTime: partial?.showMessageTime ?? DEFAULT_PREFERENCES.showMessageTime,
     messageTimeFormat: partial?.messageTimeFormat ?? DEFAULT_PREFERENCES.messageTimeFormat,
     showModelLabel: partial?.showModelLabel ?? DEFAULT_PREFERENCES.showModelLabel,

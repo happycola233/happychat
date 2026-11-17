@@ -570,14 +570,14 @@ export function Composer({
         style={{ paddingRight: `calc(1rem + ${scrollbarGutterWidth}px)` }}
       >
         {/* 提示条与输入框共用同一条限宽基线，左右边界严格对齐。 */}
-        {notice && <div className="mx-auto max-w-3xl">{notice}</div>}
+        {notice && <div className="hc-chat-column">{notice}</div>}
         {queue}
         {/* 视觉盒：浅色用低对比 hairline 描边 + 柔和弥散阴影撑起体积感，
             避免生硬的灰色描边压过居中态光晕；深色以描边为主要轮廓，维持原对比。 */}
         <div
           ref={boxRef}
           className={clsx(
-            'pointer-events-auto relative mx-auto max-w-3xl rounded-[26px] border border-black/[0.07] bg-white px-2 py-2 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_18px_rgba(0,0,0,0.055)] transition focus-within:border-black/[0.11] focus-within:shadow-[0_1px_3px_rgba(0,0,0,0.05),0_6px_24px_rgba(0,0,0,0.07)] dark:border-[#303030] dark:bg-[#212121] dark:shadow-none dark:focus-within:border-[#303030] dark:focus-within:shadow-none',
+            'hc-chat-column pointer-events-auto relative rounded-[26px] border border-black/[0.07] bg-white px-2 py-2 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_18px_rgba(0,0,0,0.055)] transition focus-within:border-black/[0.11] focus-within:shadow-[0_1px_3px_rgba(0,0,0,0.05),0_6px_24px_rgba(0,0,0,0.07)] dark:border-[#303030] dark:bg-[#212121] dark:shadow-none dark:focus-within:border-[#303030] dark:focus-within:shadow-none',
             dragActive &&
               'border-blue-300 bg-blue-50/40 shadow-[0_2px_18px_rgba(59,130,246,0.18)] dark:border-blue-600 dark:bg-blue-950/20',
           )}
@@ -744,7 +744,7 @@ export function Composer({
         </div>
         <p
           className={clsx(
-            'mx-auto mt-2 max-w-3xl text-center text-xs text-neutral-400',
+            'hc-chat-column mt-2 text-center text-xs text-neutral-400',
             dockChromeFadeClass,
             !docked && 'opacity-0',
           )}

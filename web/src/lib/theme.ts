@@ -60,6 +60,14 @@ export function applyFontSize(size: MessageFontSize): void {
   el.classList.add(`hc-font-${size}`)
 }
 
+/**
+ * 据聊天区域宽度档位（0–100）写入 <html> 的 --hc-chat-width-ratio 变量，
+ * 驱动 index.css 中 `.hc-chat-column` 的限宽公式。
+ */
+export function applyChatWidth(chatWidth: number): void {
+  document.documentElement.style.setProperty('--hc-chat-width-ratio', String(chatWidth / 100))
+}
+
 /** 据重点色切换 <html> 的 hc-accent-* 类（驱动聊天核心色值变量）。 */
 export function applyAccentColor(color: AccentColor): void {
   const el = document.documentElement

@@ -2,48 +2,48 @@ import { clsx } from 'clsx'
 import type { ReactNode } from 'react'
 
 /**
- * 设置页的语义分区：默认只用标题与留白建立层级，避免每组内容都套一层卡片。
- * 危险操作仍保留低对比度警示容器，防止破坏性按钮混入普通设置。
+ * 设置页的分组：只用小标题、留白与行间细分隔线建立层级，不套卡片、不叠底色和边框，
+ * 让设置页保持轻盈。危险操作仅把标题标红，破坏性按钮自身的红色已足够醒目。
  */
 export function SettingsSection({
   title,
   description,
+  action,
   danger = false,
   children,
 }: {
-  title: string
+  title?: string
   description?: ReactNode
+  /** 标题行右侧的轻量操作（如「复制」）。 */
+  action?: ReactNode
   danger?: boolean
   children: ReactNode
 }) {
   return (
-    <section
-      className={clsx(
-        danger
-          ? 'mt-4 rounded-2xl border border-red-200/80 bg-red-50/35 p-4 dark:border-red-900/45 dark:bg-red-950/10'
-          : 'pt-4 first:pt-1',
+    <section className="min-w-0">
+      {(title || action) && (
+        <div className="flex min-h-5 items-end justify-between gap-3">
+          {title && (
+            <h3
+              className={clsx(
+                'text-[13px] font-medium leading-5',
+                danger
+                  ? 'text-red-500 dark:text-red-400'
+                  : 'text-neutral-500 dark:text-neutral-400',
+              )}
+            >
+              {title}
+            </h3>
+          )}
+          {action}
+        </div>
       )}
-    >
-      <h3
-        className={clsx(
-          'font-medium',
-          danger
-            ? 'text-[13px] text-red-600 dark:text-red-400'
-            : 'pb-0.5 text-xs text-neutral-400 dark:text-neutral-500',
-        )}
-      >
-        {title}
-      </h3>
       {description && (
-        <p className="mt-1.5 text-[12px] leading-5 text-neutral-400 dark:text-neutral-500">
+        <p className="mt-1 text-[12.5px] leading-5 text-neutral-400 dark:text-neutral-500">
           {description}
         </p>
       )}
-      <div
-        className={clsx(danger ? 'mt-1.5' : 'divide-y divide-neutral-100 dark:divide-neutral-800')}
-      >
-        {children}
-      </div>
+      <div className="mt-1 divide-y divide-black/[0.06] dark:divide-white/[0.07]">{children}</div>
     </section>
   )
 }

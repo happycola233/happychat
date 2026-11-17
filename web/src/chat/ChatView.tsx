@@ -69,6 +69,7 @@ import {
   TIMELINE_JUMP_OFFSET_PX,
 } from './timelineItems'
 import { shouldShowTopFade } from './topFade'
+import { chatColumnWidthPx, TIMELINE_SIDE_RESERVE_PX } from './chatColumn'
 import { AnnouncementBanner } from '../announcements/AnnouncementBanner'
 import { ConversationDocumentTitle } from './ConversationDocumentTitle'
 import { NotificationBell } from '../announcements/NotificationBell'
@@ -160,6 +161,7 @@ export default function ChatView() {
     (s) => s.preferences.showMessageTime && s.preferences.messageTimeFormat === 'time',
   )
   const timelineNavPosition = useSettings((s) => s.preferences.timelineNavPosition)
+  const chatWidth = useSettings((s) => s.preferences.chatWidth)
   const showNewChatGradientGlow = useSettings((s) => s.preferences.showNewChatGradientGlow)
   const resolvedGlowColor = useSettings((s) =>
     s.preferences.newChatGlowColor === 'accent'
@@ -1058,14 +1060,18 @@ export default function ChatView() {
   const composerLayerWarm = (heroComposer && composerHasDraft) || dockAnimated
   const timelineItems = timelineItemsFromMessages(messages)
   const timelineVisible = !isMobile && showTimelineNav && shouldShowTimeline(timelineItems.length)
+  // 按设置而非「当前会话是否显示时间轴」预留两侧空间，切换会话或消息数跨过阈值时聊天列不跳宽。
+  const chatSideReserve = !isMobile && showTimelineNav ? TIMELINE_SIDE_RESERVE_PX : 0
   const topFadeVisible = shouldShowTopFade({
     viewportWidth,
+    columnWidth: chatColumnWidthPx({ viewportWidth, chatWidth, sideReserve: chatSideReserve }),
     hasConversation: Boolean(id),
     hasVisibleMessages: !isEmpty,
     isDocking: dockAnimated,
   })
   const chatViewportStyle = {
     '--hc-composer-overlay-height': `${composerMetrics.height}px`,
+    '--hc-chat-side-reserve': `${chatSideReserve}px`,
   } as CSSProperties
 
   return (
@@ -1139,7 +1145,7 @@ export default function ChatView() {
           ) : (
             <div className="hc-chat-scroll-content px-4 pt-[4.25rem]">
               {/* 页面留白放在限宽层外，确保消息区边界与 Composer 输入框严格对齐。 */}
-              <div className="mx-auto max-w-3xl space-y-6">
+              <div className="hc-chat-column space-y-6">
                 {messages.map((m, index) => {
                   const siblings = getSiblings(allMessages, m)
                   const messageModel = models?.find((modelItem) => modelItem.id === m.modelId)

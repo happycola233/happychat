@@ -11,15 +11,14 @@ import {
   Share2,
   Zap,
 } from 'lucide-react'
-import { Button } from '../components/ui/Button'
-import { SettingsSection } from '../components/ui/SettingsSection'
-import { APP_ICON_SRC } from '../lib/appIcon'
-import { APP_VERSION, BUILD_TIME } from '../lib/buildInfo'
-import { copyToClipboard } from '../lib/clipboard'
-import { describeClientEnv } from '../lib/clientEnv'
-import { formatDateTime } from '../lib/format'
-import { toast } from '../store/toast'
-import { ExternalLinkIcon, GithubIcon, ReasoningEffortIcon } from './icons'
+import { SettingsSection } from '../../components/ui/SettingsSection'
+import { APP_ICON_SRC } from '../../lib/appIcon'
+import { APP_VERSION, BUILD_TIME } from '../../lib/buildInfo'
+import { copyToClipboard } from '../../lib/clipboard'
+import { describeClientEnv } from '../../lib/clientEnv'
+import { formatDateTime } from '../../lib/format'
+import { toast } from '../../store/toast'
+import { ExternalLinkIcon, GithubIcon, ReasoningEffortIcon } from '../icons'
 
 const REPO_URL = 'https://github.com/happycola233/happychat'
 
@@ -98,11 +97,11 @@ const LINKS: readonly {
 /** 「关于」页的运行环境行：左标签右值，值使用等宽字体便于比对与复制。 */
 function EnvRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-baseline justify-between gap-4 py-2">
-      <dt className="shrink-0 text-[13px] text-neutral-500 dark:text-neutral-400">{label}</dt>
-      <dd className="min-w-0 truncate font-mono text-[12px] text-neutral-700 dark:text-neutral-200">
+    <div className="flex items-baseline justify-between gap-4 py-3">
+      <span className="shrink-0 text-[13px] text-neutral-500 dark:text-neutral-400">{label}</span>
+      <span className="min-w-0 truncate font-mono text-[12px] text-neutral-700 dark:text-neutral-200">
         {value}
-      </dd>
+      </span>
     </div>
   )
 }
@@ -136,9 +135,9 @@ export function AboutPanel() {
   }
 
   return (
-    <div className="pb-2 pt-1">
+    <div className="space-y-9">
       {/* 身份区：不套卡片、不用渐变，居中留白即可，避免与下方分组内容抢视觉重心 */}
-      <section className="flex flex-col items-center px-4 pb-2 pt-2 text-center">
+      <section className="flex flex-col items-center px-4 pt-1 text-center">
         {/* 图标只描一圈细边界定轮廓，不加投影，免得显得「浮」在页面上 */}
         <img
           src={APP_ICON_SRC}
@@ -164,10 +163,10 @@ export function AboutPanel() {
       </section>
 
       <SettingsSection title="功能亮点">
-        <div className="grid gap-x-5 gap-y-3.5 py-3 sm:grid-cols-2">
+        <div className="grid gap-x-8 gap-y-5 py-4 sm:grid-cols-2">
           {HIGHLIGHTS.map(({ icon: Icon, title, desc }) => (
             <div key={title} className="flex gap-2.5">
-              <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center text-neutral-400 dark:text-neutral-500">
                 <Icon className="h-4 w-4" />
               </span>
               <div className="min-w-0">
@@ -184,55 +183,53 @@ export function AboutPanel() {
       </SettingsSection>
 
       <SettingsSection title="相关链接">
-        <div className="-mx-2 py-1.5">
-          {LINKS.map(({ icon: LinkIcon, ...link }) => (
-            <a
-              key={link.href}
-              href={link.href}
-              target="_blank"
-              rel="noreferrer"
-              className="group flex items-center gap-3 rounded-xl px-2 py-2 transition hover:bg-neutral-100 dark:hover:bg-neutral-800/60"
-            >
-              <LinkIcon className="h-[18px] w-[18px] shrink-0 text-neutral-500 dark:text-neutral-400" />
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-[13px] font-medium text-neutral-800 dark:text-neutral-100">
-                  {link.title}
-                </div>
-                <div className="truncate text-[12px] text-neutral-400 dark:text-neutral-500">
-                  {link.desc}
-                </div>
+        {LINKS.map(({ icon: LinkIcon, ...link }) => (
+          <a
+            key={link.href}
+            href={link.href}
+            target="_blank"
+            rel="noreferrer"
+            className="group flex items-center gap-3 py-3"
+          >
+            <LinkIcon className="h-[18px] w-[18px] shrink-0 text-neutral-500 dark:text-neutral-400" />
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-[14px] text-neutral-900 underline-offset-2 group-hover:underline dark:text-neutral-100">
+                {link.title}
               </div>
-              <ExternalLinkIcon className="h-4 w-4 shrink-0 text-neutral-300 transition group-hover:text-neutral-500 dark:text-neutral-600 dark:group-hover:text-neutral-300" />
-            </a>
-          ))}
-        </div>
+              <div className="truncate text-[12.5px] text-neutral-500 dark:text-neutral-400">
+                {link.desc}
+              </div>
+            </div>
+            <ExternalLinkIcon className="h-4 w-4 shrink-0 text-neutral-300 transition group-hover:text-neutral-500 dark:text-neutral-600 dark:group-hover:text-neutral-300" />
+          </a>
+        ))}
       </SettingsSection>
 
       <SettingsSection
         title="运行环境"
         description="遇到问题时，复制这段信息附在反馈里能大幅加快定位。"
+        action={
+          <button
+            type="button"
+            onClick={copyEnvReport}
+            className="-mb-0.5 -mr-1.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12.5px] text-neutral-500 transition hover:bg-black/[0.05] hover:text-neutral-800 dark:text-neutral-400 dark:hover:bg-white/[0.08] dark:hover:text-neutral-100"
+          >
+            {copied ? (
+              <Check className="h-3.5 w-3.5 text-emerald-500" />
+            ) : (
+              <Copy className="h-3.5 w-3.5" />
+            )}
+            {copied ? '已复制' : '复制'}
+          </button>
+        }
       >
-        <div className="py-2">
-          <dl className="divide-y divide-neutral-100 dark:divide-neutral-800">
-            <EnvRow label="应用版本" value={`v${APP_VERSION}`} />
-            <EnvRow label="构建时间" value={buildTimeLabel} />
-            <EnvRow label="浏览器" value={clientEnv.browser} />
-            <EnvRow label="操作系统" value={clientEnv.os} />
-          </dl>
-          <div className="mt-3 flex justify-end">
-            <Button variant="ghost" className="!px-2.5 !py-1.5 text-xs" onClick={copyEnvReport}>
-              {copied ? (
-                <Check className="h-4 w-4 text-emerald-500" />
-              ) : (
-                <Copy className="h-4 w-4" />
-              )}
-              {copied ? '已复制' : '复制环境信息'}
-            </Button>
-          </div>
-        </div>
+        <EnvRow label="应用版本" value={`v${APP_VERSION}`} />
+        <EnvRow label="构建时间" value={buildTimeLabel} />
+        <EnvRow label="浏览器" value={clientEnv.browser} />
+        <EnvRow label="操作系统" value={clientEnv.os} />
       </SettingsSection>
 
-      <p className="flex items-center justify-center gap-1.5 pb-1 text-[12px] text-neutral-400 dark:text-neutral-500">
+      <p className="flex items-center justify-center gap-1.5 text-[12px] text-neutral-400 dark:text-neutral-500">
         Made with <Heart className="h-3.5 w-3.5 text-rose-400" /> · 欢迎 Issue 与 PR
       </p>
     </div>

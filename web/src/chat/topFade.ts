@@ -1,11 +1,10 @@
-/** 消息列最大宽度（Tailwind max-w-3xl）。 */
-const MESSAGE_COLUMN_MAX_WIDTH_PX = 768
 /** 顶栏单侧按钮簇（含边距）所需的横向空间。 */
 const TOP_BAR_SIDE_CLEARANCE_PX = 140
-const TOP_FADE_VIEWPORT_THRESHOLD_PX = MESSAGE_COLUMN_MAX_WIDTH_PX + TOP_BAR_SIDE_CLEARANCE_PX * 2
 
 interface TopFadeVisibilityOptions {
   viewportWidth: number
+  /** 聊天列的实际宽度（见 chatColumnWidthPx），随聊天区域宽度设置变化。 */
+  columnWidth: number
   /** 已进入持久化会话；详情加载期间也保持原有顶栏表现。 */
   hasConversation: boolean
   /** 包含持久化消息与发送中的乐观消息。 */
@@ -15,7 +14,7 @@ interface TopFadeVisibilityOptions {
 }
 
 /**
- * 顶栏渐变只负责兜住进入按钮区域的消息内容。
+ * 顶栏渐变只负责兜住进入按钮区域的消息内容：聊天列两侧留白不足以容纳顶栏按钮时才显示。
  *
  * 首条消息成功后，乐观消息会早于路由 id 被清空；落底标记需要在这段交接期
  * 继续保留渐变，避免它闪灭再出现。真正空闲的新聊天则不渲染渐变，以免遮住
@@ -23,10 +22,11 @@ interface TopFadeVisibilityOptions {
  */
 export function shouldShowTopFade({
   viewportWidth,
+  columnWidth,
   hasConversation,
   hasVisibleMessages,
   isDocking,
 }: TopFadeVisibilityOptions): boolean {
   const canHaveContentBehindTopBar = hasConversation || hasVisibleMessages || isDocking
-  return canHaveContentBehindTopBar && viewportWidth < TOP_FADE_VIEWPORT_THRESHOLD_PX
+  return canHaveContentBehindTopBar && (viewportWidth - columnWidth) / 2 < TOP_BAR_SIDE_CLEARANCE_PX
 }
