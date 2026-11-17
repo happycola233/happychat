@@ -31,6 +31,7 @@ import { recoverInterruptedRuns } from './runs/manager'
 import { sanitizePersistedRunEvents } from './runs/run-event-cleanup'
 import { UpstreamError } from './provider/errors'
 import { startOrphanAttachmentCleanupScheduler } from './services/attachment-cleanup'
+import { logOfficePdfConverterStatus } from './services/office-pdf'
 import { getPublicSharePreview } from './services/shares'
 import type { AppEnv } from './http/types'
 
@@ -44,6 +45,7 @@ await recoverInterruptedRuns()
 const stopMessageQueues = startMessageQueueRunner()
 await recoverMessageQueues()
 const stopAttachmentCleanup = startOrphanAttachmentCleanupScheduler()
+void logOfficePdfConverterStatus()
 
 const app = new Hono<AppEnv>()
 

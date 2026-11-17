@@ -8,6 +8,19 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { AttachmentDTO, UserSettingsDTO } from '@shared/types/api'
 import type { AppEnv } from '../http/types'
 
+// 路由层只验证偏好开关与落盘一致性；真实 LibreOffice 转换由 office-pdf.test.ts 覆盖。
+vi.mock('../services/office-pdf', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../services/office-pdf')>()
+  return {
+    ...original,
+    convertOfficeToPdf: vi.fn(async (upload: { filename: string }) => ({
+      buffer: Buffer.from('%PDF-1.7 synthetic'),
+      filename: upload.filename.replace(/\.[^.]+$/, '.pdf'),
+      mime: 'application/pdf',
+    })),
+  }
+})
+
 let directory: string
 let app: Hono<AppEnv>
 let client: typeof import('../db/client')
@@ -117,6 +130,44 @@ describe('chat attachment compression preference', () => {
         expect(readFileSync(row.storagePath)).toEqual(png)
       }
     }
+  })
+
+  it('Word / PowerPoint 默认转为 PDF，关闭后保存原文件，表格始终原样', async () => {
+    const { convertOfficeToPdf } = await import('../services/office-pdf')
+    const docx = Buffer.from('synthetic docx bytes')
+    const converted = await upload(docx, '周报.docx', 'application/octet-stream')
+    expect(converted).toMatchObject({ kind: 'file', mime: 'application/pdf', filename: '周报.pdf' })
+    const row = client.db
+      .select()
+      .from(schema.attachments)
+      .where(eq(schema.attachments.id, converted.id))
+      .get()!
+    const stored = readFileSync(row.storagePath)
+    expect(row.storagePath).toMatch(/\.pdf$/)
+    expect(stored.toString()).toBe('%PDF-1.7 synthetic')
+    expect(converted.byteSize).toBe(stored.length)
+    expect(row.sha256).toBe(createHash('sha256').update(stored).digest('hex'))
+
+    const slides = await upload(Buffer.from('synthetic ppt bytes'), 'deck.ppt', '')
+    expect(slides).toMatchObject({ mime: 'application/pdf', filename: 'deck.pdf' })
+
+    vi.mocked(convertOfficeToPdf).mockClear()
+    const sheet = await upload(Buffer.from('synthetic xlsx bytes'), 'data.xlsx', '')
+    expect(sheet.filename).toBe('data.xlsx')
+
+    const update = await app.request('/api/auth/settings', {
+      method: 'PUT',
+      headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ preferences: { convertOfficeToPdf: false } }),
+    })
+    expect(update.status).toBe(200)
+    const original = await upload(docx, '周报.docx', '')
+    expect(original).toMatchObject({
+      mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      filename: '周报.docx',
+      byteSize: docx.length,
+    })
+    expect(convertOfficeToPdf).not.toHaveBeenCalled()
   })
 
   it('普通文件继续原样上传', async () => {

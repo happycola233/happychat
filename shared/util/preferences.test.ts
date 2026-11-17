@@ -10,6 +10,7 @@ describe('mergePreferences', () => {
         generatedImages: { mode: 'items', limit: 12 },
       },
       compressUploadedImages: true,
+      convertOfficeToPdf: true,
       autoScrollOnOpen: true,
       showScrollToBottom: true,
       showTimelineNav: true,
@@ -38,6 +39,11 @@ describe('mergePreferences', () => {
   it('旧账号默认压缩新上传图片，并保留用户关闭的选择', () => {
     expect(mergePreferences({ showMessageTime: false }).compressUploadedImages).toBe(true)
     expect(mergePreferences({ compressUploadedImages: false }).compressUploadedImages).toBe(false)
+  })
+
+  it('旧账号默认把 Word / PowerPoint 转为 PDF，并保留用户关闭的选择', () => {
+    expect(mergePreferences({ showMessageTime: false }).convertOfficeToPdf).toBe(true)
+    expect(mergePreferences({ convertOfficeToPdf: false }).convertOfficeToPdf).toBe(false)
   })
 
   it('旧账号默认自动运行图表，并保留用户关闭的选择', () => {

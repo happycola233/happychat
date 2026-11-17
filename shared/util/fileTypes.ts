@@ -147,6 +147,21 @@ const SUPPORTED_EXTENSIONLESS_FILE_MIMES = new Set([
   'text/xml',
 ])
 
+/**
+ * 上传时可转为 PDF 的 Word / PowerPoint（含 97-2003 二进制格式），值为转换时写入临时文件的扩展名。
+ * 表格类文件不在其中，保持原样交给上游按表格解析。
+ */
+export const OFFICE_PDF_SOURCE_EXTENSION_BY_MIME: Readonly<Record<string, string>> = {
+  'application/msword': '.doc',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+  'application/vnd.ms-powerpoint': '.ppt',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
+}
+
+export function isOfficePdfSource(mime: string | null): boolean {
+  return mime !== null && mime in OFFICE_PDF_SOURCE_EXTENSION_BY_MIME
+}
+
 export function isImageMime(mime: string): boolean {
   return IMAGE_MIMES.has(mime)
 }

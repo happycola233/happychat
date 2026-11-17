@@ -13,6 +13,7 @@ export const userPreferencesPatchSchema = z
   .object({
     contextPolicy: contextPolicySchema,
     compressUploadedImages: z.boolean(),
+    convertOfficeToPdf: z.boolean(),
     autoScrollOnOpen: z.boolean(),
     showScrollToBottom: z.boolean(),
     showTimelineNav: z.boolean(),

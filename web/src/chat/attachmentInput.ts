@@ -1,10 +1,20 @@
 import type { ModelKind } from '@shared/types/domain'
-import { isImageMime, isSupportedFileInputMime, uploadMime } from '@shared/util/fileTypes'
+import {
+  isImageMime,
+  isOfficePdfSource,
+  isSupportedFileInputMime,
+  uploadMime,
+} from '@shared/util/fileTypes'
 
 export interface AttachmentInputSupport {
   canImage?: boolean
   canFile?: boolean
   modelKind?: ModelKind
+  /**
+   * 仅在上传前校验时传入：开启「Word 与 PowerPoint 转为 PDF」后，这些文件落盘即为 PDF。
+   * 已上传的附件按实际保存的格式校验，转换失败而保留原格式的文件仍会被拦下。
+   */
+  convertsOfficeToPdf?: boolean
 }
 
 interface AttachmentInput {
@@ -16,7 +26,7 @@ interface AttachmentInput {
 /** 上传和发送前共用同一判断；切换模型后保留草稿，由用户移除附件或切回模型。 */
 export function attachmentInputError(
   attachment: AttachmentInput,
-  { canImage, canFile, modelKind }: AttachmentInputSupport,
+  { canImage, canFile, modelKind, convertsOfficeToPdf }: AttachmentInputSupport,
 ): string | null {
   const mime = uploadMime(attachment.filename, attachment.mime ?? '')
   const isImage =
@@ -28,7 +38,11 @@ export function attachmentInputError(
     return mime && isImageMime(mime) ? null : '图片格式不支持，请使用 PNG、JPEG、GIF 或 WebP'
   }
   if (!canFile) return '当前模型不支持文件输入，请移除文件或切换模型'
-  if (modelKind === 'anthropic' && !isSupportedFileInputMime(mime, modelKind)) {
+  if (
+    modelKind === 'anthropic' &&
+    !isSupportedFileInputMime(mime, modelKind) &&
+    !(convertsOfficeToPdf && isOfficePdfSource(mime))
+  ) {
     return `当前模型仅支持 PDF 与纯文本文件，请转换格式或切换模型：${attachment.filename}`
   }
   if (!mime) return `文件格式不支持：${attachment.filename}`

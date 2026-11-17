@@ -22,15 +22,17 @@ describe('updateProfileSchema', () => {
 })
 
 describe('updateSettingsSchema', () => {
-  it('允许单独开关图片压缩，并拒绝非布尔值', () => {
-    for (const compressUploadedImages of [true, false]) {
-      expect(updateSettingsSchema.parse({ preferences: { compressUploadedImages } })).toEqual({
-        preferences: { compressUploadedImages },
-      })
+  it('允许单独开关图片压缩与文档转 PDF，并拒绝非布尔值', () => {
+    for (const key of ['compressUploadedImages', 'convertOfficeToPdf'] as const) {
+      for (const enabled of [true, false]) {
+        expect(updateSettingsSchema.parse({ preferences: { [key]: enabled } })).toEqual({
+          preferences: { [key]: enabled },
+        })
+      }
+      expect(updateSettingsSchema.safeParse({ preferences: { [key]: 'false' } }).success).toBe(
+        false,
+      )
     }
-    expect(
-      updateSettingsSchema.safeParse({ preferences: { compressUploadedImages: 'false' } }).success,
-    ).toBe(false)
   })
   it('接受左右导航位置，拒绝未知位置', () => {
     for (const timelineNavPosition of ['left', 'right']) {

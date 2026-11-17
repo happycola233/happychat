@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { and, eq } from 'drizzle-orm'
-import { isImageMime, uploadMime } from '@shared/util/fileTypes'
+import { isImageMime, isOfficePdfSource, uploadMime } from '@shared/util/fileTypes'
 import { db } from '../db/client'
 import { attachments } from '../db/schema'
 import { requireUser } from '../auth/middleware'
@@ -8,12 +8,27 @@ import { newId } from '../lib/id'
 import { readUpload, removeUploadStrict, saveUpload, sha256 } from '../storage/files'
 import type { AppEnv } from '../http/types'
 import { attachmentSecurityHeaders } from '../http/attachment-headers'
+import type { UploadContent } from '../lib/upload-content'
 import { getUserSettings } from '../services/settings'
 import { compressChatImage } from '../services/image-compression'
+import { convertOfficeToPdf } from '../services/office-pdf'
 
 export const attachmentRoutes = new Hono<AppEnv>()
 
 attachmentRoutes.use('*', requireUser)
+
+/** 按账户偏好在落盘前做一次可选转换：图片压缩为 WebP，Word / PowerPoint 转为 PDF。 */
+async function applyUploadPreferences(
+  userId: string,
+  upload: UploadContent,
+): Promise<UploadContent> {
+  const isImage = isImageMime(upload.mime)
+  // 其他文件无需转换，也就不必读取偏好。
+  if (!isImage && !isOfficePdfSource(upload.mime)) return upload
+  const { preferences } = await getUserSettings(userId)
+  if (isImage) return preferences.compressUploadedImages ? compressChatImage(upload) : upload
+  return preferences.convertOfficeToPdf ? convertOfficeToPdf(upload) : upload
+}
 
 attachmentRoutes.post('/', async (c) => {
   const user = c.get('user')
@@ -42,16 +57,11 @@ attachmentRoutes.post('/', async (c) => {
     return c.json({ error: { message: '文件为空', code: 'empty' } }, 400)
   }
 
-  const originalUpload = {
+  const { buffer, filename, mime } = await applyUploadPreferences(user.id, {
     buffer: Buffer.from(await file.arrayBuffer()),
     filename: originalFilename,
     mime: originalMime,
-  }
-  const upload =
-    kind === 'image' && (await getUserSettings(user.id)).preferences.compressUploadedImages
-      ? await compressChatImage(originalUpload)
-      : originalUpload
-  const { buffer, filename, mime } = upload
+  })
   const id = newId()
   const storagePath = saveUpload(user.id, id, filename, mime, buffer)
 

@@ -55,7 +55,8 @@ _浅色 / 深色 / 跟随系统 · 七种可选重点色 · 全界面简体中�
 - **对话分支**：编辑消息不会覆盖原内容，而是在该位置创建子分支，可随时在 `‹ 1/2 ›` 间切换；还能一键把「根消息 → 当前助手消息」整条链路复制为独立新对话
 - **上下文优化与附件清单**：聊天顶栏可分别控制历史轮数、上传附件与模型生成图，支持按轮整组保留、按个数、全部或不携带；生成图数量可超过初始的 12 张。附件面板展示所有分支的图片和文件，支持搜索、预览、整组或逐项勾选，并实时展示下次携带数量与文件大小。手动调整只用于下一次发送，失败后保留以便重试；新聊天默认值只保存规则，不保存手选附件。管理员可在「系统设置 → 常用设置」配置长对话提醒开关与阈值（默认 100,000 个输入 Token，即 100K）；当前分支上次请求返回的实际输入量超过阈值时，在右上角上下文按钮旁提示用量及优化作用（包含模型计入的图片和文件，重试/续跑取最近一次输入），可直接打开面板，不会自动裁剪历史。
 - **现代输入体验**：桌面端新对话输入框居中 + 重点色光晕，发出首条消息后平滑落底；单行 ⇄ 多行自适应、行扩展动画保证输入文字全程可见；图片 / 文件上传聚合进「＋」菜单，选择、拖拽或粘贴时按当前模型过滤不支持的格式，混合选择仍保留可上传文件，编辑消息同样适用；顶栏为模糊交叉渐变悬浮层
-- **图片压缩**：默认对新上传的聊天图片进行高质量 WebP 压缩，保持原始分辨率与透明通道，减小附件和发送给模型的请求体。在「设置 → 通用 → 图片上传」可关闭并上传原图；动图、无法处理或节省不足 5% 的图片保留原件，已有附件不变。
+- **图片压缩**：默认对新上传的聊天图片进行高质量 WebP 压缩，保持原始分辨率与透明通道，减小附件和发送给模型的请求体。在「设置 → 通用 → 附件上传」可关闭并上传原图；动图、无法处理或节省不足 5% 的图片保留原件，已有附件不变。
+- **Word / PowerPoint 转 PDF**：默认把新上传的 doc、docx、ppt、pptx 在服务器上用 LibreOffice 转为 PDF 再发送。模型对 Office 文件只能读到文字，PDF 则同时提供文字与每页画面，能看懂排版、图表和幻灯片设计；Anthropic 模型也因此可以直接使用这些文档。画面会显著增加输入 Token（实测 31 页课件约 1.3 万 → 11 万），可在「设置 → 通用 → 附件上传」关闭；表格文件不转换，转换失败时保留原文件。服务器需一次性安装 LibreOffice 与字体，见[生产部署](#word--powerpoint-转-pdf)。
 - **消息时间轴导航**（桌面端）：聊天边缘细刻度随滚动以三条深色横线标记当前位置（默认右侧，可切换至左侧），悬停只预览对应一轮的提问和 Markdown 回复，点击快速跳转；预览右上角可收藏，收藏刻度加深并带小圆点，刷新后保留；可在设置中关闭
 - **聊天文件夹与批量管理**：一键新建文件夹归类聊天；文件夹支持自定义颜色（12 色柔和浅色预设 + 自定义取色）与 Emoji 图标（支持中文搜索的表情选择器，数据自托管、不依赖公网 CDN）、可置顶、展开状态记忆；批量模式下多选删除 / 移动；删除文件夹不删聊天
 - **完整 Markdown 渲染**：Markdown 图片、GFM 表格、GitHub Alerts、LaTeX 公式（KaTeX）、代码高亮 + 一键复制（长代码块滚动时复制按钮始终可见）、CJK 友好强调语法（粗体 / 斜体 / 删除线以中日韩标点结尾后可紧跟正文），且仅放行小范围安全 HTML
@@ -267,6 +268,7 @@ NODE_ENV=production npm run start
 git clone https://github.com/happycola233/happychat && cd happychat
 npm ci
 npm run build
+sudo bash scripts/setup-office-pdf.sh   # Word / PowerPoint 转 PDF 所需的 LibreOffice 与字体，见下文
 
 # .env（生产）
 cat > .env <<'EOF'
@@ -299,6 +301,40 @@ EnvironmentFile=/opt/happychat/.env
 [Install]
 WantedBy=multi-user.target
 ```
+
+### Word / PowerPoint 转 PDF
+
+上传的 doc、docx、ppt、pptx 由服务器上的 LibreOffice 转为 PDF。首次部署或从旧版本升级后，在项目目录执行一次（Ubuntu 22.04 / 24.04，可重复执行）：
+
+```bash
+sudo bash scripts/setup-office-pdf.sh
+sudo systemctl restart happychat
+journalctl -u happychat -n 50 | grep 文档转    # 应看到「文档转 PDF 已就绪：LibreOffice 26.x」
+```
+
+脚本会从 LibreOffice 官方 PPA 安装最新稳定版（只装无图形界面的 Writer / Impress / Math 组件），并安装中文与微软兼容字体：Calibri、Cambria、Arial、Times New Roman 由同宽度的开源字体替代，换行与分页基本不变；微软雅黑、宋体、等线、楷体等中文字体回退到风格相近的思源黑体 / 思源宋体 / 文鼎楷体，字形与行距会有差异，幻灯片中排得很满的文本框可能溢出。
+
+想让转换效果与 Office 一致，可把自己 Windows 电脑上的字体一并装到服务器（请确认符合字体授权）：
+
+```powershell
+# 在 Windows 电脑上执行：收集常用的中文与 Office 字体（约 170 MB）
+$names = 'msyh*.ttc','simsun.ttc','simhei.ttf','simkai.ttf','simfang.ttf','Deng*.ttf','calibri*.ttf','cambria*.tt?','arial*.ttf','times*.ttf','cour*.ttf','consola*.ttf','segoeui*.ttf','symbol.ttf','wingding.ttf','webdings.ttf','georgia*.ttf','verdana*.ttf','tahoma*.ttf'
+New-Item -ItemType Directory -Force office-fonts | Out-Null
+foreach ($n in $names) { Copy-Item "C:\Windows\Fonts\$n" office-fonts\ -ErrorAction SilentlyContinue }
+scp -r office-fonts <用户>@<服务器>:/tmp/
+```
+
+```bash
+# 在服务器上执行：带上字体目录重新运行脚本
+sudo bash scripts/setup-office-pdf.sh /tmp/office-fonts
+sudo systemctl restart happychat
+```
+
+脚本结尾会列出各字体实际使用的字体，例如 `微软雅黑 → Microsoft YaHei` 表示已使用原字体。
+
+- 转换在上传时进行，同一时间只运行一个 LibreOffice 进程（大型演示文稿峰值内存可达数百 MB）；几十 MB 的课件通常需要十几到几十秒，超过 3 分钟或转换失败时保留原文件。
+- LibreOffice 不在 PATH 中时，用 `.env` 的 `LIBREOFFICE_PATH` 指定 `soffice` 路径。未安装时上传照常进行，只是不转换，并在启动日志中提示。
+- 用户可在「设置 → 通用 → 附件上传」关闭转换。PDF 会把每页画面一起发给模型，输入 Token 明显增加（实测 31 页课件约 1.3 万 → 11 万）。
 
 ### nginx 反向代理
 
@@ -390,7 +426,7 @@ location = /maintenance.html {
 - **本地上下文重放**：按聊天的保留规则选取当前分支历史，再读取附件并构建请求（OpenAI 路径的 `store` 默认 false，不依赖 `previous_response_id`）。规则只影响请求，不删除历史或原文件；手选其他分支附件只带入文件，不恢复那条分支的文字。Responses 私有 reasoning item 单轮超过 256KB 时放弃保存；Anthropic 原样保存完整 assistant content blocks。只有保留轮次内、Provider / Base URL / 上游模型 id 完全匹配的私有上下文才注入；同一轮的 `pause_turn` 续跑由引擎直接处理。
 - **进程内续传**：续传基于进程内 RunManager + `run_events` 持久化；进程重启会把未完成的生成标记为「已中断」。这是用「无 worker / 无 Redis」换来的简单性。
 - **费用按请求汇率结算，金额额度事后判定**：先选计费时段，再按单次输入总量选上下文档位，保存原币费用与美元 / 人民币折算金额；重试和续跑分别选档。没有汇率快照的旧美元记录使用首次持久化的固定汇率，页面可查看此基准。汇率服务失败时沿用最近成功值；首次无汇率时人民币计价或人民币额度请求在调用模型前提示重试。额度从用量日志聚合，不维护计数器；金额额度响应结束后才知道真实费用，剩余额度很少时仍可能放行一次并超支。请求次数额度包含在途任务。
-- **附件内联 base64**：跳过 Files API，只有本次选中的附件才读盘并内联发送。不在应用里固化上游的文件大小或请求体容量上限，上游拒绝时显示错误，用户可调整携带内容。仍校验附件归属、可读取性、模型能力和协议支持的内容类型；Anthropic 图片支持 PNG/JPEG/GIF/WEBP，文件支持 PDF 与纯文本（含 Markdown、CSV、代码，不含 RTF），Office 文件需先转换。该限制已于 2026-10-07 核对 [Anthropic 官方文件文档](https://platform.claude.com/docs/en/build-with-claude/files#working-with-other-file-formats)。面板中的大小是原文件合计，不是编码后请求体大小。
+- **附件内联 base64**：跳过 Files API，只有本次选中的附件才读盘并内联发送。不在应用里固化上游的文件大小或请求体容量上限，上游拒绝时显示错误，用户可调整携带内容。仍校验附件归属、可读取性、模型能力和协议支持的内容类型；Anthropic 图片支持 PNG/JPEG/GIF/WEBP，文件支持 PDF 与纯文本（含 Markdown、CSV、代码，不含 RTF）；Word / PowerPoint 在开启转 PDF 时上传即转换，表格等其他 Office 文件仍需自行转换。该限制已于 2026-10-07 核对 [Anthropic 官方文件文档](https://platform.claude.com/docs/en/build-with-claude/files#working-with-other-file-formats)。面板中的大小是原文件合计，不是编码后请求体大小。
 
 ---
 

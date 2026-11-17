@@ -608,6 +608,8 @@ export interface UserPreferences {
   // —— 聊天行为 ——
   /** 上传时压缩聊天图片，保留原始分辨率，默认开启。 */
   compressUploadedImages: boolean
+  /** 上传时把 Word / PowerPoint（doc、docx、ppt、pptx）转为 PDF，让模型同时读到文字与页面画面，默认开启。 */
+  convertOfficeToPdf: boolean
   /** 打开对话时自动滚动到最新消息 */
   autoScrollOnOpen: boolean
   /** 显示「滚动到底部」浮动按钮 */

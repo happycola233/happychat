@@ -152,7 +152,8 @@ export function FileAttachmentCard({
               />
             </div>
             <span className="shrink-0 text-[11px] leading-none text-neutral-400 tabular-nums">
-              {percent}%
+              {/* 字节已全部发出但服务端尚未返回：文档转 PDF 等处理可能持续数秒到数十秒。 */}
+              {percent >= 100 ? '处理中' : `${percent}%`}
             </span>
           </div>
         ) : status === 'error' ? (

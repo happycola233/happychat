@@ -374,11 +374,16 @@ function GeneralPanel() {
         />
       </SettingsSection>
 
-      <SettingsSection title="图片上传">
+      <SettingsSection title="附件上传">
         <PrefToggleRow
           prefKey="compressUploadedImages"
           title="压缩上传图片"
           desc="保持原始分辨率，以轻微、通常难以察觉的有损压缩减小文件体积，降低请求过大导致发送失败的可能。仅对新上传的图片生效，关闭后上传原图。"
+        />
+        <PrefToggleRow
+          prefKey="convertOfficeToPdf"
+          title="将 Word 与 PowerPoint 转为 PDF"
+          desc="上传 doc、docx、ppt、pptx 文件时自动转为 PDF，模型能同时看到文字与每页的实际画面，包括排版、图表和幻灯片设计。页面画面会占用更多 Token。仅对新上传的文件生效，关闭后上传原文件，模型只读取其中的文字。"
         />
       </SettingsSection>
 

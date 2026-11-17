@@ -17,6 +17,8 @@ const schema = z.object({
     .transform((value) => value.toLowerCase())
     .default(''),
   TRUSTED_PROXY_HOPS: z.coerce.number().int().nonnegative().default(0),
+  // Word / PowerPoint 转 PDF 使用的 LibreOffice 可执行文件；留空时按平台默认位置查找。
+  LIBREOFFICE_PATH: z.string().trim().default(''),
 })
 
 function loadEnv() {

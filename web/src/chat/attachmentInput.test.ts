@@ -19,6 +19,20 @@ describe('attachment input validation', () => {
     ).toEqual(['notes.md', 'table.csv', 'report.pdf'])
   })
 
+  it('开启转 PDF 时允许上传 Word / PowerPoint，表格与已上传的原格式附件仍拦下', () => {
+    const converting = { ...anthropic, convertsOfficeToPdf: true }
+    for (const filename of ['report.doc', 'report.DOCX', 'slides.ppt', 'slides.pptx']) {
+      expect(attachmentInputError({ filename, mime: '' }, converting)).toBeNull()
+    }
+    expect(attachmentInputError({ filename: 'sheet.xlsx', mime: '' }, converting)).toContain(
+      'PDF 与纯文本',
+    )
+    // 发送前校验不传 convertsOfficeToPdf：转换失败而保留的原格式附件不能发给 Anthropic。
+    expect(
+      attachmentInputError({ filename: 'report.docx', mime: '', kind: 'file' }, anthropic),
+    ).toContain('PDF 与纯文本')
+  })
+
   it('uses the current protocol when validating a retained draft or retry', () => {
     const file = { filename: 'report.docx', mime: null, kind: 'file' as const }
     expect(attachmentInputError(file, { ...anthropic, modelKind: 'responses' })).toBeNull()

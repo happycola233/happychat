@@ -1,5 +1,25 @@
 import { describe, expect, it } from 'vitest'
-import { fileInputMime, fileUploadAccept, isSupportedFileInputMime, uploadMime } from './fileTypes'
+import {
+  fileInputMime,
+  fileUploadAccept,
+  isOfficePdfSource,
+  isSupportedFileInputMime,
+  uploadMime,
+} from './fileTypes'
+
+describe('isOfficePdfSource', () => {
+  it.each(['doc', 'DOCX', 'ppt', 'pptx'])('转换 .%s', (ext) => {
+    expect(isOfficePdfSource(uploadMime(`example.${ext}`, ''))).toBe(true)
+  })
+
+  it.each(['xlsx', 'xls', 'csv', 'pdf', 'txt', 'png'])('.%s 保持原样', (ext) => {
+    expect(isOfficePdfSource(uploadMime(`example.${ext}`, ''))).toBe(false)
+  })
+
+  it('无法识别的文件不转换', () => {
+    expect(isOfficePdfSource(null)).toBe(false)
+  })
+})
 
 describe('file input MIME normalization', () => {
   it('normalizes generic .log uploads to the supported text/plain MIME', () => {

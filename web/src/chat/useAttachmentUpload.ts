@@ -3,6 +3,7 @@ import type { AttachmentDTO } from '@shared/types/api'
 import { isImageMime, uploadMime } from '@shared/util/fileTypes'
 import { isUploadAbortError, uploadAttachment } from '../api/attachments'
 import { createRandomUuid } from '../lib/randomUuid'
+import { useSettings } from '../store/settings'
 import { toast } from '../store/toast'
 import { attachmentInputError, type AttachmentInputSupport } from './attachmentInput'
 import {
@@ -33,6 +34,7 @@ interface UploadTask {
 export function useAttachmentUpload({ canImage, canFile, modelKind }: AttachmentInputSupport) {
   const [uploads, setUploads] = useState<UploadDraftItem[]>([])
   const tasksRef = useRef(new Map<string, UploadTask>())
+  const convertsOfficeToPdf = useSettings((s) => s.preferences.convertOfficeToPdf)
 
   const runUpload = useCallback((localId: string, file: File) => {
     const controller = new AbortController()
@@ -62,7 +64,7 @@ export function useAttachmentUpload({ canImage, canFile, modelKind }: Attachment
       const supported = files.filter((file) => {
         const error = attachmentInputError(
           { filename: file.name, mime: file.type },
-          { canImage, canFile, modelKind },
+          { canImage, canFile, modelKind, convertsOfficeToPdf },
         )
         if (error) errors.add(error)
         return !error
@@ -81,7 +83,7 @@ export function useAttachmentUpload({ canImage, canFile, modelKind }: Attachment
         runUpload(localId, file)
       }
     },
-    [canFile, canImage, modelKind, runUpload],
+    [canFile, canImage, modelKind, convertsOfficeToPdf, runUpload],
   )
 
   const removeUpload = useCallback((localId: string) => {
@@ -102,7 +104,7 @@ export function useAttachmentUpload({ canImage, canFile, modelKind }: Attachment
       if (!task) return
       const error = attachmentInputError(
         { filename: task.file.name, mime: task.file.type },
-        { canImage, canFile, modelKind },
+        { canImage, canFile, modelKind, convertsOfficeToPdf },
       )
       if (error) {
         toast.error(error)
@@ -111,7 +113,7 @@ export function useAttachmentUpload({ canImage, canFile, modelKind }: Attachment
       setUploads((items) => restartUploadDraft(items, localId))
       runUpload(localId, task.file)
     },
-    [canImage, canFile, modelKind, runUpload],
+    [canImage, canFile, modelKind, convertsOfficeToPdf, runUpload],
   )
 
   /** 发送成功后清空列表（正常路径此刻全部 done，中止/释放只是兜底）。 */

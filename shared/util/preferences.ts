@@ -27,6 +27,7 @@ export const MODEL_PICKER_VIEWS = ['flat', 'tree'] as const satisfies readonly M
 export const DEFAULT_PREFERENCES: UserPreferences = {
   contextPolicy: DEFAULT_CONTEXT_POLICY,
   compressUploadedImages: true,
+  convertOfficeToPdf: true,
   autoScrollOnOpen: true,
   showScrollToBottom: true,
   showTimelineNav: true,
@@ -74,6 +75,7 @@ export function mergePreferences(
     contextPolicy: partial?.contextPolicy ?? DEFAULT_CONTEXT_POLICY,
     compressUploadedImages:
       partial?.compressUploadedImages ?? DEFAULT_PREFERENCES.compressUploadedImages,
+    convertOfficeToPdf: partial?.convertOfficeToPdf ?? DEFAULT_PREFERENCES.convertOfficeToPdf,
     autoScrollOnOpen: partial?.autoScrollOnOpen ?? DEFAULT_PREFERENCES.autoScrollOnOpen,
     showScrollToBottom: partial?.showScrollToBottom ?? DEFAULT_PREFERENCES.showScrollToBottom,
     showTimelineNav: partial?.showTimelineNav ?? DEFAULT_PREFERENCES.showTimelineNav,
