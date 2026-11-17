@@ -6,6 +6,7 @@ import {
   canSubmitAttachmentDraft,
   removeAttachmentDraft,
   toAttachmentRefs,
+  userContentFromDraft,
 } from './attachmentDraft'
 
 describe('attachment draft helpers', () => {
@@ -73,5 +74,37 @@ describe('attachment draft helpers', () => {
 
     expect(canSubmitAttachmentDraft('', drafts)).toBe(true)
     expect(canSubmitAttachmentDraft('   ', [])).toBe(false)
+  })
+
+  it('builds pending user content in the same order the server stores it', () => {
+    const content = userContentFromDraft(
+      '对比这几份',
+      [
+        { id: 'source', kind: 'image', mime: 'image/png', filename: 'a.png', byteSize: 10 },
+        { id: 'photo', kind: 'image', mime: 'image/webp', filename: 'b.webp', byteSize: 20 },
+        {
+          id: 'doc',
+          kind: 'file',
+          mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          filename: '讲义.docx',
+          byteSize: 30,
+        },
+      ],
+      ['source'],
+    )
+
+    expect(content).toEqual([
+      { type: 'input_text', text: '对比这几份' },
+      { type: 'input_image', attachment_id: 'source' },
+      { type: 'input_image', attachment_id: 'photo' },
+      {
+        type: 'input_file',
+        attachment_id: 'doc',
+        filename: '讲义.docx',
+        mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        byte_size: 30,
+      },
+    ])
+    expect(userContentFromDraft('  ', [], [])).toEqual([])
   })
 })

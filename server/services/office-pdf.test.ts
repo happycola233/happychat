@@ -30,19 +30,19 @@ afterEach(() => {
 })
 
 describe('convertOfficeToPdf', () => {
-  it('找不到 LibreOffice 时保留原文件，不阻断上传', async () => {
+  it('找不到 LibreOffice 时返回 null，由调用方保留原文件', async () => {
     vi.stubEnv('LIBREOFFICE_PATH', 'missing-libreoffice-for-test')
     vi.resetModules()
     const isolated = await import('./office-pdf')
     vi.spyOn(console, 'error').mockImplementation(() => {})
     const upload = { buffer: syntheticDocx(), filename: '报告.docx', mime: DOCX_MIME }
-    expect(await isolated.convertOfficeToPdf(upload)).toBe(upload)
+    expect(await isolated.convertOfficeToPdf(upload)).toBeNull()
     expect(await isolated.libreOfficeVersion()).toBeNull()
   })
 
-  it('非 Word / PowerPoint 文件直接返回原对象', async () => {
+  it('非 Word / PowerPoint 文件不转换', async () => {
     const upload = { buffer: Buffer.from('a,b'), filename: 'data.csv', mime: 'text/csv' }
-    expect(await convertOfficeToPdf(upload)).toBe(upload)
+    expect(await convertOfficeToPdf(upload)).toBeNull()
   })
 
   it.skipIf(!installedVersion)(
@@ -54,7 +54,7 @@ describe('convertOfficeToPdf', () => {
         mime: DOCX_MIME,
       })
       expect(converted).toMatchObject({ filename: '季度 报告.final.pdf', mime: 'application/pdf' })
-      expect(converted.buffer.subarray(0, 5).toString('latin1')).toBe('%PDF-')
+      expect(converted!.buffer.subarray(0, 5).toString('latin1')).toBe('%PDF-')
     },
     120_000,
   )
@@ -68,7 +68,7 @@ describe('convertOfficeToPdf', () => {
         mime: 'application/msword',
       })
       expect(converted).toMatchObject({ filename: 'legacy.pdf', mime: 'application/pdf' })
-      expect(converted.buffer.subarray(0, 5).toString('latin1')).toBe('%PDF-')
+      expect(converted!.buffer.subarray(0, 5).toString('latin1')).toBe('%PDF-')
     },
     120_000,
   )

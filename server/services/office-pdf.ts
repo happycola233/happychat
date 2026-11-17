@@ -70,12 +70,12 @@ function runLibreOffice(args: string[], timeoutMs: number): Promise<string> {
 }
 
 /**
- * 只在上传时转换一次，之后上下文重放与下载都直接读取落盘的 PDF。
- * 转换失败（未安装 LibreOffice、文件损坏或加密、超时）时保留原文件，上游仍可读取其中文字。
+ * 把 Word / PowerPoint 转为 PDF；非这四种格式或转换失败（未安装 LibreOffice、文件损坏或加密、超时）
+ * 时返回 null，调用方保留原文件，上游仍可读取其中文字。
  */
-export async function convertOfficeToPdf(upload: UploadContent): Promise<UploadContent> {
+export async function convertOfficeToPdf(upload: UploadContent): Promise<UploadContent | null> {
   const extension = OFFICE_PDF_SOURCE_EXTENSION_BY_MIME[upload.mime]
-  if (!extension) return upload
+  if (!extension) return null
 
   return runConversion(async () => {
     const workDir = await mkdtemp(join(tmpdir(), 'happychat-office-'))
@@ -113,7 +113,7 @@ export async function convertOfficeToPdf(upload: UploadContent): Promise<UploadC
         `文档转 PDF 失败，保留原文件（${upload.mime}，${upload.buffer.length} 字节）：`,
         error instanceof Error ? error.message : error,
       )
-      return upload
+      return null
     } finally {
       // Windows 上 soffice.bin 可能在启动器退出后短暂占用文件，给删除留出重试余地。
       await rm(workDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })

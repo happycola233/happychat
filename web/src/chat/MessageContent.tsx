@@ -1,17 +1,15 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { clsx } from 'clsx'
 import { ChevronDown } from 'lucide-react'
-import {
-  getUserMessageEditVisibleHeight,
-  USER_MESSAGE_TEXT_CLASS,
-} from './messageStyles'
+import type { ContentPart } from '@shared/types/domain'
+import { AttachmentParts } from './Attachments'
+import { textFromContent } from './contentText'
+import { getUserMessageEditVisibleHeight, USER_MESSAGE_TEXT_CLASS } from './messageStyles'
 
 // P4：纯文本渲染（保留换行）。助手消息走 Markdown 组件，用户消息用这里。
 export function MessageText({ text }: { text: string }) {
   return (
-    <div className={clsx(USER_MESSAGE_TEXT_CLASS, 'break-words whitespace-pre-wrap')}>
-      {text}
-    </div>
+    <div className={clsx(USER_MESSAGE_TEXT_CLASS, 'break-words whitespace-pre-wrap')}>{text}</div>
   )
 }
 
@@ -90,6 +88,37 @@ export function CollapsibleUserMessageText({ text }: { text: string }) {
           />
         </button>
       )}
+    </div>
+  )
+}
+
+/** 用户消息正文：附件在上、文字气泡在下；已入库消息与发送中的占位消息共用。 */
+export function UserMessageBody({ content }: { content: ContentPart[] }) {
+  const text = textFromContent(content)
+  const hasAttachments = content.some((p) => p.type === 'input_image' || p.type === 'input_file')
+  return (
+    <>
+      {hasAttachments && (
+        <div className="w-full max-w-[85%]">
+          <AttachmentParts content={content} align="end" />
+        </div>
+      )}
+      {text && (
+        <div className="hc-user-bubble max-w-[85%] rounded-2xl px-4 py-2.5">
+          <CollapsibleUserMessageText text={text} />
+        </div>
+      )}
+    </>
+  )
+}
+
+/** 回复尚未开始输出时的等待动画。 */
+export function PendingReplyDots() {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="h-2 w-2 animate-bounce rounded-full bg-neutral-400 [animation-delay:-0.3s]" />
+      <span className="h-2 w-2 animate-bounce rounded-full bg-neutral-400 [animation-delay:-0.15s]" />
+      <span className="h-2 w-2 animate-bounce rounded-full bg-neutral-400" />
     </div>
   )
 }

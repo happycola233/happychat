@@ -20,7 +20,7 @@ import { ImagePreviewTrigger } from './ImagePreview'
 import { AttachmentDraftList } from './AttachmentDraftList'
 import { completedUploadAttachments } from './uploadDraft'
 import { useAttachmentUpload } from './useAttachmentUpload'
-import { attachmentInputError, type AttachmentInputSupport } from './attachmentInput'
+import type { AttachmentInputSupport } from './attachmentInput'
 import { toast } from '../store/toast'
 
 /** 输入框正文最大高度（超出内部滚动）。 */
@@ -238,6 +238,7 @@ export function Composer({
     retryUpload,
     clearUploads,
     restoreAttachments,
+    attachmentError,
     uploading,
     hasFailed,
   } = useAttachmentUpload({ canImage, canFile, modelKind })
@@ -438,7 +439,7 @@ export function Composer({
   const submit = async () => {
     if (!canSubmit || draftOperationRef.current) return
     for (const attachment of readyAttachments) {
-      const error = attachmentInputError(attachment, { canImage, canFile, modelKind })
+      const error = attachmentError(attachment)
       if (error) {
         toast.error(error)
         return

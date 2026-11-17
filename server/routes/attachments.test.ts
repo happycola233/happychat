@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { createHash } from 'node:crypto'
 import { eq } from 'drizzle-orm'
@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { AttachmentDTO, UserSettingsDTO } from '@shared/types/api'
 import type { AppEnv } from '../http/types'
 
-// 路由层只验证偏好开关与落盘一致性；真实 LibreOffice 转换由 office-pdf.test.ts 覆盖。
+// 路由层只验证偏好开关、后台替换与落盘一致性；真实 LibreOffice 转换由 office-pdf.test.ts 覆盖。
 vi.mock('../services/office-pdf', async (importOriginal) => {
   const original = await importOriginal<typeof import('../services/office-pdf')>()
   return {
@@ -66,6 +66,12 @@ afterAll(() => {
   vi.unstubAllEnvs()
   if (directory) rmSync(directory, { recursive: true, force: true })
 })
+
+const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+
+function attachmentRow(id: string) {
+  return client.db.select().from(schema.attachments).where(eq(schema.attachments.id, id)).get()!
+}
 
 async function upload(buffer: Buffer, filename: string, mime: string) {
   const form = new FormData()
@@ -132,24 +138,35 @@ describe('chat attachment compression preference', () => {
     }
   })
 
-  it('Word / PowerPoint 默认转为 PDF，关闭后保存原文件，表格始终原样', async () => {
+  it('Word / PowerPoint 先保存原文件并立即返回，后台转为 PDF 后替换记录与落盘内容', async () => {
     const { convertOfficeToPdf } = await import('../services/office-pdf')
+    const { waitForAttachmentPdfConversions } =
+      await import('../services/attachment-pdf-conversion')
     const docx = Buffer.from('synthetic docx bytes')
-    const converted = await upload(docx, '周报.docx', 'application/octet-stream')
-    expect(converted).toMatchObject({ kind: 'file', mime: 'application/pdf', filename: '周报.pdf' })
-    const row = client.db
-      .select()
-      .from(schema.attachments)
-      .where(eq(schema.attachments.id, converted.id))
-      .get()!
+    const uploaded = await upload(docx, '周报.docx', 'application/octet-stream')
+    expect(uploaded).toMatchObject({ kind: 'file', mime: DOCX_MIME, filename: '周报.docx' })
+    expect(uploaded.byteSize).toBe(docx.length)
+
+    await waitForAttachmentPdfConversions([uploaded.id])
+    const row = attachmentRow(uploaded.id)
     const stored = readFileSync(row.storagePath)
+    expect(row).toMatchObject({ filename: '周报.pdf', mime: 'application/pdf' })
     expect(row.storagePath).toMatch(/\.pdf$/)
     expect(stored.toString()).toBe('%PDF-1.7 synthetic')
-    expect(converted.byteSize).toBe(stored.length)
+    expect(row.byteSize).toBe(stored.length)
     expect(row.sha256).toBe(createHash('sha256').update(stored).digest('hex'))
+    expect(existsSync(row.storagePath.replace(/\.pdf$/, '.docx'))).toBe(false)
+    const download = await app.request(`/api/attachments/${uploaded.id}`, {
+      headers: { Cookie: cookie },
+    })
+    expect(download.headers.get('content-type')).toBe('application/pdf')
 
     const slides = await upload(Buffer.from('synthetic ppt bytes'), 'deck.ppt', '')
-    expect(slides).toMatchObject({ mime: 'application/pdf', filename: 'deck.pdf' })
+    await waitForAttachmentPdfConversions([slides.id])
+    expect(attachmentRow(slides.id)).toMatchObject({
+      mime: 'application/pdf',
+      filename: 'deck.pdf',
+    })
 
     vi.mocked(convertOfficeToPdf).mockClear()
     const sheet = await upload(Buffer.from('synthetic xlsx bytes'), 'data.xlsx', '')
@@ -163,11 +180,49 @@ describe('chat attachment compression preference', () => {
     expect(update.status).toBe(200)
     const original = await upload(docx, '周报.docx', '')
     expect(original).toMatchObject({
-      mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      mime: DOCX_MIME,
       filename: '周报.docx',
       byteSize: docx.length,
     })
     expect(convertOfficeToPdf).not.toHaveBeenCalled()
+
+    await app.request('/api/auth/settings', {
+      method: 'PUT',
+      headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ preferences: { convertOfficeToPdf: true } }),
+    })
+  })
+
+  it('转换失败时保留原文件；转换期间附件被删除时丢弃生成的 PDF', async () => {
+    const { convertOfficeToPdf } = await import('../services/office-pdf')
+    const { waitForAttachmentPdfConversions } =
+      await import('../services/attachment-pdf-conversion')
+    const docx = Buffer.from('synthetic docx bytes')
+    vi.mocked(convertOfficeToPdf).mockResolvedValueOnce(null)
+    const failed = await upload(docx, '失败.docx', '')
+    await waitForAttachmentPdfConversions([failed.id])
+    const failedRow = attachmentRow(failed.id)
+    expect(failedRow).toMatchObject({ mime: DOCX_MIME, filename: '失败.docx' })
+    expect(readFileSync(failedRow.storagePath)).toEqual(docx)
+
+    let finishConversion!: () => void
+    vi.mocked(convertOfficeToPdf).mockImplementationOnce(
+      (source) =>
+        new Promise((resolve) => {
+          finishConversion = () =>
+            resolve({
+              buffer: Buffer.from('%PDF-1.7 synthetic'),
+              filename: source.filename.replace(/\.[^.]+$/, '.pdf'),
+              mime: 'application/pdf',
+            })
+        }),
+    )
+    const removed = await upload(docx, '删除.docx', '')
+    const removedRow = attachmentRow(removed.id)
+    client.db.delete(schema.attachments).where(eq(schema.attachments.id, removed.id)).run()
+    finishConversion()
+    await waitForAttachmentPdfConversions([removed.id])
+    expect(existsSync(removedRow.storagePath.replace(/\.docx$/, '.pdf'))).toBe(false)
   })
 
   it('普通文件继续原样上传', async () => {

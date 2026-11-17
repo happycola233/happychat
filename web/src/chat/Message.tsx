@@ -10,7 +10,7 @@ import {
 } from '../sse/eventReducer'
 import { useModels } from '../hooks/useModels'
 import { useSettings } from '../store/settings'
-import { CollapsibleUserMessageText } from './MessageContent'
+import { PendingReplyDots, UserMessageBody } from './MessageContent'
 import { textFromContent } from './contentText'
 import { Markdown } from './Markdown'
 import { ProcessTrack, type ProcessTrackStatus } from './ProcessTrack'
@@ -162,19 +162,9 @@ export function Message({
         />
       )
     }
-    const hasAtt = message.content.some((p) => p.type === 'input_image' || p.type === 'input_file')
     return (
       <div className="group flex flex-col items-end gap-1.5">
-        {hasAtt && (
-          <div className="w-full max-w-[85%]">
-            <AttachmentParts content={message.content} align="end" />
-          </div>
-        )}
-        {text && (
-          <div className="hc-user-bubble max-w-[85%] rounded-2xl px-4 py-2.5">
-            <CollapsibleUserMessageText text={text} />
-          </div>
-        )}
+        <UserMessageBody content={message.content} />
         <div className="flex items-center gap-1.5">
           <div className="flex items-center gap-1">
             {branch && branch.total > 1 && <BranchSwitch branch={branch} />}
@@ -293,11 +283,7 @@ export function Message({
           {text && <Markdown text={text} animate={streaming} />}
         </>
       ) : showPendingDots ? (
-        <div className="flex items-center gap-1.5">
-          <span className="h-2 w-2 animate-bounce rounded-full bg-neutral-400 [animation-delay:-0.3s]" />
-          <span className="h-2 w-2 animate-bounce rounded-full bg-neutral-400 [animation-delay:-0.15s]" />
-          <span className="h-2 w-2 animate-bounce rounded-full bg-neutral-400" />
-        </div>
+        <PendingReplyDots />
       ) : text ? (
         <Markdown text={text} animate={streaming} />
       ) : null}

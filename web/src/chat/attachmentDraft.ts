@@ -90,3 +90,34 @@ export function canSubmitAttachmentDraft(
 ): boolean {
   return text.trim().length > 0 || attachments.length > 0
 }
+
+/**
+ * 发送请求返回前先上屏的用户消息内容，顺序与服务端写入一致：文字、图片编辑源、其余附件。
+ * 服务端可能需要先等文档转 PDF 结束才返回，期间以此展示本次发送的文字与附件。
+ */
+export function userContentFromDraft(
+  text: string,
+  attachments: AttachmentDTO[],
+  imageSourceIds: string[],
+): ContentPart[] {
+  const content: ContentPart[] = text.trim() ? [{ type: 'input_text', text }] : []
+  const sourceIds = new Set(imageSourceIds)
+  for (const attachmentId of imageSourceIds) {
+    content.push({ type: 'input_image', attachment_id: attachmentId })
+  }
+  for (const attachment of attachments) {
+    if (attachment.kind === 'image') {
+      if (!sourceIds.has(attachment.id))
+        content.push({ type: 'input_image', attachment_id: attachment.id })
+      continue
+    }
+    content.push({
+      type: 'input_file',
+      attachment_id: attachment.id,
+      filename: attachment.filename,
+      mime: attachment.mime,
+      byte_size: attachment.byteSize,
+    })
+  }
+  return content
+}

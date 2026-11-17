@@ -8,6 +8,7 @@ import {
   withExtraContextAttachments,
 } from '@shared/util/contextPolicy'
 import { getUserSettings } from '../services/settings'
+import { waitForAttachmentPdfConversions } from '../services/attachment-pdf-conversion'
 import { renderPromptTemplate } from '@shared/util/promptTemplate'
 import { processStepsOf } from '@shared/util/processTrack'
 import { isReasoningEffortAllowed, reasoningEffortSelectionError } from '@shared/util/reasoning'
@@ -670,6 +671,9 @@ export async function prepareRun(args: PrepareArgs): Promise<PrepareResult> {
 
   const refs = args.attachments ?? []
   const sourceRefs = args.imageSources ?? []
+  // 刚上传的 Word / PowerPoint 可能仍在后台转 PDF：等它落盘后再读取附件，
+  // 之后的格式校验、消息里的文件元数据与请求体都以最终保存的格式为准。
+  await waitForAttachmentPdfConversions(refs.map((ref) => ref.attachmentId))
   const validatedAttachmentById = new Map<string, typeof attachments.$inferSelect>()
   const allImageRefIds = [
     ...refs.filter((r) => r.kind === 'image').map((r) => r.attachmentId),

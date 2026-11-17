@@ -5,7 +5,11 @@ import { isUploadAbortError, uploadAttachment } from '../api/attachments'
 import { createRandomUuid } from '../lib/randomUuid'
 import { useSettings } from '../store/settings'
 import { toast } from '../store/toast'
-import { attachmentInputError, type AttachmentInputSupport } from './attachmentInput'
+import {
+  attachmentInputError,
+  type AttachmentInput,
+  type AttachmentInputSupport,
+} from './attachmentInput'
 import {
   createUploadDraft,
   failUploadDraft,
@@ -36,6 +40,13 @@ export function useAttachmentUpload({ canImage, canFile, modelKind }: Attachment
   const tasksRef = useRef(new Map<string, UploadTask>())
   const convertsOfficeToPdf = useSettings((s) => s.preferences.convertOfficeToPdf)
 
+  /** 上传前与发送前共用的格式校验，返回首个不支持项的提示。 */
+  const attachmentError = useCallback(
+    (attachment: AttachmentInput) =>
+      attachmentInputError(attachment, { canImage, canFile, modelKind, convertsOfficeToPdf }),
+    [canImage, canFile, modelKind, convertsOfficeToPdf],
+  )
+
   const runUpload = useCallback((localId: string, file: File) => {
     const controller = new AbortController()
     const task = tasksRef.current.get(localId)
@@ -62,10 +73,7 @@ export function useAttachmentUpload({ canImage, canFile, modelKind }: Attachment
     (files: File[]) => {
       const errors = new Set<string>()
       const supported = files.filter((file) => {
-        const error = attachmentInputError(
-          { filename: file.name, mime: file.type },
-          { canImage, canFile, modelKind, convertsOfficeToPdf },
-        )
+        const error = attachmentError({ filename: file.name, mime: file.type })
         if (error) errors.add(error)
         return !error
       })
@@ -83,7 +91,7 @@ export function useAttachmentUpload({ canImage, canFile, modelKind }: Attachment
         runUpload(localId, file)
       }
     },
-    [canFile, canImage, modelKind, convertsOfficeToPdf, runUpload],
+    [attachmentError, runUpload],
   )
 
   const removeUpload = useCallback((localId: string) => {
@@ -102,10 +110,7 @@ export function useAttachmentUpload({ canImage, canFile, modelKind }: Attachment
     (localId: string) => {
       const task = tasksRef.current.get(localId)
       if (!task) return
-      const error = attachmentInputError(
-        { filename: task.file.name, mime: task.file.type },
-        { canImage, canFile, modelKind, convertsOfficeToPdf },
-      )
+      const error = attachmentError({ filename: task.file.name, mime: task.file.type })
       if (error) {
         toast.error(error)
         return
@@ -113,7 +118,7 @@ export function useAttachmentUpload({ canImage, canFile, modelKind }: Attachment
       setUploads((items) => restartUploadDraft(items, localId))
       runUpload(localId, task.file)
     },
-    [canImage, canFile, modelKind, convertsOfficeToPdf, runUpload],
+    [attachmentError, runUpload],
   )
 
   /** 发送成功后清空列表（正常路径此刻全部 done，中止/释放只是兜底）。 */
@@ -145,6 +150,7 @@ export function useAttachmentUpload({ canImage, canFile, modelKind }: Attachment
     retryUpload,
     clearUploads,
     restoreAttachments,
+    attachmentError,
     uploading: hasActiveUpload(uploads),
     hasFailed: hasFailedUpload(uploads),
   }

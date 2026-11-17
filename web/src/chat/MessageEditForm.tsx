@@ -3,7 +3,7 @@ import type { ChangeEvent, ClipboardEvent, DragEvent } from 'react'
 import { clsx } from 'clsx'
 import { fileUploadAccept, IMAGE_UPLOAD_ACCEPT } from '@shared/util/fileTypes'
 import { toast } from '../store/toast'
-import { attachmentInputError, type AttachmentInputSupport } from './attachmentInput'
+import type { AttachmentInputSupport } from './attachmentInput'
 import { AttachmentDraftList } from './AttachmentDraftList'
 import {
   attachmentDraftsFromAttachments,
@@ -62,7 +62,7 @@ export function MessageEditForm({
   }, [])
 
   // 新上传的附件选中即上屏（uploads 三态），提交时把完成项并入既有草稿。
-  const { uploads, uploadFiles, removeUpload, retryUpload, uploading, hasFailed } =
+  const { uploads, uploadFiles, removeUpload, retryUpload, attachmentError, uploading, hasFailed } =
     useAttachmentUpload({ canImage, canFile, modelKind })
   const uploadedDrafts = attachmentDraftsFromAttachments(completedUploadAttachments(uploads))
 
@@ -82,7 +82,7 @@ export function MessageEditForm({
     if (!canSubmit) return
     const readyAttachments = [...attachments, ...uploadedDrafts]
     for (const attachment of readyAttachments) {
-      const error = attachmentInputError(attachment, { canImage, canFile, modelKind })
+      const error = attachmentError(attachment)
       if (error) {
         toast.error(error)
         return

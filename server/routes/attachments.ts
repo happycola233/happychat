@@ -8,26 +8,27 @@ import { newId } from '../lib/id'
 import { readUpload, removeUploadStrict, saveUpload, sha256 } from '../storage/files'
 import type { AppEnv } from '../http/types'
 import { attachmentSecurityHeaders } from '../http/attachment-headers'
-import type { UploadContent } from '../lib/upload-content'
 import { getUserSettings } from '../services/settings'
 import { compressChatImage } from '../services/image-compression'
-import { convertOfficeToPdf } from '../services/office-pdf'
+import { convertAttachmentToPdfInBackground } from '../services/attachment-pdf-conversion'
 
 export const attachmentRoutes = new Hono<AppEnv>()
 
 attachmentRoutes.use('*', requireUser)
 
-/** 按账户偏好在落盘前做一次可选转换：图片压缩为 WebP，Word / PowerPoint 转为 PDF。 */
-async function applyUploadPreferences(
+/** 按账户偏好决定本次上传的可选转换：图片压缩为 WebP，Word / PowerPoint 转为 PDF。 */
+async function uploadConversions(
   userId: string,
-  upload: UploadContent,
-): Promise<UploadContent> {
-  const isImage = isImageMime(upload.mime)
+  mime: string,
+): Promise<{ compressImage: boolean; convertToPdf: boolean }> {
+  const isImage = isImageMime(mime)
   // 其他文件无需转换，也就不必读取偏好。
-  if (!isImage && !isOfficePdfSource(upload.mime)) return upload
+  if (!isImage && !isOfficePdfSource(mime)) return { compressImage: false, convertToPdf: false }
   const { preferences } = await getUserSettings(userId)
-  if (isImage) return preferences.compressUploadedImages ? compressChatImage(upload) : upload
-  return preferences.convertOfficeToPdf ? convertOfficeToPdf(upload) : upload
+  return {
+    compressImage: isImage && preferences.compressUploadedImages,
+    convertToPdf: !isImage && preferences.convertOfficeToPdf,
+  }
 }
 
 attachmentRoutes.post('/', async (c) => {
@@ -57,11 +58,15 @@ attachmentRoutes.post('/', async (c) => {
     return c.json({ error: { message: '文件为空', code: 'empty' } }, 400)
   }
 
-  const { buffer, filename, mime } = await applyUploadPreferences(user.id, {
+  const original = {
     buffer: Buffer.from(await file.arrayBuffer()),
     filename: originalFilename,
     mime: originalMime,
-  })
+  }
+  const { compressImage, convertToPdf } = await uploadConversions(user.id, originalMime)
+  // 图片压缩很快，在请求内完成；文档转 PDF 可能要数十秒，先保存原文件，落库后再在后台转换，
+  // 用户无需等待即可发送（发送时由 prepareRun 等待转换结束）。
+  const { buffer, filename, mime } = compressImage ? await compressChatImage(original) : original
   const id = newId()
   const storagePath = saveUpload(user.id, id, filename, mime, buffer)
 
@@ -87,6 +92,8 @@ attachmentRoutes.post('/', async (c) => {
     throw error
   }
 
+  if (convertToPdf)
+    convertAttachmentToPdfInBackground({ id, userId: user.id, storagePath }, original)
   return c.json({ attachment: { id, kind, mime, filename, byteSize: buffer.length } })
 })
 

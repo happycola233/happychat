@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
@@ -13,7 +13,12 @@ let schema: typeof import('../db/schema')
 let prepare: typeof import('./prepare')
 let conversationServices: typeof import('../services/conversations')
 let storage: typeof import('../storage/files')
+let officePdf: typeof import('../services/office-pdf')
+let pdfConversion: typeof import('../services/attachment-pdf-conversion')
 let fixtureSeq = 0
+
+// 后台转 PDF 只验证发送链路的等待与替换；真实 LibreOffice 转换由 office-pdf.test.ts 覆盖。
+vi.mock('../services/office-pdf', () => ({ convertOfficeToPdf: vi.fn() }))
 
 type PrepareModule = typeof import('./prepare')
 type PreparedRunResult = Extract<Awaited<ReturnType<PrepareModule['prepareRun']>>, { ok: true }>
@@ -37,6 +42,8 @@ beforeAll(async () => {
   prepare = await import('./prepare')
   conversationServices = await import('../services/conversations')
   storage = await import('../storage/files')
+  officePdf = await import('../services/office-pdf')
+  pdfConversion = await import('../services/attachment-pdf-conversion')
   migration.runMigrations()
 })
 
@@ -782,6 +789,72 @@ describe('prepareRun active leaf', () => {
       code: 'unsupported_file_type',
       message: expect.stringContaining('PDF 与纯文本'),
     })
+  })
+
+  it('等待后台转 PDF 落盘后再校验与写入消息，Anthropic 收到 PDF 文档', async () => {
+    const runnable = await createRunnableFileModel()
+    await dbClient.db
+      .update(schema.providers)
+      .set({ protocol: 'anthropic' })
+      .where(eq(schema.providers.id, runnable.providerId))
+    await dbClient.db
+      .update(schema.models)
+      .set({ kind: 'anthropic', defaultParams: { max_output_tokens: 1024 } })
+      .where(eq(schema.models.id, runnable.modelId))
+    const attachment = await createFileAttachment(runnable.userId, {
+      filename: '讲义.docx',
+      mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    })
+    const stored = dbClient.db
+      .select()
+      .from(schema.attachments)
+      .where(eq(schema.attachments.id, attachment.attachmentId))
+      .get()!
+    const pdf = Buffer.from('%PDF-1.7 synthetic')
+    let finishConversion!: () => void
+    vi.mocked(officePdf.convertOfficeToPdf).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishConversion = () =>
+            resolve({ buffer: pdf, filename: '讲义.pdf', mime: 'application/pdf' })
+        }),
+    )
+    pdfConversion.convertAttachmentToPdfInBackground(stored, {
+      buffer: readFileSync(stored.storagePath),
+      filename: stored.filename,
+      mime: stored.mime,
+    })
+
+    let settled = false
+    const pending = prepare
+      .prepareRun({
+        userId: runnable.userId,
+        modelId: runnable.modelId,
+        text: '总结',
+        attachments: [attachment],
+      })
+      .finally(() => {
+        settled = true
+      })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(settled).toBe(false)
+    finishConversion()
+    const result = assertPrepared(await pending)
+
+    expect(result.userMessage.content).toContainEqual({
+      type: 'input_file',
+      attachment_id: attachment.attachmentId,
+      filename: '讲义.pdf',
+      mime: 'application/pdf',
+      byte_size: pdf.length,
+    })
+    const [userTurn] = primaryBody(result).messages as { content: unknown[] }[]
+    expect(userTurn!.content).toContainEqual(
+      expect.objectContaining({
+        type: 'document',
+        source: { type: 'base64', media_type: 'application/pdf', data: pdf.toString('base64') },
+      }),
+    )
   })
 
   it('uses admin web search defaults for new runs without persisting a synthetic override', async () => {

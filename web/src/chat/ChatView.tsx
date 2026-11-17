@@ -21,7 +21,7 @@ import type {
   ConversationDTO,
   MessageDTO,
 } from '@shared/types/api'
-import type { ModelParams } from '@shared/types/domain'
+import type { ContentPart, ModelParams } from '@shared/types/domain'
 import { imageModelProfile, resolveImageOptions } from '@shared/util/imageOptions'
 import {
   effectiveReasoningEffort,
@@ -58,7 +58,7 @@ import { ArrowUpIcon } from './icons'
 import { Message } from './Message'
 import { MessageDateDivider } from './MessageDateDivider'
 import type { MessageEditSubmit } from './MessageEditForm'
-import { CollapsibleUserMessageText } from './MessageContent'
+import { PendingReplyDots, UserMessageBody } from './MessageContent'
 import { ModelControlMenu } from './ModelControlMenu'
 import { QuotaNotice } from './QuotaNotice'
 import { ModelUsageNotice } from './ModelUsageNotice'
@@ -74,7 +74,7 @@ import { AnnouncementBanner } from '../announcements/AnnouncementBanner'
 import { ConversationDocumentTitle } from './ConversationDocumentTitle'
 import { NotificationBell } from '../announcements/NotificationBell'
 import { latestGeneratedImageSource, type ImageEditSource } from './imageSource'
-import { toAttachmentRefs } from './attachmentDraft'
+import { toAttachmentRefs, userContentFromDraft } from './attachmentDraft'
 import {
   captureViewportScroll,
   restoreViewportScroll,
@@ -206,7 +206,8 @@ export default function ChatView() {
     [],
   )
   const clearStream = useStreamStore((s) => s.clear)
-  const [optimisticUser, setOptimisticUser] = useState<string | null>(null)
+  // 发送请求返回前先上屏的用户消息（文字与附件）；返回后由入库消息替换。
+  const [optimisticUserContent, setOptimisticUserContent] = useState<ContentPart[] | null>(null)
   const [imageSources, setImageSources] = useState<ImageEditSource[]>([])
   const [contextOpen, setContextOpen] = useState(false)
   const openContextSettings = useCallback(() => setContextOpen(true), [])
@@ -665,7 +666,7 @@ export default function ChatView() {
   }, [scrollToBottom])
   useEffect(() => {
     followNewContent()
-  }, [messages.length, optimisticUser, stream, followNewContent])
+  }, [messages.length, optimisticUserContent, stream, followNewContent])
 
   // 打开会话时按设置滚动到底（关闭则停留在顶部）
   useEffect(() => {
@@ -704,12 +705,12 @@ export default function ChatView() {
         useContextSelection
           .getState()
           .accept(vars.conversationId, res.runId, vars.contextAttachments)
-      setOptimisticUser(null)
+      setOptimisticUserContent(null)
       setImageSources([])
       applyRunResult(res, vars.params)
     },
     onError: (e) => {
-      setOptimisticUser(null)
+      setOptimisticUserContent(null)
       handleRunError(e, '发送失败')
     },
     onSettled: () => {
@@ -899,7 +900,12 @@ export default function ChatView() {
       }, DOCK_ANIMATION_SETTLE_MS)
     }
     shouldAutoFollowRef.current = true
-    setOptimisticUser(text || null)
+    const pendingContent = userContentFromDraft(
+      text,
+      attachments,
+      selectedImageSources.map((source) => source.attachmentId),
+    )
+    setOptimisticUserContent(pendingContent.length ? pendingContent : null)
     sendMut.mutate(input)
     return true
   }
@@ -1035,11 +1041,11 @@ export default function ChatView() {
     if (stream) void abortRun(stream.runId).catch(() => toast.error('停止失败，请重试'))
   }
 
-  const isEmpty = !optimisticUser && messages.length === 0
+  const isEmpty = !optimisticUserContent && messages.length === 0
   // 桌面端新对话：输入框与问候语居中；发出第一条消息后平滑滑至底部。
   // 落底动画进行中（dockAnimated）一律视为「非居中」：发送成功后 onSuccess 会先以紧急更新
-  // 清空 optimisticUser，而 navigate 的 id 更新走 React Router 的 startTransition（非紧急），
-  // 中间会提交一帧「id 未更新、optimisticUser 已清空」的瞬态渲染。若此时各处仍读到 hero，
+  // 清空 optimisticUserContent，而 navigate 的 id 更新走 React Router 的 startTransition（非紧急），
+  // 中间会提交一帧「id 未更新、optimisticUserContent 已清空」的瞬态渲染。若此时各处仍读到 hero，
   // 输入框/光晕/问候语/底部遮罩会一起抽回居中位再落一次（表现为「下沉被抽回去又下沉」）。
   // 把落底窗口并入判定，这一帧就稳定为落底态；dockAnimated 只由定时器摘除，不会打断整段动画。
   const heroComposer = !id && isEmpty && !isMobile && !dockAnimated
@@ -1200,12 +1206,14 @@ export default function ChatView() {
                     </div>
                   )
                 })}
-                {optimisticUser && (
-                  <div className="flex justify-end">
-                    <div className="hc-user-bubble max-w-[85%] rounded-2xl px-4 py-2.5">
-                      <CollapsibleUserMessageText text={optimisticUser} />
+                {optimisticUserContent && (
+                  <>
+                    <div className="flex flex-col items-end gap-1.5">
+                      <UserMessageBody content={optimisticUserContent} />
                     </div>
-                  </div>
+                    {/* 服务端可能在等待文档转 PDF，先给出与正式回复相同的等待动画。 */}
+                    <PendingReplyDots />
+                  </>
                 )}
               </div>
             </div>

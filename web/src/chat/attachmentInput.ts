@@ -11,13 +11,14 @@ export interface AttachmentInputSupport {
   canFile?: boolean
   modelKind?: ModelKind
   /**
-   * 仅在上传前校验时传入：开启「Word 与 PowerPoint 转为 PDF」后，这些文件落盘即为 PDF。
-   * 已上传的附件按实际保存的格式校验，转换失败而保留原格式的文件仍会被拦下。
+   * 开启「Word 与 PowerPoint 转为 PDF」后，这些文件上传后在服务端后台转为 PDF，
+   * 草稿里可能仍是原格式，上传和发送前都按 PDF 放行；服务端发送时等待转换结束并按最终格式复核，
+   * 转换失败而保留原格式的文件仍会被拦下。
    */
   convertsOfficeToPdf?: boolean
 }
 
-interface AttachmentInput {
+export interface AttachmentInput {
   filename: string
   mime: string | null
   kind?: 'image' | 'file'
