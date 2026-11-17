@@ -326,36 +326,34 @@ export function QuotaProgressCard({ quota }: { quota: MyQuotaDTO }) {
     )
   }
 
+  // 总体状态徽标放在卡片标题右侧，不单独占一行，避免只有一枚徽标时留出整行空白。
+  const statusBadges = (attention.exhausted > 0 || attention.warning > 0 || quota.paused) && (
+    <div className="flex flex-wrap items-center gap-2 text-[11px] font-medium">
+      {attention.exhausted > 0 && (
+        <span className="rounded-md bg-rose-50 px-1.5 py-0.5 text-rose-600 dark:bg-rose-500/10 dark:text-rose-300">
+          已耗尽 {attention.exhausted}
+        </span>
+      )}
+      {attention.warning > 0 && (
+        <span className="rounded-md bg-amber-50 px-1.5 py-0.5 text-amber-600 dark:bg-amber-400/10 dark:text-amber-300">
+          接近上限 {attention.warning}
+        </span>
+      )}
+      {quota.paused && (
+        <span className="inline-flex items-center gap-1 rounded-md bg-sky-50 px-1.5 py-0.5 text-sky-600 dark:bg-sky-500/10 dark:text-sky-300">
+          <PauseCircle className="h-3 w-3" /> 限额已暂停
+        </span>
+      )}
+    </div>
+  )
+
   return (
     <UsageSection
       id="usage-quota"
       title="我的额度"
       description={quota.policyName ?? '当前可用额度'}
+      actions={statusBadges}
     >
-      {(attention.exhausted > 0 || attention.warning > 0 || quota.paused) && (
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            {attention.exhausted > 0 && (
-              <span className="rounded-md bg-rose-50 px-1.5 py-px text-[10px] font-medium text-rose-600 dark:bg-rose-500/10 dark:text-rose-300">
-                已耗尽 {attention.exhausted}
-              </span>
-            )}
-            {attention.warning > 0 && (
-              <span className="rounded-md bg-amber-50 px-1.5 py-px text-[10px] font-medium text-amber-600 dark:bg-amber-400/10 dark:text-amber-300">
-                接近上限 {attention.warning}
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-2 text-[11px] text-neutral-400 dark:text-neutral-500">
-            {quota.paused && (
-              <span className="inline-flex items-center gap-1 rounded-md bg-sky-50 px-1.5 py-0.5 font-medium text-sky-600 dark:bg-sky-500/10 dark:text-sky-300">
-                <PauseCircle className="h-3 w-3" /> 限额已暂停
-              </span>
-            )}
-          </div>
-        </div>
-      )}
-
       <div className="divide-y divide-neutral-200/60 dark:divide-neutral-800">
         {groups.map((group) =>
           // 单个模型也保留目标行，不能因桶数只有一条而丢失模型名。
