@@ -1045,6 +1045,7 @@ html.hc-ios .hc-chat-scroll {
   --hc-reasoning-status: rgb(115 115 115);
   --hc-reasoning-status-hover: #0d0d0d;
   --hc-reasoning-shimmer-highlight: rgb(210 210 210);
+  --hc-reasoning-timer: rgb(163 163 163);
 }
 .hc-reasoning-sticky {
   background: var(--hc-reasoning-surface);
@@ -1112,6 +1113,76 @@ html.hc-ios .hc-chat-scroll {
   100% {
     background-position: 0 0;
   }
+}
+/* 思考秒表：比状态文字更浅一级，等宽数字避免跳动。 */
+.hc-reasoning-timer {
+  color: var(--hc-reasoning-timer);
+}
+
+/* 状态行文字轮播（StatusTicker）：新旧两行像滚轮一样整行上移，恰好错开一行、互不重叠。
+   两段动画必须同时长、同曲线（与 ProcessTrack.tsx 的 TICKER_ROLL_MS / TICKER_ROLL_EASING 一致），
+   否则中途两行会在同一行高内叠出重影。只裁切纵向：离场行保留原宽度，变短时不会被横向截断。 */
+.hc-status-ticker {
+  overflow-x: visible;
+  overflow-y: clip;
+}
+@keyframes hc-status-ticker-in {
+  from {
+    opacity: 0;
+    filter: blur(2px);
+    transform: translateY(100%);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0);
+  }
+}
+@keyframes hc-status-ticker-out {
+  from {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    filter: blur(2px);
+    transform: translateY(-100%);
+  }
+}
+.hc-status-ticker-in {
+  animation: hc-status-ticker-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+/* 播完即由 onAnimationEnd 卸载，forwards 不会长期占用合成层。 */
+.hc-status-ticker-out {
+  pointer-events: none;
+  animation: hc-status-ticker-out 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+/* 点阵图标槽位：思考结束先让点阵收束淡出，再收起宽度让文字左移归位（负外边距抵消 gap-2）。 */
+.hc-reasoning-glyph {
+  width: 18px;
+  overflow: hidden;
+  transition:
+    width 0.32s cubic-bezier(0.22, 1, 0.36, 1) 0.2s,
+    margin-right 0.32s cubic-bezier(0.22, 1, 0.36, 1) 0.2s;
+}
+.hc-reasoning-glyph-leaving {
+  width: 0;
+  margin-right: -0.5rem;
+}
+
+/* 无小标题思考的折叠预览窗：限高贴底，顶部渐隐，新内容从底部持续上推。 */
+.hc-reasoning-peek {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  max-height: 4.75rem;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 65%);
+  mask-image: linear-gradient(to bottom, transparent, #000 65%);
+}
+.hc-reasoning-peek > ol {
+  flex-shrink: 0;
 }
 
 /* 思考卡与联网搜索卡共用的行级入场（低位淡入）：时长/曲线一致，保证两卡运动语言统一。 */
@@ -1349,6 +1420,7 @@ html.hc-ios .hc-chat-scroll {
   --hc-reasoning-status: rgb(163 163 163);
   --hc-reasoning-status-hover: #f5f5f5;
   --hc-reasoning-shimmer-highlight: rgb(245 245 245);
+  --hc-reasoning-timer: rgb(115 115 115);
 }
 .dark .hc-search {
   --hc-reasoning-status: rgb(163 163 163);
@@ -1649,8 +1721,13 @@ html.hc-sidebar-resizing * {
 
 @media (prefers-reduced-motion: reduce) {
   .hc-reasoning-collapse,
-  .hc-reasoning-status svg {
+  .hc-reasoning-status svg,
+  .hc-reasoning-glyph {
     transition: none !important;
+  }
+  /* 没有动画就不会触发 animationend，旧文字须直接隐藏，避免与新文字重叠。 */
+  .hc-status-ticker-out {
+    display: none;
   }
   .hc-reasoning-shimmer {
     animation: none;
@@ -1672,6 +1749,7 @@ html.hc-sidebar-resizing * {
   .hc-stream-seg,
   .hc-reasoning-step-in,
   .hc-reasoning-dot-in,
+  .hc-status-ticker-in,
   .hc-search-step-in,
   .hc-search-chip-in,
   .hc-search-skeleton,

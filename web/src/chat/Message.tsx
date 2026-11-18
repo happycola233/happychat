@@ -10,7 +10,7 @@ import {
 } from '../sse/eventReducer'
 import { useModels } from '../hooks/useModels'
 import { useSettings } from '../store/settings'
-import { PendingReplyDots, UserMessageBody } from './MessageContent'
+import { PendingReplyIndicator, UserMessageBody } from './MessageContent'
 import { textFromContent } from './contentText'
 import { Markdown } from './Markdown'
 import { ProcessTrack, type ProcessTrackStatus } from './ProcessTrack'
@@ -237,7 +237,7 @@ export function Message({
       : null
     : lastImageLive
   const hasLiveImage = Boolean(imageLive)
-  const showPendingDots =
+  const showPendingIndicator =
     streaming && !text && !showProcessTrack && !hasLiveImage && !steps.length && !live?.retry
 
   return (
@@ -282,8 +282,8 @@ export function Message({
           />
           {text && <Markdown text={text} animate={streaming} />}
         </>
-      ) : showPendingDots ? (
-        <PendingReplyDots />
+      ) : showPendingIndicator ? (
+        <PendingReplyIndicator />
       ) : text ? (
         <Markdown text={text} animate={streaming} />
       ) : null}

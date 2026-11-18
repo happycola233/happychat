@@ -5,6 +5,7 @@ import type { ContentPart } from '@shared/types/domain'
 import { AttachmentParts } from './Attachments'
 import { textFromContent } from './contentText'
 import { getUserMessageEditVisibleHeight, USER_MESSAGE_TEXT_CLASS } from './messageStyles'
+import { ThinkingGlyph } from './ThinkingGlyph'
 
 // P4：纯文本渲染（保留换行）。助手消息走 Markdown 组件，用户消息用这里。
 export function MessageText({ text }: { text: string }) {
@@ -112,13 +113,17 @@ export function UserMessageBody({ content }: { content: ContentPart[] }) {
   )
 }
 
-/** 回复尚未开始输出时的等待动画。 */
-export function PendingReplyDots() {
+/**
+ * 回复尚未开始输出时的等待态：点阵收拢呼吸。
+ * 与 ProcessTrack 状态行的点阵同尺寸同位置（py-1 + 28px 行高），上游开始思考后原地衔接。
+ */
+export function PendingReplyIndicator() {
   return (
-    <div className="flex items-center gap-1.5">
-      <span className="h-2 w-2 animate-bounce rounded-full bg-neutral-400 [animation-delay:-0.3s]" />
-      <span className="h-2 w-2 animate-bounce rounded-full bg-neutral-400 [animation-delay:-0.15s]" />
-      <span className="h-2 w-2 animate-bounce rounded-full bg-neutral-400" />
+    <div
+      className="flex h-9 items-center py-1 text-neutral-500 dark:text-neutral-400"
+      data-testid="pending-reply"
+    >
+      <ThinkingGlyph phase="waiting" />
     </div>
   )
 }

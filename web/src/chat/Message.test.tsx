@@ -72,7 +72,7 @@ function expectAssistantRecoveryActions(html: string) {
 }
 
 describe('assistant message branch action', () => {
-  it('shows pending dots until the upstream message starts, then switches to thinking', () => {
+  it('shows the waiting glyph until the upstream message starts, then switches to thinking', () => {
     const message = assistantMessage('streaming', { content: [] })
     const waiting = reduceEvent(initialLive(), {
       type: 'run.created',
@@ -81,7 +81,8 @@ describe('assistant message branch action', () => {
       createdAt: 1000,
     })
     const pendingHtml = renderMessage(message, { live: waiting })
-    expect(pendingHtml.match(/animate-bounce/g)).toHaveLength(3)
+    expect(pendingHtml).toContain('data-testid="pending-reply"')
+    expect(pendingHtml).toContain('data-phase="waiting"')
     expect(pendingHtml).not.toContain('正在思考')
 
     const started = reduceEvent(waiting, {
@@ -92,7 +93,8 @@ describe('assistant message branch action', () => {
     })
     const thinkingHtml = renderMessage(message, { live: started })
     expect(thinkingHtml).toContain('正在思考')
-    expect(thinkingHtml).not.toContain('animate-bounce')
+    expect(thinkingHtml).toContain('data-phase="thinking"')
+    expect(thinkingHtml).not.toContain('data-testid="pending-reply"')
   })
 
   it('keeps a summary-less thinking track when the final timing is unknown', () => {

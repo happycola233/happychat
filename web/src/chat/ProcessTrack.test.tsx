@@ -88,6 +88,62 @@ describe('ProcessTrack', () => {
     expect(html).toContain('hc-reasoning-shimmer')
   })
 
+  it('思考中把最新小标题作为状态行文字，并显示点阵与秒表', () => {
+    const html = renderToStaticMarkup(
+      <ProcessTrack
+        steps={[reasoningStep('**梳理需求**\n\n先看约束。\n\n**对比方案**\n\n令牌桶更合适。')]}
+        status="working"
+        startedAt={Date.now() - 5_000}
+        reasoningStarted
+        answerStarted={false}
+      />,
+    )
+    const label = html.match(/data-testid="process-track-label">([\s\S]*?)<\/span><\/span>/)?.[1]
+
+    expect(label).toContain('对比方案')
+    expect(label).not.toContain('正在思考')
+    expect(html).toContain('hc-status-ticker-in')
+    expect(html).toContain('data-phase="thinking"')
+    expect(html).toMatch(/data-testid="process-track-timer">5s</)
+    expect(html).not.toContain('data-testid="reasoning-peek"')
+  })
+
+  it('没有小标题的思考在折叠时显示滚动预览窗', () => {
+    const html = renderToStaticMarkup(
+      <ProcessTrack
+        steps={[reasoningStep('用户想要一个限流器，先确认是单机还是分布式。')]}
+        status="working"
+        startedAt={Date.now()}
+        reasoningStarted
+        answerStarted={false}
+      />,
+    )
+
+    expect(html).toContain('正在思考')
+    expect(html).toContain('data-testid="reasoning-peek"')
+    expect(html).toContain('hc-reasoning-peek')
+    expect(html).toContain('grid-rows-[1fr]')
+  })
+
+  it('完成后不再挂载点阵，超过一分钟按分秒显示', () => {
+    const html = renderToStaticMarkup(
+      <ProcessTrack
+        steps={[reasoningStep('思考内容')]}
+        status="completed"
+        startedAt={null}
+        durationMs={65_400}
+        reasoningStarted
+        answerStarted
+      />,
+    )
+
+    expect(html).toContain('已思考 1m 05s')
+    expect(html).not.toContain('data-testid="thinking-glyph"')
+    expect(html).not.toContain('data-testid="process-track-timer"')
+    expect(html).not.toContain('hc-status-ticker-in')
+    expect(html).not.toContain('data-testid="reasoning-peek"')
+  })
+
   it('把 commentary 渲染为层级独立的消息步骤', () => {
     const html = renderToStaticMarkup(
       <ProcessTrack

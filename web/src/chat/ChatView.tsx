@@ -59,7 +59,7 @@ import { ArrowUpIcon } from './icons'
 import { Message } from './Message'
 import { MessageDateDivider } from './MessageDateDivider'
 import type { MessageEditSubmit } from './MessageEditForm'
-import { PendingReplyDots, UserMessageBody } from './MessageContent'
+import { PendingReplyIndicator, UserMessageBody } from './MessageContent'
 import { ModelControlMenu } from './ModelControlMenu'
 import { QuotaNotice } from './QuotaNotice'
 import { ModelUsageNotice } from './ModelUsageNotice'
@@ -1226,7 +1226,7 @@ export default function ChatView() {
                       <UserMessageBody content={optimisticUserContent} />
                     </div>
                     {/* 服务端可能在等待文档转 PDF，先给出与正式回复相同的等待动画。 */}
-                    <PendingReplyDots />
+                    <PendingReplyIndicator />
                   </>
                 )}
               </div>

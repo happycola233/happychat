@@ -1,6 +1,7 @@
 import {
   Fragment,
   memo,
+  type ReactNode,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -25,6 +26,7 @@ import { elapsedSeconds } from './elapsed'
 import { splitVisibleUnits } from './markdownStreamFade'
 import { normalizeReasoningMarkdown } from './reasoningMarkdown'
 import { splitReasoningSections } from './reasoningSections'
+import { ThinkingGlyph } from './ThinkingGlyph'
 
 export type ProcessTrackStatus = 'working' | 'paused' | 'completed' | 'stopped'
 
@@ -57,6 +59,10 @@ function scrollViewportTop(scroller: HTMLElement): number {
 function stickyTopOffset(sticky: HTMLElement): number {
   const top = Number.parseFloat(window.getComputedStyle(sticky).top)
   return Number.isFinite(top) ? top : 0
+}
+
+function prefersReducedMotion(): boolean {
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
 interface Props {
@@ -263,6 +269,26 @@ function processRowsOf(steps: LiveProcessStep[]): ProcessRow[] {
   })
 }
 
+/** 最近一个推理小标题；思考中直接作为状态行文字。 */
+function latestSectionTitleOf(rows: ProcessRow[]): string | null {
+  for (let index = rows.length - 1; index >= 0; index--) {
+    const row = rows[index]!
+    if (row.kind === 'reasoning' && row.title) return row.title
+  }
+  return null
+}
+
+/** 过程文字总量（检索按固定权重计入），驱动点阵图标的活跃度。 */
+function processActivityOf(steps: LiveProcessStep[]): number {
+  return steps.reduce((total, step) => total + (step.kind === 'search' ? 40 : step.text.length), 0)
+}
+
+/** 思考秒数：不足一分钟「42s」，否则「1m 05s」，与消息耗时明细的写法一致。 */
+function formatThinkingSeconds(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`
+  return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`
+}
+
 function SummaryFooter({ label }: { label: string }) {
   return (
     <li
@@ -296,7 +322,9 @@ function completedSegmentsOf(
   const searchPhrases = searchSummaryPhrases(actions)
   if (durationMs !== null && durationMs !== undefined) {
     return [
-      durationMs < 1000 ? '已思考若干秒' : `已思考 ${Math.floor(durationMs / 1000)}s`,
+      durationMs < 1000
+        ? '已思考若干秒'
+        : `已思考 ${formatThinkingSeconds(Math.floor(durationMs / 1000))}`,
       ...searchPhrases,
     ]
   }
@@ -305,18 +333,27 @@ function completedSegmentsOf(
   return [hasCommentary ? '已完成处理' : '已完成']
 }
 
+/** 只在分隔点换行；单段超出整行宽度（如很长的小标题）时省略号截断。 */
 function StatusSegments({ segments, active }: { segments: string[]; active: boolean }) {
   return (
-    <span className="flex flex-wrap items-center gap-x-1.5" data-testid="process-track-label">
+    <span
+      className="flex min-w-0 flex-wrap items-center gap-x-1.5"
+      data-testid="process-track-label"
+    >
       {segments.map((segment, index) =>
         index === 0 ? (
-          <span key={index} className={clsx('whitespace-nowrap', active && 'hc-reasoning-shimmer')}>
+          <span
+            key={index}
+            className={clsx('max-w-full truncate', active && 'hc-reasoning-shimmer')}
+          >
             {segment}
           </span>
         ) : (
-          <span key={index} className="inline-flex gap-x-1.5 whitespace-nowrap">
+          <span key={index} className="inline-flex max-w-full min-w-0 gap-x-1.5 whitespace-nowrap">
             <span aria-hidden>·</span>
-            <span className={clsx(active && 'hc-reasoning-shimmer')}>{segment}</span>
+            <span className={clsx('min-w-0 truncate', active && 'hc-reasoning-shimmer')}>
+              {segment}
+            </span>
           </span>
         ),
       )}
@@ -324,9 +361,121 @@ function StatusSegments({ segments, active }: { segments: string[]; active: bool
   )
 }
 
+interface StatusLabel {
+  /** 文字切换的身份：key 变化才播放轮播，流光开关、秒表走动等同 key 更新原地生效。 */
+  key: string
+  segments: string[]
+  active: boolean
+  /** 秒表与文字同在一行、一起轮播，切换小标题时不会被单独挤动。 */
+  withTimer: boolean
+}
+
+interface TickerEntry {
+  label: StatusLabel
+  generation: number
+  /** 离场行冻结的宽度：保持原有截断，不随新文字的宽度变化。 */
+  width: number | null
+}
+
+/** 与 .hc-status-ticker-in/out 的时长、曲线一致，行尾元素与滚动同步到位。 */
+const TICKER_ROLL_MS = 500
+const TICKER_ROLL_EASING = 'cubic-bezier(0.22, 1, 0.36, 1)'
+
+function StatusLine({ label, startedAt }: { label: StatusLabel; startedAt: number | null }) {
+  return (
+    <span className="flex min-w-0 items-start gap-2">
+      <StatusSegments segments={label.segments} active={label.active} />
+      {label.withTimer && <ThinkingTimer startedAt={startedAt} />}
+    </span>
+  )
+}
+
+/**
+ * 状态行文字轮播：新旧两行像滚轮一样整行上移——同时长同曲线、恰好错开一行，
+ * 任何时刻都不会叠在一起；配合淡出淡入与轻微模糊表现运动感。
+ * 离场行脱离文档流并冻结原宽度；文字变宽或变窄时，行尾元素（展开箭头）用 FLIP 平滑移到新位置。
+ */
+function StatusTicker({
+  label,
+  startedAt,
+  animateFirst,
+  trailing,
+}: {
+  label: StatusLabel
+  startedAt: number | null
+  animateFirst: boolean
+  trailing?: ReactNode
+}) {
+  const tickerRef = useRef<HTMLSpanElement>(null)
+  const trailingRef = useRef<HTMLSpanElement>(null)
+  /** 最近一次布局后的轮播区宽度，由 ResizeObserver 维护（秒表进位等也会改变宽度）。 */
+  const widthRef = useRef<number | null>(null)
+  const [shown, setShown] = useState<TickerEntry>({ label, generation: 0, width: null })
+  const [leaving, setLeaving] = useState<TickerEntry | null>(null)
+  if (label.key !== shown.label.key) {
+    setLeaving({ ...shown, width: widthRef.current })
+    setShown({ label, generation: shown.generation + 1, width: null })
+  }
+  const animateIn = shown.generation > 0 || animateFirst
+
+  useEffect(() => {
+    const ticker = tickerRef.current!
+    const observer = new ResizeObserver(() => {
+      widthRef.current = ticker.getBoundingClientRect().width
+    })
+    observer.observe(ticker)
+    return () => observer.disconnect()
+  }, [])
+
+  useLayoutEffect(() => {
+    const ticker = tickerRef.current
+    const trailingElement = trailingRef.current
+    const from = widthRef.current
+    if (!ticker || shown.generation === 0) return
+    // ResizeObserver 要到绘制前才回调，此刻 widthRef 仍是切换前的宽度。
+    const to = ticker.getBoundingClientRect().width
+    widthRef.current = to
+    if (!trailingElement || from === null || Math.abs(from - to) < 1 || prefersReducedMotion()) {
+      return
+    }
+    trailingElement.animate([{ translate: `${from - to}px 0` }, { translate: '0 0' }], {
+      duration: TICKER_ROLL_MS,
+      easing: TICKER_ROLL_EASING,
+    })
+  }, [shown.generation])
+
+  return (
+    <>
+      <span ref={tickerRef} className="hc-status-ticker relative min-w-0">
+        {leaving && (
+          <span
+            key={leaving.generation}
+            aria-hidden
+            className="hc-status-ticker-out absolute top-0 left-0"
+            style={leaving.width === null ? undefined : { width: leaving.width }}
+            onAnimationEnd={(event) => {
+              if (event.target === event.currentTarget) setLeaving(null)
+            }}
+          >
+            <StatusLine label={leaving.label} startedAt={startedAt} />
+          </span>
+        )}
+        <span key={shown.generation} className={clsx('block', animateIn && 'hc-status-ticker-in')}>
+          <StatusLine label={label} startedAt={startedAt} />
+        </span>
+      </span>
+      {trailing && (
+        <span ref={trailingRef} className="flex shrink-0">
+          {trailing}
+        </span>
+      )}
+    </>
+  )
+}
+
 /** 秒表独立更新，避免每次跨秒都重渲染时间线并重启流式入场动画。 */
-function ThinkingStatusSegments({ startedAt }: { startedAt: number | null }) {
-  const [seconds, setSeconds] = useState(0)
+function ThinkingTimer({ startedAt }: { startedAt: number | null }) {
+  const [seconds, setSeconds] = useState(() => elapsedSeconds(startedAt))
 
   useEffect(() => {
     setSeconds(elapsedSeconds(startedAt))
@@ -334,7 +483,14 @@ function ThinkingStatusSegments({ startedAt }: { startedAt: number | null }) {
     return () => clearInterval(timer)
   }, [startedAt])
 
-  return <StatusSegments segments={[`正在思考 ${seconds}s`]} active />
+  return (
+    <span
+      className="hc-reasoning-timer shrink-0 text-[13px] tabular-nums"
+      data-testid="process-track-timer"
+    >
+      {formatThinkingSeconds(seconds)}
+    </span>
+  )
 }
 
 export function ProcessTrack({
@@ -354,6 +510,12 @@ export function ProcessTrack({
   const previousAnswerStartedRef = useRef(answerStarted)
   const userToggledRef = useRef(false)
   const collapseAnchorRef = useRef<CollapseScrollAnchor | null>(null)
+  const contentWindowRef = useRef<HTMLDivElement>(null)
+  const listRef = useRef<HTMLOListElement>(null)
+  /** 预览窗与完整展开互切时的起始高度：两者间没有 grid 行高过渡，交给布局后补间。 */
+  const peekResizeFromRef = useRef<number | null>(null)
+  // 挂载时已在思考（实时生成）才让首个状态文字滑入；历史消息静态呈现。
+  const [animateFirstLabel] = useState(status === 'working')
 
   const visibleSteps = useMemo(
     () => steps.filter((step) => step.kind === 'search' || step.text.trim().length > 0),
@@ -369,6 +531,19 @@ export function ProcessTrack({
   const hasReasoning = visibleSteps.some((step) => step.kind === 'reasoning')
   const hasCommentary = visibleSteps.some((step) => step.kind === 'commentary')
   const activeSearch = hasActiveSearch(searchSteps)
+  const thinking = status === 'working' && reasoningStarted
+  const currentTitle = thinking ? latestSectionTitleOf(rows) : null
+  const hasSectionTitles = rows.some((row) => row.kind === 'reasoning' && row.title !== null)
+  // 没有小标题的纯文本思考（如 Claude、DeepSeek）折叠时露出末尾几行，作为滚动预览窗。
+  const canPeek = status === 'working' && hasReasoning && !hasSectionTitles
+  const peeking = canPeek && !open
+  // 预览窗收起（开始回答）时须保持限高，grid 行高才会从预览高度收拢，而不是先弹到全文高度。
+  const [peekClamped, setPeekClamped] = useState(peeking)
+  if (peeking && !peekClamped) setPeekClamped(true)
+  if (open && peekClamped) setPeekClamped(false)
+  // 点阵一经出现就保持挂载：思考结束时先播收束动画，再收起所占宽度。
+  const [glyphMounted, setGlyphMounted] = useState(thinking)
+  if (thinking && !glyphMounted) setGlyphMounted(true)
 
   const captureCollapseAnchor = useCallback(() => {
     const card = cardRef.current
@@ -429,9 +604,46 @@ export function ProcessTrack({
 
   const toggleOpen = useCallback(() => {
     userToggledRef.current = true
+    if (canPeek) peekResizeFromRef.current = contentWindowRef.current?.offsetHeight ?? null
     if (open) collapse()
     else setOpen(true)
-  }, [collapse, open])
+  }, [canPeek, collapse, open])
+
+  useLayoutEffect(() => {
+    const from = peekResizeFromRef.current
+    const contentWindow = contentWindowRef.current
+    peekResizeFromRef.current = null
+    if (from === null || !contentWindow || prefersReducedMotion()) return
+    const to = contentWindow.offsetHeight
+    if (to === from) return
+    contentWindow.animate([{ height: `${from}px` }, { height: `${to}px` }], {
+      duration: 300,
+      easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+    })
+  }, [open])
+
+  // 预览窗内容贴底生长：先按增量回推、再平滑归位，像字幕一样持续向上流动。
+  useEffect(() => {
+    const list = listRef.current
+    if (!peeking || !list || prefersReducedMotion()) return undefined
+    let lastHeight = list.offsetHeight
+    const observer = new ResizeObserver(() => {
+      const height = list.offsetHeight
+      const grown = height - lastHeight
+      lastHeight = height
+      if (grown <= 0) return
+      // 上一段补间尚未结束时从当前位移续接，连续到达的文字不会抖动。
+      const transform = window.getComputedStyle(list).transform
+      const offset = transform === 'none' ? 0 : new DOMMatrixReadOnly(transform).m42
+      list.getAnimations().forEach((animation) => animation.cancel())
+      list.animate(
+        [{ transform: `translateY(${offset + grown}px)` }, { transform: 'translateY(0)' }],
+        { duration: 320, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
+      )
+    })
+    observer.observe(list)
+    return () => observer.disconnect()
+  }, [peeking])
 
   const completedSegments = completedSegmentsOf(
     durationMs,
@@ -439,14 +651,31 @@ export function ProcessTrack({
     hasReasoning || reasoningStarted,
     hasCommentary,
   )
-  const showThinkingTimer = status === 'working' && !activeSearch && reasoningStarted
-  const segments =
+  const searchLabel = status === 'working' && activeSearch ? activeSearchLabelOf(searchSteps) : null
+  const thinkingLabel = currentTitle ?? '正在思考'
+  const statusLabel: StatusLabel =
     status === 'stopped'
-      ? ['已停止思考']
-      : status === 'working' && activeSearch
-        ? [activeSearchLabelOf(searchSteps)]
-        : completedSegments
-  const activelyWorking = status === 'working' && (activeSearch || reasoningStarted)
+      ? { key: 'stopped', segments: ['已停止思考'], active: false, withTimer: false }
+      : searchLabel
+        ? {
+            key: `search:${searchLabel}`,
+            segments: [searchLabel],
+            active: true,
+            withTimer: thinking,
+          }
+        : thinking
+          ? {
+              key: `thinking:${thinkingLabel}`,
+              segments: [thinkingLabel],
+              active: true,
+              withTimer: true,
+            }
+          : {
+              key: `done:${completedSegments.join(' · ')}`,
+              segments: completedSegments,
+              active: false,
+              withTimer: false,
+            }
   const animateRows = status === 'working'
   // 结束后耗时未知但已开始思考，状态行同样以「已思考」开头，不再按纯检索放前置图标。
   const pureSearch =
@@ -457,7 +686,7 @@ export function ProcessTrack({
     visibleSteps.every((step) => step.kind === 'search')
   const xOnly =
     searchActions.length > 0 && searchActions.every((action) => isXSearchActionType(action.type))
-  const label = completedSegments.join(' · ')
+  const summaryLabel = completedSegments.join(' · ')
 
   if (visibleSteps.length === 0 && durationMs == null && !reasoningStarted) return null
 
@@ -477,10 +706,25 @@ export function ProcessTrack({
           disabled={visibleSteps.length === 0}
           aria-expanded={open}
           aria-label={open ? '折叠思考过程' : '展开思考过程'}
-          className="hc-reasoning-status inline-flex items-start gap-2 text-left text-[15px] leading-7 transition-colors disabled:cursor-default"
+          className="hc-reasoning-status inline-flex max-w-full items-start gap-2 text-left text-[15px] leading-7 transition-colors disabled:cursor-default"
           data-testid="process-track-toggle"
         >
-          {pureSearch && (
+          {glyphMounted && (
+            <span
+              className={clsx(
+                'hc-reasoning-glyph flex h-7 shrink-0 items-center',
+                !thinking && 'hc-reasoning-glyph-leaving',
+              )}
+              aria-hidden
+            >
+              <ThinkingGlyph
+                phase={thinking ? 'thinking' : 'settling'}
+                activity={processActivityOf(visibleSteps)}
+                rippleKey={currentTitle}
+              />
+            </span>
+          )}
+          {pureSearch && !thinking && (
             <span
               className="flex h-7 shrink-0 items-center"
               aria-hidden
@@ -489,31 +733,42 @@ export function ProcessTrack({
               {xOnly ? <XLogo className="h-3 w-3" /> : <Globe className="h-3.5 w-3.5" />}
             </span>
           )}
-          {showThinkingTimer ? (
-            <ThinkingStatusSegments startedAt={startedAt} />
-          ) : (
-            <StatusSegments segments={segments} active={activelyWorking} />
-          )}
-          {visibleSteps.length > 0 && (
-            <ChevronDown
-              className={clsx(
-                'mt-[7px] h-3.5 w-3.5 shrink-0 transition-transform duration-300',
-                open && 'rotate-180',
-              )}
-            />
-          )}
+          <StatusTicker
+            label={statusLabel}
+            startedAt={startedAt}
+            animateFirst={animateFirstLabel}
+            trailing={
+              visibleSteps.length > 0 && (
+                <ChevronDown
+                  className={clsx(
+                    'mt-[7px] h-3.5 w-3.5 shrink-0 transition-transform duration-300',
+                    open && 'rotate-180',
+                  )}
+                />
+              )
+            }
+          />
         </button>
       </div>
       {visibleSteps.length > 0 && (
         <div
           className={clsx(
             'hc-reasoning-collapse grid transition-[grid-template-rows,opacity] duration-300 ease-out',
-            open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
+            open || peeking ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
           )}
           aria-hidden={!open}
         >
-          <div className="min-h-0 overflow-hidden">
-            <ol className="space-y-2 pt-2 pr-2 pb-1">
+          <div
+            ref={contentWindowRef}
+            className={clsx(
+              'min-h-0 overflow-hidden',
+              peekClamped && 'hc-reasoning-peek',
+              peeking && 'cursor-pointer',
+            )}
+            data-testid={peeking ? 'reasoning-peek' : undefined}
+            onClick={peeking ? toggleOpen : undefined}
+          >
+            <ol ref={listRef} className="space-y-2 pt-2 pr-2 pb-1">
               {rows.map((row) => {
                 if (row.kind === 'reasoning') {
                   return (
@@ -530,7 +785,7 @@ export function ProcessTrack({
                 }
                 return <SearchRow key={row.key} step={row.step} animate={animateRows} />
               })}
-              {status === 'completed' && <SummaryFooter label={label} />}
+              {status === 'completed' && <SummaryFooter label={summaryLabel} />}
             </ol>
           </div>
         </div>
