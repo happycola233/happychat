@@ -33,7 +33,7 @@ export function SettingsRow({
     <div className="min-w-0">
       <div className="text-[14px] leading-5 text-neutral-900 dark:text-neutral-100">{title}</div>
       {description && (
-        <div className="mt-0.5 text-[12.5px] leading-[1.125rem] text-neutral-500 dark:text-neutral-400">
+        <div className="mt-1 text-[13px] leading-[1.125rem] text-neutral-500 dark:text-neutral-400">
           {description}
         </div>
       )}
@@ -53,7 +53,7 @@ export function SettingsRow({
   }
 
   return (
-    <div className="flex min-h-14 flex-wrap items-center justify-between gap-x-8 gap-y-2.5 py-3.5">
+    <div className="flex min-h-[3.75rem] flex-wrap items-center justify-between gap-x-10 gap-y-2.5 py-4">
       <div className="min-w-0 flex-1 basis-40">{text}</div>
       <div className="shrink-0">{control}</div>
     </div>
@@ -88,7 +88,7 @@ type SelectOption<T extends string> = {
   description?: string
 }
 
-/** 设置行内的下拉选择：选项需要额外说明或色点时使用，三项以内的简单枚举改用分段控件。 */
+/** 设置行内的下拉选择：设置页所有枚举项统一用它，触发器只有文字与箭头，不叠底色或边框。 */
 export function PreferenceSelect<
   T extends string,
   TOption extends SelectOption<T> = SelectOption<T>,
@@ -159,7 +159,7 @@ export function PreferenceSelect<
         onClick={() => setOpen((v) => !v)}
         className={clsx(
           // 无边框的轻量触发器：靠文字 + 箭头表达可选，悬停才浮出浅底。
-          '-mr-2 inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-[13px] text-neutral-600 transition hover:bg-black/[0.04] hover:text-neutral-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-300 dark:text-neutral-300 dark:hover:bg-white/[0.06] dark:hover:text-neutral-100 dark:focus-visible:ring-neutral-600',
+          '-mr-2 inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-[13.5px] text-neutral-800 transition hover:bg-black/[0.04] hover:text-neutral-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-300 dark:text-neutral-200 dark:hover:bg-white/[0.06] dark:hover:text-neutral-100 dark:focus-visible:ring-neutral-600',
           open && 'bg-black/[0.04] text-neutral-900 dark:bg-white/[0.06] dark:text-neutral-100',
         )}
       >

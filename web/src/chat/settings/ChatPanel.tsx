@@ -1,14 +1,13 @@
 import type { TimelineNavPosition } from '@shared/types/domain'
-import { SegmentedControl } from '../../components/ui/SegmentedControl'
 import { SettingsSection } from '../../components/ui/SettingsSection'
 import { useSettings } from '../../store/settings'
 import { useIsMobile } from '../../store/sidebar'
-import { PrefToggleRow, SettingsRow } from './SettingsControls'
+import { PreferenceSelect, PrefToggleRow, SettingsRow } from './SettingsControls'
 
 const TIMELINE_OPTIONS = [
   { value: 'off', label: '关闭' },
-  { value: 'left', label: '左侧' },
-  { value: 'right', label: '右侧' },
+  { value: 'left', label: '显示在左侧' },
+  { value: 'right', label: '显示在右侧' },
 ] as const satisfies readonly { value: TimelineNavPosition | 'off'; label: string }[]
 
 /** 「聊天」页：发送、附件与浏览对话时的交互行为。 */
@@ -19,7 +18,7 @@ export function ChatPanel() {
   const setPreferences = useSettings((s) => s.setPreferences)
 
   return (
-    <div className="space-y-9">
+    <div className="space-y-10">
       <SettingsSection title="发送消息">
         <PrefToggleRow
           prefKey="sendOnEnterDesktop"
@@ -59,9 +58,10 @@ export function ChatPanel() {
             title="消息时间轴"
             description="悬停预览每轮问答，点击跳转或收藏。"
             control={
-              <SegmentedControl<TimelineNavPosition | 'off'>
-                label="消息时间轴"
-                tone="neutral"
+              <PreferenceSelect<TimelineNavPosition | 'off'>
+                ariaLabel="消息时间轴"
+                menuClassName="w-36"
+                menuPlacement="top"
                 value={showTimelineNav ? timelineNavPosition : 'off'}
                 onChange={(position) =>
                   setPreferences(

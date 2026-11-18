@@ -141,7 +141,7 @@ export function AccountPanel() {
   const avatarInitial = (shownName || 'U').slice(0, 1).toLocaleUpperCase()
 
   return (
-    <div className="space-y-9">
+    <div className="space-y-10">
       <SettingsSection title="个人资料">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-3 py-4">
           <input

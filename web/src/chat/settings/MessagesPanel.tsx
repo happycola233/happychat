@@ -45,7 +45,7 @@ export function MessagesPanel() {
   const showMessageTime = useSettings((s) => s.preferences.showMessageTime)
 
   return (
-    <div className="space-y-9">
+    <div className="space-y-10">
       <SettingsSection title="消息信息">
         <PrefToggleRow
           prefKey="showMessageTime"

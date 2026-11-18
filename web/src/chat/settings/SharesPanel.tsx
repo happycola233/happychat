@@ -50,7 +50,10 @@ export function SharesPanel() {
 
   return (
     <div>
-      <SettingsSection description="分享链接是创建时定格的快照，对方无需登录即可查看；在「分享设置」中可更新内容、调整有效期或停止分享。">
+      <SettingsSection
+        title="分享的聊天"
+        description="分享链接是创建时定格的快照，对方无需登录即可查看；在「分享设置」中可更新内容、调整有效期或停止分享。"
+      >
         {isLoading ? (
           <div className="flex justify-center py-14">
             <Spinner className="h-5 w-5 text-neutral-400" />

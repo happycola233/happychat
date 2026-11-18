@@ -135,7 +135,7 @@ export function AboutPanel() {
   }
 
   return (
-    <div className="space-y-9">
+    <div className="space-y-10">
       {/* 身份区：不套卡片、不用渐变，居中留白即可，避免与下方分组内容抢视觉重心 */}
       <section className="flex flex-col items-center px-4 pt-1 text-center">
         {/* 图标只描一圈细边界定轮廓，不加投影，免得显得「浮」在页面上 */}
