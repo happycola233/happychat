@@ -1,5 +1,48 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { copyToClipboard } from './clipboard'
+import { copyTextAndHtml, copyToClipboard } from './clipboard'
+
+/** 模拟浏览器：execCommand('copy') 同步派发 copy 事件给已注册的监听。 */
+function stubCopyEventDocument(execResult = true) {
+  const listeners = new Set<(event: ClipboardEvent) => void>()
+  const setData = vi.fn()
+  const preventDefault = vi.fn()
+  vi.stubGlobal('document', {
+    addEventListener: vi.fn((_type: string, listener: (event: ClipboardEvent) => void) =>
+      listeners.add(listener),
+    ),
+    removeEventListener: vi.fn((_type: string, listener: (event: ClipboardEvent) => void) =>
+      listeners.delete(listener),
+    ),
+    execCommand: vi.fn(() => {
+      const event = { clipboardData: { setData }, preventDefault } as unknown as ClipboardEvent
+      for (const listener of listeners) listener(event)
+      return execResult
+    }),
+  })
+  return { listeners, setData, preventDefault }
+}
+
+describe('copyTextAndHtml', () => {
+  it('writes plain text and html through the copy event', () => {
+    const { listeners, setData, preventDefault } = stubCopyEventDocument()
+
+    expect(copyTextAndHtml('**a**', '<strong>a</strong>')).toBe(true)
+
+    expect(setData.mock.calls).toEqual([
+      ['text/plain', '**a**'],
+      ['text/html', '<strong>a</strong>'],
+    ])
+    expect(preventDefault).toHaveBeenCalledOnce()
+    expect(listeners.size).toBe(0)
+  })
+
+  it('reports failure when the browser refuses to copy', () => {
+    const { listeners } = stubCopyEventDocument(false)
+
+    expect(copyTextAndHtml('a', '<p>a</p>')).toBe(false)
+    expect(listeners.size).toBe(0)
+  })
+})
 
 afterEach(() => {
   vi.unstubAllGlobals()

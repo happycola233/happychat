@@ -650,4 +650,6 @@ export interface UserPreferences {
   showUsageStats: boolean
   /** 回答中的 Artifacts 进入视野后自动运行；关闭时需点击运行。 */
   autoRunArtifacts: boolean
+  /** 复制回答或含公式的选区时附带排版（Word 中为可编辑公式）；关闭后只复制 Markdown / 纯文本。 */
+  copyWithFormatting: boolean
 }

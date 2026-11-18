@@ -299,7 +299,7 @@ export function Message({
         <div className="space-y-1.5">
           <div className="flex flex-wrap items-center gap-1.5 text-neutral-400">
             {branch && branch.total > 1 && <BranchSwitch branch={branch} />}
-            <CopyMessageButton text={text} />
+            <CopyMessageButton text={text} markdown />
             {onRegenerate && (
               <MessageIconButton title="重新生成" disabled={busy} onClick={onRegenerate}>
                 <RetryMessageIcon className="h-[18px] w-[18px]" />

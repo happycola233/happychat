@@ -76,6 +76,11 @@ export function MessagesPanel() {
           title="自动运行 Artifacts"
           description="图表、几何图形与交互演示滚动到附近时自动运行，关闭后需点击「运行」。Artifacts 在隔离环境中运行，无法访问你的账号与聊天记录。"
         />
+        <PrefToggleRow
+          prefKey="copyWithFormatting"
+          title="复制时保留格式"
+          description="复制回答或选中文字时附带排版，粘贴到 Word 会保留标题、列表与可编辑公式。关闭后只复制纯文本，公式为 LaTeX 源码，适合粘贴到 Obsidian、Typora 等 Markdown 笔记。"
+        />
       </SettingsSection>
     </div>
   )

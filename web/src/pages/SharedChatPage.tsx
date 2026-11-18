@@ -221,7 +221,7 @@ function SharedMessageMeta({
           align === 'end' ? 'justify-end' : 'justify-start',
         )}
       >
-        <CopyMessageButton text={text} />
+        <CopyMessageButton text={text} markdown={m.role === 'assistant'} />
         {modelLabel && <span className="ml-1 text-xs text-neutral-400">{modelLabel}</span>}
         <div className="inline-flex shrink-0 items-center gap-1.5">
           {modelLabel && <span className="text-xs text-neutral-300 dark:text-neutral-600">·</span>}

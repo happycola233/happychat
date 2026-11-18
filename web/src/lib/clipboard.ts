@@ -42,6 +42,30 @@ function fallbackCopyText(text: string): boolean {
   return copied
 }
 
+/**
+ * 同时写入纯文本与 HTML，须在点击等用户操作的同步调用中执行。
+ * 借 copy 事件写入而不用 navigator.clipboard.write：后者会清洗 HTML，Word 公式依赖的条件注释会被改写。
+ * 返回 false 时（如浏览器不允许脚本触发复制）由调用方退回纯文本复制。
+ */
+export function copyTextAndHtml(text: string, html: string): boolean {
+  let written = false
+  const write = (event: ClipboardEvent) => {
+    if (!event.clipboardData) return
+    event.clipboardData.setData('text/plain', text)
+    event.clipboardData.setData('text/html', html)
+    event.preventDefault()
+    written = true
+  }
+  document.addEventListener('copy', write, { capture: true })
+  try {
+    return document.execCommand('copy') && written
+  } catch {
+    return false
+  } finally {
+    document.removeEventListener('copy', write, { capture: true })
+  }
+}
+
 export async function copyToClipboard(text: string): Promise<boolean> {
   const clipboard = typeof navigator === 'undefined' ? undefined : navigator.clipboard
   const writeText = clipboard?.writeText

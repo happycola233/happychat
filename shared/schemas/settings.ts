@@ -37,6 +37,7 @@ export const userPreferencesPatchSchema = z
     showModelLabel: z.boolean(),
     showUsageStats: z.boolean(),
     autoRunArtifacts: z.boolean(),
+    copyWithFormatting: z.boolean(),
   })
   .partial()
 

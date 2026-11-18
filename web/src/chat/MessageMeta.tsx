@@ -5,8 +5,10 @@ import type { MessageCostDisplayDTO } from '@shared/types/api'
 import type { MessageUsage, RequestCostBreakdown } from '@shared/types/domain'
 import { CostBreakdown } from '../components/CostBreakdown'
 import { formatCostAmount } from '../lib/costDisplay'
-import { copyToClipboard } from '../lib/clipboard'
+import { copyTextAndHtml, copyToClipboard } from '../lib/clipboard'
+import { useSettings } from '../store/settings'
 import { toast } from '../store/toast'
+import { markdownClipboardHtml } from './markdownClipboard'
 import {
   computeTps,
   formatMessageCost,
@@ -51,9 +53,25 @@ export function MessageIconButton({
   )
 }
 
-export function CopyMessageButton({ text, className }: { text: string; className?: string }) {
+export function CopyMessageButton({
+  text,
+  markdown = false,
+  className,
+}: {
+  text: string
+  /** text 是回答的 Markdown 原文：开启「复制时保留格式」时同时写入排版后的 HTML。 */
+  markdown?: boolean
+  className?: string
+}) {
   const [copied, setCopied] = useState(false)
+  const copyWithFormatting = useSettings((s) => s.preferences.copyWithFormatting)
   const canCopy = text.trim().length > 0
+
+  // 带格式复制必须在点击的同步调用栈里完成；浏览器不允许时退回纯文本复制。
+  const copy = (): Promise<boolean> =>
+    markdown && copyWithFormatting && copyTextAndHtml(text, markdownClipboardHtml(text))
+      ? Promise.resolve(true)
+      : copyToClipboard(text)
 
   return (
     <MessageIconButton
@@ -61,7 +79,7 @@ export function CopyMessageButton({ text, className }: { text: string; className
       disabled={!canCopy}
       className={className}
       onClick={() => {
-        void copyToClipboard(text)
+        void copy()
           .then((ok) => {
             if (!ok) throw new Error('copy failed')
             setCopied(true)
