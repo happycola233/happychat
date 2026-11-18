@@ -18,10 +18,19 @@ import type { ImageEditSource } from './imageSource'
 import { ArrowUpIcon, AttachmentIcon, EditIcon, QueueIcon, UploadImageIcon } from './icons'
 import { ImagePreviewTrigger } from './ImagePreview'
 import { AttachmentDraftList } from './AttachmentDraftList'
-import { completedUploadAttachments } from './uploadDraft'
+import { completedUploadAttachments, uploadDraftFromAttachment } from './uploadDraft'
+import type { UploadDraftItem } from './uploadDraft'
 import { useAttachmentUpload } from './useAttachmentUpload'
 import type { AttachmentInputSupport } from './attachmentInput'
 import { toast } from '../store/toast'
+import {
+  EMPTY_DRAFT_UPLOADS,
+  loadComposerDraft,
+  releaseComposerDraftUploads,
+  setComposerDraftText,
+  updateComposerDraftUploads,
+  useComposerDrafts,
+} from '../store/composerDrafts'
 
 /** 输入框正文最大高度（超出内部滚动）。 */
 const TEXTAREA_MAX_HEIGHT_PX = 200
@@ -50,15 +59,12 @@ export interface ComposerHandle {
     sourceRect: DOMRect,
     take: () => Promise<void>,
   ) => Promise<boolean>
-  /**
-   * 发送请求失败后放回原文与附件（输入框在请求发出时已清空）。
-   * 等待响应期间用户若已输入新内容，原文放在前面并空一行，两者都保留。
-   */
-  restoreDraft: (text: string, attachments: AttachmentDTO[]) => void
 }
 
 interface Props extends AttachmentInputSupport {
   ref?: Ref<ComposerHandle>
+  /** 草稿归属（`composerDraftKey(账号, 对话)`）：正文与附件按它存取，切换对话即切换草稿。 */
+  draftKey: string
   onSend: (
     text: string,
     attachments: AttachmentDTO[],
@@ -187,6 +193,7 @@ function ComposerPlusMenu({
 
 export function Composer({
   ref: composerRef,
+  draftKey,
   onSend,
   disabled,
   streaming,
@@ -214,7 +221,18 @@ export function Composer({
   const sendOnEnter = useSettings((s) =>
     isMobile ? s.preferences.sendOnEnterMobile : s.preferences.sendOnEnterDesktop,
   )
-  const [text, setText] = useState('')
+  // 正文与附件都存放在按对话隔离的草稿 store 中；进入某条草稿时在绘制前读取，避免先闪出空输入框。
+  const text = useComposerDrafts((s) => s.byKey[draftKey]?.text ?? '')
+  const draftUploads = useComposerDrafts((s) => s.byKey[draftKey]?.uploads ?? EMPTY_DRAFT_UPLOADS)
+  const setText = useCallback((value: string) => setComposerDraftText(draftKey, value), [draftKey])
+  const setDraftUploads = useCallback(
+    (update: (items: UploadDraftItem[]) => UploadDraftItem[]) =>
+      updateComposerDraftUploads(draftKey, update),
+    [draftKey],
+  )
+  useLayoutEffect(() => loadComposerDraft(draftKey), [draftKey])
+  // 卸载时上传任务随之中止、本地预览被释放，草稿里只留已完成的附件。
+  useEffect(() => releaseComposerDraftUploads, [])
   const [draftBusy, setDraftBusy] = useState(false)
   const draftOperationRef = useRef(false)
   const [dragActive, setDragActive] = useState(false)
@@ -242,11 +260,13 @@ export function Composer({
     removeUpload,
     retryUpload,
     clearUploads,
-    restoreAttachments,
     attachmentError,
     uploading,
     hasFailed,
-  } = useAttachmentUpload({ canImage, canFile, modelKind })
+  } = useAttachmentUpload(
+    { canImage, canFile, modelKind },
+    { uploads: draftUploads, setUploads: setDraftUploads },
+  )
   const hasPreviews = imageSources.length > 0 || uploads.length > 0
 
   // 有无草稿上报给父层：ChatView 在桌面端新对话据此决定何时把输入框悬浮层预热为合成层
@@ -267,19 +287,15 @@ export function Composer({
           await take()
           draftOriginRef.current = sourceRect
           setText(draftText)
-          restoreAttachments(attachments)
+          setDraftUploads(() => attachments.map(uploadDraftFromAttachment))
           return true
         } finally {
           draftOperationRef.current = false
           setDraftBusy(false)
         }
       },
-      restoreDraft: (draftText, attachments) => {
-        setText((current) => (current.trim() ? `${draftText}\n\n${current}` : draftText))
-        restoreAttachments(attachments)
-      },
     }),
-    [hasDraft, hasContextAttachments, restoreAttachments],
+    [hasDraft, hasContextAttachments, setText, setDraftUploads],
   )
   useEffect(() => {
     onDraftPresenceChange?.(hasDraft)

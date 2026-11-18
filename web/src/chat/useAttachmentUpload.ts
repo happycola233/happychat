@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { AttachmentDTO } from '@shared/types/api'
 import { isImageMime, uploadMime } from '@shared/util/fileTypes'
 import { isUploadAbortError, uploadAttachment } from '../api/attachments'
 import { createRandomUuid } from '../lib/randomUuid'
@@ -19,7 +18,6 @@ import {
   removeUploadDraft,
   restartUploadDraft,
   setUploadDraftProgress,
-  uploadDraftFromAttachment,
   type UploadDraftItem,
 } from './uploadDraft'
 
@@ -31,12 +29,27 @@ interface UploadTask {
 }
 
 /**
+ * 由外部托管的上传列表：输入框把它放在按对话隔离的草稿 store 里。
+ * 上传开始时绑定的 setUploads 决定完成结果写回哪里，切换对话不影响在途上传的归属。
+ */
+export interface UploadDraftListState {
+  uploads: UploadDraftItem[]
+  setUploads: (update: (items: UploadDraftItem[]) => UploadDraftItem[]) => void
+}
+
+/**
  * 附件上传状态机：文件选中立刻以 uploading 项上屏（图片带本地预览），
  * 各文件并行上传、独立汇报进度；失败项可原位重试或移除。
  * 完成项留在列表里（status: done），由消费方在发送时取走并 clearUploads()。
+ * 不传 externalState 时列表是组件内状态（消息编辑框）。
  */
-export function useAttachmentUpload({ canImage, canFile, modelKind }: AttachmentInputSupport) {
-  const [uploads, setUploads] = useState<UploadDraftItem[]>([])
+export function useAttachmentUpload(
+  { canImage, canFile, modelKind }: AttachmentInputSupport,
+  externalState?: UploadDraftListState,
+) {
+  const [localUploads, setLocalUploads] = useState<UploadDraftItem[]>([])
+  const uploads = externalState?.uploads ?? localUploads
+  const setUploads = externalState?.setUploads ?? setLocalUploads
   const tasksRef = useRef(new Map<string, UploadTask>())
   const convertsOfficeToPdf = useSettings((s) => s.preferences.convertOfficeToPdf)
 
@@ -47,27 +60,30 @@ export function useAttachmentUpload({ canImage, canFile, modelKind }: Attachment
     [canImage, canFile, modelKind, convertsOfficeToPdf],
   )
 
-  const runUpload = useCallback((localId: string, file: File) => {
-    const controller = new AbortController()
-    const task = tasksRef.current.get(localId)
-    if (task) task.controller = controller
+  const runUpload = useCallback(
+    (localId: string, file: File) => {
+      const controller = new AbortController()
+      const task = tasksRef.current.get(localId)
+      if (task) task.controller = controller
 
-    uploadAttachment(file, {
-      signal: controller.signal,
-      onProgress: (fraction) =>
-        setUploads((items) => setUploadDraftProgress(items, localId, fraction)),
-    })
-      .then((attachment) => {
-        setUploads((items) => finishUploadDraft(items, localId, attachment))
+      uploadAttachment(file, {
+        signal: controller.signal,
+        onProgress: (fraction) =>
+          setUploads((items) => setUploadDraftProgress(items, localId, fraction)),
       })
-      .catch((err: unknown) => {
-        // 主动取消（移除条目/组件卸载）不是失败，静默退出。
-        if (isUploadAbortError(err)) return
-        const message = err instanceof Error ? err.message : '上传失败'
-        toast.error(message)
-        setUploads((items) => failUploadDraft(items, localId, message))
-      })
-  }, [])
+        .then((attachment) => {
+          setUploads((items) => finishUploadDraft(items, localId, attachment))
+        })
+        .catch((err: unknown) => {
+          // 主动取消（移除条目/组件卸载）不是失败，静默退出。
+          if (isUploadAbortError(err)) return
+          const message = err instanceof Error ? err.message : '上传失败'
+          toast.error(message)
+          setUploads((items) => failUploadDraft(items, localId, message))
+        })
+    },
+    [setUploads],
+  )
 
   const uploadFiles = useCallback(
     (files: File[]) => {
@@ -91,21 +107,19 @@ export function useAttachmentUpload({ canImage, canFile, modelKind }: Attachment
         runUpload(localId, file)
       }
     },
-    [attachmentError, runUpload],
+    [attachmentError, runUpload, setUploads],
   )
 
-  const removeUpload = useCallback((localId: string) => {
-    const task = tasksRef.current.get(localId)
-    task?.controller?.abort()
-    if (task?.previewUrl) URL.revokeObjectURL(task.previewUrl)
-    tasksRef.current.delete(localId)
-    setUploads((items) => removeUploadDraft(items, localId))
-  }, [])
-
-  /** 把已上传完成的附件放回列表最前，保留期间新选的附件（发送失败回填时用户可能已在上传新文件）。 */
-  const restoreAttachments = useCallback((attachments: AttachmentDTO[]) => {
-    setUploads((items) => [...attachments.map(uploadDraftFromAttachment), ...items])
-  }, [])
+  const removeUpload = useCallback(
+    (localId: string) => {
+      const task = tasksRef.current.get(localId)
+      task?.controller?.abort()
+      if (task?.previewUrl) URL.revokeObjectURL(task.previewUrl)
+      tasksRef.current.delete(localId)
+      setUploads((items) => removeUploadDraft(items, localId))
+    },
+    [setUploads],
+  )
 
   const retryUpload = useCallback(
     (localId: string) => {
@@ -119,18 +133,22 @@ export function useAttachmentUpload({ canImage, canFile, modelKind }: Attachment
       setUploads((items) => restartUploadDraft(items, localId))
       runUpload(localId, task.file)
     },
-    [attachmentError, runUpload],
+    [attachmentError, runUpload, setUploads],
   )
 
-  /** 发送成功后清空列表（正常路径此刻全部 done，中止/释放只是兜底）。 */
+  /**
+   * 发送成功后清空当前列表（正常路径此刻全部 done，中止/释放只是兜底）。
+   * 只释放本列表的任务：外部托管时其他对话的草稿可能仍有在途上传。
+   */
   const clearUploads = useCallback(() => {
-    for (const task of tasksRef.current.values()) {
-      task.controller?.abort()
-      if (task.previewUrl) URL.revokeObjectURL(task.previewUrl)
+    for (const item of uploads) {
+      const task = tasksRef.current.get(item.localId)
+      task?.controller?.abort()
+      if (task?.previewUrl) URL.revokeObjectURL(task.previewUrl)
+      tasksRef.current.delete(item.localId)
     }
-    tasksRef.current.clear()
-    setUploads([])
-  }, [])
+    setUploads(() => [])
+  }, [uploads, setUploads])
 
   // 卸载时中止在途请求并释放本地预览 URL。
   useEffect(() => {
@@ -150,7 +168,6 @@ export function useAttachmentUpload({ canImage, canFile, modelKind }: Attachment
     removeUpload,
     retryUpload,
     clearUploads,
-    restoreAttachments,
     attachmentError,
     uploading: hasActiveUpload(uploads),
     hasFailed: hasFailedUpload(uploads),

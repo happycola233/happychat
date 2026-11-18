@@ -6,6 +6,7 @@ import { clearAllConversations } from '../api/chat'
 import { useSettings } from '../store/settings'
 import { useMe } from './useAuth'
 import { useMessageQueue } from '../store/messageQueue'
+import { removeUserComposerDrafts } from '../store/composerDrafts'
 
 /**
  * 登录后拉取服务端设置真值并 hydrate 到 settings store（覆盖本地缓存）。
@@ -59,6 +60,8 @@ export function useDeleteAccount() {
   return useMutation({
     mutationFn: settingsApi.deleteAccount,
     onSuccess: () => {
+      const user = qc.getQueryData<PublicUser | null>(['me'])
+      if (user) removeUserComposerDrafts(user.id)
       useMessageQueue.getState().clear()
       qc.setQueryData(['me'], null)
       qc.removeQueries()

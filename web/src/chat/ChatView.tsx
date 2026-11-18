@@ -32,6 +32,7 @@ import { createConversationBranch, switchBranch } from '../api/chat'
 import { ApiRequestError } from '../api/client'
 import { abortRun, getActiveRun, regenerateRun, startRun } from '../api/runs'
 import { useConversation } from '../hooks/useConversations'
+import { useMe } from '../hooks/useAuth'
 import { useModels } from '../hooks/useModels'
 import { invalidateMyQuota, useMyQuota } from '../hooks/useQuota'
 import { useChatPrefs } from '../store/chat'
@@ -88,6 +89,7 @@ import { useMessageQueueSync } from './messageQueueSync'
 import { changeMessageQueue } from '../api/messageQueues'
 import type { MessageQueueAction } from '@shared/schemas/message-queue'
 import { useMessageQueue } from '../store/messageQueue'
+import { composerDraftKey, restoreFailedComposerDraft } from '../store/composerDrafts'
 import { createRandomUuid } from '../lib/randomUuid'
 import type { SendMessageInput } from '@shared/schemas/chat'
 import { ActiveRunRecoveryGate } from './activeRunRecovery'
@@ -196,6 +198,8 @@ export default function ChatView() {
   const sendRequestInFlightRef = useRef(false)
   const queuedSubmissionRef = useRef<{ fingerprint: string; id: string } | null>(null)
   const composerRef = useRef<ComposerHandle>(null)
+  // RequireAuth 保证聊天页一定已登录；草稿按账号隔离，同一浏览器换账号互不可见。
+  const draftKey = composerDraftKey(useMe().data!.id, id)
   // 图表卡片的「让模型修复」只把说明填进输入框，由用户确认后再发送。
   const artifactActions = useMemo<ArtifactActions>(
     () => ({
@@ -906,11 +910,11 @@ export default function ChatView() {
       selectedImageSources.map((source) => source.attachmentId),
     )
     setOptimisticUserContent(pendingContent.length ? pendingContent : null)
-    // 返回 true 后输入框立即清空、只留乐观气泡；请求被拒或网络中断时把原文与附件放回输入框，
+    // 返回 true 后输入框立即清空、只留乐观气泡；请求被拒或网络中断时把原文与附件放回发送时所在对话的草稿，
     // 失败提示仍由 sendMut.onError 统一处理。用 mutateAsync 而非 mutate 的回调：后者只通知最近一次调用。
     void sendMut
       .mutateAsync(input)
-      .catch(() => composerRef.current?.restoreDraft(text, attachments))
+      .catch(() => restoreFailedComposerDraft(draftKey, text, attachments))
     return true
   }
 
@@ -1314,6 +1318,7 @@ export default function ChatView() {
           </div>
           <Composer
             ref={composerRef}
+            draftKey={draftKey}
             onSend={onSend}
             queueing={streaming || Boolean(messageQueue?.items.length)}
             queue={

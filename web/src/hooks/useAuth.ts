@@ -3,6 +3,7 @@ import type { PublicUser } from '@shared/types/api'
 import { ApiRequestError } from '../api/client'
 import * as authApi from '../api/auth'
 import { useMessageQueue } from '../store/messageQueue'
+import { removeUserComposerDrafts } from '../store/composerDrafts'
 
 export function useMe() {
   return useQuery<PublicUser | null>({
@@ -52,6 +53,8 @@ export function useLogout() {
   return useMutation({
     mutationFn: authApi.logout,
     onSuccess: () => {
+      const user = qc.getQueryData<PublicUser | null>(['me'])
+      if (user) removeUserComposerDrafts(user.id)
       useMessageQueue.getState().clear()
       qc.setQueryData(['me'], null)
       qc.removeQueries()

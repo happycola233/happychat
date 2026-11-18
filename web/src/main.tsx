@@ -5,12 +5,14 @@ import { queryClient } from './lib/queryClient'
 import { applyPlatformClasses } from './lib/platform'
 import { installMathCopyHandler } from './chat/markdownClipboard'
 import { useSettings } from './store/settings'
+import { startComposerDraftPersistence } from './store/composerDrafts'
 import App from './App'
 import 'katex/dist/katex.min.css'
 import 'highlight.js/styles/github-dark.css'
 import './index.css'
 
 applyPlatformClasses()
+startComposerDraftPersistence()
 installMathCopyHandler(() => useSettings.getState().preferences.copyWithFormatting)
 
 createRoot(document.getElementById('root')!).render(
