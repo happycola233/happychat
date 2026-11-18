@@ -102,8 +102,9 @@ export function useAttachmentUpload({ canImage, canFile, modelKind }: Attachment
     setUploads((items) => removeUploadDraft(items, localId))
   }, [])
 
+  /** 把已上传完成的附件放回列表最前，保留期间新选的附件（发送失败回填时用户可能已在上传新文件）。 */
   const restoreAttachments = useCallback((attachments: AttachmentDTO[]) => {
-    setUploads(attachments.map(uploadDraftFromAttachment))
+    setUploads((items) => [...attachments.map(uploadDraftFromAttachment), ...items])
   }, [])
 
   const retryUpload = useCallback(

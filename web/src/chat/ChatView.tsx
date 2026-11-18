@@ -906,7 +906,11 @@ export default function ChatView() {
       selectedImageSources.map((source) => source.attachmentId),
     )
     setOptimisticUserContent(pendingContent.length ? pendingContent : null)
-    sendMut.mutate(input)
+    // 返回 true 后输入框立即清空、只留乐观气泡；请求被拒或网络中断时把原文与附件放回输入框，
+    // 失败提示仍由 sendMut.onError 统一处理。用 mutateAsync 而非 mutate 的回调：后者只通知最近一次调用。
+    void sendMut
+      .mutateAsync(input)
+      .catch(() => composerRef.current?.restoreDraft(text, attachments))
     return true
   }
 
@@ -957,7 +961,8 @@ export default function ChatView() {
       useChatPrefs.getState().replaceImageOptions(message.input.params.image)
   }
 
-  const onEdit = (msg: MessageDTO, input: MessageEditSubmit): boolean => {
+  /** 服务端接受后才返回 true（编辑框随之关闭）；被拒或网络中断时返回 false，编辑框保留修改内容。 */
+  const onEdit = async (msg: MessageDTO, input: MessageEditSubmit): Promise<boolean> => {
     if (
       id &&
       (useStreamStore.getState().byConversation[id]?.status === 'streaming' ||
@@ -982,18 +987,23 @@ export default function ChatView() {
     }
     // 用户主动编辑历史时先暂停队列，避免下一条消息抢在新分支创建前发送。
     shouldAutoFollowRef.current = true
-    sendMut.mutate({
-      conversationId: id,
-      modelId: model.id,
-      text: input.text,
-      contextAttachments: id ? useContextSelection.getState().byConversation[id] : undefined,
-      params: params(),
-      clientLocale: getBrowserLocale(),
-      clientTimezone: getBrowserTimezone(),
-      parentId: msg.parentId,
-      attachments: toAttachmentRefs(input.attachments),
-    })
-    return true
+    try {
+      await sendMut.mutateAsync({
+        conversationId: id,
+        modelId: model.id,
+        text: input.text,
+        contextAttachments: id ? useContextSelection.getState().byConversation[id] : undefined,
+        params: params(),
+        clientLocale: getBrowserLocale(),
+        clientTimezone: getBrowserTimezone(),
+        parentId: msg.parentId,
+        attachments: toAttachmentRefs(input.attachments),
+      })
+      return true
+    } catch {
+      // 失败提示已由 sendMut.onError 弹出
+      return false
+    }
   }
 
   const onRegenerate = (assistantMessageId: string) => {

@@ -40,7 +40,7 @@ interface Props {
   live?: LiveMessage
   branch?: BranchInfo
   busy?: boolean
-  onEdit?: (input: MessageEditSubmit) => boolean | void
+  onEdit?: (input: MessageEditSubmit) => Promise<boolean>
   editAttachmentSupport?: AttachmentInputSupport
   onRegenerate?: () => void
   onCreateBranch?: () => void
@@ -151,14 +151,14 @@ export function Message({
 
   if (message.role === 'user') {
     const text = textFromContent(message.content)
-    if (editing) {
+    if (editing && onEdit) {
       return (
         <MessageEditForm
           initialText={text}
           initialAttachments={attachmentDraftsFromContent(message.content)}
           {...editAttachmentSupport}
           onCancel={() => setEditing(false)}
-          onSubmit={(input) => onEdit?.(input)}
+          onSubmit={onEdit}
         />
       )
     }

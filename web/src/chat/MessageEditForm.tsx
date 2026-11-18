@@ -29,7 +29,8 @@ interface MessageEditFormProps extends AttachmentInputSupport {
   initialText: string
   initialAttachments: AttachmentDraftItem[]
   onCancel: () => void
-  onSubmit: (input: MessageEditSubmit) => boolean | void
+  /** 服务端接受后 resolve true 并关闭编辑框；false 表示未发出或失败，编辑框保留修改内容。 */
+  onSubmit: (input: MessageEditSubmit) => Promise<boolean>
 }
 
 export function MessageEditForm({
@@ -44,6 +45,8 @@ export function MessageEditForm({
   const [draft, setDraft] = useState(initialText)
   const [attachments, setAttachments] = useState(initialAttachments)
   const [dragActive, setDragActive] = useState(false)
+  // 等待服务端响应期间锁住编辑区，防止重复提交或改动已发出的内容。
+  const [submitting, setSubmitting] = useState(false)
   const dragDepth = useRef(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const imageInput = useRef<HTMLInputElement>(null)
@@ -78,8 +81,8 @@ export function MessageEditForm({
     return () => window.removeEventListener('resize', resizeTextarea)
   }, [resizeTextarea])
 
-  const submitEdit = () => {
-    if (!canSubmit) return
+  const submitEdit = async () => {
+    if (!canSubmit || submitting) return
     const readyAttachments = [...attachments, ...uploadedDrafts]
     for (const attachment of readyAttachments) {
       const error = attachmentError(attachment)
@@ -88,8 +91,9 @@ export function MessageEditForm({
         return
       }
     }
-    const accepted = onSubmit({ text: draft.trim(), attachments: readyAttachments })
-    if (accepted !== false) onCancel()
+    setSubmitting(true)
+    if (await onSubmit({ text: draft.trim(), attachments: readyAttachments })) onCancel()
+    else setSubmitting(false)
   }
 
   const onPick = (event: ChangeEvent<HTMLInputElement>) => {
@@ -145,6 +149,7 @@ export function MessageEditForm({
   return (
     <div className="flex justify-end">
       <div
+        inert={submitting || undefined}
         onDragEnter={onDragEnter}
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}

@@ -50,6 +50,11 @@ export interface ComposerHandle {
     sourceRect: DOMRect,
     take: () => Promise<void>,
   ) => Promise<boolean>
+  /**
+   * 发送请求失败后放回原文与附件（输入框在请求发出时已清空）。
+   * 等待响应期间用户若已输入新内容，原文放在前面并空一行，两者都保留。
+   */
+  restoreDraft: (text: string, attachments: AttachmentDTO[]) => void
 }
 
 interface Props extends AttachmentInputSupport {
@@ -268,6 +273,10 @@ export function Composer({
           draftOperationRef.current = false
           setDraftBusy(false)
         }
+      },
+      restoreDraft: (draftText, attachments) => {
+        setText((current) => (current.trim() ? `${draftText}\n\n${current}` : draftText))
+        restoreAttachments(attachments)
       },
     }),
     [hasDraft, hasContextAttachments, restoreAttachments],
