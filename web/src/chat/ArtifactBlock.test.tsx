@@ -18,25 +18,53 @@ describe('artifact sandbox frame', () => {
 describe('artifact card', () => {
   const source = '<title>阻尼振荡</title>\n<canvas></canvas>\n<script>draw()</script>'
 
-  it('streams the recent lines with a caret on the current one until the block is complete', () => {
+  it('numbers streamed lines by their real position, skipping blank lines', () => {
+    const spaced = '<title>间隔</title>\n\n<svg>\n\n<path d="M0 0"/>'
+    const html = renderToStaticMarkup(
+      <ArtifactBlock source={spaced} code={<code>{spaced}</code>} complete={false} />,
+    )
+    expect(html).toContain('5 行')
+    expect(html).toMatch(/>5<\/span>.*M0 0/)
+    expect(html).not.toMatch(/>2<\/span>/)
+  })
+
+  it('streams tinted lines with line numbers, glyph, and caret until complete', () => {
     const html = renderToStaticMarkup(
       <ArtifactBlock source={source} code={<code>{source}</code>} complete={false} />,
     )
     expect(html).toContain('阻尼振荡')
-    expect(html).toContain('正在生成 · 3 行')
-    expect(html).toContain('&lt;canvas&gt;&lt;/canvas&gt;')
-    expect(html).toMatch(/&lt;script&gt;draw\(\)&lt;\/script&gt;<span class="hc-artifact-caret">/)
+    expect(html).toContain('data-testid="artifact-glyph"')
+    expect(html).toContain('data-phase="thinking"')
+    expect(html).toContain('3 行')
+    expect(html).toContain('hc-artifact-tok-tag')
+    expect(html).toMatch(/draw\(\).*<span class="hc-artifact-caret">/)
     expect(html).not.toContain('查看代码')
     expect(html).not.toContain('<iframe')
   })
 
-  it('offers the card actions once complete without executing anything during render', () => {
+  it('shows shimmer status before title arrives while generating', () => {
+    const html = renderToStaticMarkup(
+      <ArtifactBlock source="<div>" code={<code>&lt;div&gt;</code>} complete={false} />,
+    )
+    expect(html).toContain('hc-artifact-shimmer')
+    expect(html).toContain('正在生成')
+  })
+
+  it('offers the frameless card actions once complete without mounting the glyph', () => {
     const html = renderToStaticMarkup(
       <ArtifactBlock source={source} code={<code>{source}</code>} complete />,
     )
-    for (const label of ['查看代码', '复制代码', '下载为网页文件', '放大查看', '重新运行']) {
+    for (const label of [
+      '查看效果',
+      '查看代码',
+      '复制代码',
+      '下载为网页文件',
+      '放大查看',
+      '重新运行',
+    ]) {
       expect(html).toContain(`aria-label="${label}"`)
     }
+    expect(html).not.toContain('data-testid="artifact-glyph"')
     expect(html).not.toContain('正在生成')
     expect(html).not.toContain('<iframe')
   })

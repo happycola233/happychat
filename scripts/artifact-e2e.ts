@@ -80,18 +80,25 @@ async function send(page: Page, text: string): Promise<void> {
 /** 自然提问：生成过程中确认卡片显示行数并滚动输出最近几行代码（回答太快时可能来不及捕捉）。 */
 async function sendWatchingProgress(page: Page, text: string, screenshot: string): Promise<void> {
   await submit(page, text)
-  const progress = page.getByText(/正在生成 · \d+ 行/).first()
+  const stream = page.locator('.hc-artifact-stream').first()
   const seen = await Promise.race([
-    progress.waitFor({ timeout: ANSWER_TIMEOUT_MS }).then(
+    stream.waitFor({ timeout: ANSWER_TIMEOUT_MS }).then(
       () => true,
       () => false,
     ),
     waitForAnswer(page).then(() => false),
   ])
   if (seen) {
-    const recent = await page.locator('.hc-artifact-stream').first().innerText()
-    check(recent.trim(), `生成中滚动输出最近几行代码（${await progress.textContent()}）`)
-    await page.getByTestId('artifact-block').last().screenshot({ path: screenshot })
+    const recent = await stream.innerText()
+    const card = page.getByTestId('artifact-block').last()
+    const lineCount =
+      (await card
+        .getByText(/^\d+ 行$/)
+        .first()
+        .textContent()
+        .catch(() => null)) ?? ''
+    check(recent.trim(), `生成中滚动输出最近几行代码（${lineCount || '流式输出中'}）`)
+    await card.screenshot({ path: screenshot })
   } else {
     console.log('⚠ 回答太快，没有捕捉到生成中状态')
   }

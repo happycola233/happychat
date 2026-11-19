@@ -10,6 +10,7 @@ import type { MessageDTO } from '@shared/types/api'
 import type { ExportOptions } from '@shared/schemas/export'
 import { artifactTitle, isArtifactLanguage } from '@shared/util/artifactBlocks'
 import {
+  ARTIFACT_CANVAS_COLORS,
   ARTIFACT_FRAME_SANDBOX,
   ARTIFACT_MAX_FRAME_HEIGHT,
   buildArtifactDocument,
@@ -352,9 +353,9 @@ a{color:#0284c7}
 .md th,.md td{border:1px solid #e5e5e5;padding:.4rem .75rem;font-size:.875rem}
 .md img{max-width:100%;border-radius:.5rem}
 .md hr{border:none;border-top:1px solid #e5e5e5;margin:1.5rem 0}
-.artifact{margin:1rem 0;border:1px solid #e5e5e5;border-radius:1rem;overflow:hidden;background:#fff}
+.artifact{margin:1rem 0;border-radius:1.25rem;overflow:hidden;background:${ARTIFACT_CANVAS_COLORS.light}}
 .artifact iframe{display:block;width:100%;height:320px;border:0;background:transparent}
-.artifact figcaption{border-top:1px solid #f0f0f0;padding:.4rem .9rem;font-size:.75rem;color:#a3a3a3}
+.artifact figcaption{padding:.5rem 1rem .65rem;font-size:.75rem;color:#8a8a90}
 @media (prefers-color-scheme:dark){
 body{background:#171717;color:#e5e5e5}
 header.page .meta{color:#737373}
@@ -374,7 +375,7 @@ a{color:#38bdf8}
 .md blockquote{border-left-color:#404040;color:#a3a3a3}
 .md th,.md td{border-color:#333}
 .md hr{border-top-color:#333}
-.artifact{border-color:#333;background:#171717}
-.artifact figcaption{border-top-color:#262626}
+.artifact{background:${ARTIFACT_CANVAS_COLORS.dark}}
+.artifact figcaption{color:#71717a}
 }
 `

@@ -4,16 +4,16 @@ import { clsx } from 'clsx'
 import {
   AlertCircle,
   Check,
-  Code2,
   Download,
   Maximize2,
   Play,
   RotateCcw,
-  Shapes,
   WandSparkles,
 } from 'lucide-react'
 import { artifactTitle } from '@shared/util/artifactBlocks'
 import {
+  adaptsToColorScheme,
+  ARTIFACT_CANVAS_COLORS,
   ARTIFACT_FRAME_SANDBOX,
   ARTIFACT_MAX_FRAME_HEIGHT,
   buildArtifactDocument,
@@ -29,6 +29,8 @@ import { toast } from '../store/toast'
 import { CopyIcon } from './icons'
 import { loadArtifactAssets } from './artifactAssets'
 import { ArtifactActionsContext, buildArtifactFixPrompt } from './artifactActions'
+import { tokenizeArtifactStreamLine } from './artifactStreamSyntax'
+import { ThinkingGlyph } from './ThinkingGlyph'
 import { useArtifactTheme } from './useArtifactTheme'
 
 const MIN_FRAME_HEIGHT = 48
@@ -36,9 +38,9 @@ const PLACEHOLDER_HEIGHT = 240
 const MAX_REPORTED_ERRORS = 5
 const REMEMBERED_SOURCES_LIMIT = 100
 const FALLBACK_TITLE = 'Artifact'
-const STREAM_LINES = 5
-/** 与代码流的 leading-5 一致：滚动按整行位移。 */
-const STREAM_LINE_HEIGHT = 20
+const STREAM_LINES = 6
+/** 与代码流的 h-[22px] / leading-[22px] 一致：滚动按整行位移。 */
+const STREAM_LINE_HEIGHT = 22
 const MAX_ZOOM_SCALE = 3
 /** 放大查看最多占窗口的 90%（与 Modal 的 max-h-[90vh] 一致），高度还要扣掉标题栏。 */
 const ZOOM_VIEWPORT_RATIO = 0.9
@@ -135,11 +137,6 @@ function frameDocument(
   })
 }
 
-/** 状态行左侧的呼吸圆点：颜色跟随重点色（默认灰重点色与未读圆点一样借用蓝色）。 */
-function StatusDot() {
-  return <span className="hc-artifact-dot h-1.5 w-1.5 shrink-0 rounded-full" aria-hidden="true" />
-}
-
 /** 新行出现时整列上移；一次到达多行或上一段滚动还没结束时，从当前位置接着滚，不会跳动。 */
 function useStreamScroll(columnRef: RefObject<HTMLDivElement | null>, lineCount: number) {
   const previousCount = useRef(lineCount)
@@ -159,52 +156,85 @@ function useStreamScroll(columnRef: RefObject<HTMLDivElement | null>, lineCount:
   }, [columnRef, lineCount])
 }
 
+function renderTintedStreamLine(line: string): ReactNode {
+  return tokenizeArtifactStreamLine(line).map((token, index) =>
+    token.kind === 'plain' ? (
+      token.text
+    ) : (
+      <span key={index} className={`hc-artifact-tok-${token.kind}`}>
+        {token.text}
+      </span>
+    ),
+  )
+}
+
+interface StreamLine {
+  /** 源码中的真实行号（从 1 开始）；空行不显示，但仍占行号。 */
+  number: number
+  text: string
+}
+
+/** 生成中展示的非空代码行，行号与完整源码一致。 */
+function streamLinesOf(source: string): StreamLine[] {
+  return source
+    .split('\n')
+    .map((text, index) => ({ number: index + 1, text: text.trimEnd() }))
+    .filter((line) => line.text.trim())
+}
+
 /**
- * 流式生成中：最近几行代码随输出向上滚动，顶部渐隐，当前行末尾带光标。
+ * 流式生成中：最近几行代码带行号、按语法淡着色，随输出向上滚动，顶部渐隐，当前行末尾带光标。
  * 不用展开代码也能看出在推进。
  */
-function ArtifactGenerating({ source }: { source: string }) {
-  const lines = source.split('\n').filter((line) => line.trim())
+function ArtifactGenerating({
+  lines,
+  sourceLength,
+}: {
+  lines: readonly StreamLine[]
+  sourceLength: number
+}) {
   const columnRef = useRef<HTMLDivElement>(null)
   useStreamScroll(columnRef, lines.length)
   // 多渲染一屏：一次滚过多行时，上方仍有内容补位。
-  const firstIndex = Math.max(0, lines.length - STREAM_LINES * 2)
-  const recent = lines.slice(firstIndex)
+  const recent = lines.slice(Math.max(0, lines.length - STREAM_LINES * 2))
   return (
-    <div className="flex flex-col gap-3 px-5 py-4">
-      <div className="flex items-center gap-2 text-sm leading-5 text-neutral-500 dark:text-neutral-400">
-        <StatusDot />
-        {lines.length > 0 ? `正在生成 · ${lines.length} 行` : '正在生成'}
-      </div>
-      <div
-        className="hc-artifact-stream relative overflow-hidden font-mono text-xs leading-5"
-        style={{ height: STREAM_LINES * STREAM_LINE_HEIGHT }}
-        aria-hidden="true"
-      >
-        <div ref={columnRef} className="absolute inset-x-0 bottom-0 pl-3.5">
-          {recent.map((line, index) =>
-            index === recent.length - 1 ? (
-              // 当前行可能很长：超出时向左溢出，始终露出正在写的末尾。
-              <div
-                key={firstIndex + index}
-                className="flex justify-end overflow-hidden text-neutral-500 dark:text-neutral-400"
+    <div
+      className="hc-artifact-stream relative mx-4 mt-1 mb-4 overflow-hidden font-mono text-xs leading-[22px] tabular-nums"
+      style={{ height: STREAM_LINES * STREAM_LINE_HEIGHT }}
+      aria-hidden="true"
+    >
+      <div ref={columnRef} className="absolute inset-x-0 bottom-0">
+        {recent.map((line, index) => {
+          const active = index === recent.length - 1
+          return (
+            <div key={line.number} className="flex h-[22px] items-baseline gap-3.5">
+              <span
+                className={clsx(
+                  'w-[22px] shrink-0 text-right text-[11px] select-none',
+                  active
+                    ? 'text-neutral-500 opacity-90 dark:text-neutral-400'
+                    : 'text-neutral-400 opacity-55 dark:text-neutral-500',
+                )}
               >
-                <span className="min-w-full flex-none whitespace-pre">
-                  {line.trimEnd()}
-                  {/* 每次输出都重新挂载：输出时常亮，停顿片刻才开始闪烁。 */}
-                  <span key={source.length} className="hc-artifact-caret" />
-                </span>
-              </div>
-            ) : (
-              <div
-                key={firstIndex + index}
-                className="overflow-hidden text-ellipsis whitespace-pre text-neutral-400 dark:text-neutral-500"
-              >
-                {line.trimEnd()}
-              </div>
-            ),
-          )}
-        </div>
+                {line.number}
+              </span>
+              {active ? (
+                // 当前行可能很长：超出时向左溢出，始终露出正在写的末尾。
+                <div className="hc-artifact-stream-active flex min-w-0 flex-1 justify-end overflow-hidden">
+                  <span className="min-w-full flex-none whitespace-pre">
+                    {renderTintedStreamLine(line.text)}
+                    {/* 每次输出都重新挂载：输出时常亮，停顿片刻后开始闪烁。 */}
+                    <span key={sourceLength} className="hc-artifact-caret" />
+                  </span>
+                </div>
+              ) : (
+                <div className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-pre">
+                  {renderTintedStreamLine(line.text)}
+                </div>
+              )}
+            </div>
+          )
+        })}
       </div>
     </div>
   )
@@ -215,12 +245,17 @@ function ArtifactLoading({ height }: { height?: number }) {
   return (
     <div
       className={clsx(
-        'hc-artifact-loading pointer-events-none flex items-center justify-center gap-2 text-sm text-neutral-400 dark:text-neutral-500',
+        'hc-artifact-loading pointer-events-none flex items-center justify-center gap-2 text-[13px] text-neutral-400 dark:text-neutral-500',
         height === undefined && 'h-full',
       )}
       style={height === undefined ? undefined : { height }}
     >
-      <StatusDot />
+      <ThinkingGlyph
+        phase="waiting"
+        size={14}
+        testId="artifact-loading-glyph"
+        className="hc-artifact-accent-fg"
+      />
       正在加载
     </div>
   )
@@ -245,6 +280,8 @@ interface ArtifactFrameProps {
   initialHeight?: number
   /** 不传时宽度铺满卡片，高度按沙箱上报的内容高度自适应。 */
   zoom?: ArtifactZoom
+  /** 从生成中或手动运行进入就绪时淡入一次；打开历史消息时不播放。 */
+  unveil?: boolean
   onHeight?: (height: number) => void
   onError?: (message: string) => void
 }
@@ -254,6 +291,7 @@ export function ArtifactFrame({
   title,
   initialHeight = PLACEHOLDER_HEIGHT,
   zoom,
+  unveil = false,
   onHeight,
   onError,
 }: ArtifactFrameProps) {
@@ -281,6 +319,7 @@ export function ArtifactFrame({
     return () => window.removeEventListener('message', onMessage)
   }, [])
 
+  const ready = readyDoc === srcDoc
   const scale = zoom ? zoomScale(zoom, height) : 1
   return (
     <div
@@ -296,10 +335,11 @@ export function ArtifactFrame({
         className={clsx(
           'block border-0 bg-transparent',
           zoom ? 'origin-top-left' : 'hc-artifact-frame w-full',
+          unveil && (ready ? 'hc-artifact-unveil' : 'opacity-0'),
         )}
         style={zoom ? { width: zoom.width, height, transform: `scale(${scale})` } : { height }}
       />
-      {readyDoc !== srcDoc && (
+      {!ready && (
         <div className="absolute inset-0">
           <ArtifactLoading />
         </div>
@@ -382,7 +422,7 @@ function HeaderAction({
       disabled={disabled}
       aria-label={label}
       title={label}
-      className="rounded-md p-1 text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-950 focus-visible:ring-2 focus-visible:ring-neutral-400 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-35 dark:text-neutral-300 dark:hover:bg-neutral-800 dark:hover:text-white [&>svg]:h-3.5 [&>svg]:w-3.5"
+      className="inline-flex h-7 w-7 items-center justify-center rounded-full text-neutral-500 transition hover:bg-black/[0.055] hover:text-neutral-950 active:scale-95 focus-visible:ring-2 focus-visible:ring-neutral-400 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-35 dark:text-neutral-400 dark:hover:bg-white/[0.085] dark:hover:text-white [&>svg]:h-3.5 [&>svg]:w-3.5"
     >
       {children}
     </button>
@@ -413,17 +453,25 @@ interface ArtifactBlockProps {
 
 export function ArtifactBlock({ source, code, complete }: ArtifactBlockProps) {
   const title = useMemo(() => artifactTitle(source), [source])
+  const themed = useMemo(() => adaptsToColorScheme(source), [source])
+  const streamLines = useMemo(() => (complete ? [] : streamLinesOf(source)), [complete, source])
   const displayTitle = title ?? FALLBACK_TITLE
   const cardRef = useRef<HTMLDivElement>(null)
+  const stageRef = useRef<HTMLDivElement>(null)
   const nearViewport = useNearViewport(cardRef)
   const autoRun = useSettings((s) => s.preferences.autoRunArtifacts)
   const [manuallyStarted, setManuallyStarted] = useState(() => startedSources.has(source))
   const [showCode, setShowCode] = useState(false)
-  /** 放大查看打开时记下卡片宽度，放大视图按同一宽度排版。 */
+  /** 放大查看打开时记下渲染区宽度，放大视图按同一宽度排版。 */
   const [zoomWidth, setZoomWidth] = useState<number | null>(null)
   const [runKey, setRunKey] = useState(0)
   const [errorLog, setErrorLog] = useState<ErrorLog>(EMPTY_ERROR_LOG)
   const [copied, setCopied] = useState(false)
+  // 3×3 点阵一经在生成中挂载即保留，待生成完成播放收束动画后再收起宽度；历史卡片不挂载。
+  const [glyphMounted, setGlyphMounted] = useState(!complete)
+  if (!complete && !glyphMounted) setGlyphMounted(true)
+  const [shouldUnveil, setShouldUnveil] = useState(!complete)
+  if (!complete && !shouldUnveil) setShouldUnveil(true)
   const actions = useContext(ArtifactActionsContext)
   const theme = useArtifactTheme()
 
@@ -439,10 +487,12 @@ export function ArtifactBlock({ source, code, complete }: ArtifactBlockProps) {
 
   const start = () => {
     startedSources.add(source)
+    setShouldUnveil(true)
     setManuallyStarted(true)
   }
 
   const rerun = () => {
+    setShouldUnveil(true)
     if (!running) {
       start()
       return
@@ -493,16 +543,16 @@ export function ArtifactBlock({ source, code, complete }: ArtifactBlockProps) {
 
   let body: ReactNode
   if (!complete) {
-    body = <ArtifactGenerating source={source} />
+    body = <ArtifactGenerating lines={streamLines} sourceLength={source.length} />
   } else if (!running) {
     body = (
       <div className="flex h-32 items-center justify-center">
         <button
           type="button"
           onClick={start}
-          className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 px-4 py-1.5 text-sm text-neutral-700 transition hover:bg-neutral-100 focus-visible:ring-2 focus-visible:ring-neutral-400 focus-visible:outline-none dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
+          className="hc-artifact-run-pill inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-[13px] font-medium text-neutral-800 transition hover:-translate-y-px focus-visible:ring-2 focus-visible:ring-neutral-400 focus-visible:outline-none dark:text-neutral-100"
         >
-          <Play className="h-3.5 w-3.5" />
+          <Play className="h-3.5 w-3.5 fill-current" />
           运行
         </button>
       </div>
@@ -514,22 +564,32 @@ export function ArtifactBlock({ source, code, complete }: ArtifactBlockProps) {
         <button
           type="button"
           onClick={retry}
-          className="rounded-full border border-neutral-200 px-4 py-1 text-sm text-neutral-700 transition hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
+          className="hc-artifact-run-pill rounded-full px-4 py-1 text-[13px] font-medium text-neutral-800 transition hover:-translate-y-px focus-visible:ring-2 focus-visible:ring-neutral-400 focus-visible:outline-none dark:text-neutral-100"
         >
           重试
         </button>
       </div>
     )
   } else if (srcDoc) {
+    // 只用固定颜色的内容在深色模式下垫白底：四周留 8px 并裁出圆角，白底不贴着卡片边缘。
+    // 浅色模式卡片本身是浅底，这类内容直接铺满。
     body = (
-      <ArtifactFrame
-        key={runKey}
-        srcDoc={srcDoc}
-        title={displayTitle}
-        initialHeight={placeholderHeight}
-        onHeight={(height) => rememberHeight(source, height)}
-        onError={reportError}
-      />
+      <div className={clsx(!themed && 'dark:px-2 dark:pb-2')}>
+        <div
+          ref={stageRef}
+          className={clsx(!themed && 'dark:overflow-hidden dark:rounded-[0.8125rem]')}
+        >
+          <ArtifactFrame
+            key={runKey}
+            srcDoc={srcDoc}
+            title={displayTitle}
+            initialHeight={placeholderHeight}
+            unveil={shouldUnveil}
+            onHeight={(height) => rememberHeight(source, height)}
+            onError={reportError}
+          />
+        </div>
+      </div>
     )
   } else {
     body = <ArtifactLoading height={placeholderHeight} />
@@ -539,48 +599,130 @@ export function ArtifactBlock({ source, code, complete }: ArtifactBlockProps) {
     <div
       ref={cardRef}
       data-testid="artifact-block"
-      className="hc-artifact-block my-4 overflow-hidden rounded-[1.1rem] border border-neutral-200 bg-white text-neutral-950 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-50"
+      aria-busy={!complete || undefined}
+      className="hc-artifact-block group/artifact my-4 overflow-hidden rounded-[1.25rem] text-neutral-950 dark:text-neutral-50"
+      style={{
+        backgroundColor: ARTIFACT_CANVAS_COLORS[theme.scheme === 'dark' ? 'dark' : 'light'],
+      }}
     >
-      <div className="flex h-10 items-center gap-1.5 border-b border-neutral-100 pr-2 pl-4 text-xs font-medium text-neutral-500 dark:border-neutral-800 dark:text-neutral-300">
-        <Shapes className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-        <span className="min-w-0 flex-1 truncate">{displayTitle}</span>
-        {complete && (
-          <div className="flex shrink-0 items-center gap-0.5">
-            <HeaderAction
-              label={showCode ? '查看效果' : '查看代码'}
-              onClick={() => setShowCode((value) => !value)}
+      <div className="flex h-10 items-center justify-between gap-2 pt-1 pr-3 pl-4">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          {glyphMounted && (
+            <span
+              className={clsx(
+                'hc-artifact-glyph-slot flex shrink-0 items-center justify-center',
+                complete && 'hc-artifact-glyph-leaving',
+              )}
+              aria-hidden="true"
             >
-              {showCode ? <Shapes /> : <Code2 />}
-            </HeaderAction>
-            <HeaderAction label="复制代码" onClick={copy}>
-              {copied ? <Check /> : <CopyIcon />}
-            </HeaderAction>
-            <HeaderAction label="下载为网页文件" onClick={() => void download()}>
-              <Download />
-            </HeaderAction>
-            <HeaderAction
-              label="放大查看"
-              onClick={() => setZoomWidth(cardRef.current!.clientWidth)}
-              disabled={!srcDoc}
+              <ThinkingGlyph
+                phase={complete ? 'settling' : 'thinking'}
+                activity={source.length}
+                rippleKey={title}
+                size={15}
+                testId="artifact-glyph"
+                className="hc-artifact-accent-fg"
+              />
+            </span>
+          )}
+          {!complete && !title ? (
+            <span className="hc-artifact-shimmer min-w-0 truncate text-[13px] font-medium">
+              正在生成
+            </span>
+          ) : (
+            <span
+              key={title ? 'titled' : 'fallback'}
+              className={clsx(
+                'min-w-0 truncate text-[13px] font-medium transition-colors',
+                !complete
+                  ? 'text-neutral-900 dark:text-neutral-100'
+                  : 'text-neutral-600 group-hover/artifact:text-neutral-900 dark:text-neutral-400 dark:group-hover/artifact:text-neutral-100',
+                glyphMounted && title && 'hc-artifact-title-in',
+              )}
             >
-              <Maximize2 />
-            </HeaderAction>
-            <HeaderAction label="重新运行" onClick={rerun}>
-              <RotateCcw />
-            </HeaderAction>
+              {displayTitle}
+            </span>
+          )}
+        </div>
+        {!complete ? (
+          streamLines.length > 0 && (
+            <span className="shrink-0 font-mono text-[11.5px] tabular-nums text-neutral-400 dark:text-neutral-500">
+              {streamLines[streamLines.length - 1]!.number} 行
+            </span>
+          )
+        ) : (
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+            <div
+              className="hc-artifact-seg"
+              data-mode={showCode ? 'code' : 'preview'}
+              role="group"
+              aria-label="切换视图"
+            >
+              <span className="hc-artifact-seg-thumb" aria-hidden="true" />
+              <button
+                type="button"
+                aria-label="查看效果"
+                aria-pressed={!showCode}
+                title="查看效果"
+                onClick={() => setShowCode(false)}
+                className={clsx(
+                  'relative z-10 cursor-pointer rounded-full px-2.5 py-0.5 text-[11.5px] font-medium transition-colors focus-visible:ring-2 focus-visible:ring-neutral-400 focus-visible:outline-none',
+                  !showCode
+                    ? 'text-neutral-950 dark:text-neutral-50'
+                    : 'text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200',
+                )}
+              >
+                效果
+              </button>
+              <button
+                type="button"
+                aria-label="查看代码"
+                aria-pressed={showCode}
+                title="查看代码"
+                onClick={() => setShowCode(true)}
+                className={clsx(
+                  'relative z-10 cursor-pointer rounded-full px-2.5 py-0.5 text-[11.5px] font-medium transition-colors focus-visible:ring-2 focus-visible:ring-neutral-400 focus-visible:outline-none',
+                  showCode
+                    ? 'text-neutral-950 dark:text-neutral-50'
+                    : 'text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200',
+                )}
+              >
+                代码
+              </button>
+            </div>
+            <div className="flex shrink-0 items-center gap-0.5 transition-opacity duration-200 group-focus-within/artifact:opacity-100 group-hover/artifact:opacity-100 [@media(hover:hover)]:opacity-60">
+              <HeaderAction label="复制代码" onClick={copy}>
+                {copied ? <Check /> : <CopyIcon />}
+              </HeaderAction>
+              <HeaderAction label="下载为网页文件" onClick={() => void download()}>
+                <Download />
+              </HeaderAction>
+              <HeaderAction
+                label="放大查看"
+                onClick={() =>
+                  setZoomWidth(stageRef.current?.clientWidth ?? cardRef.current!.clientWidth)
+                }
+                disabled={!srcDoc}
+              >
+                <Maximize2 />
+              </HeaderAction>
+              <HeaderAction label="重新运行" onClick={rerun}>
+                <RotateCcw />
+              </HeaderAction>
+            </div>
           </div>
         )}
       </div>
       {showCode && (
-        <div className="hc-code-block hc-artifact-code max-h-[480px] overflow-auto">
-          <pre className="px-4 pt-3 pb-5 font-mono text-[13px] leading-5">{code}</pre>
+        <div className="hc-code-block hc-artifact-code hc-scrollbar max-h-[480px] overflow-auto">
+          <pre className="px-4 pt-2 pb-5 font-mono text-[13px] leading-5">{code}</pre>
         </div>
       )}
       {/* 查看代码时只隐藏渲染结果，交互状态保留。 */}
       <div className={clsx(showCode && 'hidden')}>{body}</div>
       {errors.length > 0 && !showCode && (
-        <div className="flex items-start gap-2 border-t border-neutral-100 px-4 py-2.5 text-xs leading-5 text-red-600 dark:border-neutral-800 dark:text-red-300">
-          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+        <div className="mx-2 mb-2 flex items-center gap-2 rounded-[0.8125rem] bg-red-600/[0.055] px-3 py-2 text-xs leading-5 text-red-700 dark:bg-red-500/[0.11] dark:text-red-300">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           <span className="min-w-0 flex-1 break-words">
             运行出错：{errors[0]}
             {errors.length > 1 && `（另有 ${errors.length - 1} 条）`}
@@ -589,9 +731,9 @@ export function ArtifactBlock({ source, code, complete }: ArtifactBlockProps) {
             <button
               type="button"
               onClick={requestFix}
-              className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 font-medium text-neutral-700 transition hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-800"
+              className="hc-artifact-run-pill inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-0.5 text-[11.5px] font-medium text-neutral-800 transition hover:brightness-95 focus-visible:ring-2 focus-visible:ring-neutral-400 focus-visible:outline-none dark:text-neutral-100"
             >
-              <WandSparkles className="h-3.5 w-3.5" aria-hidden="true" />
+              <WandSparkles className="h-3 w-3" aria-hidden="true" />
               让模型修复
             </button>
           )}

@@ -62,14 +62,22 @@ export type ArtifactFrameMessage =
 
 const DEFAULT_ACCENT = { light: '#3a83f7', dark: '#2c67c5' } as const
 
-// 文字与线条取站内中性色阶；系列色是 dataviz 校验过的分类色板（浅/深色分别针对白底与 #171717 卡片底）。
+/**
+ * Artifact 的画布底色：沙箱文档自己铺这一色，聊天卡片、HTML 导出的外框也用同一色，
+ * 所以在聊天里、放大查看、下载的网页和导出文件里看到的底色一致。
+ */
+export const ARTIFACT_CANVAS_COLORS = { light: '#f8f8f9', dark: '#121214' } as const
+
+// 文字与线条取站内中性色阶，按画布底色取值：surface 比画布亮一档，用于面板与控件，
+// muted 在浅色画布上保持 4.5:1 以上的对比度。系列色是 dataviz 按白底与 #171717 校验过的分类色板，
+// 与现在的画布底色亮度相差很小。
 const THEME_TOKENS = {
   light: {
     fg: '#262626',
-    muted: '#737373',
+    muted: '#6e6e6e',
     grid: '#e5e5e5',
     border: '#d4d4d4',
-    surface: '#f5f5f5',
+    surface: '#ffffff',
     series: ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300'],
   },
   dark: {
@@ -89,6 +97,7 @@ function themeVariables(scheme: 'light' | 'dark', accent: string): string {
   const tokens = THEME_TOKENS[scheme]
   return [
     `color-scheme:${scheme}`,
+    `--hc-canvas:${ARTIFACT_CANVAS_COLORS[scheme]}`,
     `--hc-fg:${tokens.fg}`,
     `--hc-muted:${tokens.muted}`,
     `--hc-grid:${tokens.grid}`,
@@ -124,7 +133,8 @@ function themeCss(theme: ArtifactTheme): string {
 
 // 放在库样式之后：给模型没写样式的控件一个与站内一致的外观，并压掉 JSXGraph 自带的白底蓝框。
 const BASE_CSS = `*,*::before,*::after{box-sizing:border-box}
-html,body{margin:0;background:transparent}
+html,body{margin:0}
+html{background:var(--hc-canvas)}
 html{scrollbar-width:thin;scrollbar-color:var(--hc-border) transparent}
 html::-webkit-scrollbar{width:10px;height:10px}
 html::-webkit-scrollbar-track{background:transparent}
@@ -325,6 +335,9 @@ export function buildArtifactDocument({
     .map((id) => `<style data-artifact-asset="${id}">${inlineStyle(assets.get(id)!)}</style>`)
     .join('')
   const themed = adaptsToColorScheme(source)
+  // 只用固定颜色的内容按浅色渲染：站内浅色模式直接铺在浅色画布上，与卡片底色一致；
+  // 深色模式与跟随系统的下载 / 导出文件里画布可能是深色，改垫白底，写死的深色线条才看得清。
+  const needsPaperBacking = !themed && theme.scheme !== 'light'
 
   return `<!doctype html>
 <html lang="${lang}">
@@ -335,7 +348,7 @@ export function buildArtifactDocument({
 ${pixelRatio ? `<script>Object.defineProperty(window,'devicePixelRatio',{configurable:true,get:function(){return ${pixelRatio}}})</script>\n` : ''}<script>${inlineScript(bridgeScript(hostOrigin))}</script>
 <style>${themeCss(themed ? theme : { scheme: 'light', accent: theme.accent })}</style>
 ${styleTags}
-<style>${BASE_CSS}${themed ? '' : PAPER_CSS}</style>
+<style>${BASE_CSS}${needsPaperBacking ? PAPER_CSS : ''}</style>
 </head>
 <body>
 ${body}

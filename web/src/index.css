@@ -945,15 +945,134 @@ html.hc-ios .hc-chat-scroll {
   margin-top: 0;
   margin-bottom: 0;
 }
-/* 回答中的 Artifact：iframe 高度随沙箱上报的内容高度平滑变化。 */
+/*
+ * 回答中的 Artifact 卡片：不用描边和分隔线，只靠比页面略深的底色与页面区分。
+ * 底色取共享的 ARTIFACT_CANVAS_COLORS（由组件内联），与沙箱文档自己铺的画布同色。
+ */
 .hc-artifact-block {
+  --hc-artifact-shimmer-base: #737373;
+  --hc-artifact-shimmer-hi: #cfcfcf;
+  --hc-artifact-pill-trough: rgb(0 0 0 / 0.048);
+  --hc-artifact-pill-thumb: #ffffff;
+  --hc-artifact-pill-shadow: 0 1px 2px rgb(0 0 0 / 0.06);
+  /* 生成中代码流的语法着色：饱和度很低，只帮助区分标签、属性和字符串。 */
+  --hc-artifact-tok-tag: #3f6d52;
+  --hc-artifact-tok-attr: #47688a;
+  --hc-artifact-tok-str: #5d6f85;
+  --hc-artifact-tok-kw: #8e4c52;
+  --hc-artifact-tok-num: #7c6244;
+  --hc-artifact-tok-cm: #8a8a90;
+  --hc-artifact-tok-plain: #525252;
+  --hc-artifact-tok-muted: #737373;
   contain: content;
+}
+.dark .hc-artifact-block {
+  --hc-artifact-shimmer-base: #9a9aa0;
+  --hc-artifact-shimmer-hi: #f5f5f5;
+  --hc-artifact-pill-trough: rgb(255 255 255 / 0.08);
+  --hc-artifact-pill-thumb: #26262a;
+  --hc-artifact-pill-shadow: 0 1px 3px rgb(0 0 0 / 0.32);
+  --hc-artifact-tok-tag: #7fa88d;
+  --hc-artifact-tok-attr: #87a8c9;
+  --hc-artifact-tok-str: #9eb0c4;
+  --hc-artifact-tok-kw: #c2858b;
+  --hc-artifact-tok-num: #bfa280;
+  --hc-artifact-tok-cm: #71717a;
+  --hc-artifact-tok-plain: #c4c4c8;
+  --hc-artifact-tok-muted: #8a8a92;
 }
 .hc-artifact-frame {
   transition: height 0.2s ease;
 }
 .hc-artifact-code {
   scrollbar-width: thin;
+}
+/* 3×3 微点阵取色：与未读圆点同一重点色规则（默认灰借用蓝色）。 */
+.hc-artifact-accent-fg {
+  color: var(--hc-accent-glow-tint, var(--hc-accent-swatch));
+}
+/* 生成结束时先让 3×3 点阵向中心收束，再平滑收起槽宽，标题左移归位。 */
+.hc-artifact-glyph-slot {
+  width: 15px;
+  height: 15px;
+  overflow: hidden;
+  transition:
+    width 0.3s cubic-bezier(0.22, 1, 0.36, 1) 0.18s,
+    margin-right 0.3s cubic-bezier(0.22, 1, 0.36, 1) 0.18s;
+}
+.hc-artifact-glyph-leaving {
+  width: 0;
+  margin-right: -0.5rem;
+}
+/* 尚未解析出 <title> 前的流光提示文字。 */
+.hc-artifact-shimmer {
+  color: var(--hc-artifact-shimmer-base);
+}
+@supports ((-webkit-background-clip: text) or (background-clip: text)) {
+  .hc-artifact-shimmer {
+    display: inline-block;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+    background-image: linear-gradient(
+      105deg,
+      var(--hc-artifact-shimmer-base) 0%,
+      var(--hc-artifact-shimmer-base) 36%,
+      var(--hc-artifact-shimmer-hi) 50%,
+      var(--hc-artifact-shimmer-base) 64%,
+      var(--hc-artifact-shimmer-base) 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    background-repeat: no-repeat;
+    background-size: 280% 100%;
+    background-position: 100% 0;
+    animation: hc-reasoning-shimmer 2.5s linear infinite;
+  }
+}
+/* 生成过程中首次解析出 <title> 时的轻柔上滑切入。 */
+@keyframes hc-artifact-title-in {
+  from {
+    opacity: 0;
+    filter: blur(2px);
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0);
+  }
+}
+.hc-artifact-title-in {
+  animation: hc-artifact-title-in 0.38s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+/* 效果 / 代码滑动胶囊开关。 */
+.hc-artifact-seg {
+  position: relative;
+  display: inline-grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 2.5px;
+  border-radius: 999px;
+  background: var(--hc-artifact-pill-trough);
+}
+.hc-artifact-seg-thumb {
+  position: absolute;
+  top: 2.5px;
+  left: 2.5px;
+  width: calc(50% - 2.5px);
+  height: calc(100% - 5px);
+  border-radius: 999px;
+  background: var(--hc-artifact-pill-thumb);
+  box-shadow: var(--hc-artifact-pill-shadow);
+  transition: transform 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: none;
+}
+.hc-artifact-seg[data-mode='code'] .hc-artifact-seg-thumb {
+  transform: translateX(100%);
+}
+/* 「运行」「重试」「让模型修复」按钮：与效果 / 代码切换里选中的滑块同一底色。 */
+.hc-artifact-run-pill {
+  background: var(--hc-artifact-pill-thumb);
+  box-shadow: var(--hc-artifact-pill-shadow);
 }
 /* 加载提示延迟出现：缓存命中时 Artifact 几十毫秒内就绪，提示不会一闪而过。 */
 .hc-artifact-loading {
@@ -964,50 +1083,87 @@ html.hc-ios .hc-chat-scroll {
     opacity: 0;
   }
 }
-/* 生成与加载状态的呼吸圆点：与未读圆点同一取色规则。 */
-.hc-artifact-dot {
-  background: var(--hc-accent-glow-tint, var(--hc-accent-swatch));
-  animation: hc-artifact-dot 1.6s ease-in-out infinite;
-}
-@keyframes hc-artifact-dot {
-  0%,
-  100% {
-    opacity: 0.35;
-    transform: scale(0.8);
+/* 生成完成或手动运行后，内容就绪时淡入一次；打开历史消息时不播放。 */
+@keyframes hc-artifact-unveil {
+  from {
+    opacity: 0;
+    filter: blur(2px);
+    transform: scale(0.992);
   }
-  50% {
+  to {
     opacity: 1;
+    filter: blur(0);
     transform: scale(1);
   }
 }
+.hc-artifact-unveil {
+  animation: hc-artifact-unveil 0.38s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
 /* 生成中的代码流：越往上越淡，旧行滚出时自然隐去。 */
 .hc-artifact-stream {
-  -webkit-mask-image: linear-gradient(to bottom, transparent, black 70%);
-  mask-image: linear-gradient(to bottom, transparent, black 70%);
+  color: var(--hc-artifact-tok-muted);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, rgb(0 0 0 / 0.45) 36%, black 72%);
+  mask-image: linear-gradient(to bottom, transparent 0%, rgb(0 0 0 / 0.45) 36%, black 72%);
 }
-/* 当前行末的光标：与呼吸圆点同色；输出时常亮，停顿片刻后开始闪烁。 */
+.hc-artifact-stream-active {
+  color: var(--hc-artifact-tok-plain);
+}
+.hc-artifact-tok-tag {
+  color: var(--hc-artifact-tok-tag);
+}
+.hc-artifact-tok-attr {
+  color: var(--hc-artifact-tok-attr);
+}
+.hc-artifact-tok-string {
+  color: var(--hc-artifact-tok-str);
+}
+.hc-artifact-tok-keyword {
+  color: var(--hc-artifact-tok-kw);
+}
+.hc-artifact-tok-number {
+  color: var(--hc-artifact-tok-num);
+}
+.hc-artifact-tok-comment {
+  color: var(--hc-artifact-tok-cm);
+}
+/* 当前行末的光标：输出时常亮，停顿片刻后开始明暗闪烁。 */
 .hc-artifact-caret {
   display: inline-block;
   width: 2px;
-  height: 13px;
+  height: 13.5px;
   margin-left: 2px;
-  border-radius: 1px;
+  border-radius: 999px;
   vertical-align: -2px;
   background: var(--hc-accent-glow-tint, var(--hc-accent-swatch));
-  animation: hc-artifact-caret 1s step-end 0.6s infinite;
+  box-shadow: 0 0 6px
+    color-mix(in srgb, var(--hc-accent-glow-tint, var(--hc-accent-swatch)) 45%, transparent);
+  animation: hc-artifact-caret 1.1s ease-in-out 0.45s infinite;
 }
 @keyframes hc-artifact-caret {
+  0%,
+  100% {
+    opacity: 1;
+  }
   50% {
-    opacity: 0;
+    opacity: 0.22;
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .hc-artifact-frame {
+  .hc-artifact-frame,
+  .hc-artifact-glyph-slot,
+  .hc-artifact-seg-thumb {
     transition: none;
   }
+  .hc-artifact-shimmer {
+    animation: none;
+    background: none;
+    color: var(--hc-artifact-shimmer-base);
+    -webkit-text-fill-color: currentColor;
+  }
   .hc-artifact-loading,
-  .hc-artifact-dot,
-  .hc-artifact-caret {
+  .hc-artifact-caret,
+  .hc-artifact-title-in,
+  .hc-artifact-unveil {
     animation: none;
   }
 }

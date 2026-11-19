@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  ARTIFACT_CANVAS_COLORS,
   ARTIFACT_CONTENT_SECURITY_POLICY,
   buildArtifactDocument,
   collectArtifactAssets,
@@ -153,7 +154,7 @@ describe('artifact document', () => {
     expect(html).not.toContain('html{background:#fff}')
   })
 
-  it('keeps content without theme variables light on a white backing, like an image', () => {
+  it('keeps content without theme variables light on a white backing only in dark/auto schemes', () => {
     const svg = '<svg viewBox="0 0 10 10"><path stroke="#000" d="M0 0L10 10"/></svg>'
     for (const scheme of ['dark', 'auto'] as const) {
       const html = buildArtifactDocument({ source: svg, assets: new Map(), theme: { scheme } })
@@ -161,6 +162,44 @@ describe('artifact document', () => {
       expect(html).not.toContain('color-scheme:dark')
       expect(html).toContain('html{background:#fff}')
     }
+    const light = buildArtifactDocument({
+      source: svg,
+      assets: new Map(),
+      theme: { scheme: 'light' },
+    })
+    expect(light).toContain('color-scheme:light')
+    expect(light).not.toContain('html{background:#fff}')
+  })
+
+  it('paints the shared canvas color itself and keeps panels a step lighter than it', () => {
+    const themedSource = '<div style="background:var(--hc-surface)"></div>'
+    const light = buildArtifactDocument({
+      source: themedSource,
+      assets: new Map(),
+      theme: { scheme: 'light' },
+    })
+    expect(light).toContain(`--hc-canvas:${ARTIFACT_CANVAS_COLORS.light}`)
+    expect(light).toContain('--hc-surface:#ffffff')
+    expect(light).toContain('html{background:var(--hc-canvas)}')
+
+    // 跟随系统的下载 / 导出文件：画布随系统明暗切换。
+    const auto = buildArtifactDocument({
+      source: themedSource,
+      assets: new Map(),
+      theme: { scheme: 'auto' },
+    })
+    expect(auto).toContain(`--hc-canvas:${ARTIFACT_CANVAS_COLORS.light}`)
+    expect(auto).toContain(`--hc-canvas:${ARTIFACT_CANVAS_COLORS.dark}`)
+
+    // 白底写在画布规则之后，深色模式下固定配色的内容仍然垫白。
+    const paper = buildArtifactDocument({
+      source: '<svg><path stroke="#000"/></svg>',
+      assets: new Map(),
+      theme: { scheme: 'dark' },
+    })
+    expect(paper.indexOf('html{background:#fff}')).toBeGreaterThan(
+      paper.indexOf('html{background:var(--hc-canvas)}'),
+    )
   })
 
   it('raises devicePixelRatio before any library or model script only when zooming', () => {

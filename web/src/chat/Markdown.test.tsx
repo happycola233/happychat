@@ -566,7 +566,7 @@ describe('Markdown artifacts', () => {
 
     expect(html).toContain('data-testid="artifact-block"')
     expect(html).toContain('正弦曲线')
-    expect(html).not.toContain('正在生成')
+    expect(html).not.toContain('hc-artifact-stream')
   })
 
   it('renders svg fences as artifacts too', () => {
@@ -584,9 +584,11 @@ describe('Markdown artifacts', () => {
     )
     const closed = renderToStaticMarkup(<Markdown text={`图像：\n\n${artifact}`} animate />)
 
-    expect(open).toContain('正在生成 · 2 行')
+    expect(open).toContain('hc-artifact-stream')
+    expect(open).toContain('2 行')
     expect(closed).toContain('data-testid="artifact-block"')
-    expect(closed).not.toContain('正在生成')
+    expect(closed).not.toContain('hc-artifact-stream')
+    expect(closed).toContain('aria-label="查看代码"')
   })
 
   it('waits for the whole answer when definitions force whole-document streaming', () => {
@@ -594,7 +596,8 @@ describe('Markdown artifacts', () => {
       <Markdown text={`结论[^1]\n\n${artifact}\n\n[^1]: 来源`} animate />,
     )
 
-    expect(html).toContain('正在生成')
+    expect(html).toContain('hc-artifact-stream')
+    expect(html).toContain('data-testid="artifact-glyph"')
   })
 
   it('keeps artifact fences as highlighted code in reasoning and as a label in previews', () => {

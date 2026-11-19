@@ -19,6 +19,9 @@ interface Props {
   activity?: number
   /** 值变化时从中心荡开一圈涟漪（新小标题到达）。 */
   rippleKey?: string | null
+  /** 边长像素，默认 18；Artifact 顶栏等紧凑区域可按需缩小。 */
+  size?: number
+  testId?: string
   className?: string
 }
 
@@ -31,6 +34,8 @@ export const ThinkingGlyph = memo(function ThinkingGlyph({
   phase,
   activity = 0,
   rippleKey = null,
+  size = 18,
+  testId = 'thinking-glyph',
   className,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -49,7 +54,8 @@ export const ThinkingGlyph = memo(function ThinkingGlyph({
     let reducedMotion = motionPreference.matches
     let pageVisible = document.visibilityState !== 'hidden'
     let inViewport = false
-    let size = 0
+    // 画布实际渲染出的边长；为 0 时（未布局或被隐藏）不启动动画。
+    let renderedSize = 0
     let color = window.getComputedStyle(canvas).color
     let frameId: number | null = null
     let lastFrameAt: number | null = null
@@ -75,7 +81,7 @@ export const ThinkingGlyph = memo(function ThinkingGlyph({
       !reducedMotion &&
       pageVisible &&
       inViewport &&
-      size > 0 &&
+      renderedSize > 0 &&
       !(phaseRef.current === 'settling' && isThinkingGlyphSettled(field))
     const frame = (now: number) => {
       frameId = null
@@ -99,7 +105,7 @@ export const ThinkingGlyph = memo(function ThinkingGlyph({
     }
     const resize = () => {
       const rect = canvas.getBoundingClientRect()
-      size = rect.width
+      renderedSize = rect.width
       const pixelRatio = Math.min(window.devicePixelRatio || 1, 3)
       canvas.width = Math.round(rect.width * pixelRatio)
       canvas.height = Math.round(rect.height * pixelRatio)
@@ -169,9 +175,10 @@ export const ThinkingGlyph = memo(function ThinkingGlyph({
     <canvas
       ref={canvasRef}
       aria-hidden="true"
-      data-testid="thinking-glyph"
+      data-testid={testId}
       data-phase={phase}
-      className={clsx('block h-[18px] w-[18px]', className)}
+      style={{ width: size, height: size }}
+      className={clsx('block', className)}
     />
   )
 })
