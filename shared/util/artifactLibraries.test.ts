@@ -20,6 +20,15 @@ describe('artifact library matching', () => {
     ['https://cdn.jsdelivr.net/npm/d3-scale@4', 'd3'],
     ['https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js', 'katex'],
     ['https://cdn.jsdelivr.net/npm/katex/dist/contrib/auto-render.min.js', 'katex-auto-render'],
+    ['https://unpkg.com/docx@8.5.0/build/index.umd.js', 'docx'],
+    ['https://cdn.jsdelivr.net/npm/docx', 'docx'],
+    ['https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js', 'xlsx'],
+    ['https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js', 'xlsx'],
+    ['https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js', 'xlsx'],
+    ['https://unpkg.com/xlsx/dist/xlsx.core.min.js', 'xlsx'],
+    ['https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js', 'pptxgenjs'],
+    ['https://cdn.jsdelivr.net/gh/gitbrent/pptxgenjs/dist/pptxgen.min.js', 'pptxgenjs'],
+    ['https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js', 'jszip'],
   ] as const)('maps the script %s to %s', (url, id) => {
     expect(matchArtifactAsset(url, 'script')).toBe(id)
   })
@@ -30,14 +39,19 @@ describe('artifact library matching', () => {
     'https://cdn.jsdelivr.net/npm/d3-sankey@0.12',
     'https://cdn.jsdelivr.net/npm/katex/dist/contrib/mhchem.min.js',
     'https://cdn.example.com/three.min.js',
+    'https://cdn.jsdelivr.net/npm/docx-preview@0.3.5/dist/docx-preview.min.js',
+    'https://cdn.jsdelivr.net/npm/docxtemplater@3.60.0/build/docxtemplater.js',
+    'https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.min.js',
+    'https://cdn.jsdelivr.net/npm/xlsx-populate/browser/xlsx-populate.min.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/jszip-utils/0.1.0/jszip-utils.min.js',
   ])('leaves unsupported scripts unmatched: %s', (url) => {
     expect(matchArtifactAsset(url, 'script')).toBeNull()
   })
 
   it('maps stylesheets separately from scripts', () => {
-    expect(matchArtifactAsset('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css', 'style')).toBe(
-      'katex-css',
-    )
+    expect(
+      matchArtifactAsset('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css', 'style'),
+    ).toBe('katex-css')
     expect(matchArtifactAsset('https://jsxgraph.org/distrib/jsxgraph.css', 'style')).toBe(
       'jsxgraph-css',
     )

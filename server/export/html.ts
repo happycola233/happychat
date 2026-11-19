@@ -10,6 +10,7 @@ import type { MessageDTO } from '@shared/types/api'
 import type { ExportOptions } from '@shared/schemas/export'
 import { artifactTitle, isArtifactLanguage } from '@shared/util/artifactBlocks'
 import {
+  ARTIFACT_FRAME_SANDBOX,
   ARTIFACT_MAX_FRAME_HEIGHT,
   buildArtifactDocument,
   collectArtifactAssets,
@@ -91,8 +92,8 @@ function artifactFigure(source: string, readFiles: boolean): Element {
         properties: {
           className: ['artifact-frame'],
           title,
-          // 与站内相同的安全边界：只允许脚本，不给同源权限。
-          sandbox: 'allow-scripts',
+          // 与站内相同的安全边界：不给同源权限。
+          sandbox: ARTIFACT_FRAME_SANDBOX,
           srcDoc: buildArtifactDocument({ source, assets, theme: { scheme: 'auto' } }),
           referrerPolicy: 'no-referrer',
         },

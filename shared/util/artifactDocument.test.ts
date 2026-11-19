@@ -68,6 +68,27 @@ describe('artifact document', () => {
     expect(html).not.toContain('<link')
   })
 
+  it('only replaces real elements, not tag text inside textarea, title or comments', () => {
+    const quoted = '<script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>'
+    const source = [
+      `<title>示例 ${quoted}</title>`,
+      `<textarea hidden>${quoted}\n<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css"></textarea>`,
+      `<!-- ${quoted} -->`,
+      '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>',
+    ].join('\r\n')
+    expect(collectArtifactAssets(source)).toEqual(['chartjs'])
+    const html = buildArtifactDocument({
+      source,
+      assets: fakeAssets(['chartjs']),
+      theme: { scheme: 'light' },
+    })
+    // 文字原样保留；真正的引用即使排在后面（CRLF 换行也不影响偏移）也会被内联。
+    expect(html.split(quoted)).toHaveLength(4)
+    expect(html).toContain('katex.min.css"></textarea>')
+    expect(html.indexOf('/*asset:chartjs*/')).toBeGreaterThan(html.indexOf('</textarea>'))
+    expect(html).not.toContain('chart.umd.min.js')
+  })
+
   it('leaves unknown external resources in place for the CSP to block', () => {
     const source = '<script src="https://evil.example/x.js"></script>'
     expect(collectArtifactAssets(source)).toEqual([])
@@ -110,9 +131,21 @@ describe('artifact document', () => {
     "getComputedStyle(document.documentElement).getPropertyValue('--hc-fg')",
     'const color = name => style.getPropertyValue("--hc-" + name)',
     'const color = name => style.getPropertyValue(`--hc-${name}`)',
-  ])('follows the theme when JavaScript reads theme variables: %s', (script) => {
+    "const dark = getComputedStyle(document.documentElement).colorScheme === 'dark'",
+  ])('follows the theme when JavaScript reads the theme: %s', (script) => {
     const html = buildArtifactDocument({
       source: `<canvas></canvas><script>${script}</script>`,
+      assets: new Map(),
+      theme: { scheme: 'dark' },
+    })
+    expect(html).toContain('color-scheme:dark')
+    expect(html).not.toContain('html{background:#fff}')
+  })
+
+  it('follows the theme when custom colors pick a value per scheme with light-dark()', () => {
+    const html = buildArtifactDocument({
+      source:
+        '<svg viewBox="0 0 10 10"><style>path{stroke:light-dark(#b45309,#fbbf24)}</style></svg>',
       assets: new Map(),
       theme: { scheme: 'dark' },
     })

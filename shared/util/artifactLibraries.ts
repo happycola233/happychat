@@ -17,11 +17,15 @@ export type ArtifactAssetId =
   | 'katex'
   | 'katex-css'
   | 'katex-auto-render'
+  | 'docx'
+  | 'xlsx'
+  | 'pptxgenjs'
+  | 'jszip'
 
 export interface ArtifactAsset {
   id: ArtifactAssetId
   kind: ArtifactAssetKind
-  packageName: string
+  packageName: ArtifactPackageName
   version: string
   /** npm 包内的文件路径 */
   file: string
@@ -35,6 +39,10 @@ const PACKAGE_VERSIONS = {
   'plotly.js-dist-min': '4.1.2',
   d3: '7.9.0',
   katex: '0.17.0',
+  docx: '9.15.4',
+  xlsx: '0.20.3',
+  pptxgenjs: '4.0.1',
+  jszip: '3.10.2',
 } as const
 
 type ArtifactPackageName = keyof typeof PACKAGE_VERSIONS
@@ -64,6 +72,11 @@ export const ARTIFACT_ASSETS: Readonly<Record<ArtifactAssetId, ArtifactAsset>> =
     'dist/contrib/auto-render.min.js',
     ['katex'],
   ),
+  docx: asset('docx', 'script', 'docx', 'dist/index.umd.cjs'),
+  xlsx: asset('xlsx', 'script', 'xlsx', 'dist/xlsx.full.min.js'),
+  // bundle 版自带 JSZip，单独引用 pptxgen.min.js 时也映射到它。
+  pptxgenjs: asset('pptxgenjs', 'script', 'pptxgenjs', 'dist/pptxgen.bundle.js'),
+  jszip: asset('jszip', 'script', 'jszip', 'dist/jszip.min.js'),
 }
 
 /** 写进系统提示词的库：顺序即推荐顺序。 */
@@ -73,12 +86,23 @@ export const ARTIFACT_PROMPT_LIBRARIES = [
   { assetId: 'plotly', name: 'Plotly', global: 'Plotly' },
   { assetId: 'd3', name: 'D3', global: 'd3' },
   { assetId: 'katex', name: 'KaTeX', global: 'katex' },
+  { assetId: 'docx', name: 'docx', global: 'docx' },
+  { assetId: 'xlsx', name: 'SheetJS', global: 'XLSX' },
+  { assetId: 'pptxgenjs', name: 'PptxGenJS', global: 'PptxGenJS' },
+  { assetId: 'jszip', name: 'JSZip', global: 'JSZip' },
 ] as const satisfies readonly { assetId: ArtifactAssetId; name: string; global: string }[]
+
+/** SheetJS 新版只在官方 CDN 发布（npm 上停在 0.18.5），提示词给出官方地址，复制出去的代码也能直接用。 */
+const OFFICIAL_CDN_BASES: Partial<Record<ArtifactPackageName, string>> = {
+  xlsx: `https://cdn.sheetjs.com/xlsx-${PACKAGE_VERSIONS.xlsx}/package`,
+}
 
 /** 提示词里让模型照抄的地址：渲染时会被替换成本地副本，并不真正访问该 CDN。 */
 export function artifactAssetCdnUrl(id: ArtifactAssetId): string {
   const { packageName, version, file } = ARTIFACT_ASSETS[id]
-  return `https://cdn.jsdelivr.net/npm/${packageName}@${version}/${file}`
+  const base =
+    OFFICIAL_CDN_BASES[packageName] ?? `https://cdn.jsdelivr.net/npm/${packageName}@${version}`
+  return `${base}/${file}`
 }
 
 /** 站内同源地址的文件名：带版本号，可长期缓存。 */
@@ -89,7 +113,8 @@ export function artifactAssetFileName(id: ArtifactAssetId): string {
 
 export function artifactAssetByFileName(fileName: string): ArtifactAsset | null {
   return (
-    Object.values(ARTIFACT_ASSETS).find((item) => artifactAssetFileName(item.id) === fileName) ?? null
+    Object.values(ARTIFACT_ASSETS).find((item) => artifactAssetFileName(item.id) === fileName) ??
+    null
   )
 }
 
@@ -112,6 +137,15 @@ const SCRIPT_MATCHERS: readonly [RegExp, ArtifactAssetId | null][] = [
   [/chartjs-/i, null],
   [/chart\.js|chart\.umd|\/chart(?:\.min)?\.js/i, 'chartjs'],
   [D3_URL, 'd3'],
+  // docx-preview、docxtemplater 等是别的库，只认包名恰为 docx 的路径段。
+  [/\/docx(?:@[^/]*)?(?:\/|$)/i, 'docx'],
+  // xlsx-js-style、xlsx-populate 等同名前缀的包 API 不同；SheetJS 官方 CDN 的目录是 xlsx-<版本号>。
+  [/\/xlsx-[a-z]/i, null],
+  [/\/xlsx(?:@[^/]*)?(?:\/|$)|\/xlsx(?:\.(?:full|core|mini))?(?:\.min)?\.js/i, 'xlsx'],
+  [/pptxgen/i, 'pptxgenjs'],
+  // jszip-utils 用于联网读取二进制，沙箱里用不上。
+  [/jszip-/i, null],
+  [/jszip/i, 'jszip'],
 ]
 
 const STYLE_MATCHERS: readonly [RegExp, ArtifactAssetId][] = [

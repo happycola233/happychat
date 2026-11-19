@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { exportOptionsSchema } from '@shared/schemas/export'
+import { ARTIFACT_FRAME_SANDBOX } from '@shared/util/artifactDocument'
 import { DEFAULT_CONTEXT_POLICY } from '@shared/util/contextPolicy'
 import { buildHtml } from './html'
 import type { ExportMessage, ExportSource } from './types'
@@ -75,7 +76,7 @@ describe('HTML export artifacts', () => {
   it('runs answer charts in a sandboxed frame with bundled libraries inlined', () => {
     const html = buildHtml(source([message('assistant', artifactText)], true), options)
     const frame = /<iframe[^>]*>/.exec(html)?.[0] ?? ''
-    expect(frame).toContain('sandbox="allow-scripts"')
+    expect(frame).toContain(`sandbox="${ARTIFACT_FRAME_SANDBOX}"`)
     expect(frame).not.toContain('allow-same-origin')
     expect(frame).toContain('title="正弦曲线"')
     expect(html).toContain('<figcaption>正弦曲线</figcaption>')

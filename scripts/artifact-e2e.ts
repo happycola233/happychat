@@ -1,11 +1,20 @@
+import { readFileSync } from 'node:fs'
 import { chromium, type Frame, type Locator, type Page } from '@playwright/test'
-import { ARTIFACT_MAX_FRAME_HEIGHT, buildArtifactDocument } from '../shared/util/artifactDocument'
+import {
+  ARTIFACT_FRAME_SANDBOX,
+  ARTIFACT_MAX_FRAME_HEIGHT,
+  buildArtifactDocument,
+  collectArtifactAssets,
+  HOST_FRAME_POLICY,
+} from '../shared/util/artifactDocument'
+import { artifactAssetCdnUrl } from '../shared/util/artifactLibraries'
+import { readArtifactAsset } from '../server/services/artifact-assets'
 
 /**
  * Artifacts 端到端冒烟：先 `npm run dev`，再 `npx tsx scripts/artifact-e2e.ts`。
  * SMOKE_MODEL_ID 可指定模型配置 id（需对测试账号开放且开启了 Artifacts 能力）。
  * 截图写入 `.tmp/artifact-e2e-*.png`，供人工检查浅色、深色、手机宽度与生成中状态。
- * `--sizing-only` 只跑确定性的尺寸回归，无需服务、登录或 LLM；`--headed` 使用可见浏览器。
+ * `--offline` 只跑确定性的尺寸与文件下载回归，无需服务、登录或 LLM；`--headed` 使用可见浏览器。
  */
 const BASE = process.env.SMOKE_BASE ?? 'http://127.0.0.1:5173'
 const USERNAME = process.env.SMOKE_USER ?? 'test'
@@ -139,7 +148,7 @@ async function checkArtifactSizing(page: Page): Promise<void> {
     '<svg viewBox="0 0 600 360" style="display:block;width:100%;height:auto"><rect width="600" height="360" fill="var(--hc-surface)"/><path d="M0 359H600" stroke="var(--hc-fg)"/></svg>'
   for (const scheme of ['light', 'dark'] as const) {
     await page.setContent(
-      '<!doctype html><iframe title="尺寸自检" sandbox="allow-scripts" style="display:block;border:0;width:768px;height:240px;transition:height .2s ease"></iframe>',
+      `<!doctype html><iframe title="尺寸自检" sandbox="${ARTIFACT_FRAME_SANDBOX}" style="display:block;border:0;width:768px;height:240px;transition:height .2s ease"></iframe>`,
     )
     await page.evaluate(
       ({ doc, maxHeight }) => {
@@ -236,6 +245,79 @@ async function checkArtifactSizing(page: Page): Promise<void> {
   )
 }
 
+// 用自托管库在沙箱内生成各类文件：库按 CDN 写法内联，下载走模型最常用的 Blob + <a download>
+// 与库自带的 writeFile；表单只在 submit 处理函数里阻止默认提交。
+const FILE_PROBE_SOURCE = `<title>文件下载自检</title>
+<script src="${artifactAssetCdnUrl('docx')}"></script>
+<script src="${artifactAssetCdnUrl('xlsx')}"></script>
+<script src="${artifactAssetCdnUrl('pptxgenjs')}"></script>
+<script src="${artifactAssetCdnUrl('jszip')}"></script>
+<form id="form"><input name="q" value="1" required><button id="submit">提交</button></form>
+<button id="docx">Word</button><button id="xlsx">Excel</button><button id="pptx">PPT</button><button id="zip">Zip</button><button id="csv">CSV</button>
+<script>
+const save = (blob, name) => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click() }
+document.getElementById('form').addEventListener('submit', (event) => { event.preventDefault(); document.body.dataset.submitted = 'yes' })
+document.getElementById('docx').onclick = async () => save(await docx.Packer.toBlob(new docx.Document({ sections: [{ children: [new docx.Paragraph('你好')] }] })), '报告.docx')
+document.getElementById('xlsx').onclick = () => { const book = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([['名称', '值'], ['甲', 1]]), '表1'); XLSX.writeFile(book, '数据.xlsx') }
+document.getElementById('pptx').onclick = () => { const deck = new PptxGenJS(); deck.addSlide().addText('你好', { x: 1, y: 1 }); deck.writeFile({ fileName: '演示.pptx' }) }
+document.getElementById('zip').onclick = async () => { const zip = new JSZip(); zip.file('说明.txt', '你好'); save(await zip.generateAsync({ type: 'blob' }), '打包.zip') }
+document.getElementById('csv').onclick = () => save(new Blob(['\\uFEFF名称,值\\n甲,1'], { type: 'text/csv' }), '数据.csv')
+</script>`
+
+/** 在与聊天页相同的沙箱权限与宿主 CSP 下检查文件下载和表单事件，不依赖模型输出。 */
+async function checkArtifactFiles(page: Page): Promise<void> {
+  const assets = new Map(
+    collectArtifactAssets(FILE_PROBE_SOURCE).map((id) => [id, readArtifactAsset(id)]),
+  )
+  await page.setContent(
+    `<!doctype html><meta http-equiv="Content-Security-Policy" content="${HOST_FRAME_POLICY}"><iframe title="文件下载自检" sandbox="${ARTIFACT_FRAME_SANDBOX}" style="width:768px;height:240px;border:0"></iframe>`,
+  )
+  await page.evaluate(
+    (doc) => {
+      const iframe = document.querySelector('iframe')!
+      const errors: string[] = []
+      Object.assign(window, { artifactErrors: errors })
+      window.onmessage = (event) => {
+        if (event.source === iframe.contentWindow && event.data.type === 'error')
+          errors.push(event.data.message)
+      }
+      iframe.srcdoc = doc
+    },
+    buildArtifactDocument({ source: FILE_PROBE_SOURCE, assets, theme: { scheme: 'light' } }),
+  )
+  const frame = (await (await page.locator('iframe').elementHandle())!.contentFrame())!
+  await frame.waitForFunction(
+    () => 'docx' in window && 'XLSX' in window && 'PptxGenJS' in window && 'JSZip' in window,
+  )
+  check(true, '文件生成库按 CDN 写法替换为内联副本')
+
+  for (const [button, fileName, signature] of [
+    ['docx', '报告.docx', 'PK'],
+    ['xlsx', '数据.xlsx', 'PK'],
+    ['pptx', '演示.pptx', 'PK'],
+    ['zip', '打包.zip', 'PK'],
+    ['csv', '数据.csv', '﻿名称'],
+  ] as const) {
+    const [download] = await Promise.all([page.waitForEvent('download'), frame.click(`#${button}`)])
+    const content = readFileSync(await download.path()).toString('utf8')
+    check(
+      download.suggestedFilename() === fileName && content.startsWith(signature),
+      `沙箱内下载 ${fileName}`,
+    )
+  }
+
+  await frame.click('#submit')
+  await frame.waitForFunction(() => document.body.dataset.submitted === 'yes')
+  check(frame.url() === 'about:srcdoc', '表单 submit 事件可用，且没有提交或跳转')
+  const errors = await page.evaluate(
+    () => (window as unknown as { artifactErrors: string[] }).artifactErrors,
+  )
+  check(
+    errors.length === 0,
+    `文件下载自检没有运行错误${errors.length ? `：${errors.join('; ')}` : ''}`,
+  )
+}
+
 async function main() {
   const browser = await chromium.launch({ headless: !process.argv.includes('--headed') })
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } })
@@ -255,7 +337,9 @@ async function main() {
 
   await checkArtifactSizing(page)
   check(pageErrors.length === 0, `尺寸自适应没有浏览器错误：${pageErrors.join('; ')}`)
-  if (process.argv.includes('--sizing-only')) {
+  await checkArtifactFiles(page)
+  check(pageErrors.length === 0, `文件下载没有浏览器错误：${pageErrors.join('; ')}`)
+  if (process.argv.includes('--offline')) {
     await browser.close()
     return
   }
@@ -272,8 +356,8 @@ async function main() {
   const probeCard = page.getByTestId('artifact-block').first()
   await probeCard.waitFor({ timeout: 30_000 })
   check(
-    (await probeCard.locator('iframe').getAttribute('sandbox')) === 'allow-scripts',
-    'iframe 只开启 allow-scripts',
+    (await probeCard.locator('iframe').getAttribute('sandbox')) === ARTIFACT_FRAME_SANDBOX,
+    `iframe 沙箱权限为 ${ARTIFACT_FRAME_SANDBOX}`,
   )
   const probeFrame = await frameOf(probeCard)
   const probeJson = await probeFrame
@@ -374,7 +458,7 @@ async function main() {
   })
   const html = await exported.text()
   check(
-    exported.ok() && /<iframe[^>]*sandbox="allow-scripts"/.test(html),
+    exported.ok() && html.includes(`sandbox="${ARTIFACT_FRAME_SANDBOX}"`),
     'HTML 导出包含沙箱 Artifact',
   )
 

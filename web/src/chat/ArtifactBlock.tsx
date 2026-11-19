@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { artifactTitle } from '@shared/util/artifactBlocks'
 import {
+  ARTIFACT_FRAME_SANDBOX,
   ARTIFACT_MAX_FRAME_HEIGHT,
   buildArtifactDocument,
   collectArtifactAssets,
@@ -29,12 +30,6 @@ import { CopyIcon } from './icons'
 import { loadArtifactAssets } from './artifactAssets'
 import { ArtifactActionsContext, buildArtifactFixPrompt } from './artifactActions'
 import { useArtifactTheme } from './useArtifactTheme'
-
-/**
- * 安全边界：只允许脚本，绝不加 allow-same-origin。srcdoc 文档因此是不透明源，
- * 读不到站点的 DOM、cookie 与存储，也无法以用户身份调用接口（单测守护这一取值）。
- */
-export const ARTIFACT_FRAME_SANDBOX = 'allow-scripts'
 
 const MIN_FRAME_HEIGHT = 48
 const PLACEHOLDER_HEIGHT = 240

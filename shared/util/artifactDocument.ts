@@ -1,9 +1,11 @@
+import { defaultTreeAdapter, html as htmlSpec, parseFragment } from 'parse5'
+import type { DefaultTreeAdapterTypes } from 'parse5'
 import { ARTIFACT_ASSETS, matchArtifactAsset } from './artifactLibraries'
 import type { ArtifactAssetId, ArtifactAssetKind } from './artifactLibraries'
 
 /**
  * 把 Artifact 源码（协议约定的 HTML 片段，或模型直接给出的 SVG）包装成可以放进
- * `<iframe sandbox="allow-scripts" srcdoc>` 的完整文档。
+ * `<iframe sandbox={ARTIFACT_FRAME_SANDBOX} srcdoc>` 的完整文档。
  *
  * 安全边界在宿主侧：iframe 不带 allow-same-origin，文档是不透明源，碰不到站点的 DOM、
  * cookie 与存储；这里的 CSP 再切断一切网络请求、表单提交与 <base> 改写，防止把数据带出去。
@@ -18,6 +20,17 @@ export interface ArtifactTheme {
   /** 当前重点色；省略时使用默认蓝色。 */
   accent?: string
 }
+
+/**
+ * 聊天、分享页与 HTML 导出统一的沙箱权限（单测守护这一取值）。绝不加 allow-same-origin：
+ * srcdoc 文档因此是不透明源，读不到站点的 DOM、cookie 与存储，也无法以用户身份调用接口。
+ * - allow-downloads：组件可以把在页内生成的 Word、表格、图片等文件交给用户保存；
+ *   这一权限不要求用户点击，危险文件仍由浏览器的下载防护拦截。
+ * - allow-forms：让表单的 submit 事件与原生校验生效（缺少它时 submit 事件根本不会触发）；
+ *   真正的提交仍被 CSP 的 form-action 'none' 拦下，数据发不出去。
+ * 弹窗、对话框（可伪造输入框骗取密码）与顶层导航保持关闭。
+ */
+export const ARTIFACT_FRAME_SANDBOX = 'allow-scripts allow-downloads allow-forms'
 
 export const ARTIFACT_CONTENT_SECURITY_POLICY = [
   "default-src 'none'",
@@ -88,12 +101,13 @@ function themeVariables(scheme: 'light' | 'dark', accent: string): string {
 }
 
 /**
- * 没用主题变量的内容是按浅色背景设计的（模型常把线条和文字写死成黑色），在深色背景上会看不清。
+ * 内容是否自己适配明暗：用了主题变量、CSS light-dark()，或在 JS 里读取文档的 colorScheme。
+ * 不适配的内容是按浅色背景设计的（模型常把线条和文字写死成黑色），在深色背景上会看不清，
  * 这类内容固定按浅色渲染，并像图片一样垫一层白底。
  */
-export function usesThemeVariables(source: string): boolean {
+export function adaptsToColorScheme(source: string): boolean {
   // Canvas 等内容会通过 JS 读取主题变量，也可能用辅助函数拼接变量名。
-  return /var\(\s*--hc-|['"`]--hc-/.test(source)
+  return /var\(\s*--hc-|['"`]--hc-|light-dark\(|\.colorScheme\b/.test(source)
 }
 
 const PAPER_CSS = 'html{background:#fff}'
@@ -184,41 +198,51 @@ interface ExternalTag {
   assetId: ArtifactAssetId | null
 }
 
-const SCRIPT_TAG = /<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi
-const LINK_TAG = /<link\b[^>]*>/gi
+// 源码最终放进文档的 <body> 由浏览器解析，按同一上下文解析，得到的元素才与真实 DOM 一致。
+const BODY_CONTEXT = defaultTreeAdapter.createElement('body', htmlSpec.NS.HTML, [])
 
-function attributeValue(attributes: string, name: string): string | null {
-  const match = new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'>]+))`, 'i').exec(
-    attributes,
-  )
-  return match ? (match[1] ?? match[2] ?? match[3] ?? '') : null
+function attributeOf(element: DefaultTreeAdapterTypes.Element, name: string): string | null {
+  return element.attrs.find((attribute) => attribute.name === name)?.value ?? null
 }
 
-/** 找出源码里引用外部脚本与样式表的标签（内联脚本不在其中）。 */
+function externalTagOf(element: DefaultTreeAdapterTypes.Element): ExternalTag | null {
+  const location = element.sourceCodeLocation
+  if (!location) return null
+  const range = { start: location.startOffset, end: location.endOffset }
+  if (element.tagName === 'script') {
+    // 带 src 的脚本由浏览器加载外部文件，标签内的文本会被忽略。
+    const src = attributeOf(element, 'src')
+    return src === null
+      ? null
+      : { ...range, kind: 'script', assetId: matchArtifactAsset(src, 'script') }
+  }
+  if (element.tagName === 'link') {
+    const href = attributeOf(element, 'href')
+    const rel = attributeOf(element, 'rel')?.toLowerCase().split(/\s+/) ?? []
+    return href && rel.includes('stylesheet')
+      ? { ...range, kind: 'style', assetId: matchArtifactAsset(href, 'style') }
+      : null
+  }
+  return null
+}
+
+/**
+ * 按文档顺序找出源码里真正生效的外部脚本与样式表（内联脚本不在其中）。按 HTML 规范解析而不用正则：
+ * 写在 <textarea>、<title>、注释等位置的标签只是文字，替换成库代码会让真正的引用落空。
+ */
 function scanExternalTags(source: string): ExternalTag[] {
   const tags: ExternalTag[] = []
-  for (const match of source.matchAll(SCRIPT_TAG)) {
-    const src = attributeValue(match[1]!, 'src')
-    if (src === null || match[2]!.trim()) continue
-    tags.push({
-      start: match.index!,
-      end: match.index! + match[0].length,
-      kind: 'script',
-      assetId: matchArtifactAsset(src, 'script'),
-    })
+  const visit = (parent: DefaultTreeAdapterTypes.ParentNode) => {
+    for (const node of parent.childNodes) {
+      if (!defaultTreeAdapter.isElementNode(node)) continue
+      const tag = externalTagOf(node)
+      if (tag) tags.push(tag)
+      // <template> 的子节点在独立的 content 片段里。
+      visit('content' in node ? node.content : node)
+    }
   }
-  for (const match of source.matchAll(LINK_TAG)) {
-    const rel = attributeValue(match[0], 'rel')
-    const href = attributeValue(match[0], 'href')
-    if (!href || !rel?.toLowerCase().split(/\s+/).includes('stylesheet')) continue
-    tags.push({
-      start: match.index!,
-      end: match.index! + match[0].length,
-      kind: 'style',
-      assetId: matchArtifactAsset(href, 'style'),
-    })
-  }
-  return tags.sort((a, b) => a.start - b.start)
+  visit(parseFragment(BODY_CONTEXT, source, { sourceCodeLocationInfo: true }))
+  return tags
 }
 
 /** 依赖展开后的加载顺序：被依赖的资源排在前面。 */
@@ -300,7 +324,7 @@ export function buildArtifactDocument({
   const styleTags = withRequirements(styles)
     .map((id) => `<style data-artifact-asset="${id}">${inlineStyle(assets.get(id)!)}</style>`)
     .join('')
-  const themed = usesThemeVariables(source)
+  const themed = adaptsToColorScheme(source)
 
   return `<!doctype html>
 <html lang="${lang}">

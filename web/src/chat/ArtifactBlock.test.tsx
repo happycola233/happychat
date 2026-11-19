@@ -1,14 +1,16 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { ARTIFACT_FRAME_SANDBOX, ArtifactBlock, ArtifactFrame } from './ArtifactBlock'
+import { ARTIFACT_FRAME_SANDBOX } from '@shared/util/artifactDocument'
+import { ArtifactBlock, ArtifactFrame } from './ArtifactBlock'
 
 describe('artifact sandbox frame', () => {
-  // 安全回归：一旦加上 allow-same-origin，模型生成的脚本就能以当前用户身份调用站点接口。
-  it('only allows scripts and never grants same-origin access', () => {
-    expect(ARTIFACT_FRAME_SANDBOX).toBe('allow-scripts')
+  // 安全回归：一旦加上 allow-same-origin，模型生成的脚本就能以当前用户身份调用站点接口；
+  // 弹窗与对话框同样保持关闭（prompt() 可伪造输入框骗取密码）。
+  it('allows scripts, downloads and form events but never same-origin access', () => {
+    expect(ARTIFACT_FRAME_SANDBOX).toBe('allow-scripts allow-downloads allow-forms')
     const html = renderToStaticMarkup(<ArtifactFrame srcDoc="<p>图</p>" title="示例" />)
-    expect(html).toContain('sandbox="allow-scripts"')
-    expect(html).not.toContain('allow-same-origin')
+    expect(html).toContain('sandbox="allow-scripts allow-downloads allow-forms"')
+    expect(html).not.toMatch(/allow-same-origin|allow-modals|allow-popups|allow-top-navigation/)
     expect(html).toContain('referrerPolicy="no-referrer"')
   })
 })
